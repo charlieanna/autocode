@@ -32,11 +32,13 @@ from __future__ import annotations
 
 try:
     from .. import autocode_agent_env as agent_env
+    from .. import autocode_changed_code_review as changed_code_review
     from .. import autocode_prompts as prompts
     from .. import autocode_provider_env as provider_env
     from .. import autocode_tool_handoff as tool_handoff
 except ImportError:
     import autocode_agent_env as agent_env
+    import autocode_changed_code_review as changed_code_review
     import autocode_prompts as prompts
     import autocode_provider_env as provider_env
     import autocode_tool_handoff as tool_handoff
@@ -119,7 +121,10 @@ REMOVED_ENV = (
     "CLAUDE_AUTO_BACKGROUND_TASKS",
     "CLAUDE_CODE_ENTRYPOINT",
 )
-SET_ENV = {"DISABLE_AUTOUPDATER": "1"}
+# FORCE_PROMPT_CACHING_5M: every stage is a fresh session that finishes within minutes, so Claude Code's
+# default 1-hour cache writes (2x input price) were almost never read again after five minutes; a 5-minute
+# write costs 1.25x. Measured on two saved runs: cache writes were 69% of cost, and this saves 26-29%.
+SET_ENV = {"DISABLE_AUTOUPDATER": "1", "FORCE_PROMPT_CACHING_5M": "1"}
 BILLING_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 # The CLAUDE_CODE_USE_* names that route requests to another provider or account (Claude Code 2.1.299);
 # the rest of that prefix (CCR_V2, NATIVE_FILE_SEARCH, POWERSHELL_TOOL, COWORK_PLUGINS) are features.
@@ -157,6 +162,12 @@ def parse_version(text: str) -> str | None:
     """``2.1.299`` from ``2.1.299 (Claude Code)``; None for anything else."""
     match = _VERSION.match(text) if isinstance(text, str) else None
     return match.group(1) if match else None
+
+
+NOT_ON_PATH = (
+    "claude is not on PATH; no provider request was launched. Run `autocode doctor` to see what this host has: "
+    "an installed Codex or OpenCode runs with --engine codex or --engine opencode"
+)
 
 
 def child_environment(env: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -224,7 +235,7 @@ def _probe(workspace, env) -> tuple[str, Callable[[list[str]], Any], dict[str, s
     effective = child_environment(env)
     executable = env_prep.resolve_executable("claude", effective, cwd=cwd, allow_default_path=env is None)
     if not executable:
-        raise RuntimeError("claude is not on PATH; no provider request was launched")
+        raise RuntimeError(NOT_ON_PATH)
 
     def call(command: list[str]) -> Any:
         return env_prep.preflight_run(
@@ -251,6 +262,29 @@ def _version(executable: str, call: Callable[[list[str]], Any]) -> str:
         raise RuntimeError(f"claude version check failed (exit {result.returncode}); no agent was launched")
     text = ((result.stdout or "") or (result.stderr or "")).strip()
     return parse_version(text) or text
+
+
+def billing_refusal(status: Mapping[str, Any]) -> str | None:
+    """Why a logged-in ``claude auth status --json`` result would not bill the Claude subscription, or None.
+
+    The one billing rule for the built-in claude provider: a run's login check refuses to launch on it, and
+    ``autocode connections check`` reports it instead of calling the login ready.
+    """
+    provider = status.get("apiProvider")
+    if provider != "firstParty":
+        return (
+            f"Claude Code would bill through {provider} (CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_USE_VERTEX or a "
+            "gateway) instead of your Claude login; claude subscription selection will not silently change "
+            "billing routes"
+        )
+    method, key_source = status.get("authMethod"), status.get("apiKeySource")
+    if method not in SUBSCRIPTION_AUTH or (key_source and key_source != "none"):
+        source = f", key from {key_source}" if key_source and key_source != "none" else ""
+        return (
+            f"Claude Code would bill an API key ({method}{source}); the built-in claude provider runs only on a "
+            "Claude subscription login; claude subscription selection will not silently change billing routes"
+        )
+    return None
 
 
 def login_check(workspace=None, *, env: Mapping[str, str] | None = None, run=None) -> dict:
@@ -280,26 +314,15 @@ def login_check(workspace=None, *, env: Mapping[str, str] | None = None, run=Non
         )
         hint = provider_env.withheld_hint(agent_env.withheld(os.environ)) if env is None and run is None else ""
         raise RuntimeError(message + (" " + hint if hint else ""))
-    provider = status.get("apiProvider")
-    if provider != "firstParty":
-        raise RuntimeError(
-            f"Claude Code would bill through {provider} (CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_USE_VERTEX or a "
-            "gateway) instead of your Claude login; claude subscription selection will not silently change "
-            "billing routes"
-        )
-    method, key_source = status.get("authMethod"), status.get("apiKeySource")
-    if method not in SUBSCRIPTION_AUTH or (key_source and key_source != "none"):
-        source = f", key from {key_source}" if key_source and key_source != "none" else ""
-        raise RuntimeError(
-            f"Claude Code would bill an API key ({method}{source}); the built-in claude provider runs only on a "
-            "Claude subscription login; claude subscription selection will not silently change billing routes"
-        )
+    refusal = billing_refusal(status)
+    if refusal:
+        raise RuntimeError(refusal)
     return {
         "executable": executable,
         "version": version,
         "loggedIn": True,
-        "authMethod": method,
-        "apiProvider": provider,
+        "authMethod": status.get("authMethod"),
+        "apiProvider": status.get("apiProvider"),
     }
 
 
@@ -400,7 +423,7 @@ def launch(
     child = child_environment(env)
     executable = env_prep.resolve_executable("claude", child, cwd=str(workspace))
     if not executable:
-        raise RuntimeError("claude is not on PATH; no provider request was launched")
+        raise RuntimeError(NOT_ON_PATH)
     argv = [
         sys.executable,
         "-I",
@@ -435,9 +458,10 @@ def launch(
 def prompt_for_schema(prompt, schema, events) -> str:
     """The stage prompt with Claude's output contract and the report schema before the handoff data."""
     prompt = tool_handoff.with_capture_command(prompt)
+    prompt = tool_handoff.with_stage_events_log(prompt, events)
+    schema = changed_code_review.prompt_order(schema)
     contract = (
         prompts.get("fragments/provider-claude/prompt-for-schema.md")
-        + str(events)
         + prompts.get("fragments/provider-claude/prompt-for-schema-02.md")
         # Compact, as OpenCode's: an indented schema doubled to 19 KB and tipped a repair over its cap (#1337).
         + json.dumps(schema, separators=(",", ":"))

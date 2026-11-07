@@ -17,8 +17,10 @@ reported and the run continues: the probe proves access, not model obedience.
 
 Writes ``run_dir/model-preflight.json`` and one evidence directory per probe. The
 marker keeps one receipt set per tool identity (provider name plus saved transport
-digest), with reasoning effort included for automatic routes, so a later invocation
-re-probes only model/level pairs that have not yet passed on that same tool. Imports nothing from the controller; the runner is passed in.
+digest), with the route's reasoning effort included when it names one, so a later
+invocation re-probes only model/level pairs that have not yet passed on that same
+tool and a passed level is certified for later fits (#2057). Imports nothing from
+the controller; the runner is passed in.
 
 The automatic selector's access check (#1426 step 8) is the same machinery with a
 different source of routes: pass ``check(..., selection=...)`` the selector's result
@@ -34,7 +36,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -45,32 +47,51 @@ except ImportError:
     from autocode_util import atomic_json, digest
 
 try:
+    from . import autocode_access_evidence as access_evidence
+    from . import autocode_access_identity as access_identity
     from . import autocode_agent_env as agent_env
+    from . import autocode_builder_policy as builder_policy
     from . import autocode_cost as cost
     from . import autocode_preflight_attempts as attempts
     from . import autocode_process as processes
     from . import autocode_provider_auth as provider_auth
     from . import autocode_provider_env as provider_env
     from . import autocode_role_transport as role_transport
+    from . import autocode_route_fit as route_fit
     from . import autocode_support as support
     from . import provider_conformance_transport as transport
 except ImportError:
+    import autocode_access_evidence as access_evidence
+    import autocode_access_identity as access_identity
     import autocode_agent_env as agent_env
+    import autocode_builder_policy as builder_policy
     import autocode_cost as cost
     import autocode_preflight_attempts as attempts
     import autocode_process as processes
     import autocode_provider_auth as provider_auth
     import autocode_provider_env as provider_env
     import autocode_role_transport as role_transport
+    import autocode_route_fit as route_fit
     import autocode_support as support
     import provider_conformance_transport as transport
 
 PROMPT = 'Do not read or edit files. Return only this JSON object: {"ok": true}.'
+# The probe proves access, not tool use (#1744): OpenCode and Kilo wrapped the one-line prompt in their coding
+# agent's system prompt and tool list, ~17-19k input tokens a call ($0.19 on GPT-6 Astra). This agent has no
+# tools and a one-line system prompt: ~200-600 input tokens.
+PROBE_AGENT = "autocode_access_probe"
+PROBE_SYSTEM = "Answer with exactly the JSON object you are asked for."
+CONFIG_VARIABLES = ("OPENCODE_CONFIG_CONTENT", "KILO_CONFIG_CONTENT")
 SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
 # Persistent until the operator changes money or login: a launch that ignores this
 # wastes real spend on stages that cannot complete. Everything else is transient.
 BLOCKING_STATUSES = ("PAUSED_BUDGET", "PAUSED_AUTH", "PAUSED_BILLING_ROUTE")
 TIMEOUT_SECONDS = 90
+# Roles probed only when a stage that runs them is next (#1744). The Resolver (and the per-task Planner on the
+# same route) is usually GPT-6 Astra, the costliest model, and runs only after a send-back; its probe cost about
+# $0.19 of a small task's $1.31. Its first stage still proves access before that stage's own spend.
+DEFERRED = {"astra": ("astra_plan", "astra_resolve"), "resolver": ("astra_resolve",)}
+DEFERRED_STAGES = frozenset(stage for stages in DEFERRED.values() for stage in stages)
 # Version 2 held one receipt set for the run's tool; it is still read (_saved_receipts).
 MARKER_VERSION = 3
 
@@ -163,6 +184,34 @@ def _classify(events_path: Path, *, withheld_env=()) -> tuple[str | None, str]:
     return status, message or status
 
 
+def bare(argv: list, env: dict) -> tuple[list, dict]:
+    """Run an OpenCode-family probe as ``PROBE_AGENT``: no tools, every permission denied, a one-line system prompt.
+
+    A launch that names no agent through an inline configuration (another tool) is left as it is."""
+    if "--agent" not in argv[:-1]:
+        return argv, env
+    for variable in CONFIG_VARIABLES:
+        if variable not in env:
+            continue
+        config = json.loads(env[variable])
+        agents = config.get("agent") if isinstance(config, dict) else None
+        if not isinstance(agents, dict):
+            return argv, env
+        chosen = agents.get(argv[argv.index("--agent") + 1])
+        definition: dict[str, Any] = {
+            "description": "AutoCode model access probe",
+            "mode": "primary",
+            "prompt": PROBE_SYSTEM,
+        }
+        definition.update(tools={"*": False}, permission={"*": "deny"})
+        if isinstance(chosen, dict) and chosen.get("model"):
+            definition["model"] = chosen["model"]
+        config["agent"] = {**agents, PROBE_AGENT: definition}
+        argv[argv.index("--agent") + 1] = PROBE_AGENT
+        return argv, {**env, variable: json.dumps(config)}
+    return argv, env
+
+
 def probe(
     adapter,
     model,
@@ -174,13 +223,15 @@ def probe(
     directory=None,
     checkpoint=None,
     deadline=None,
+    role=None,
 ) -> dict:
     """One tiny read-only call for ``model``; returns its recorded outcome.
 
-    A saved route probes at ``low``, the cheapest proof of access. A route the
-    automatic selector chose probes at the role's own reasoning level, because the
-    level is part of the route: a variant that does not exist fails there, not three
-    stages in (#1426 step 8). ``None`` sends no level and the model uses its default.
+    Every route probes at the role's own reasoning level, saved or selected, because
+    the level is part of the route: a variant that does not exist fails at the probe,
+    not three stages in (#1426 step 8, #2057). A passed probe certifies that level for
+    later fits. ``None`` sends no level and the model uses its default. ``role`` carries
+    the role whose route is proven, so a tool refusing the level names its flag (#2108).
     """
     directory = directory or run_dir / "model-preflight" / model.replace("/", "__") / f"attempt-{uuid.uuid4().hex}"
     started = time.monotonic()
@@ -202,6 +253,8 @@ def probe(
             supervised=True,
             checkpoint=checkpoint,
             deadline=deadline,
+            prepare=bare,
+            role=role,
         )
     except (processes.ProcessError, OSError) as error:
         raise support.Paused(
@@ -296,6 +349,21 @@ def _selection_groups(runner, selection, workspace, settings=None) -> list[tuple
     return groups
 
 
+def due(routes: dict, next_stage) -> dict:
+    """The routes to probe before ``next_stage``: every role but a deferred one whose stage is not next.
+
+    With no next stage known (a standalone caller), every route is due."""
+    if not next_stage:
+        return dict(routes)
+    # A standalone review has one execution stage: that request establishes access.
+    # A separate paid ping cannot prevent partially built work here and duplicates
+    # provider startup. Local transport/auth/model/effort admission still runs;
+    # a failed review remains an accounted stage failure, never a successful probe.
+    if next_stage == "review_change":
+        return {}
+    return {role: route for role, route in routes.items() if next_stage in DEFERRED.get(role, (next_stage,))}
+
+
 def _selected_efforts(routes) -> dict:
     """model -> the reasoning level to probe it at: its first role's own level."""
     efforts: dict[str, str | None] = {}
@@ -305,6 +373,55 @@ def _selected_efforts(routes) -> dict:
         if isinstance(model, str) and model and model not in efforts:
             efforts[model] = route.get("reasoning_effort")
     return efforts
+
+
+def _selected_roles(routes) -> dict:
+    """model -> the role whose route a probe proves: the first role (in role order) that names it."""
+    roles: dict[str, str] = {}
+    for role in sorted(routes):
+        model = (routes[role] or {}).get("model")
+        if isinstance(model, str) and model and model not in roles:
+            roles[model] = role
+    return roles
+
+
+def fitted_routes(settings, routes) -> dict:
+    """Each route at the level the run's launch boundary will pass (#2104, #2057).
+
+    The access preflight is the first launch boundary of a build. Fitting here means a
+    person-named level its model does not declare pauses with its named answer before any
+    probe spends, and a runner-chosen level is probed at the variant a stage will launch
+    (``autocode_route_fit.launch`` fits the saved level the same way at dispatch). The saved
+    route is left alone: the stage's launch records the fit in ``effort_fits``.
+    """
+    fitted = {}
+    for role, route in routes.items():
+        route = dict(route or {})
+        result = route_fit.fit(settings, role, effort=route.get("reasoning_effort"), model=route.get("model"))
+        if "reasoning_effort" in route or result.effort is not None:
+            route["reasoning_effort"] = result.effort
+        fitted[role] = route
+    return fitted
+
+
+def certify(state: RunState, model, effort, outcome, checkpoint) -> None:
+    """A probe that passed proves this model serves this level: record it for later fits (#2057).
+
+    The fit reads these levels before a launch; a probe is evidence, never a guess. They are kept
+    apart from the tool's listing: one passed level says nothing about the levels no probe tried.
+    Nothing is recorded for a level-less route or an uncertain outcome.
+    """
+    if not effort or not isinstance(model, str) or (outcome or {}).get("status") != "ok":
+        return
+    settings = state.get("settings")
+    if not isinstance(settings, dict):
+        return
+    recorded = settings.setdefault(route_fit.CERTIFIED, {}).setdefault(model, [])
+    if effort in recorded:
+        return
+    recorded.append(effort)
+    recorded.sort(key=lambda level: route_fit.SCALE.index(level) if level in route_fit.SCALE else len(route_fit.SCALE))
+    checkpoint()
 
 
 def check(
@@ -325,6 +442,10 @@ def check(
     ``selection`` is an automatic selector's result (#1426 step 8): exactly the
     routes it lists as still unknown are probed, each at its role's own reasoning
     level, through the tool that will run it, within the same cost cap and receipts.
+
+    Every role's saved level is fitted before the first probe (#2104): a person-named
+    level the model does not declare pauses as ``PAUSED_EFFORT_UNSUPPORTED`` with its
+    named answer, and a runner-chosen one is probed at the variant a stage will launch.
     """
     if getattr(runner, "native_calls", None) is not None:
         # Native calls require their original held, accounted launch authority.
@@ -338,27 +459,35 @@ def check(
         # requested model calls. Future execution roles are probed when
         # approved requirements release planning; do not make the user wait.
         return False
+    settings = state.get("settings") or {}
+    route_fit.guard(settings)
     groups = (
-        _selection_groups(runner, selection, workspace, state.get("settings"))
+        _selection_groups(runner, selection, workspace, settings)
         if selection is not None
-        else _billing_groups(runner, state.get("settings") or {}, workspace)
+        else _billing_groups(runner, settings, workspace)
     )
-    if selection is not None:
-        # A successful low-level probe cannot certify another role's higher level.
-        # Bind the durable receipt (and charged attempt) to the exact effort too.
-        split: list[tuple] = []
-        for facade, routes, identity in groups:
-            by_effort: dict[str | None, dict] = {}
-            for role, route in routes.items():
-                by_effort.setdefault(route.get("reasoning_effort"), {})[role] = route
-            for effort, same_level in by_effort.items():
-                bound = {**identity, "reasoning_effort": effort} if identity is not None else None
-                existing = next((group for group in split if bound is not None and group[2] == bound), None)
-                if existing is None:
-                    split.append((facade, dict(same_level), bound))
-                else:
-                    existing[1].update(same_level)
-        groups = split
+    groups = [(facade, fitted_routes(settings, routes), identity) for facade, routes, identity in groups]
+    # A successful low-level probe cannot certify another role's higher level. Bind the
+    # durable receipt (and charged attempt) to the exact effort too, for a saved route
+    # (#2057) as for a selection's: the same model at two levels is two route pairs.
+    # A level-less route keeps the older identity, so its saved receipts stay valid.
+    split: list[tuple] = []
+    for facade, routes, identity in groups:
+        by_effort: dict[str | None, dict] = {}
+        for role, route in routes.items():
+            by_effort.setdefault(route.get("reasoning_effort"), {})[role] = route
+        for effort, same_level in by_effort.items():
+            bound = (
+                {**identity, "reasoning_effort": effort} if identity is not None and effort is not None else identity
+            )
+            existing = next((group for group in split if bound is not None and group[2] == bound), None)
+            if existing is None:
+                split.append((facade, dict(same_level), bound))
+            else:
+                existing[1].update(same_level)
+    groups = split
+    groups = [(facade, due(routes, state.get("next_stage")), identity) for facade, routes, identity in groups]
+    groups = [group for group in groups if group[1]]
     if not groups:
         return False
     # Standalone callers supply unknown routes; saved runs use their actual current
@@ -380,27 +509,63 @@ def check(
         if record.get("preflight_complete") and record.get("accounted") and record.get("preflight_outcome")
     ]
     receipts: list[tuple] = []
+    publication: list[dict] = []
     for facade, routes, identity in groups:
         probed: dict[str, dict] = {}
+        equivalent = access_identity.equivalents(state, identity)
+        current_probed: dict[str, dict] = {}
         if identity is not None:
-            probed = next((dict(entry["probed"]) for entry in saved if entry["identity"] == identity), {})
-            # The charged checkpoint is authoritative if marker publication was interrupted.
+            # A current marker, including failure, takes precedence over older locations.
+            current_probed = next((dict(entry["probed"]) for entry in saved if entry["identity"] == identity), {})
+            for alias in reversed(equivalent):
+                for entry in saved:
+                    if entry["identity"] == alias:
+                        probed.update(entry["probed"])
+            # Charged attempts are chronological and authoritative after interrupted
+            # marker publication. An old location cannot erase a current marker.
             for record in charged:
-                if record.get("preflight_identity") == identity:
+                bound = record.get("preflight_identity")
+                if bound in equivalent and (bound == identity or record["model"] not in current_probed):
                     probed[record["model"]] = record["preflight_outcome"]
+                    if bound == identity:
+                        current_probed[record["model"]] = record["preflight_outcome"]
+        # A real, completed call already demonstrated access on this exact launch
+        # identity. Missing legacy bindings never borrow the current configuration.
+        # Completed-stage entries are revalidated from their original artifacts,
+        # never promoted into permanent probe receipts. Explicit probe failures
+        # remain authoritative over earlier successful task calls.
+        probed = {model: outcome for model, outcome in probed.items() if outcome.get("source") != "completed_stage"}
+        for model, outcome in access_evidence.passed(
+            state.get("stages", []), identity, run_dir, equivalent=equivalent
+        ).items():
+            probed.setdefault(model, outcome)
+        # Preserve each relocated receipt's original binding on disk. Only calls
+        # actually earned under this location may be published under its identity.
+        current_probed = {
+            model: outcome for model, outcome in current_probed.items() if outcome.get("source") != "completed_stage"
+        }
+        for model, outcome in access_evidence.passed(state.get("stages", []), identity, run_dir).items():
+            current_probed.setdefault(model, outcome)
+        publication.extend(
+            entry for entry in saved if entry["identity"] in equivalent and entry["identity"] != identity
+        )
+        publication.append({"identity": identity, "probed": current_probed})
         wanted = [
             model
             for model in distinct_models({"roles": routes})
             if (probed.get(model) or {}).get("status") != "ok" and (unknown is None or model in unknown)
         ]
-        efforts = _selected_efforts(routes) if selection is not None else {}
-        receipts.append((facade, routes, identity, probed, wanted, efforts))
-    if not any(wanted for *_front, wanted, _efforts in receipts):
+        efforts = _selected_efforts(routes)
+        # Evidence a prior invocation already paid for still proves the level (#2057).
+        for model, outcome in probed.items():
+            certify(state, model, efforts.get(model), outcome, checkpoint)
+        receipts.append((facade, routes, identity, probed, wanted, efforts, _selected_roles(routes)))
+    if not any(wanted for *_front, wanted, _efforts, _roles in receipts):
         return False
     before_probe()
     _allowance(runner, state, run_dir, workspace, timeout)
     # Every tool that will receive a request proves its login before the first one.
-    for facade, routes, _identity, _probed, wanted, _efforts in receipts:
+    for facade, routes, _identity, _probed, wanted, _efforts, _roles in receipts:
         if not wanted:
             continue
         try:
@@ -412,18 +577,14 @@ def check(
             ) from error
 
     def publish():
-        rows = [
-            {"identity": identity, "probed": probed}
-            for _facade, _routes, identity, probed, _wanted, _efforts in receipts
-        ]
-        atomic_json(marker, {"version": MARKER_VERSION, "receipts": rows})
+        atomic_json(marker, {"version": MARKER_VERSION, "receipts": publication})
 
     pending = [
-        (adapter, identity, probed, model, efforts.get(model, "low"))
-        for adapter, _routes, identity, probed, wanted, efforts in receipts
+        (adapter, identity, probed, model, efforts.get(model), roles.get(model))
+        for adapter, _routes, identity, probed, wanted, efforts, roles in receipts
         for model in wanted
     ]
-    for adapter, identity, probed, model, effort in pending:
+    for adapter, identity, probed, model, effort, role in pending:
         # A role bound with --role-transport names its tool; the same model may also be on the run's tool.
         where = "" if adapter is getattr(runner, "opencode", None) else f" on {(identity or {}).get('provider')}"
         before_probe()
@@ -446,6 +607,7 @@ def check(
                 workspace,
                 run_dir,
                 effort=effort,
+                role=role,
                 timeout=allowed,
                 directory=attempt.directory,
                 checkpoint=attempt.admit,
@@ -463,9 +625,20 @@ def check(
             raise
         outcome = attempt.finish(outcome)
         probed[model] = outcome
+        for entry in publication:
+            if entry["identity"] == identity:
+                entry["probed"][model] = outcome
+        certify(state, model, effort, outcome, checkpoint)
         publish()
         # Stop wins over budget and must also apply after the final probe.
         before_probe()
+        if outcome["blocking"] and builder_policy.withdraw_unreachable(
+            state, model, detail=outcome["detail"] or outcome["status"], evidence=outcome["evidence"]
+        ):
+            # AutoCode's own stronger Builder route is unusable on this account; no person is asked.
+            checkpoint()
+            print(f"Model preflight: {model}{where} cannot be used; the Builder keeps its route", flush=True)
+            raise support.Paused(state["status"], state.get("stop_reason") or "Builder retries exhausted")
         if outcome["blocking"]:
             raise support.Paused(
                 outcome["status"],

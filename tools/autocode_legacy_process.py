@@ -6,6 +6,7 @@ workspace path from being mistaken for this run. Ambiguous bare relative paths
 remain blocking rather than risking a duplicate worker.
 """
 
+import contextlib
 import os
 import re
 import subprocess
@@ -15,6 +16,18 @@ try:
     from .autocode_util import Paused, read, redact
 except ImportError:
     from autocode_util import Paused, read, redact
+
+try:
+    import psutil
+except ImportError:  # only the exact-argv refinements below need it; the ps scan stands alone
+    psutil = None
+
+# The scripts a stage-running AutoCode process executes: the source runner, the
+# installed console script, the parallel Builder worker and the controller
+# scripts the dashboard and the macOS app start.
+RUNNER_SCRIPTS = ("autocode.py", "autocode", "autocode_builder_worker.py", "autopilot.py", "autocode_orchestrator.py")
+# Interpreter switches that take no value, so the next argument is still the script.
+PYTHON_FLAGS = re.compile(r"-[BbdEIiOPqRSsuv]+")
 
 
 def references_run(command, absolute, relative):
@@ -42,7 +55,9 @@ def _readonly_runner_command(command):
     if script >= len(argv) or os.path.basename(argv[script]) != "autocode.py":
         return False
     args = argv[script + 1 :]
-    if args[:2] == ["intervention", "inspect"]:
+    if args[:2] == ["coordinate", "status"]:
+        reader, index = "coordinate-status", 2
+    elif args[:2] == ["intervention", "inspect"]:
         reader, index = "inspect", 2
     elif args and args[0] in ("--status", "--dry-run"):
         reader, index = args[0], 1
@@ -54,7 +69,7 @@ def _readonly_runner_command(command):
     while index < len(args):
         option, separator, value = args[index].partition("=")
         if option == "--json" and not separator:
-            if reader != "inspect" or as_json:
+            if reader not in ("--status", "inspect", "coordinate-status") or as_json:
                 return False
             as_json = True
             index += 1
@@ -76,6 +91,8 @@ def _readonly_runner_command(command):
             return False
         paths[option] = value
         index += 1
+    if reader == "coordinate-status":
+        return set(paths) == {"--run-dir"} and as_json
     return set(paths) == {"--workspace", "--run-dir"} and (reader != "inspect" or as_json)
 
 
@@ -96,6 +113,65 @@ def duplicate_runner_command(command):
         and any(script in command for script in ("autocode.py", "autocode_builder_worker.py"))
         and not _readonly_runner_command(command)
     )
+
+
+def not_a_runner(argv):
+    """True when a process's exact argument vector shows it runs no stage itself.
+
+    Two cases, both settled from argument boundaries that ps text loses:
+    a Python program other than AutoCode whose arguments merely carry a runner
+    command line (a launcher, a terminal holder, a test harness), and the
+    `autocode chat` client, which starts its own `autocode` child for every
+    action and so is a viewer of the run. Anything else, including `python -c`,
+    `python -m` and an unknown interpreter switch, is left to the ps verdict.
+    """
+    if not argv:
+        return False
+    name = os.path.basename(argv[0])
+    index = 1
+    if name.startswith("python"):
+        while index < len(argv) and PYTHON_FLAGS.fullmatch(argv[index]):
+            index += 1
+        if index >= len(argv) or argv[index].startswith("-"):
+            return False
+        script = os.path.basename(argv[index])
+        if script not in RUNNER_SCRIPTS:
+            return True
+        index += 1
+    elif name == "autocode":
+        script = name
+    else:
+        return False
+    return script in ("autocode.py", "autocode") and argv[index : index + 1] == ["chat"]
+
+
+def _exact_argv(pid, command):
+    """The argument vector of ``pid``, only while it is still the process ps listed as ``command``.
+
+    None when it cannot be read or no longer matches (gone, reused, access denied,
+    or text ps rendered differently), so the conservative ps verdict stands.
+    """
+    if psutil is None:
+        return None
+    try:
+        argv = psutil.Process(pid).cmdline()
+    except (psutil.Error, OSError):
+        return None
+    return argv if argv and " ".join(argv) == command else None
+
+
+def own_lineage():
+    """This process and every process it descends from.
+
+    None of them is a competing runner: the shell, launcher or chat that started
+    this command is waiting on it, and a writer elsewhere still meets the
+    per-workspace lock. Without psutil only the parent is known.
+    """
+    pids = {os.getpid(), os.getppid()}
+    if psutil is not None:
+        with contextlib.suppress(psutil.Error, OSError):
+            pids.update(parent.pid for parent in psutil.Process(os.getpid()).parents())
+    return pids
 
 
 def _process_commands(output):
@@ -168,11 +244,16 @@ def assert_no_legacy_process(run_dir, workspace):
         raise _cannot_inspect(f"ps exited {result.returncode}" + (f": {redact(detail)[:200]}" if detail else ""))
     marker = str(Path(run_dir).resolve())
     relative = os.path.relpath(marker, Path(workspace).resolve())
+    # Skip the runner and everything that launched it: a shell running our own
+    # command text (e.g. zsh -lc '... autocode.py ...'), a Python launcher or the
+    # chat that started this command is not a duplicate runner.
+    lineage = own_lineage()
     for pid, command in _process_commands(result.stdout):
-        # Skip the runner and the wrapper that launched it: a shell running our own
-        # command text (e.g. zsh -lc '... autocode.py ...') is not a duplicate runner.
-        if pid in (os.getpid(), os.getppid()):
+        if pid in lineage:
             continue
         # Also catches an orphaned Codex child with an output path in this run.
         if references_run(command, marker, relative) and duplicate_runner_command(command):
+            argv = _exact_argv(pid, command)
+            if argv is not None and not_a_runner(argv):
+                continue
             raise Paused("PAUSED_WORKSPACE_BUSY", f"Existing run process {pid} is active; leave it untouched")

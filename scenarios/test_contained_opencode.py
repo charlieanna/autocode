@@ -43,7 +43,9 @@ from harness.processes import run_cli  # noqa: E402
 REPO = Path(__file__).resolve().parents[1]
 SCENARIO = "greenfield-greeting-cli"
 # A fake run starts on the Codex engine with bare model names (harness.driver.FAKE_FLAGS). Given after
-# those, these move it to OpenCode with the same models under OpenCode's provider/model names.
+# those, these move it to OpenCode under OpenCode's provider/model names. OpenCode reaches several
+# vendors, so every GPT model is one family there (#1729) and the Builder's Tester and Completion
+# Reviewer, and the Planner's Plan Reviewer, must come from another one: GLM checks the GPT build.
 OPENCODE_FLAGS = (
     "--engine",
     "opencode",
@@ -52,11 +54,11 @@ OPENCODE_FLAGS = (
     "--terra-model",
     "openai/gpt-5.6-terra",
     "--sol-model",
-    "openai/gpt-5.6-sol",
+    "zai-coding-plan/glm-5.3",
     "--completion-model",
-    "openai/gpt-6-astra",
+    "zai-coding-plan/glm-5.3",
     "--glm-model",
-    "openai/gpt-5.6-sol",
+    "zai-coding-plan/glm-5.3",
     "--plan-reviewer-model",
     "openai/gpt-6-astra",
 )

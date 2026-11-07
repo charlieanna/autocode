@@ -18,6 +18,116 @@ from providers.command import CommandProvider
 
 
 class ProviderLaunchTests(unittest.TestCase):
+    def test_runner_selects_tool_free_policy_for_a_nonplanning_report_repair(self):
+        import autocode as runner
+
+        class Prepared(Exception):
+            pass
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            schema = root / "schema.json"
+            schema.write_text('{"type":"object"}')
+            state = {
+                "version": 2,
+                "iteration": 1,
+                "next_stage": "review_change",
+                "stages": [],
+                "settings": {
+                    "engine": "opencode",
+                    "provider": "kilocode",
+                    "roles": {
+                        "sol": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "low"},
+                    },
+                },
+            }
+            for report_only in (False, True):
+                with (
+                    self.subTest(report_only=report_only),
+                    mock.patch.object(runner.provider_launch, "prepare", side_effect=Prepared) as prepare,
+                    self.assertRaises(Prepared),
+                ):
+                    runner.run_role(
+                        role="sol",
+                        prompt="Already-completed review report",
+                        sandbox="read-only",
+                        workspace=root,
+                        run_dir=root / str(report_only),
+                        state=state,
+                        schema=schema,
+                        model="zai-coding-plan/glm-5.3",
+                        allow_write=False,
+                        dry_run=True,
+                        report_only=report_only,
+                    )
+                self.assertEqual(report_only, prepare.call_args.kwargs["planning_report_recovery"])
+                self.assertEqual("zai-coding-plan/glm-5.3", prepare.call_args.kwargs["model"])
+
+    def test_catalog_read_authority_is_added_only_to_readonly_intake_launches(self):
+        import autocode_catalog_context as catalog_context
+
+        class Stub:
+            NAME = "stub"
+            CONFIGURED = False
+
+            def launch(self, *args, **kwargs):
+                self.containment = kwargs.get("containment")
+                return ["stub"], {}, {}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            run = Path(temporary)
+            (run / "planning").mkdir()
+            (run / "planning/source-catalog.json").write_text("{}")
+            for write, repair in ((False, False), (True, False), (False, True)):
+                adapter = Stub()
+                with mock.patch.object(catalog_context, "read_roots", return_value=["/authorized/external"]) as roots:
+                    launch.prepare(
+                        engine="opencode",
+                        adapter=adapter,
+                        role="astra",
+                        route_role="astra",
+                        workspace=run,
+                        run_dir=run,
+                        session=None,
+                        model="m",
+                        effort="medium",
+                        allow_write=write,
+                        planning=True,
+                        report=run / "report",
+                        schema=run / "schema",
+                        prompt_file=run / "prompt",
+                        sandbox="read-only",
+                        transport_args=[],
+                        chatgpt=False,
+                        provider=None,
+                        planning_report_recovery=repair,
+                    )
+                actual = (adapter.containment or {}).get("read_roots", [])
+                self.assertEqual(not write and not repair, "/authorized/external" in actual)
+                self.assertEqual(not write and not repair, roots.called)
+
+    def test_tool_free_repair_handoff_matches_the_recorded_launch_boundary(self):
+        data = {"report_repair": True, "original_report": {"content": {"diagnosis": "saved"}}}
+        prompt = "General instructions mention shell commands.\nCURRENT HANDOFF DATA\n" + json.dumps(data)
+        worker = {
+            "engine": "opencode",
+            "configured": True,
+            "provider": "kilocode",
+            "kilo_readonly_tools": True,
+            "planning_report_recovery": True,
+        }
+        rendered = launch.containment_prompt(prompt, worker, stage="investigate_stuck")
+        instructions, payload = rendered.rsplit("\nCURRENT HANDOFF DATA\n", 1)
+        self.assertIn("all tools disabled", launch.stage_record(worker)["isolation"])
+        self.assertIn("All tools are disabled", instructions)
+        self.assertIn("Do not call or wait for tools", instructions)
+        self.assertIn("runner executes", instructions)
+        self.assertIn("Preserve uncertainty", instructions)
+        self.assertEqual(data, json.loads(payload))
+        for key in ("kilo_readonly_tools", "planning_report_recovery"):
+            other = {**worker, key: False}
+            self.assertEqual(prompt, launch.containment_prompt(prompt, other))
+
     def test_native_handoff_keeps_all_task_input_with_small_owned_manifest_locator(self):
         descriptor = {
             "manifest": "/owned/isolation.json",
@@ -71,6 +181,66 @@ class ProviderLaunchTests(unittest.TestCase):
         for worker, expected in cases:
             with self.subTest(engine=worker["engine"], configured=worker.get("configured")):
                 self.assertEqual({"prompts_hash": prompts.HASH, **expected}, launch.stage_record(worker))
+
+    def test_access_binding_is_saved_at_launch_and_does_not_follow_later_settings(self):
+        from types import SimpleNamespace
+
+        identity = {
+            "engine": "fixture",
+            "identity_version": 1,
+            "executable": "/fixture",
+            "version": "1",
+            "config_path": "/config.toml",
+            "config_sha256": "a" * 64,
+        }
+        settings = {
+            "engine": "opencode",
+            "provider": "fixture",
+            "roles": {"requirements": {"model": "demo/reviewer"}},
+            "transport_identities": {"opencode": identity},
+        }
+        adapter = SimpleNamespace(
+            NAME="fixture", CONFIGURED=True, _config={"auth": {}}, launch=lambda *args, **kwargs: (["fixture"], {}, {})
+        )
+        _, _, _, worker = launch.prepare(
+            engine="opencode",
+            adapter=adapter,
+            role="glm",
+            route_role="requirements",
+            workspace=Path("/workspace"),
+            run_dir=Path("/run"),
+            session=None,
+            model="demo/reviewer",
+            effort="low",
+            allow_write=False,
+            planning=True,
+            report=Path("/report"),
+            schema=Path("/schema"),
+            prompt_file=Path("/prompt"),
+            sandbox="read-only",
+            transport_args=[],
+            chatgpt=False,
+            provider="fixture",
+            settings=settings,
+        )
+        record = launch.stage_record(worker)
+        binding = record["access_preflight_identity"]
+        self.assertEqual(
+            {
+                "schema": 1,
+                "identity": {
+                    "provider": "fixture",
+                    "transport_sha256": util.digest(identity),
+                    "reasoning_effort": "low",
+                },
+                "model": "demo/reviewer",
+            },
+            binding,
+        )
+        identity["config_sha256"] = "b" * 64
+        worker["access_preflight_identity"]["model"] = "changed"
+        self.assertEqual("demo/reviewer", binding["model"])
+        self.assertNotEqual(util.digest(identity), binding["identity"]["transport_sha256"])
 
     def test_a_provider_that_never_resumes_across_stages_starts_each_stage_fresh(self):
         """#717: the built-in claude provider resumes only a same-stage correction (a planning launch)."""
@@ -130,6 +300,38 @@ class ProviderLaunchTests(unittest.TestCase):
         legacy = Legacy()
         *_, worker = prepare(legacy, planning=False)
         self.assertEqual((["s1"], "s1"), (legacy.sessions, worker["provider_session"]))
+
+    def test_a_kilo_builder_starts_each_stage_in_a_fresh_session(self):
+        """#1939: a resumed Kilo Builder session grew until Kilo compacted it; writable stages now start fresh too."""
+        from providers.kilocode import KiloProvider
+
+        kilo = object.__new__(KiloProvider)
+        kilo.NAME = "kilocode"
+        kilo.launch = mock.Mock(return_value=(["kilo", "run"], {}, {}))
+        with tempfile.TemporaryDirectory() as root:
+            *_, worker = launch.prepare(
+                engine="opencode",
+                adapter=kilo,
+                role="terra",
+                route_role="terra",
+                workspace=Path(root),
+                run_dir=Path(root) / ".autocode/runs/one",
+                session="ses_saved",
+                model="zai-coding-plan/glm-5.3",
+                effort="medium",
+                allow_write=True,
+                planning=False,
+                report=Path(root) / "output.json",
+                schema=Path(root) / "schema.json",
+                prompt_file=Path(root) / "prompt.txt",
+                sandbox="workspace-write",
+                transport_args=[],
+                chatgpt=False,
+                provider="kilocode",
+            )
+        self.assertIsNone(kilo.launch.call_args.args[3])
+        self.assertIsNone(worker["provider_session"])
+        self.assertIn("fresh session", launch.stage_record(worker)["fresh_session_reason"])
 
     def test_retired_or_unknown_engine_cannot_fall_back_to_codex(self):
         for engine in ("gocode", "qwen", "unknown"):

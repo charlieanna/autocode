@@ -71,7 +71,7 @@ def target(workspace, run_dir):
     return workspace, run_dir, state
 
 
-def receipt(state: RunState, run_dir, ident):
+def receipt(state: RunState, run_dir, ident, *, current_plan=True):
     row = next((row for row in state.get("code_checkpoints", []) if row.get("id") == ident), None)
     if not row or not row.get("available"):
         raise ValueError("This step has no restorable source checkpoint; historical metadata cannot reconstruct files")
@@ -79,11 +79,12 @@ def receipt(state: RunState, run_dir, ident):
     if util.file_hash(path) != row["receipt_sha256"]:
         raise ValueError("The saved code checkpoint receipt changed")
     saved = util.read(path)
+    # A restore must match the approved plan now; a display of a prior turn's step need not (#1712).
     if (
         saved["id"] != ident
         or saved["commit"] != row["commit"]
         or saved["run_dir"] != str(run_dir)
-        or saved["contract_hash"] != (state.get("goal_contract") or {}).get("hash")
+        or (current_plan and saved["contract_hash"] != (state.get("goal_contract") or {}).get("hash"))
     ):
         raise ValueError("Checkpoint identity or approved plan changed")
     if checkpoints.tree_files(state["workspace"], saved["commit"]) != checkpoints.content_files(saved["source"]):
@@ -97,13 +98,10 @@ def source_token(state: RunState, saved, source):
     return "checkpoint-v1:" + util.digest({"state": bound, "checkpoint": saved, "source": source})
 
 
-def compare(state: RunState, run_dir, ident):
-    saved = receipt(state, run_dir, ident)
-    source = source_scope.snapshot(state["workspace"], state)
-    changed = util.changed_paths(saved["source"], source)
+def patch_text(state: RunState, commit, changed, before, after, *, new_commit=None):
+    """The unified diff of `changed` paths from files at `commit` (or none) to the files on disk, or to
+    the files at `new_commit` when it is given."""
     patch = ""
-    before = checkpoints.content_files(saved["source"])
-    after = checkpoints.content_files(source)
     for name in changed:
         old, new = before.get(name), after.get(name)
         patch += "diff --checkpoint " + name + "\n"
@@ -114,8 +112,13 @@ def compare(state: RunState, run_dir, ident):
         if (old or "").startswith("executable:") != (new or "").startswith("executable:"):
             patch += "Executable mode changed.\n"
         try:
-            old_bytes = checkpoints.git(state["workspace"], "show", saved["commit"] + ":" + name) if old else b""
-            new_bytes = path.read_bytes() if new else b""
+            old_bytes = checkpoints.git(state["workspace"], "show", commit + ":" + name) if old else b""
+            if not new:
+                new_bytes = b""
+            elif new_commit:
+                new_bytes = checkpoints.git(state["workspace"], "show", new_commit + ":" + name)
+            else:
+                new_bytes = path.read_bytes()
             if max(len(old_bytes), len(new_bytes)) > 100000 or b"\0" in old_bytes + new_bytes:
                 patch += "Binary or large file changed; inspect the saved checkpoint and current file.\n"
             else:
@@ -123,12 +126,22 @@ def compare(state: RunState, run_dir, ident):
                     difflib.unified_diff(
                         old_bytes.decode().splitlines(True),
                         new_bytes.decode().splitlines(True),
-                        "checkpoint/" + name,
-                        "current/" + name,
+                        "checkpoint/" + name if not new_commit else "before/" + name,
+                        "current/" + name if not new_commit else "step/" + name,
                     )
                 )
         except UnicodeError:
             patch += "Binary file changed.\n"
+    return patch
+
+
+def compare(state: RunState, run_dir, ident):
+    saved = receipt(state, run_dir, ident)
+    source = source_scope.snapshot(state["workspace"], state)
+    changed = util.changed_paths(saved["source"], source)
+    before = checkpoints.content_files(saved["source"])
+    after = checkpoints.content_files(source)
+    patch = patch_text(state, saved["commit"], changed, before, after)
     if source != source_scope.snapshot(state["workspace"], state):
         raise ValueError("Source changed while comparing; refresh the comparison")
     return {
@@ -145,6 +158,68 @@ def compare(state: RunState, run_dir, ident):
         "source_workspace": state["workspace"],
         "source_branch": state.get("task_branch")
         or checkpoints.git(state["workspace"], "branch", "--show-current").decode().strip(),
+    }
+
+
+def step(state: RunState, run_dir, ident):
+    """What one saved step itself changed: its saved code against the step before it, or against the
+    commit it was saved on for the first. Display only, like ``working``: no token, nothing restored.
+    A finished run's newest step matches the files, so ``compare`` shows nothing; this shows its change."""
+    saved = receipt(state, run_dir, ident, current_plan=False)
+    rows = [row for row in state.get("code_checkpoints") or [] if row.get("available")]
+    index = next(number for number, row in enumerate(rows) if row.get("id") == ident)
+    after = checkpoints.content_files(saved["source"])
+    if index:
+        earlier = receipt(state, run_dir, rows[index - 1]["id"], current_plan=False)
+        commit, before, since = earlier["commit"], checkpoints.content_files(earlier["source"]), earlier["id"]
+        changed = util.changed_paths(earlier["source"], saved["source"])
+    else:
+        commit, since = saved["source"]["head"], None
+        before = checkpoints.tree_files(state["workspace"], commit)
+        # Only the run's own scope, as `working` reads it; a file the step removed is in its record.
+        removed = [name for name in rows[0].get("changed_files") or [] if name in before and name not in after]
+        changed = sorted({*(name for name in after if before.get(name) != after.get(name)), *removed})
+    patch = patch_text(state, commit, changed, before, after, new_commit=saved["commit"])
+    return {
+        "version": 1,
+        "checkpoint_id": ident,
+        "since": since or "start",
+        "changed_files": changed,
+        "patch": patch[:200000],
+        "truncated": len(patch) > 200000,
+    }
+
+
+def working(state: RunState, run_dir):
+    """What the files hold now against the newest saved step, or the checked-out commit before any.
+
+    Display only: it carries no token and restores nothing. It reads the workspace while the
+    Builder may still be writing, so a file changing mid-read refuses and the caller asks again.
+    """
+    workspace = state["workspace"]
+    saved = [row for row in state.get("code_checkpoints") or [] if row.get("available")]
+    source = source_scope.snapshot(workspace, state)
+    after = checkpoints.content_files(source)
+    if saved:
+        base = receipt(state, run_dir, saved[-1]["id"], current_plan=False)
+        commit, before = base["commit"], checkpoints.content_files(base["source"])
+        changed = util.changed_paths(base["source"], source)
+        since = saved[-1]["id"]
+    else:
+        commit, since = "HEAD", None
+        before = checkpoints.tree_files(workspace, commit)
+        # Only the run's own scope: tracked files outside it are neither listed nor diffed.
+        changed = sorted(name for name in source["files"] if before.get(name) != after.get(name))
+    patch = patch_text(state, commit, changed, before, after)
+    if source != source_scope.snapshot(workspace, state):
+        raise ValueError("Source changed while comparing; ask again")
+    return {
+        "version": 1,
+        "since": since or "start",
+        "changed_files": changed,
+        "patch": patch[:200000],
+        "truncated": len(patch) > 200000,
+        "compared_at": util.now(),
     }
 
 
@@ -332,13 +407,15 @@ def restore(state: RunState, run_dir, ident, expected, operation):
 def parser() -> argparse.ArgumentParser:
     """The arguments `autocode checkpoint` reads; `autocode completion` reads them too."""
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--workspace", required=True, type=Path)
-    result.add_argument("--run-dir", required=True, type=Path)
+    result.add_argument("--workspace", required=True, type=Path, help="Project directory")
+    result.add_argument("--run-dir", required=True, type=Path, help="The saved run")
     action = result.add_mutually_exclusive_group(required=True)
-    action.add_argument("--compare", metavar="CHECKPOINT")
-    action.add_argument("--restore", metavar="CHECKPOINT")
-    result.add_argument("--expected-token")
-    result.add_argument("--request-id")
+    action.add_argument("--compare", metavar="CHECKPOINT", help="Show what a saved code step changed")
+    action.add_argument("--restore", metavar="CHECKPOINT", help="Restore the code of a saved step; needs its token")
+    action.add_argument("--working", action="store_true", help="Show what changed since the newest saved step")
+    action.add_argument("--step", metavar="CHECKPOINT", help="Show what a saved step itself changed (display only)")
+    result.add_argument("--expected-token", help="The exact token the comparison showed, for --restore")
+    result.add_argument("--request-id", help="Stable ID of this action, so a repeat is recognized")
     result.add_argument("--json", action="store_true", help="Format output as JSON (default)")
     return result
 
@@ -351,6 +428,10 @@ def cli(argv):
         workspace, run_dir, state = target(args.workspace, args.run_dir)
         if args.compare:
             result = compare(state, run_dir, args.compare)
+        elif args.working:
+            result = working(state, run_dir)
+        elif args.step:
+            result = step(state, run_dir, args.step)
         else:
             with util.run_lock(run_dir), checkout_lock.exclusive(workspace, run_dir):
                 workspace, run_dir, state = target(workspace, run_dir)

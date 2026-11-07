@@ -20,7 +20,14 @@ except ImportError:
 # state -> (what it means, what the offered command does). Short enough to read
 # aloud. "Yours" = a person's decision; "the environment's" = provider/host;
 # "the model's" = a stage's report; "AutoCode's" = a runner gate.
+COMPLETION = (
+    "The saved run records completion; this status alone does not establish that the current checkout still "
+    "matches its verification evidence.",
+    "Use --status to inspect current evidence, or send a follow-up for another request; completion needs no recovery.",
+)
 TABLE: dict[str, tuple[str, str]] = {
+    "TASK_COMPLETE": COMPLETION,
+    "COMPLETE": COMPLETION,
     "RUNNING": (
         "Work is in progress; no new decision is needed while the controller is active.",
         "Use --status to follow progress and inspect controller liveness.",
@@ -44,6 +51,14 @@ TABLE: dict[str, tuple[str, str]] = {
         "--answer or --delegate replies to the question.",
     ),
     "PAUSED_GOAL_UNAPPROVED": ("Work cannot start until the plan is approved.", "--approve-goal accepts the plan."),
+    "PAUSED_CHANGESET_APPROVAL": (
+        "This run's plan is approved, but its change set has not released every member for execution.",
+        "Inspect changeset status and approve the current set, or explicitly approve this run alone.",
+    ),
+    "PAUSED_SCOPE_DECISION": (
+        "Work in another repository still needs a person's decision about the current scope.",
+        "Answer the current scope question; the revised plan still needs explicit approval.",
+    ),
     "PAUSED_WORKFLOW_APPROVAL": (
         "A workflow change needs a person's approval before it is applied.",
         "--approve-goal or --feedback records the decision.",
@@ -76,6 +91,11 @@ TABLE: dict[str, tuple[str, str]] = {
         "A command needs permission a person has not granted.",
         "--resume-paused or a permission answer grants it; nothing runs until then.",
     ),
+    "PAUSED_PERMISSION_LOOP": (
+        "Repeated permission answers did not change the source, contract or validation evidence.",
+        "Inspect and repair the saved blocker, then use --feedback to explain the correction or new scope. "
+        "Plain resume cannot launch another model call.",
+    ),
     "PAUSED_PERMISSION_RECONCILIATION": (
         "Saved permissions do not match what the run needs.",
         "--resume-paused re-checks; a person may need to grant access.",
@@ -102,7 +122,7 @@ TABLE: dict[str, tuple[str, str]] = {
         "--resume-paused --max-iterations N (or the matching budget flag) raises the bound and continues.",
     ),
     "PAUSED_COST_LIMIT": (
-        "The run's spend reached the cost cap you set, or an attempt on a stronger route is projected past it; "
+        "The run's spend reached the cost cap you set, or the next attempt is projected past it from the job's last; "
         "no stage launches past it.",
         "--resume-paused --max-cost-usd N with a higher cap (or 0 for none) continues; AutoCode never raises it.",
     ),
@@ -165,6 +185,12 @@ TABLE: dict[str, tuple[str, str]] = {
         "A stage exceeded its output-token cap.",
         "Answer the stopped role's model question with --answer route-ROLE=MODEL, then --resume-paused.",
     ),
+    "PAUSED_CONTEXT_WINDOW": (
+        "A stage's request no longer fit its model's context window, or the provider compacted the conversation; "
+        "the response is not accepted.",
+        "Answer the stopped role's model question with --answer route-ROLE=MODEL naming a larger-window model, "
+        "then --resume-paused; or set the attempt aside and give the job a smaller task.",
+    ),
     "PAUSED_TOOL_CONTAINMENT": (
         "The tool sandbox is not available on this host; a setup limit, not a product defect.",
         "Use a supported host or provider, then --resume-paused.",
@@ -188,6 +214,10 @@ TABLE: dict[str, tuple[str, str]] = {
     "PAUSED_BILLING_ROUTE": (
         "The billing or model route needs a decision.",
         "--answer route-ROLE=MODEL names the route.",
+    ),
+    "PAUSED_EFFORT_UNSUPPORTED": (
+        "The reasoning effort you chose for a role is one its model does not offer.",
+        "--answer effort-ROLE=EFFORT with one of the levels the model declares, then --resume-paused.",
     ),
     "PAUSED_CROSS_MODEL": (
         "The cross-model rule rejected a route.",
@@ -221,15 +251,23 @@ TABLE: dict[str, tuple[str, str]] = {
     ),
     "PAUSED_COMPLETION_GATE": (
         "Completion was refused: required evidence is missing, stale or failed.",
-        "The stop reason names the gap; supply the evidence, then --accept-completion.",
+        "The stop reason names the gap; supply the evidence, then --accept-completion, or --resume-paused for a fresh review.",
     ),
     "PAUSED_ACCEPTANCE_TESTS": (
-        "Before any building, the Tester found the approved plan and the code disagree: a case already works or cannot be tested.",
-        "--feedback revises the plan; the Tester runs again on the newly approved plan.",
+        "Before any building, the Tester found the approved plan and the code disagree: a case already works or cannot be "
+        "tested; or the run's test suite cannot run the Tester's files.",
+        "--feedback revises the plan; the Tester runs again on the newly approved plan. When the stop reason names a suite "
+        "that cannot run the files, --resume-paused with a corrected --test-command reruns the proof.",
     ),
     "PAUSED_COMPLETION_REVIEW": (
         "The Completion Reviewer asked for a decision before the run can end.",
         "--feedback or --accept-completion answers.",
+    ),
+    "PAUSED_STALE_DIAGNOSIS": (
+        "The draft conflicts with its accepted diagnosis, and the saved correction or evidence does not "
+        "currently authorize a refresh. The original proof cases remain required; implementation is held.",
+        "--resume-paused rechecks the saved feedback, draft and diagnosis evidence. Only an eligible correction "
+        "starts a fresh investigation; otherwise the run stays paused. The refreshed plan still needs approval.",
     ),
     "PAUSED_STALE_VALIDATION": (
         "The saved validation belongs to another source or goal revision.",
@@ -474,13 +512,62 @@ STORE_CAUSES: tuple[tuple[str, tuple[str, str]], ...] = (
 )
 
 
-def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
+# PAUSED_PROCESS_CLEANUP reasons that are the host's admission refusal, not a child process (the reason
+# autocode_supervision raises before any provider starts; autocode doctor's session row names the same fix).
+HOST_CAUSES = (
+    (
+        "refuses CAP_SYS_PTRACE or CAP_SYS_ADMIN",
+        (
+            "No provider was launched: this shell holds CAP_SYS_ADMIN or CAP_SYS_PTRACE (root in most containers, "
+            "VMs and CI images), which provider session ownership refuses. No process is stuck; the saved run is "
+            "intact. `autocode doctor` reports this as its session row.",
+            "Run AutoCode as an ordinary user, or drop the two capabilities for every command: "
+            "setpriv --bounding-set=-sys_admin,-sys_ptrace autocode ... , then --resume-paused{recovery}.",
+        ),
+    ),
+    (
+        "requires Linux native x86_64 or aarch64",
+        (
+            "No provider was launched: this host cannot own provider sessions (supported: Linux native x86_64 "
+            "or aarch64, and macOS). No process is stuck; the saved run is intact.",
+            "On a supported host (docs/install.md), --resume-paused{recovery}.",
+        ),
+    ),
+)
+
+
+READY = (
+    "Nothing runs it: the controller exited on purpose after a saved answer, approval or follow-up, and the run "
+    "moves only when someone runs the next command.",
+    "The next command (--status names it) continues the run from its saved checkpoint.",
+)
+
+
+def explain(status: str, *, stop_reason: str = "", needs=None, held_cause: str = "", ready: bool = False) -> dict:
     """Three short paragraphs for a person who did not watch the run (#715).
 
     No model call. ``needs`` is the status view's ``needs`` block so the same
-    text the view shows is what ``autocode explain`` prints.
+    text the view shows is what ``autocode explain`` prints. ``held_cause`` is the cause a pause
+    still holds for when the stop reason only records that a person answered its request
+    (autocode_pause_authority.answered_cause). ``ready`` is the controller inspection's ``ready``
+    kind: a RUNNING checkpoint no controller runs, which the table's "in progress" words would have
+    the person wait for (#2393).
     """
-    entry = TABLE.get(status)
+    stop_reason = stop_reason.strip().rstrip(".")
+    held_cause = held_cause.strip().rstrip(".")
+    if status == "PAUSED_INTERVENTION" and stop_reason.startswith(run_status.ENDED_PREFIX):
+        # AutoCode ended the run itself with a recorded outcome (autocode_stop.end, #2485): a finished,
+        # failed run, not a person's intervention, and no command continues it.
+        happened = f"The run ended. {stop_reason}."
+        means = "AutoCode could not finish this task on its own and recorded why; no stage runs again in this run."
+        does = "Nothing continues this run. Its saved plan, changes and evidence stay for inspection; new work is a new run."
+        return {
+            "what_happened": happened,
+            "what_it_means": means,
+            "what_the_command_does": does,
+            "explanation": f"{happened} {means} {does}",
+        }
+    entry = READY if status == "RUNNING" and ready else TABLE.get(status)
     means, does = (
         entry
         if entry
@@ -497,6 +584,18 @@ def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
         # resume guidance; this text grants no original-owner authority.
         means = "Native planning cleanup requires original-owner verification before another stage can run."
         does = needs["recovery_hint"]
+    if status == "PAUSED_PROCESS_CLEANUP":
+        attempt = (needs or {}).get("abandon_stage") if isinstance(needs, dict) else None
+        # A run saved before #2296 still holds the attempt that never launched as uncertain.
+        recovery = (
+            f"; this run recorded the attempt that never launched, so first --abandon-stage {attempt}"
+            if attempt
+            else ""
+        )
+        for phrase, (host_means, host_does) in HOST_CAUSES:
+            if phrase in (stop_reason or ""):
+                means, does = host_means, host_does.format(recovery=recovery)
+                break
     if status == "PAUSED_TOOL_CONTAINMENT":
         # Every other cause keeps the table's text.
         for phrase, (store_means, store_does) in STORE_CAUSES:
@@ -534,15 +633,17 @@ def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
         if status.startswith("PAUSED_")
         else "the environment"
     )
-    happened = (
-        "The run is RUNNING."
-        if status == "RUNNING"
-        else (
+    if status in ("TASK_COMPLETE", "COMPLETE"):
+        happened = f"The run recorded {status}." + (f" Completion note: {stop_reason}." if stop_reason else "")
+    elif status == "RUNNING":
+        happened = "The run is RUNNING." + (" It is saved at a checkpoint with no controller running." if ready else "")
+    else:
+        happened = (
             f"The run stopped at {status}. "
             + (f"The stop reason is: {stop_reason}. " if stop_reason else "")
+            + (f"The run is still held for: {held_cause}. " if held_cause else "")
             + f"This is {owner}'s decision, not a wrong deliverable."
         )
-    )
     return {
         "what_happened": happened.strip(),
         "what_it_means": means,

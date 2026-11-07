@@ -83,9 +83,12 @@ class GuardsAgreeWithTheRules(unittest.TestCase):
         self.assertEqual((), access.opencode_additions("sol"))
 
     def test_judging_stages_launch_able_to_write_evidence_and_planning_does_not(self):
-        for stage in access.JUDGING_STAGES:
+        # The Resolver (astra_resolve) joins them: its report and probe evidence are runner-owned
+        # files under .autocode/ like the validators' receipts, and read-only left a write contract
+        # the stage could not satisfy (a live run's resolver reported a fabricated sandbox denial).
+        for stage in (*access.JUDGING_STAGES, "astra_resolve"):
             self.assertEqual("workspace-write", common.launch_sandbox(stage, False), stage)
-        for stage in ("astra_plan", "astra_challenge", "requirements_gather", "astra_resolve"):
+        for stage in ("astra_plan", "astra_challenge", "requirements_gather"):
             self.assertEqual("read-only", common.launch_sandbox(stage, False), stage)
 
 

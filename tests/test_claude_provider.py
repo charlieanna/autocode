@@ -141,6 +141,7 @@ class LaunchTests(FakeClaude, unittest.TestCase):
         self.assertLess(resumed.index("--resumed"), resumed.index("--"))
         self.assertGreater(resumed.index("--resume"), resumed.index("--"))
         self.assertEqual("1", child["DISABLE_AUTOUPDATER"])
+        self.assertEqual("1", child["FORCE_PROMPT_CACHING_5M"])
 
     def test_launch_refuses_before_any_request(self):
         with self.assertRaisesRegex(ValueError, "reasoning effort must be one of"):
@@ -198,7 +199,10 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(("1", "1"), (child["DISABLE_AUTOUPDATER"], child["KEEP"]))
         self.assertEqual("1", agent_env.scrubbed(child)["DISABLE_AUTOUPDATER"])
         given = {"CLAUDE_CODE_SESSION_ID": "x", "PATH": "/bin"}
-        self.assertEqual({"PATH": "/bin", "DISABLE_AUTOUPDATER": "1"}, claude.child_environment(given))
+        self.assertEqual(
+            {"PATH": "/bin", "DISABLE_AUTOUPDATER": "1", "FORCE_PROMPT_CACHING_5M": "1"},
+            claude.child_environment(given),
+        )
         self.assertEqual({"CLAUDE_CODE_SESSION_ID": "x", "PATH": "/bin"}, given)
 
     def test_only_a_billing_route_that_reaches_claude_is_refused(self):
@@ -315,7 +319,9 @@ class IdentityTests(FakeClaude, unittest.TestCase):
         self.assertTrue(claude.transport_drift(first, example))
 
     def test_prelaunch_failures_launch_nothing(self):
-        with self.assertRaisesRegex(RuntimeError, "^claude is not on PATH; no provider request was launched$"):
+        with self.assertRaisesRegex(
+            RuntimeError, "^claude is not on PATH; no provider request was launched. Run `autocode doctor`"
+        ):
             claude.local_settings(self.workspace, env={"PATH": str(self.root / "empty")})
         with self.assertRaisesRegex(RuntimeError, r"claude version check failed \(exit 4\); no agent was launched"):
             self.identity(FAKE_VERSION_EXIT="4")
@@ -391,6 +397,21 @@ class LoginTests(FakeClaude, unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "would bill through bedrock"):
             self.login({"loggedIn": True, "authMethod": "third_party", "apiProvider": "bedrock"})
 
+    def test_billing_refusal_names_the_route_a_logged_in_status_would_bill(self):
+        """The one billing rule, shared by a run's login check and `autocode connections check`."""
+        first = {"loggedIn": True, "apiProvider": "firstParty"}
+        self.assertIsNone(claude.billing_refusal({**first, "authMethod": "claude.ai"}))
+        self.assertIsNone(claude.billing_refusal({**first, "authMethod": "oauth_token", "apiKeySource": "none"}))
+        self.assertRegex(
+            claude.billing_refusal({**first, "authMethod": "claude.ai", "apiKeySource": "apiKeyHelper"}),
+            r"^Claude Code would bill an API key \(claude\.ai, key from apiKeyHelper\)",
+        )
+        self.assertRegex(claude.billing_refusal({**first, "authMethod": "api_key"}), r"bill an API key \(api_key\)")
+        self.assertRegex(
+            claude.billing_refusal({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "vertex"}),
+            "would bill through vertex",
+        )
+
     def test_an_injected_runner_is_the_only_thing_called(self):
         calls = []
 
@@ -436,11 +457,17 @@ class PromptTests(unittest.TestCase):
         contract, marker, handoff = prompt.partition("\nCURRENT HANDOFF DATA\n")
         self.assertTrue(marker)
         self.assertIn("CLAUDE CODE OUTPUT CONTRACT", contract)
-        self.assertIn(f"Your stage events log is {events}. It is read-only evidence", contract)
+        self.assertIn(
+            "Your stage events log is the `stage_events_log` path in CURRENT HANDOFF DATA. It is read-only evidence",
+            contract,
+        )
+        self.assertNotIn(events, contract)
         for words in ("StructuredOutput", "event:item_N", "capture_command"):
             self.assertIn(words, contract)
         self.assertTrue(contract.endswith(json.dumps(schema, separators=(",", ":")) + "\n"))
-        self.assertIn("capture_command", json.loads(handoff))
+        handoff_data = json.loads(handoff)
+        self.assertIn("capture_command", handoff_data)
+        self.assertEqual(events, handoff_data["stage_events_log"])
         for absent in (
             "Do not cite event: IDs",
             "Write your final report as exactly one JSON object to this file",

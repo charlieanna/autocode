@@ -22,7 +22,11 @@ concurrency:
 jobs:
   scope:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
+      full_suite: ${{ steps.base-health.outputs.full }}
       suite: ${{ steps.select.outputs.suite }}
       scenarios: ${{ steps.select.outputs.scenarios }}
       dashboard: ${{ steps.select.outputs.dashboard }}
@@ -41,14 +45,33 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Inspect base suite
+        id: base-health
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          conclusion=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/tests.yml/runs?head_sha=${BASE}&event=push&per_page=20" \
+            --jq '[.workflow_runs[] | select(.status == "completed")] | sort_by(.run_number, .run_attempt) | last | .conclusion // "unknown"' 2>/dev/null) || conclusion="unknown"
+          if [ "$conclusion" = failure ]; then
+            echo "::warning::base ${BASE} is red; require the full head suite so a corrective PR can prove its repair"
+            echo "full=true" >> "$GITHUB_OUTPUT"
+          else
+            if [ "$conclusion" != success ]; then
+              echo "::warning::no completed base suite verdict for ${BASE}; keeping normal head checks"
+            fi
+            echo "full=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Select affected checks
         id: select
         env:
           EVENT: ${{ github.event_name }}
+          FULL_SUITE: ${{ steps.base-health.outputs.full }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ "$EVENT" = pull_request ]; then
+          if [ "$EVENT" = pull_request ] && [ "$FULL_SUITE" != true ]; then
             python tools/ci_scope.py --base "$BASE" --head "$HEAD" --github-output "$GITHUB_OUTPUT"
           else
             python tools/ci_scope.py --full --github-output "$GITHUB_OUTPUT"
@@ -84,6 +107,13 @@ jobs:
 
   suite:
     needs: scope
+    # Explicit, least privilege: the only write is the attribution comment the
+    # red suite posts to its own pull request (#2603). Without this block the
+    # default token's policy is whatever the repository's is, so the comment
+    # silently warns and the verdict never reaches the author.
+    permissions:
+      contents: read
+      pull-requests: write
     if: needs.scope.outputs.suite == 'true' || needs.scope.outputs.scenarios == 'true' || needs.scope.outputs.dashboard == 'true'
     strategy:
       fail-fast: false
@@ -130,6 +160,11 @@ jobs:
         # AC15 runs a real browser from the Python suite, before the Node gate.
         # Pin the version used for the local feature acceptance checks.
         run: |
+          # The Azure mirror can stall on the 61 MB CJK font archive before any tests run.
+          # Keep signed Ubuntu packages and use the official archive over HTTPS.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
+          fi
           npm install --global agent-browser@0.25.3
           agent-browser install --with-deps
 
@@ -139,7 +174,8 @@ jobs:
         # the same kernel backend as linux-tool-containment on this disposable VM.
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap libseccomp2
+          # tmux: tests.test_chat_screens drives the full-screen chat in a real terminal (#1646).
+          sudo apt-get install -y -q bubblewrap libseccomp2 tmux
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
@@ -149,7 +185,12 @@ jobs:
         # Evidence-bound reuse requires an isolated, source-bound editable install.
         run: |
           python3 -m venv .venv
-          .venv/bin/python -m pip install -e '.[visual]'
+          .venv/bin/python -m pip install -e '.[visual,test]'
+
+      - name: Verify privileged Linux CLI startup
+        if: runner.os == 'Linux' && needs.scope.outputs.suite == 'true'
+        run: |
+          sudo env AUTOCODE_TEST_PRIVILEGED_STARTUP=1 .venv/bin/python -m unittest tests.test_capability_startup.LinuxCapabilityStartupTests tests.test_demo
 
       - name: Prepare pinned Java scenario dependencies
         if: needs.scope.outputs.scenarios == 'true'
@@ -170,14 +211,31 @@ jobs:
         # Master and manual runs retain the complete suite, including slow modules.
         # Test modules run side by side, one per CPU.
         env:
+          EVENT: ${{ github.event_name }}
+          FULL_SUITE: ${{ needs.scope.outputs.full_suite }}
           BASE: ${{ github.event.pull_request.base.sha }}
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          if [ "${{ github.event_name }}" = pull_request ]; then
-            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "$BASE"
+          if [ "$EVENT" = pull_request ] && [ "$FULL_SUITE" != true ]; then
+            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "$BASE" --failed-out .suite-failed.json
           else
-            .venv/bin/python tools/run_suite.py --verbosity 2
+            .venv/bin/python tools/run_suite.py --verbosity 2 --failed-out .suite-failed.json
           fi
+
+      - name: Attribute red to base or head
+        # A red suite does not say whose failure it is, so an agent debugs its own
+        # breakage and somebody else's alike (#2603). Run only the failing modules
+        # against the event's pinned base and say which are introduced here and which
+        # were already red there. Informational: ci-required is what blocks the merge.
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          .venv/bin/python tools/attribute_failure.py --base "$BASE" --failed .suite-failed.json | tee .attribution.md
+          cat .attribution.md >> "$GITHUB_STEP_SUMMARY"
+          gh pr comment "$PR" --body-file .attribution.md || echo "could not post the attribution comment"
 
       - name: Run the scenario harness
         if: needs.scope.outputs.scenarios == 'true'
@@ -189,12 +247,14 @@ jobs:
         # leaves out the slow ones in tests/suite_slow.json unless it changes scenarios/ or
         # the suite machinery; master runs them all.
         run: |
-          if [ "${{ github.event_name }}" = pull_request ]; then
+          if [ "$EVENT" = pull_request ] && [ "$FULL_SUITE" != true ]; then
             .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2 --changed "$BASE"
           else
             .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2
           fi
         env:
+          EVENT: ${{ github.event_name }}
+          FULL_SUITE: ${{ needs.scope.outputs.full_suite }}
           BASE: ${{ github.event.pull_request.base.sha }}
           PYTHONDONTWRITEBYTECODE: "1"
 
@@ -258,6 +318,51 @@ jobs:
             echo "node $test_file"
             node "$test_file" || exit 1
           done
+
+  diff-coverage:
+    needs: scope
+    # Advisory (#2754): which changed tools/ lines no selected test executes. It runs the
+    # same --changed selection as the suite, in its own venv with coverage.py, so the gate
+    # above never runs with a coverage tool installed. Not in ci-required, and its
+    # steps never fail the job; the suite job is still the verdict on the tests.
+    if: github.event_name == 'pull_request' && needs.scope.outputs.suite == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Prepare native Linux verification boundary
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap libseccomp2 tmux
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Install package with coverage.py
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -e '.[visual,test,coverage]'
+      - name: Run the changed selection under coverage
+        continue-on-error: true
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          .venv/bin/python tools/ci_diff_coverage.py run --data-dir "$RUNNER_TEMP/diff-coverage" -- \
+            .venv/bin/python tools/run_suite.py --changed "$BASE"
+      - name: Report changed lines no test executed
+        if: ${{ !cancelled() }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          .venv/bin/python tools/ci_diff_coverage.py report --base "$BASE" \
+            --coverage-json "$RUNNER_TEMP/diff-coverage/coverage.json" \
+            --summary "$GITHUB_STEP_SUMMARY" --json-out "$RUNNER_TEMP/diff-coverage/report.json"
 
   macos-tool-containment:
     needs: scope
@@ -439,7 +544,9 @@ jobs:
         continue-on-error: true
         timeout-minutes: 45
         # Every fast module: --changed against HEAD selects nothing extra, --all-fast adds the rest.
-        run: .venv/Scripts/python tools/run_suite.py --verbosity 2 --changed HEAD --all-fast
+        # A module still running after 10 minutes is ended and named as timed out (#1681), so one
+        # hung module cannot run into the step limit and hide which one it was.
+        run: .venv/Scripts/python tools/run_suite.py --verbosity 2 --changed HEAD --all-fast --module-timeout 600
         env:
           PYTHONDONTWRITEBYTECODE: "1"
           PYTHONUTF8: "1"

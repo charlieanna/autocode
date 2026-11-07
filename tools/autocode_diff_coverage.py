@@ -8,6 +8,7 @@ nothing from the runner; the caller runs the commands and passes the diff.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -202,18 +203,48 @@ def go_module(root) -> str | None:
     return match.group(1).strip('"') if match else None
 
 
+# Directories never searched for a nested go.mod: dependencies, metadata and AutoCode's own files.
+GO_MODULE_SKIP = frozenset({".git", ".autocode", "vendor", "node_modules", "testdata"})
+
+
+def go_modules(root) -> dict[str, str]:
+    """Every module in the checkout: its declared path, mapped to its directory relative to root.
+
+    A repository can hold several modules (etcd's client/v3 is ``go.etcd.io/etcd/client/v3``), and a
+    cover profile names each file by its own module's path, not by the root go.mod's.
+    """
+    root = Path(root)
+    modules: dict[str, str] = {}
+    for directory, names, files in os.walk(root):
+        names[:] = sorted(name for name in names if name not in GO_MODULE_SKIP and not name.startswith("."))
+        if "go.mod" in files:
+            module = go_module(directory)
+            relative = Path(directory).relative_to(root).as_posix()
+            if module and module not in modules:
+                modules[module] = "" if relative == "." else relative
+    return modules
+
+
+def _go_relative(path, modules) -> str:
+    """A profile path made checkout-relative by its longest matching module path."""
+    for module in sorted(modules, key=len, reverse=True):
+        if path.startswith(module + "/"):
+            directory = modules[module]
+            rest = path[len(module) + 1 :]
+            return f"{directory}/{rest}" if directory else rest
+    return path
+
+
 def parse_go_cover(text, root=None) -> tuple[dict, dict]:
     """``file:startLine.col,endLine.col statements count`` blocks, with files made checkout-relative."""
-    module = go_module(root) if root else None
+    modules = go_modules(root) if root else {}
     executed: dict[str, set] = {}
     missing: dict[str, set] = {}
     for line in text.splitlines():
         match = re.match(r"(.+):(\d+)\.\d+,(\d+)\.\d+ \d+ (\d+)$", line)
         if not match:
             continue
-        path = match.group(1)
-        if module and path.startswith(module + "/"):
-            path = path[len(module) + 1 :]
+        path = _go_relative(match.group(1), modules)
         bucket = executed if int(match.group(4)) else missing
         bucket.setdefault(path, set()).update(range(int(match.group(2)), int(match.group(3)) + 1))
     for path in set(executed) | set(missing):
@@ -251,10 +282,26 @@ def collect(framework, command, tree, evidence_dir, diff_text, run) -> dict:
     spec = prepare(framework, command, tree, evidence_dir)
     if spec is None:
         return skipped()
-    run(spec["command"], Path(evidence_dir) / "run.log")
+    report_path = Path(spec["report"])
+    # Each proof owns its directory. Never accept a pre-existing or redirected
+    # report as the output of this invocation.
+    if report_path.is_symlink():
+        return skipped("the coverage report is a symlink; no measurement was accepted")
+    report_path.unlink(missing_ok=True)
+    receipts = [run(spec["command"], Path(evidence_dir) / "run.log")]
     if spec["finalize"]:
-        run(spec["finalize"], Path(evidence_dir) / "report.log")
-    return finish(spec["tool"], spec["report"], tree, text)
+        receipts.append(run(spec["finalize"], Path(evidence_dir) / "report.log"))
+    result = finish(spec["tool"], report_path, tree, text)
+    result.update(
+        command_receipts=receipts,
+        command_outputs=[row.get("output") for row in receipts],
+        report_path=str(report_path),
+        report_fresh=True,
+        source_root=str(Path(tree).resolve()),
+    )
+    if report_path.is_file() and not report_path.is_symlink():
+        result["report_sha256"] = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    return result
 
 
 def finish(tool, report_path, tree, diff_text) -> dict:
@@ -271,4 +318,13 @@ def finish(tool, report_path, tree, diff_text) -> dict:
             executed, missing = parse_coverage_json(json.loads(path.read_text()), tree)
     except (OSError, ValueError, TypeError, AttributeError):
         return skipped(f"the {tool} report could not be read; diff coverage was not collected")
-    return {"collected": True, "tool": tool, "note": None, **intersect(hunks(diff_text), executed, missing)}
+    return {
+        "collected": True,
+        "tool": tool,
+        "note": None,
+        "measured_lines": {
+            name: {"executed": sorted(executed.get(name, ())), "missing": sorted(missing.get(name, ()))}
+            for name in sorted(executed.keys() | missing.keys())
+        },
+        **intersect(hunks(diff_text), executed, missing),
+    }

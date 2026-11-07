@@ -1,6 +1,12 @@
 """Run the exact CLI controls a freshly inspected recovery card names."""
 
 from copy import deepcopy
+from pathlib import Path
+
+try:
+    from .. import autocode_client_actions as client_actions
+except ImportError:
+    import autocode_client_actions as client_actions
 
 # The dashboard binds the run and the inspected pause itself; a card cannot rebind them.
 BOUND_FLAGS = {"--run-dir", "--workspace", "--expected-recovery-token"}
@@ -66,8 +72,41 @@ def command(card, selected):
     return ["--no-chat", "--expected-recovery-token", card["token"], *args]
 
 
+def number_command(view, workspace, run, input_id, value):
+    """The flags that set the one number a pause leaves to a person (#2044), with what they typed.
+
+    The number goes only into the command the status view names for it: the row's own ``command``
+    when next_command is a plain resume or AutoResolver's request, otherwise next_command itself.
+    The shared client rule validates the row, its bounds and the token binding; the dashboard adds no
+    flag of its own. The recovery token returns to argv for enqueue to move into its private channel.
+    """
+    workspace, run = Path(workspace), Path(run)
+    try:
+        offer = client_actions.bound_offer(view, workspace, run)
+        if offer:
+            row, command = offer
+            filled = client_actions.fill_offer(view, row, command, value)
+        else:
+            command = client_actions.named(view, workspace, run)
+            rows = client_actions.integer_inputs(view, command)
+            if not rows:
+                raise client_actions.ClientGap("This pause offers no number to set")
+            row = rows[0]
+            filled = client_actions.fill(view, command, {row["id"]: value})
+    except client_actions.ClientGap as error:
+        raise ValueError(str(error)) from None
+    if row["id"] != input_id:
+        raise ValueError("The limit this pause offers changed. Refresh and review it before continuing.")
+    argv = list(filled.argv)
+    index = argv.index("--expected-recovery-token") + 1
+    argv[index] = filled.env[client_actions.TOKEN_ENV]
+    return ["--no-chat", *argv], row
+
+
 class RecoveryActionsMixin:
     def mutate(self, data):
+        if data.get("action") == "set_pause_number":
+            return self._set_pause_number(data)
         if data.get("action") != "recover_pause":
             return super().mutate(data)
         workspace = self.workspace_for(data.get("workspace", ""))
@@ -88,3 +127,23 @@ class RecoveryActionsMixin:
         extra = command(card, selected)
         self.status_cache.pop(str(run), None)
         return self.enqueue(workspace, run, selected["label"], extra)
+
+    def _set_pause_number(self, data):
+        """A number typed at a pause, taken through the command the fresh status view names for it."""
+        workspace = self.workspace_for(data.get("workspace", ""))
+        run = self.run_for(workspace, data.get("run", ""))
+        if not run:
+            raise ValueError("Run does not belong to an available project")
+        value = data.get("value")
+        if not isinstance(value, str):
+            raise ValueError("Enter a whole number")
+        status, error = self._json_command(["--workspace", str(workspace), "--run-dir", str(run), "--status"])
+        if error:
+            raise ValueError(error["message"])
+        view = status.get("view") if isinstance(status, dict) else None
+        token = (view.get("recovery") or {}).get("token") if isinstance(view, dict) else None
+        if not token or token != data.get("recovery_token"):
+            raise ValueError("The saved pause changed. Refresh and inspect the current recovery card.")
+        extra, row = number_command(view, workspace, run, data.get("input_id"), value)
+        self.status_cache.pop(str(run), None)
+        return self.enqueue(workspace, run, "Set " + row["label"].lower(), extra)

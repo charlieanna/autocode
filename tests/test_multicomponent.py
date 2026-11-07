@@ -281,7 +281,7 @@ class FakeSchemaCompatibilityTests(unittest.TestCase):
             schema = root / "schema.json"
             schema.write_text(json.dumps({"type": "object", "properties": {}, "required": []}))
             output = root / "report.json"
-            for repeated in (False, True):
+            for repeated in (False, True, "historical_delta"):
                 with self.subTest(repeated=repeated):
                     data = {
                         "report_repair": True,
@@ -295,6 +295,17 @@ class FakeSchemaCompatibilityTests(unittest.TestCase):
                     if repeated:
                         data["original_report"] = {"content": report}
                         data["rejected_report"]["content"].update(verdict="PASS", findings=[], contract_hash="wrong")
+                    if repeated == "historical_delta":
+                        data["original_report"] = {
+                            "content_base": "rejected_report.content",
+                            "content_delta": {
+                                "remove": [],
+                                "replace": [
+                                    {"path": [key], "value": report[key]}
+                                    for key in ("verdict", "findings", "contract_hash")
+                                ],
+                            },
+                        }
                     proc = subprocess.run(
                         [
                             sys.executable,
@@ -864,13 +875,27 @@ class CliTests(BuildAndIntegrateTests):
         )
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-q", "-m", "runtime blocks")
+        # The component delivers code, so it also delivers the test that proves it (#2474); its
+        # check runs that test, and the test checks the Dockerfile the runtime block names.
+        test = (
+            "import os\nimport subprocess\nimport sys\nimport unittest\n"
+            "HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))\n"
+            "class ServerTests(unittest.TestCase):\n"
+            "    def test_c1_server_prints_alpha_and_ships_a_dockerfile(self):\n"
+            "        proc = subprocess.run([sys.executable, os.path.join(HERE, 'server.py')], capture_output=True, text=True)\n"
+            "        self.assertEqual((0, 'alpha\\n'), (proc.returncode, proc.stdout))\n"
+            "        self.assertTrue(os.path.isfile(os.path.join(HERE, 'Dockerfile')))\n"
+        )
         self.write_manifest(
             alpha={
                 "description": "the alpha component",
-                "check": "test -f components/alpha/Dockerfile",
+                "test": "test_c1_server_prints_alpha_and_ships_a_dockerfile",
+                "check": "python3 -m unittest discover -v -s components/alpha",
                 "files": {
                     "components/alpha/server.py": "print('alpha')\n",
                     "components/alpha/Dockerfile": "FROM python:3.12-slim\n",
+                    "components/alpha/tests/__init__.py": "",
+                    "components/alpha/tests/test_server.py": test,
                 },
             }
         )

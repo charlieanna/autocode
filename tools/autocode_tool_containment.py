@@ -25,9 +25,11 @@ from pathlib import Path
 try:
     from . import autocode_native_conformance as native_conformance
     from . import autocode_util as util
+    from .autocode_source_privacy import SECRET_NAME
 except ImportError:
     import autocode_native_conformance as native_conformance
     import autocode_util as util
+    from autocode_source_privacy import SECRET_NAME
 
 
 SUPPORTED_VERSION = "1.18.33"
@@ -70,7 +72,9 @@ CONTROL_NAME = re.compile("tool-containment-[0-9a-f]{32}")
 # worktrees. A native planning shell reads none of those that exist when its launch is prepared
 # (private_run_reads()). Not every .autocode directory is listed: other launches' control directories
 # and the rest stay readable. The modules that make these directories own their names;
-# tests/test_tool_containment.py binds each entry to them.
+# tests/test_tool_containment.py binds each entry to them. Program state and program worktrees
+# come from the retired `autocode program` (archived on branch archive/program); they stay denied
+# because older runs may have left them.
 PRIVATE_STORES = (
     "archive",
     "arena",
@@ -88,6 +92,10 @@ PRIVATE_STORES = (
     "verification",
     "worktrees",
 )
+
+
+class NativePermissionDenied(RuntimeError):
+    """Effective provider policy denied a model-free proof; no permission is widened."""
 
 
 class UnusableStore(ValueError):
@@ -113,8 +121,6 @@ class StorePause(util.Paused):
 # Errors that name a private store and their own remedy; provider_launch.prepare adds none of its own.
 STORE_ERRORS = (UnusableStore, StorePause)
 DENIAL_CHANGED = "Private run-state read denial changed; no provider launched"
-# The Seatbelt profile denies reading these names anywhere; bubblewrap masks them.
-SECRET_NAME = re.compile(r"\.env(\..*)?|auth\.json|id_rsa|id_ed25519")
 DENIAL_TEXT = re.compile(r"Operation not permitted|Permission denied|Read-only file system")
 NO_OPENCODE = "strict tool containment cannot find the opencode executable on PATH"
 
@@ -125,7 +131,14 @@ def backend():
 
 
 def _bubblewrap_problem():
-    """Why bwrap cannot create the namespaces a contained shell needs, or None."""
+    """Why bwrap cannot create the namespaces a contained shell needs, or None.
+
+    The probe mounts the fresh /dev and /proc every launch's bubblewrap_arguments()
+    creates in the new PID namespace. Namespaces alone can work where that mount is
+    refused: a container that masks system paths (Docker's default masks) blocks the
+    fresh /proc mount, so the weaker no-proc probe passed exactly where the first real
+    launch failed (#2373).
+    """
     if not Path(BWRAP).is_file():
         return (
             "strict tool containment requires macOS sandbox-exec or Linux bubblewrap at "
@@ -133,7 +146,22 @@ def _bubblewrap_problem():
         )
     try:
         probe = subprocess.run(
-            [BWRAP, "--unshare-all", "--cap-drop", "ALL", "--ro-bind", "/", "/", "/bin/sh", "-c", "exit 0"],
+            [
+                BWRAP,
+                "--unshare-all",
+                "--cap-drop",
+                "ALL",
+                "--ro-bind",
+                "/",
+                "/",
+                "--dev",
+                "/dev",
+                "--proc",
+                "/proc",
+                "/bin/sh",
+                "-c",
+                "exit 0",
+            ],
             capture_output=True,
             text=True,
             timeout=15,
@@ -145,8 +173,12 @@ def _bubblewrap_problem():
         detail = (probe.stderr.strip().splitlines() or ["no message"])[-1][:300]
         # "this machine is <platform>", as every other refusal says it (the CLI names the host the same way).
         return (
-            f"strict tool containment found {BWRAP} but it cannot create unprivileged namespaces; "
-            f"this machine is {sys.platform}, where the probe exited {probe.returncode}: {detail}"
+            f"strict tool containment found {BWRAP} but it cannot create the unprivileged namespaces "
+            f"and fresh /proc mount a contained shell needs; this machine is {sys.platform}, where the "
+            f"probe exited {probe.returncode}: {detail}. This host may disable unprivileged user "
+            "namespaces, or mask system paths so the sandbox cannot mount its own /proc (Docker's "
+            "default masks do); enable user namespaces, or run the outer container with "
+            "--security-opt=systempaths=unconfined, or use an unmasked host"
         )
     return None
 
@@ -155,7 +187,8 @@ def sandbox_problem():
     """Why this host has no usable kernel sandbox for contained shells, or None.
 
     Runs no OpenCode: on Linux it starts one bwrap probe, because an installed bwrap
-    can still be denied unprivileged user namespaces.
+    can still be denied unprivileged user namespaces, or be unable to mount the fresh
+    /proc its launches need inside the new PID namespace (#2373).
     """
     host = backend()
     if host is None:
@@ -1146,15 +1179,365 @@ def shell_permissions(rules):
     return {"*": "deny", "bash": bash, "external_directory": "deny"}
 
 
-def configure(command, environment, workspace, *, allow_write, request, retain_launch_identity=False):
+def _same_shell_permissions(actual, expected):
+    # Native permission patterns are last-match wins; dict equality alone loses their order.
+    return actual == expected and list(actual["bash"].items()) == list(expected["bash"].items())
+
+
+def _resolved_kilo_shell_policy(policy, definition):
+    """Take only this launch's already intersected Kilo policy, never stored native evidence."""
+    if (
+        not isinstance(policy, dict)
+        or list(policy) != ["*", "bash", "external_directory"]
+        or policy["*"] != "deny"
+        or policy["external_directory"] != "deny"
+        or not isinstance(policy["bash"], dict)
+        or not policy["bash"]
+        or any(
+            not isinstance(pattern, str) or action not in ("allow", "deny", "ask")
+            for pattern, action in policy["bash"].items()
+        )
+    ):
+        raise RuntimeError("Unsupported resolved Kilo shell policy")
+    current = definition.get("permission")
+    if not isinstance(current, dict) or list(current) != list(policy) or not _same_shell_permissions(current, policy):
+        raise RuntimeError("Resolved Kilo shell policy differs from this launch's agent")
+    return {"*": "deny", "bash": dict(policy["bash"]), "external_directory": "deny"}
+
+
+def _native_debug(prefix, workspace, child):
+    """The model-free ``debug agent`` call every conformance probe makes; ``child`` is read at each call."""
+
+    def debug(args=()):
+        result = subprocess.run([*prefix, *args], cwd=workspace, env=child, capture_output=True, text=True, timeout=60)
+        if result.returncode:
+            if "The user has specified a rule which prevents you from using this specific tool call" in result.stderr:
+                # Native diagnostics can include private config/rules. Classify the known
+                # refusal without copying stderr, changing grants, or blaming the sandbox.
+                raise NativePermissionDenied(
+                    "Native tool permissions deny the model-free conformance probe. "
+                    "Review the provider's effective shell permissions; ask/deny rules remain enforced. "
+                    "No provider launched"
+                )
+            raise RuntimeError(
+                "Strict native tool conformance failed before provider launch (exit " + str(result.returncode) + ")"
+            )
+        try:
+            return json.loads(result.stdout)
+        except ValueError as error:
+            raise RuntimeError("Native tool conformance did not return auditable JSON") from error
+
+    return debug
+
+
+def _shell_probe(debug, workspace, target):
+    """Prove the actual native bash runs contained: it cannot write the runner's sentinel and can write scratch."""
+    control = Path(target["profile"]).parent
+    sentinel = control / "conformance-forbidden"
+    sentinel.write_text("runner-owned sentinel\n")
+    scratch = Path(target["scratch"]) / "conformance-capture"
+    probe = (
+        'test "$AUTOCODE_TOOL_CONTAINMENT_ID" = '
+        + shlex.quote(control.name)
+        + " && ! (: > "
+        + shlex.quote(str(sentinel))
+        + ")"
+        + " && (: > "
+        + shlex.quote(str(scratch))
+        + ")"
+    )
+    response = debug(
+        [
+            "--tool",
+            "bash",
+            "--params",
+            json.dumps(
+                {
+                    "command": probe,
+                    "description": "AutoCode kernel containment conformance (no model)",
+                    "workdir": str(Path(workspace).resolve()),
+                    "timeout": 10000,
+                }
+            ),
+        ]
+    )
+    native_receipt = _check_kernel_receipt(response, probe, control, scratch, sentinel)
+    result = response["result"]
+    return control, probe, result, native_receipt
+
+
+def _private_read_probe(debug, workspace, target):
+    """Prove the actual native bash cannot read the run's private state, and can list its planning artifacts."""
+    # A parent-created sentinel in the planning run's own directory stands for its state, and
+    # one in each private store the denial names for what that store holds: the actual native
+    # bash must fail to read every one, and must list the run's planning/ artifacts when they
+    # exist. Their random content never appears in the retained output.
+    reads = target["private_reads"]
+    name = Path(target["profile"]).parent.name + "-private-read-sentinel"
+    places = [
+        Path(reads["run_dir"]),
+        *(Path(path) for path in reads["denied"] if Path(path).name in PRIVATE_STORES),
+    ]
+    if any(not place.is_dir() or place.is_symlink() for place in places):
+        raise RuntimeError("A private store for the read-denial sentinel is missing; no provider launched")
+    sentinels = [place / name for place in places]
+    if any(sentinel.exists() or sentinel.is_symlink() for sentinel in sentinels):
+        raise RuntimeError("Private run-state read sentinel already exists")
+    token, made = uuid.uuid4().hex, []
+    try:
+        for sentinel in sentinels:
+            with sentinel.open("x") as stream:
+                made.append(sentinel)
+                stream.write(token + "\n")
+        denied = " && ".join("! /bin/cat " + shlex.quote(str(sentinel)) for sentinel in sentinels)
+        readable = [path for path in reads["readable"] if Path(path).is_dir()]
+        command = denied + "".join(" && /bin/ls " + shlex.quote(path) + " > /dev/null" for path in readable)
+        observed = debug(
+            [
+                "--tool",
+                "bash",
+                "--params",
+                json.dumps(
+                    {
+                        "command": command,
+                        "description": "AutoCode private run-state read denial (no model)",
+                        "workdir": str(Path(workspace).resolve()),
+                        "timeout": 10000,
+                    }
+                ),
+            ]
+        )
+        checked = observed.get("result", {})
+        output = checked.get("output")
+        if (
+            observed.get("input", {}).get("command") != command
+            or type(checked.get("metadata", {}).get("exit")) is not int
+            or checked["metadata"]["exit"] != 0
+            or not isinstance(output, str)
+            or token in output
+            or not re.search(r"Operation not permitted|Permission denied|No such file or directory", output)
+            or any(sentinel.read_text() != token + "\n" for sentinel in sentinels)
+        ):
+            raise RuntimeError("Actual native bash did not deny reading private run state; no provider launched")
+    finally:
+        for sentinel in made:
+            sentinel.unlink()
+    return {**reads, "listed": readable, "command": command, "tool": "bash", "exit": 0, "output": output}
+
+
+def _footprint_probe(debug, workspace, control, footprint, boundary):
+    """Prove the actual native bash cannot write outside the task footprint or hardlink outside source."""
+    # This parent-created temporary sentinel is outside every declared task
+    # path. It tests the actual native bash route without modifying product
+    # source. It is removed before any stage snapshot/admitted writer.
+    forbidden = Path(workspace).resolve() / (control.name + "-workspace-sentinel")
+    if forbidden.exists() or forbidden.is_symlink():
+        raise RuntimeError("Task-footprint conformance sentinel already exists")
+    raw = b"parent task-footprint sentinel\n"
+    with forbidden.open("xb") as target:
+        target.write(raw)
+    try:
+        denied = "! (: > " + shlex.quote(str(forbidden)) + ")"
+        observed = debug(
+            [
+                "--tool",
+                "bash",
+                "--params",
+                json.dumps(
+                    {
+                        "command": denied,
+                        "description": "AutoCode task-footprint denial check (no model)",
+                        "workdir": str(Path(workspace).resolve()),
+                        "timeout": 10000,
+                    }
+                ),
+            ]
+        )
+        checked = observed.get("result", {})
+        if (
+            observed.get("input", {}).get("command") != denied
+            or type(checked.get("metadata", {}).get("exit")) is not int
+            or checked["metadata"]["exit"] != 0
+            or forbidden.read_bytes() != raw
+            or not re.search(
+                r"Operation not permitted|Permission denied|Read-only file system|Invalid cross-device link",
+                checked.get("output", ""),
+            )
+        ):
+            raise RuntimeError("Actual native bash did not enforce the task writer footprint")
+        footprint_proof = {
+            "write_paths": footprint,
+            "command": denied,
+            "tool": "bash",
+            "exit": 0,
+            "output": checked.get("output"),
+            "sentinel_sha256": hashlib.sha256(raw).hexdigest(),
+        }
+        linked = Path(boundary["scratch"]) / "conformance-outside-hardlink"
+        link_denied = "! " + shlex.join(["/bin/ln", str(forbidden), str(linked)])
+        observed_link = debug(
+            [
+                "--tool",
+                "bash",
+                "--params",
+                json.dumps(
+                    {
+                        "command": link_denied,
+                        "description": "AutoCode outside-source hardlink denial (no model)",
+                        "workdir": str(Path(workspace).resolve()),
+                        "timeout": 10000,
+                    }
+                ),
+            ]
+        )
+        link_result = observed_link.get("result", {})
+        if (
+            observed_link.get("input", {}).get("command") != link_denied
+            or type(link_result.get("metadata", {}).get("exit")) is not int
+            or link_result["metadata"]["exit"] != 0
+            or linked.exists()
+            or linked.is_symlink()
+            or forbidden.read_bytes() != raw
+            or forbidden.stat().st_nlink != 1
+            or not re.search(
+                r"Operation not permitted|Permission denied|Read-only file system|Invalid cross-device link",
+                link_result.get("output", ""),
+            )
+        ):
+            raise RuntimeError("Actual native bash did not deny an outside-source hardlink; footprint unsupported")
+        footprint_proof.update(
+            writer_path_kinds=boundary["writer_path_kinds"],
+            writer_policy_inputs=boundary["writer_policy_inputs"],
+            outside_hardlink={"command": link_denied, "exit": 0, "output": link_result.get("output")},
+        )
+    finally:
+        forbidden.unlink()
+    return footprint_proof
+
+
+def _toolchain_checks(debug, workspace, probes):
+    """Run each selected toolchain's startup check through the actual native bash; return the receipts."""
+    tool_receipts = []
+    for tool_probe in probes:
+        observed = debug(
+            [
+                "--tool",
+                "bash",
+                "--params",
+                json.dumps(
+                    {
+                        "command": tool_probe,
+                        "description": "AutoCode selected toolchain startup check (no model)",
+                        "workdir": str(Path(workspace).resolve()),
+                        "timeout": 10000,
+                    }
+                ),
+            ]
+        )
+        checked = observed.get("result", {})
+        if (
+            observed.get("input", {}).get("command") != tool_probe
+            or type(checked.get("metadata", {}).get("exit")) is not int
+            or checked["metadata"]["exit"] != 0
+        ):
+            raise RuntimeError(
+                "Selected toolchain failed native prelaunch check: "
+                + tool_probe
+                + "; "
+                + str(checked.get("output", ""))[-2000:]
+            )
+        tool_receipts.append({"command": tool_probe, "exit": 0, "output": checked.get("output")})
+
+    return tool_receipts
+
+
+def _retain(
+    target,
+    probe,
+    result,
+    native_receipt,
+    *,
+    tool_receipts,
+    supported_version,
+    transport,
+    private_proof,
+    launch_identity,
+    writer_proof=None,
+    startup=None,
+):
+    """Write the conformance proof beside the profile, bind its digests to the boundary and verify it.
+
+    ``launch_identity`` is None, or a callable that observes the native launch when the proof is written.
+    """
+    # Legacy opt-out fields and JSON insertion order are deliberately kept.
+    proof = {
+        **({"writer_footprint": writer_proof} if writer_proof is not None else {}),
+        "toolchain_checks": tool_receipts,
+        "command": probe,
+        "tool": "bash",
+        "exit": result["metadata"]["exit"],
+        "output": result.get("output") if isinstance(result.get("output"), str) else None,
+        "native_receipt": native_receipt,
+        "native_version": supported_version,
+        "backend": target.get("backend"),
+        "backend_version": target.get("backend_version"),
+        "profile_sha256": hashlib.sha256(Path(target["profile"]).read_bytes()).hexdigest(),
+        "shell_sha256": hashlib.sha256(Path(target["shell"]).read_bytes()).hexdigest(),
+    }
+    if transport == "kilocode":
+        proof["transport"] = transport
+    if "private_reads" in target:
+        proof["private_reads"] = private_proof
+    if launch_identity is not None:
+        proof["launch_identity"] = launch_identity()
+    if startup is not None:
+        proof["readonly_startup_boundary"] = startup
+    proof_path = Path(target["profile"]).parent / "conformance.json"
+    proof_path.write_text(json.dumps(proof, indent=2) + "\n")
+    target.update(
+        {
+            "conformance": str(proof_path),
+            "profile_sha256": proof["profile_sha256"],
+            "shell_sha256": proof["shell_sha256"],
+            "native_version": supported_version,
+            "conformance_sha256": hashlib.sha256(proof_path.read_bytes()).hexdigest(),
+        }
+    )
+    if transport == "kilocode":
+        target["transport"] = transport
+    verify(target)
+    return target
+
+
+def configure(
+    command,
+    environment,
+    workspace,
+    *,
+    allow_write,
+    request,
+    retain_launch_identity=False,
+    transport="opencode",
+    resolved_shell_policy=None,
+):
     """Constrain one launch and prove its *actual* native bash path before dispatch.
 
     Only model-free debug commands run here. No approval is auto-granted: an
     approval-bearing shell policy blocks conformance rather than using debug's
     auto-allow-ask behavior. The original model, effort and command are untouched.
     A readonly request's ``private_run`` (prepare()) is proven through the actual
-    native bash too, and that proof is retained in conformance.json.
+    native bash too, and that proof is retained in conformance.json. Kilo may pass
+    its freshly intersected shell policy to avoid resolving the intermediate agent;
+    the final effective native policy and every actual shell probe are still checked.
     """
+    if transport not in ("opencode", "kilocode"):
+        raise ValueError("Unsupported tool containment transport")
+    if transport == "kilocode" and (allow_write or retain_launch_identity):
+        raise ValueError("Ordinary Kilo containment supports readonly stages only")
+    if resolved_shell_policy is not None and transport != "kilocode":
+        raise ValueError("Resolved shell policy is only supported for ordinary read-only Kilo")
+    supported_version = "7.8.3" if transport == "kilocode" else SUPPORTED_VERSION
+    config_variable = "KILO_CONFIG_CONTENT" if transport == "kilocode" else "OPENCODE_CONFIG_CONTENT"
     if type(retain_launch_identity) is not bool:
         raise ValueError("Native launch observation option must be an explicit boolean")
     if backend() is None:
@@ -1192,33 +1575,25 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
     version = subprocess.run(
         [executable, "--version"], env=environment, cwd=workspace, capture_output=True, text=True, timeout=15
     )
-    if version.returncode or version.stdout.strip() != SUPPORTED_VERSION:
-        raise RuntimeError(
-            "Strict native tool containment supports only conformance-tested OpenCode " + SUPPORTED_VERSION
-        )
+    if version.returncode or version.stdout.strip() != supported_version:
+        raise RuntimeError("Strict native tool containment requires qualified " + transport + " " + supported_version)
     agent = command[command.index("--agent") + 1]
     child = dict(environment)
-    config = json.loads(child["OPENCODE_CONFIG_CONTENT"])
+    config = json.loads(child[config_variable])
     definition = config["agent"][agent]
     definition["model"] = command[command.index("--model") + 1]
-    child["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
+    child[config_variable] = json.dumps(config)
     prefix = [executable, "debug", "agent", agent]
 
-    def debug(args=()):
-        result = subprocess.run([*prefix, *args], cwd=workspace, env=child, capture_output=True, text=True, timeout=60)
-        if result.returncode:
-            raise RuntimeError(
-                "Strict native tool conformance failed before provider launch (exit " + str(result.returncode) + ")"
-            )
-        try:
-            return json.loads(result.stdout)
-        except ValueError as error:
-            raise RuntimeError("Native tool conformance did not return auditable JSON") from error
+    debug = _native_debug(prefix, workspace, child)
 
-    original = debug()
-    if not isinstance(original, dict):
-        raise RuntimeError("Native tool conformance returned an unsupported agent object")
-    permissions = shell_permissions(original.get("permission"))
+    if resolved_shell_policy is None:
+        original = debug()
+        if not isinstance(original, dict):
+            raise RuntimeError("Native tool conformance returned an unsupported agent object")
+        permissions = shell_permissions(original.get("permission"))
+    else:
+        permissions = _resolved_kilo_shell_policy(resolved_shell_policy, definition)
     try:
         from . import autocode_toolchain as toolchain
     except ImportError:
@@ -1242,11 +1617,11 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
     definition["permission"] = permissions
     definition.pop("tools", None)
     child["SHELL"] = boundary["shell"]
-    child["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
+    child[config_variable] = json.dumps(config)
     actual = debug()
     if not isinstance(actual, dict):
         raise RuntimeError("Native tool conformance returned an unsupported agent object")
-    if shell_permissions(actual.get("permission")) != permissions:
+    if not _same_shell_permissions(shell_permissions(actual.get("permission")), permissions):
         raise RuntimeError("Strict containment could not preserve the effective shell restrictions")
     tools = actual.get("tools", {})
     if (
@@ -1260,262 +1635,31 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
     if any(action == "ask" for action in permissions["bash"].values()):
         raise RuntimeError("Native debug would auto-approve a shell ask; strict conformance is blocked")
 
-    def shell_probe(target):
-        control = Path(target["profile"]).parent
-        sentinel = control / "conformance-forbidden"
-        sentinel.write_text("runner-owned sentinel\n")
-        scratch = Path(target["scratch"]) / "conformance-capture"
-        probe = (
-            'test "$AUTOCODE_TOOL_CONTAINMENT_ID" = '
-            + shlex.quote(control.name)
-            + " && ! (: > "
-            + shlex.quote(str(sentinel))
-            + ")"
-            + " && (: > "
-            + shlex.quote(str(scratch))
-            + ")"
-        )
-        response = debug(
-            [
-                "--tool",
-                "bash",
-                "--params",
-                json.dumps(
-                    {
-                        "command": probe,
-                        "description": "AutoCode kernel containment conformance (no model)",
-                        "workdir": str(Path(workspace).resolve()),
-                        "timeout": 10000,
-                    }
-                ),
-            ]
-        )
-        native_receipt = _check_kernel_receipt(response, probe, control, scratch, sentinel)
-        result = response["result"]
-        return control, probe, result, native_receipt
+    control, probe, result, native_receipt = _shell_probe(debug, workspace, boundary)
 
-    control, probe, result, native_receipt = shell_probe(boundary)
+    private_proof = _private_read_probe(debug, workspace, boundary) if "private_reads" in boundary else None
 
-    def private_read_probe(target):
-        # A parent-created sentinel in the planning run's own directory stands for its state, and
-        # one in each private store the denial names for what that store holds: the actual native
-        # bash must fail to read every one, and must list the run's planning/ artifacts when they
-        # exist. Their random content never appears in the retained output.
-        reads = target["private_reads"]
-        name = Path(target["profile"]).parent.name + "-private-read-sentinel"
-        places = [
-            Path(reads["run_dir"]),
-            *(Path(path) for path in reads["denied"] if Path(path).name in PRIVATE_STORES),
-        ]
-        if any(not place.is_dir() or place.is_symlink() for place in places):
-            raise RuntimeError("A private store for the read-denial sentinel is missing; no provider launched")
-        sentinels = [place / name for place in places]
-        if any(sentinel.exists() or sentinel.is_symlink() for sentinel in sentinels):
-            raise RuntimeError("Private run-state read sentinel already exists")
-        token, made = uuid.uuid4().hex, []
-        try:
-            for sentinel in sentinels:
-                with sentinel.open("x") as stream:
-                    made.append(sentinel)
-                    stream.write(token + "\n")
-            denied = " && ".join("! /bin/cat " + shlex.quote(str(sentinel)) for sentinel in sentinels)
-            readable = [path for path in reads["readable"] if Path(path).is_dir()]
-            command = denied + "".join(" && /bin/ls " + shlex.quote(path) + " > /dev/null" for path in readable)
-            observed = debug(
-                [
-                    "--tool",
-                    "bash",
-                    "--params",
-                    json.dumps(
-                        {
-                            "command": command,
-                            "description": "AutoCode private run-state read denial (no model)",
-                            "workdir": str(Path(workspace).resolve()),
-                            "timeout": 10000,
-                        }
-                    ),
-                ]
-            )
-            checked = observed.get("result", {})
-            output = checked.get("output")
-            if (
-                observed.get("input", {}).get("command") != command
-                or type(checked.get("metadata", {}).get("exit")) is not int
-                or checked["metadata"]["exit"] != 0
-                or not isinstance(output, str)
-                or token in output
-                or not re.search(r"Operation not permitted|Permission denied|No such file or directory", output)
-                or any(sentinel.read_text() != token + "\n" for sentinel in sentinels)
-            ):
-                raise RuntimeError("Actual native bash did not deny reading private run state; no provider launched")
-        finally:
-            for sentinel in made:
-                sentinel.unlink()
-        return {**reads, "listed": readable, "command": command, "tool": "bash", "exit": 0, "output": output}
-
-    private_proof = private_read_probe(boundary) if "private_reads" in boundary else None
-
-    def footprint_probe():
-        # This parent-created temporary sentinel is outside every declared task
-        # path. It tests the actual native bash route without modifying product
-        # source. It is removed before any stage snapshot/admitted writer.
-        forbidden = Path(workspace).resolve() / (control.name + "-workspace-sentinel")
-        if forbidden.exists() or forbidden.is_symlink():
-            raise RuntimeError("Task-footprint conformance sentinel already exists")
-        raw = b"parent task-footprint sentinel\n"
-        with forbidden.open("xb") as target:
-            target.write(raw)
-        try:
-            denied = "! (: > " + shlex.quote(str(forbidden)) + ")"
-            observed = debug(
-                [
-                    "--tool",
-                    "bash",
-                    "--params",
-                    json.dumps(
-                        {
-                            "command": denied,
-                            "description": "AutoCode task-footprint denial check (no model)",
-                            "workdir": str(Path(workspace).resolve()),
-                            "timeout": 10000,
-                        }
-                    ),
-                ]
-            )
-            checked = observed.get("result", {})
-            if (
-                observed.get("input", {}).get("command") != denied
-                or type(checked.get("metadata", {}).get("exit")) is not int
-                or checked["metadata"]["exit"] != 0
-                or forbidden.read_bytes() != raw
-                or not re.search(
-                    r"Operation not permitted|Permission denied|Read-only file system|Invalid cross-device link",
-                    checked.get("output", ""),
-                )
-            ):
-                raise RuntimeError("Actual native bash did not enforce the task writer footprint")
-            footprint_proof = {
-                "write_paths": footprint,
-                "command": denied,
-                "tool": "bash",
-                "exit": 0,
-                "output": checked.get("output"),
-                "sentinel_sha256": hashlib.sha256(raw).hexdigest(),
-            }
-            linked = Path(boundary["scratch"]) / "conformance-outside-hardlink"
-            link_denied = "! " + shlex.join(["/bin/ln", str(forbidden), str(linked)])
-            observed_link = debug(
-                [
-                    "--tool",
-                    "bash",
-                    "--params",
-                    json.dumps(
-                        {
-                            "command": link_denied,
-                            "description": "AutoCode outside-source hardlink denial (no model)",
-                            "workdir": str(Path(workspace).resolve()),
-                            "timeout": 10000,
-                        }
-                    ),
-                ]
-            )
-            link_result = observed_link.get("result", {})
-            if (
-                observed_link.get("input", {}).get("command") != link_denied
-                or type(link_result.get("metadata", {}).get("exit")) is not int
-                or link_result["metadata"]["exit"] != 0
-                or linked.exists()
-                or linked.is_symlink()
-                or forbidden.read_bytes() != raw
-                or forbidden.stat().st_nlink != 1
-                or not re.search(
-                    r"Operation not permitted|Permission denied|Read-only file system|Invalid cross-device link",
-                    link_result.get("output", ""),
-                )
-            ):
-                raise RuntimeError("Actual native bash did not deny an outside-source hardlink; footprint unsupported")
-            footprint_proof.update(
-                writer_path_kinds=boundary["writer_path_kinds"],
-                writer_policy_inputs=boundary["writer_policy_inputs"],
-                outside_hardlink={"command": link_denied, "exit": 0, "output": link_result.get("output")},
-            )
-        finally:
-            forbidden.unlink()
-        return footprint_proof
-
-    footprint_proof = footprint_probe() if footprint is not None and not opt_in_writer else None
-    tool_receipts = []
-    for tool_probe in tools_ready["probes"]:
-        observed = debug(
-            [
-                "--tool",
-                "bash",
-                "--params",
-                json.dumps(
-                    {
-                        "command": tool_probe,
-                        "description": "AutoCode selected toolchain startup check (no model)",
-                        "workdir": str(Path(workspace).resolve()),
-                        "timeout": 10000,
-                    }
-                ),
-            ]
-        )
-        checked = observed.get("result", {})
-        if (
-            observed.get("input", {}).get("command") != tool_probe
-            or type(checked.get("metadata", {}).get("exit")) is not int
-            or checked["metadata"]["exit"] != 0
-        ):
-            raise RuntimeError(
-                "Selected toolchain failed native prelaunch check: "
-                + tool_probe
-                + "; "
-                + str(checked.get("output", ""))[-2000:]
-            )
-        tool_receipts.append({"command": tool_probe, "exit": 0, "output": checked.get("output")})
-
-    def retain(target, probe, result, native_receipt, *, writer_proof=None, startup=None):
-        # Legacy opt-out fields and JSON insertion order are deliberately kept.
-        proof = {
-            **({"writer_footprint": writer_proof} if writer_proof is not None else {}),
-            "toolchain_checks": tool_receipts,
-            "command": probe,
-            "tool": "bash",
-            "exit": result["metadata"]["exit"],
-            "output": result.get("output") if isinstance(result.get("output"), str) else None,
-            "native_receipt": native_receipt,
-            "native_version": SUPPORTED_VERSION,
-            "backend": target.get("backend"),
-            "backend_version": target.get("backend_version"),
-            "profile_sha256": hashlib.sha256(Path(target["profile"]).read_bytes()).hexdigest(),
-            "shell_sha256": hashlib.sha256(Path(target["shell"]).read_bytes()).hexdigest(),
-        }
-        if "private_reads" in target:
-            proof["private_reads"] = private_proof
-        if retain_launch_identity:
-            proof["launch_identity"] = native_conformance.observe(command, child, executable, actual)
-        if startup is not None:
-            proof["readonly_startup_boundary"] = startup
-        proof_path = Path(target["profile"]).parent / "conformance.json"
-        proof_path.write_text(json.dumps(proof, indent=2) + "\n")
-        target.update(
-            {
-                "conformance": str(proof_path),
-                "profile_sha256": proof["profile_sha256"],
-                "shell_sha256": proof["shell_sha256"],
-                "native_version": SUPPORTED_VERSION,
-                "conformance_sha256": hashlib.sha256(proof_path.read_bytes()).hexdigest(),
-            }
-        )
-        verify(target)
-        return target
+    footprint_proof = (
+        _footprint_probe(debug, workspace, control, footprint, boundary)
+        if footprint is not None and not opt_in_writer
+        else None
+    )
+    tool_receipts = _toolchain_checks(debug, workspace, tools_ready["probes"])
+    retained = dict(
+        tool_receipts=tool_receipts,
+        supported_version=supported_version,
+        transport=transport,
+        private_proof=private_proof,
+        launch_identity=(lambda: native_conformance.observe(command, child, executable, actual))
+        if retain_launch_identity
+        else None,
+    )
 
     startup = None
     if opt_in_writer:
         # Toolchain startup and fixed native shell probes run readonly. No task
         # source grant exists until those actual native checks have completed.
-        startup = retain(boundary, probe, result, native_receipt)
+        startup = _retain(boundary, probe, result, native_receipt, **retained)
         if _writer_path_kinds(workspace, footprint) != initial_kinds:
             raise RuntimeError("Task path kind changed before native writer target setup")
         boundary = prepare(
@@ -1534,11 +1678,11 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
             raise RuntimeError("Native writer target differs from the initial exact kind map")
         config["shell"] = boundary["shell"]
         child["SHELL"] = boundary["shell"]
-        child["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
+        child[config_variable] = json.dumps(config)
         # A changed target shell needs its own final bounded native observation.
         # Reusing readonly conformance would not describe the actual launch.
         actual = debug()
-        if shell_permissions(actual.get("permission")) != permissions:
+        if not _same_shell_permissions(shell_permissions(actual.get("permission")), permissions):
             raise RuntimeError("Native writer target changed effective shell restrictions")
         tools = actual.get("tools", {})
         if (
@@ -1547,9 +1691,11 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
             or any(value is not False for name, value in tools.items() if name != "bash")
         ):
             raise RuntimeError("Native writer target enabled an uncontained native tool")
-        control, probe, result, native_receipt = shell_probe(boundary)
-        footprint_proof = footprint_probe()
-    boundary = retain(boundary, probe, result, native_receipt, writer_proof=footprint_proof, startup=startup)
+        control, probe, result, native_receipt = _shell_probe(debug, workspace, boundary)
+        footprint_proof = _footprint_probe(debug, workspace, control, footprint, boundary)
+    boundary = _retain(
+        boundary, probe, result, native_receipt, writer_proof=footprint_proof, startup=startup, **retained
+    )
     child["AUTOCODE_TOOL_CONTAINMENT"] = json.dumps(boundary)
     return child, boundary
 
@@ -1679,7 +1825,16 @@ def verify(boundary):
         raise RuntimeError("Missing or unsupported native tool containment manifest")
     # A manifest written before #709 names no backend; only Seatbelt existed then.
     host = backend()
-    if host is None or boundary.get("backend", SEATBELT) != host or boundary.get("native_version") != SUPPORTED_VERSION:
+    transport = boundary.get("transport", "opencode")
+    expected_version = "7.8.3" if transport == "kilocode" else SUPPORTED_VERSION
+    if (
+        transport not in ("opencode", "kilocode")
+        or transport == "kilocode"
+        and boundary.get("allow_write") is not False
+        or host is None
+        or boundary.get("backend", SEATBELT) != host
+        or boundary.get("native_version") != expected_version
+    ):
         raise RuntimeError("Native tool containment platform or transport is unsupported")
     try:
         workspace = _path(boundary["workspace"])
@@ -1709,6 +1864,10 @@ def verify(boundary):
                 raise ValueError("Containment authority bytes changed")
     except (KeyError, OSError, ValueError) as error:
         raise RuntimeError("Native tool containment authority changed; no provider launched") from error
+    if transport == "kilocode":
+        proof = json.loads(Path(boundary["conformance"]).read_text())
+        if proof.get("transport") != transport or proof.get("native_version") != expected_version:
+            raise RuntimeError("Kilo kernel conformance does not match the recorded transport")
     if "write_paths" in boundary:
         try:
             footprint = writer_footprint(workspace, boundary["write_paths"])

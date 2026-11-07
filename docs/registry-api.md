@@ -1,4 +1,4 @@
-# Browser registry API
+# Registry APIs
 
 [← Back to README](../README.md)
 
@@ -7,6 +7,14 @@ provider can start. The registry is a small per-user pointer index, not a copy o
 `state.json`, logs, prompts, credentials, or provider configuration. It is stored at
 `$AUTOCODE_HOME/registry.json`; when `AUTOCODE_HOME` is unset, the storage root is
 `~/.autocode`. Set `AUTOCODE_HOME` for isolated installations and tests.
+
+A task started without `AUTOCODE_HOME` records its run in its project's own registry,
+`<project>/.autocode/registry/registry.json`, including a run in a default task
+worktree under `.autocode/worktrees`. So, with `AUTOCODE_HOME` unset, `registry list`
+and `autocode runs --all` run inside a project read that project's registry as well as
+`~/.autocode`; a run in both is listed once, and an unreadable project registry is
+reported as a `project_registry_unreadable` diagnostic. With `AUTOCODE_HOME` set they
+read only that registry.
 
 The browser application should invoke these commands as argument arrays, without a
 shell, using the same environment as the runner:
@@ -49,9 +57,71 @@ read/update/write, releases it, and only then proceeds toward a provider stage.
 Registration failures pause the preserved run as `PAUSED_REGISTRY`; fix storage
 and explicitly resume the same `--run-dir` to retry its stable identity.
 
+## Shared source catalog
+
+Cross-repository bug discovery uses a source catalog shared across launch
+directories. Set `AUTOCODE_SOURCE_CATALOG_HOME` to select its AutoCode home; an
+explicit `AUTOCODE_HOME` selects the same home when the source-specific setting
+is absent. With neither set, the catalog lives in `~/.autocode/source-catalog.json`.
+Terminal chat keeps this user-level location even when its ordinary run registry
+defaults to the project. Existing run registries are unchanged.
+
+Authorize locations once:
+
+```text
+autocode registry roots add /work/services
+autocode registry roots add /mnt/fulfillment
+autocode registry repositories add /work/standalone/history-consumer
+autocode registry roots list
+```
+
+`roots add` authorizes bounded recursive discovery beneath one canonical local
+directory. `repositories add` authorizes one committed Git checkout outside the
+roots. Remove entries with `roots remove PATH` or `repositories remove PATH`.
+These commands change only the catalog; they do not start a task, clone a remote,
+or edit a source checkout. `roots discover --max-depth 8 --directory-budget
+20000 --json` performs read-only inventory and reports whether traversal was
+complete. Reaching a bound, an unavailable root, an unreadable repository, or a
+symlink escaping its configured root is explicit in diagnostics.
+
+Discovery validates Git roots and committed revisions, does not follow directory
+symlinks, and prunes common generated/dependency directories. Worktrees and clones
+with the same normalized remote and tree collapse to one baseline; distinct trees
+for one remote remain candidates marked as an ambiguous baseline. The response
+includes `catalog_identity` and `source_snapshot` hashes so a coordinated task can
+bind its scope to the exact catalog and discovered source revisions. A changed
+catalog or baseline must be rediscovered before approval or execution.
+
+The catalog is separate from the run registry. It contains local paths and Git
+identities only. It does not clone repositories or authorize a repository based on
+model output or ticket text.
+
+## registry add
+
+`autocode registry add /path/to/project [--json]` registers an explicitly selected,
+existing Git checkout or worktree with at least one commit. It accepts the root,
+not a subdirectory or a bare repository, and canonicalizes aliases. It creates
+no run, launches no provider and changes no project files. Repeating it returns
+`already_registered: true`. Invalid roots or corrupt/conflicting registry data
+return an `error` object and exit 2 without replacing existing records.
+
+Use this to make a fresh local checkout available to `changeset link` without a
+dummy task. Use one explicit `AUTOCODE_HOME` for registration, source runs,
+linked runs and change-set commands. Task text and model output never invoke
+registration, and clients' named-action contracts are unchanged.
+
+## registry forget-deleted
+
+`autocode registry forget-deleted --workspace /path/to/project --run-dir /path/to/project/.autocode/runs/RUN [--json]`
+drops the registry entry of one run whose directory no longer exists: a run the person
+deleted by hand, or one removed with its worktree by an older `clean-worktrees`. It
+never deletes files, and refuses (`invalid_deleted_run`) while the run directory
+exists, so the entry of a run recreated meanwhile is kept. `autocode runs --all` names
+this command on the row of such a run.
+
 ## registry import
 
-`registry import` is the only registry discovery operation that writes. It requires an
+`registry import` discovers and registers existing runs. It requires an
 explicit selected directory, resolves that root canonically, and searches the root at
 depth zero through depth 3 by default. `--max-depth` must be a nonnegative integer;
 `--directory-budget` must be a positive integer and defaults to 10000. The budget counts

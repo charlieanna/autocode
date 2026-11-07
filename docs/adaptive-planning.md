@@ -4,10 +4,10 @@ The fixed AutoPlanner sequence sends every build request through the same stages
 whatever its size:
 
 ```
-recognize → requirements → plan → review → revise → final review → your approval
+requirements → plan → review → revise → final review → your approval
 ```
 
-A one-line change pays for six model calls before you see a plan. A plan the
+A one-line change pays for five model calls before you see a plan. A plan the
 Plan Reviewer has no objection to is still revised and reviewed again. A hard
 plan gets exactly one revision, and whatever the Reviewer still objects to comes
 back to you as questions.
@@ -24,7 +24,6 @@ has the evidence for it:
 
 | Decision | Made by | Evidence | Effect |
 | --- | --- | --- | --- |
-| Does the request need requirements gathering? | Job recognizer | The request text: does it say what to build and how to tell it is done, with no product choice left open? | `clear` build requests go straight to the Planner; `vague` ones keep the Requirements stage. When unsure the recognizer says `vague`. |
 | Is the plan finished? | Plan Reviewer | Its own concerns, each marked blocking or not | No blocking concern: an ordinary Planner draft goes to you, with the non-blocking concerns as notes. Otherwise the Planner revises. Progressive delegations keep revision and final independent review, which supply their approval authority. |
 | How many review rounds? | The runner | The draft's declared milestones and the files they touch (`plan_size`) | A large plan (3+ milestones or 10+ files) gets 3 review calls instead of 2, so a revision is reviewed again before the final decision. |
 | Does feedback on a plan need requirements gathering? | The runner, then the Planner | The run's status: a complete plan waiting for your approval | The Planner revises the plan you were shown, then the Plan Reviewer reviews it. The Planner can send feedback that changes what is being built back to Requirements. See [below](#feedback-on-a-plan-you-were-shown). |
@@ -36,8 +35,16 @@ What does not change:
 
 - You approve every build plan. Adaptive planning removes model calls, never
   your approval.
-- A build named with `--workflow build` skips recognition, so nobody judges its
-  clarity and the Requirements stage always runs.
+- Requirements always runs. It is the first stage of every run and follow-up turn
+  and names the job (owner decision 2026-10-22, #1846, #1860). Until then a build
+  request the Job recognizer judged `clear` went straight to the Planner; that skip
+  is gone. While it names the job, Requirements also judges clarity by the
+  recognizer's rule. Clarity then skips nothing; it keeps a small clear brief on one
+  review allowance at the reduced Plan Reviewer effort (#1564), one rung below the configured
+  one and fitted to the variants the reviewer's model declares (GLM 5.3 declares `low`, `high`
+  and `max`, so a step from `high` lands on `high`, not `medium`; the move is recorded in
+  `effort_fits`, #2020). A build named with
+  `--workflow build` still runs Requirements, and nobody judges its clarity.
 - The setting applies only to new runs. A saved run keeps the planning flow it
   was started with: resuming with `--adaptive-planning` a run that lacks it, or
   with `--no-adaptive-planning` an adaptive one, is refused. Repeating the run's
@@ -52,11 +59,11 @@ Where it lives: `tools/autocode_adaptive_planning.py` holds the decisions as pur
 functions. `units/autoplanner.py` (`schema_for`, `after_challenge`,
 `after_revise`, `rerun_requirements`), `autocode_workflows.apply` and
 `autocode_goals.feedback` apply them. State: `workflow.clarity`,
-`workflow.requirements_skipped`, `planning.adaptive` (`size`, `signals`,
+`workflow.requirements_skipped` (only on runs saved before #1860), `planning.adaptive` (`size`, `signals`,
 `review_limit`, `challenges`, `approved_at`, `final_stage`), and `revises_plan`
 on a feedback event. `autocode --status --json` shows the decisions under
 `planning_depth` ([task-run interface](task-run.md)): the clarity, whether
-Requirements was skipped, the plan's size, the review allowance and whether the
+an older run skipped Requirements, the plan's size, the review allowance and whether the
 Plan Reviewer approved the draft early.
 
 ## Feedback on a plan you were shown
@@ -226,10 +233,15 @@ the pipeline.
 **Where the savings came from:**
 
 - **Skipping Requirements for clear requests.** Nearly all of the
-  question savings are here (7 questions → 1 on clear requests).
+  question savings are here (7 questions → 1 on clear requests). The owner
+  removed this skip on 2026-10-22 (#1860): Requirements now runs first on every
+  run and names the job, in place of the recognizer's call.
 - **Fewer planning restarts:** 3 today, 1 adaptive. Most began when a revision
   renamed a protected contract item; the guard then asks the user, and
-  planning starts over.
+  planning starts over. Since 2026-10-25 a revision may apply the reviewer's
+  blocking request to the Planner's own constraint or permission line in a plan
+  nobody approved, and a redraft after AutoCode's own technical answer continues
+  the reviewed cycle instead of starting over ([workflow](workflow.md)).
 
 The live recognizer judged every request correctly: 8 clear, 3 vague.
 
@@ -259,3 +271,48 @@ The live recognizer judged every request correctly: 8 clear, 3 vague.
   to keep existing test names; its effect is not measured yet.
 - Planning restarts after a deferred approval are unbounded
   (`docs/bugs/2026-09-30-unbounded-planning-restart.md`).
+
+## Compact planning for bug fixes
+
+New implementation tasks, including bug fixes, use Requirements, Planner and Plan Reviewer before exact-plan approval. The separate initial Investigator route and compact Planner shortcut are retired for new runs. `--compact-bugfix-planning` cannot enable either shortcut for a new run. Saved runs and exported recordings retain their original sequence, approvals and accounting. New related-repository tasks use the standard sequence even when their parent predates this change.
+
+The following describes the retained behavior of older saved runs. A reproduced, localized bug can
+skip one paid planning call. On the historical bug-fix path Requirements runs, the Investigator
+reproduces the bug (`investigate_bug`), the Planner writes the plan draft (`astra_discovery`), the
+Plan Reviewer reviews it and you approve the displayed plan. On the compact path the runner
+writes that draft itself, deterministically, from two records it already holds: the
+Investigator's diagnosis (its root cause, invariant, regression cases, affected and test paths)
+and the Requirements record (every requirement row becomes a required behaviour, and the
+requirement trace is checked as a Planner's would be). The Plan Reviewer reviews the runner's
+draft exactly as it reviews a Planner's; a clean review goes to your exact-token approval, as an
+adaptive run's early approval does, and a blocking concern returns the run to the full path, where
+the Planner drafts with the review in its packet; the compact draft's review call is refunded, so the
+full path keeps the plan-review allowance it would have had. The draft is never approved by a policy.
+Everything after approval is unchanged: acceptance tests when configured, the Builder, the
+regression proof (each restore case fails on the original code and passes after the fix), the
+Tester and a separate Completion Reviewer by default. A new run may independently select
+`--review-routing combined` to combine testing and completion on the configured Completion Reviewer
+route. That explicit choice replaces separate enforced milestone-checkpoint routing; it is included
+in the displayed plan and binds to its exact approval. The independent regression and changed-code
+evidence gates still apply, and existing model/effort choices are retained.
+
+The path is taken only when every trusted signal admits it; a model's word can keep the full
+path but never grant the compact one:
+
+- the run has compact planning enabled and plans adaptively, with joint planning;
+- Requirements named the bug-fix job (a pinned `--workflow bugfix` has no Requirements record);
+- the request does not prescribe test identifiers such as `test_positive` or `TestPositive`;
+  those need the Planner's explicit acceptance bindings before review;
+- the Investigator reproduced the bug with a probe the runner ran, sized the fix `small`, and named
+  a root cause, an invariant and at least one regression case;
+- the fix touches at most four files (affected and test paths together), and none of them, nor the
+  diagnosis note, matches the project's declared `sensitive-paths`
+  ([project settings](cli.md#project-settings)); without a declaration new runs save shipped conservative
+  patterns for authentication, security, payments, billing, migrations, credentials, CI/build files and
+  dependency manifests/locks. A project may replace these patterns, including an explicit empty list;
+- the contract validators accept the runner's draft; a refused draft keeps the full path, with the
+  refusal recorded.
+
+The decision, its reasons and the hashes it rests on are recorded once per job and shown by the
+status view as `stage_policy` ([task-run interface](task-run.md#status-view)). Existing runs keep
+their saved behaviour; a saved run refuses a changed flag.

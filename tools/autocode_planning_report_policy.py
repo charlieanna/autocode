@@ -1,0 +1,187 @@
+"""Bind planning generation to known obligations and keep author commands out of concern-only review."""
+
+from __future__ import annotations
+
+import copy
+
+try:
+    from . import autocode_contract_identity as contract_identity
+    from . import autocode_planning_graph as planning_graph
+    from . import autocode_prompts as prompts
+    from . import autocode_roles as roles
+    from . import autocode_trace_coverage as trace_coverage
+except ImportError:
+    import autocode_contract_identity as contract_identity
+    import autocode_planning_graph as planning_graph
+    import autocode_prompts as prompts
+    import autocode_roles as roles
+    import autocode_trace_coverage as trace_coverage
+
+
+def concern_rule(schema: dict) -> str:
+    """Keep emitted answers tied to the actual review without narrowing its audit."""
+    if {"responses", "decisions"} & schema.get("properties", {}).keys():
+        return prompts.get("fragments/autoplanner/concern-rows.md")
+    return ""
+
+
+def concern_schema(schema: dict, review: dict | None) -> dict:
+    """Constrain generation only; old reports still use the ordinary ingestion schema.
+
+    A missing review is not an empty review. Only the current saved review can
+    supply the allowed IDs; no concern is inferred from a criterion or an audit.
+    """
+    fields = schema.get("properties", {})
+    row_fields = {"responses", "decisions"} & fields.keys()
+    if not row_fields or not isinstance(review, dict) or not isinstance(review.get("concerns"), list):
+        return schema
+    concerns = review["concerns"]
+    if any(
+        not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"].strip() for row in concerns
+    ):
+        return schema
+    ids = [row["id"] for row in concerns]
+    if len(ids) != len(set(ids)):
+        return schema
+    result = copy.deepcopy(schema)
+    for field in row_fields:
+        rows = result["properties"][field]
+        rows["minItems"] = rows["maxItems"] = len(ids)
+        if ids:
+            # String schema objects are shared across fields, even after deepcopy.
+            # Replace this property so the enum cannot leak into rationale or evidence.
+            props = rows["items"]["properties"]
+            props["concern_id"] = {**props["concern_id"], "enum": ids}
+    return result
+
+
+def conflict_schema(schema: dict, handoff, feedback, history) -> dict:
+    """An explicitly known empty conflict inventory offers only []; unknown legacy context is unchanged.
+
+    This constrains generation, never the static ingestion schema. A real conflict still needs the
+    existing saved user basis, quote and coverage checks, even when generation offers resolution rows.
+    """
+    if "conflict_resolutions" not in schema.get("properties", {}):
+        return schema
+
+    def known(report):
+        return (
+            isinstance(report, dict)
+            and isinstance(report.get("requirements"), list)
+            and isinstance(report.get("conflicts"), list)
+            and all(isinstance(row, dict) and isinstance(row.get("id"), str) for row in report["requirements"])
+            and all(
+                isinstance(row, dict)
+                and isinstance(row.get("requirement_ids"), list)
+                and all(isinstance(rid, str) for rid in row["requirement_ids"])
+                for row in report["conflicts"]
+            )
+        )
+
+    if (
+        not known(handoff)
+        or not isinstance(history, list)
+        or not all(isinstance(entry, dict) and known(entry.get("report")) for entry in history)
+    ):
+        return schema
+    requirements = handoff["requirements"] + feedback
+    if not requirements:  # check_requirement_trace also leaves this legacy case alone
+        return schema
+    ids = {row["id"] for row in requirements}
+    conflicts = trace_coverage.recorded_conflict_sets(handoff["conflicts"], requirements, history)
+    if any(group and group.issubset(ids) for group in conflicts):
+        return schema
+    result = copy.deepcopy(schema)
+    result["properties"]["conflict_resolutions"]["maxItems"] = 0
+    return result
+
+
+def concern_validation_schema(schema: dict, record: dict) -> dict:
+    """Keep the loader compatible with audit rows that ordinary planning discards.
+
+    Only undo the exact generation binding above, and only for planning reports
+    with contracts. Row shapes and every other constraint stay intact. The
+    planning consumer still requires exactly one substantive answer per real ID.
+    """
+    stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")
+    fields = schema.get("properties", {})
+    if stage not in roles.ALL_PLANNING_STAGES or "contract" not in fields:
+        return schema
+    result = copy.deepcopy(schema)
+    for field in {"responses", "decisions"} & fields.keys():
+        rows = result["properties"][field]
+        props = rows.get("items", {}).get("properties", {})
+        identity = props.get("concern_id", {})
+        ids = identity.get("enum", [])
+        if (
+            identity.get("type") == "string"
+            and isinstance(ids, list)
+            and all(isinstance(cid, str) and cid for cid in ids)
+            and rows.get("minItems") == rows.get("maxItems") == len(ids)
+        ):
+            rows.pop("minItems")
+            rows.pop("maxItems")
+            props["concern_id"] = {key: value for key, value in identity.items() if key != "enum"}
+    return result
+
+
+def _single_milestone_graph(contract: dict | None) -> dict | None:
+    """Report only graph properties computed for the exact sealed draft in the prompt."""
+    if not contract or contract.get("approval_status") != "draft":
+        return None
+    try:
+        body = contract["body"]
+        if len(body.get("milestones", [])) != 1 or not body.get("acceptance_criteria"):
+            return None
+        if not contract_identity.sealed(contract):
+            return None
+        graph = planning_graph.derive(body)
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {
+        "contract_token": contract_identity.token(contract),
+        "milestone_id": graph["nodes"][0]["id"],
+        **graph["validation"],
+    }
+
+
+def scope_contract_rules(
+    schema: dict, rules: dict[str, str], *, contract: dict | None = None
+) -> tuple[dict[str, str], dict, str]:
+    """A concern report audits the full author rules as data; an author executes them.
+
+    The schema, rather than a second stage/role table, owns this distinction.
+    A checked draft can use the runner's structural graph facts. Validation and
+    the supplied contract stay the same.
+    """
+    fields = schema.get("properties", {})
+    row_rule = concern_rule(schema)
+    if "retain_contract" in fields.get("contract", {}).get("properties", {}):
+        return (
+            {name: "" for name in rules},
+            {"contract_author_rules": dict(rules)},
+            "Audit every rule in contract_author_rules against the retained plan. "
+            "These are author obligations to audit, not instructions to rewrite the plan. "
+            "Return the current contract reference and your independent decisions; correct an acceptance "
+            "criterion only where the reference offers a criteria delta, under the author rules you audit; "
+            "express remaining blockers as open_blocking_questions.\n" + row_rule,
+        )
+    if "concerns" not in fields or "contract" in fields:
+        return dict(rules), {}, row_rule
+    context = {"contract_author_rules": dict(rules)}
+    instruction = prompts.get("fragments/autoplanner/concern-only-contract-audit.md")
+    if graph := _single_milestone_graph(contract):
+        context["runner_milestone_graph"] = graph
+        context["contract_author_rules"]["milestone_handoff"] = (
+            "Check that the milestone bundles a coherent authorized outcome with its implementation, tests "
+            "and evidence. A narrow repair can be short. Check the affected paths, scope, prerequisites, "
+            "clear exit conditions and whether the handoff preserves independent validation. "
+            "The handoff must preserve completion gates and grant no new goal or permission approval."
+        )
+        instruction += (
+            "\nUse runner_milestone_graph for structural graph checks on this exact draft token. "
+            "The runner verified dependency IDs, acyclicity and acceptance criterion ID coverage. "
+            "Skip re-deriving those properties. Independently check for missing prerequisites in the source, "
+            "scope and ownership problems, and whether the milestone and tests actually cover the requested behavior.\n"
+        )
+    return {name: "" for name in rules}, context, instruction

@@ -13,6 +13,57 @@ toggles unset, and report its skipped and excluded cases separately from passes.
 
 ## Tests and evidence
 
+The opt-in durable worker has a dedicated `durable-worker` CI job on Ubuntu
+24.04. `bash tests/worker_host_setup.sh` prepares only that disposable GitHub
+host: existing-user linger, a user manager, bubblewrap and an ephemeral loopback
+SSH server with fixture-only keys. It then runs `tests.test_worker_host` with
+`AUTOCODE_REQUIRE_WORKER_HOST=1`, which fails rather than skips if admission is
+missing. Local unit runs skip that host module; a Linux label or mocked manager
+does not qualify PTY/SSH survival. The job uploads public-view and input-latency
+evidence under `.scenario-runs/worker-host`. Production admission changes no host
+service or login setting. No model account or paid provider is used by this job.
+
+The active-switch case uses the same real terminal helper with two public task
+runs: A holds an accepted Builder while B waits for exact plan approval. It
+opens B during work, keeps a Unicode draft and cursor across tab switches,
+cancels a local new-request composer back to A, and lets A finish while B's
+draft stays focused. Public status verifies A's original controller, B's
+unchanged approval context and attempts, and the final completion. Screen
+captures and the measured active-tab switch sample are fixture evidence, not
+model-completion timings or a 25-run responsiveness claim.
+
+`tests.test_chat_context` supplies fast deterministic coverage for per-run
+scroll/filter choices, resize, identical titles and cross-project history,
+changed questions, invalidated confirmations, bounded session retention and
+unavailable-run navigation. Pending decisions always require a fresh view;
+session context is display data rather than cached authority.
+
+Freshness display uses deterministic receipt times in `tests.test_chat_observation`:
+an identical core checkpoint can arrive in multiple successful reads, failed
+reads keep its old metadata, and a later read clears only the read error. Missing,
+malformed or mismatched core metadata stays unknown. The real tmux verification
+fixture in `tests.test_chat_verification.VerificationTerminalTests` covers status
+changes while reading history, resize, read failure/recovery and snapshot details.
+It does not launch providers or infer work progress from polling.
+
+Terminal status reads start with a five-second deadline. If one times out, only
+that workspace/run's later read attempts receive ten seconds, then at most twenty
+seconds, until the identity leaves the polling set. Explicit refresh still
+cancels its old read and starts a fresh one; no previous snapshot authorizes an
+action. The two-reader limit, fair admission and hung-child cleanup remain in
+force. `tests.test_chat_polling` covers the bounds with a fake clock, and
+`SlowStatusCLI` in `tests.test_chat_polling_cli` holds real public-status children
+behind a FIFO to verify a six-second retry and exact child cleanup without
+waiting six seconds or launching a model. Action-receipt deadlines are unchanged.
+
+When a terminal renderer supplies both successful-read and failed-read callbacks,
+its header and tab indicators show outages and recovery without adding them to
+the conversation. Line clients retain their outage/recovery messages. Both forms
+reject decisions when a fresh status read fails; display snapshots confer no
+authority. Observation tests exercise repeated flapping and background tabs;
+the real hung-status terminal fixture checks the indicator, responsive keyboard,
+healthy second chat, transcript and reaped child together.
+
 AutoReview generation pins contract/task identity and reviewer-owned finding IDs
 in each attempt's schema. Report-only repairs receive the original executed
 commands and exit codes; normal evidence validation still applies. Repairs cannot
@@ -39,6 +90,16 @@ blocker, not a passing fake run. macOS runs these launches under the portable
 supervision described in [provider process ownership](providers.md#provider-process-ownership),
 without the kernel boundary, so fake and live runs work there. Tests that
 assert the kernel boundary itself run on Linux only.
+
+Acceptance writers cannot install a second provider listener inside their inherited
+provider family. When an authored test starts AutoCode fake providers, submit the
+real test for the existing core scratch runner after writer exit. The writer must
+report its local execution limitation, not label the requirement `cannot_write`,
+retry the forbidden launch or count the startup error as fail-first proof. The
+core still requires collected per-test results: failing new behavior, passing
+guards, and no missing or skipped coverage before Builder. A runner-side host
+admission failure remains a verification blocker. This uses the existing runner;
+it adds no sandbox exemption, test skip or new model call.
 
 For a provider-backed regression, use a supported Linux checkout of the same
 revision and the [development setup](../CONTRIBUTING.md#set-up-a-development-checkout).
@@ -76,10 +137,18 @@ Docker must support Linux host-PID mode, seccomp user notifications and nested
 unprivileged namespaces. The wrapper uses `--pid=host` so the process and its
 container `/proc` view match, and removes Docker's outer seccomp filter so
 AutoCode can install its own listener; it never uses `--privileged` or adds a
-capability. A preflight exercises the real session listener and bubblewrap and
-fails before the selected check if Docker Desktop's Linux VM cannot provide
-them. This is execution inside supported Linux, not a macOS admission bypass;
-macOS provider launches remain refused.
+capability. The wrapper also sets `--security-opt=systempaths=unconfined`
+(#2373): Docker's default masked read-only system paths are submounts over the
+container's `/proc`, and the kernel then refuses the fresh `/proc` mount inside
+a new PID namespace that every contained launch needs. Removing the masks
+unmasks read-only system paths for processes in the outer container only;
+AutoCode's own tool subprocesses still run inside the unchanged inner bubblewrap
+sandbox (nonroot, capabilities dropped, fresh isolated `/proc`, no network). A
+preflight exercises the real session listener and bubblewrap, mounting the same
+fresh `/dev` and `/proc` a launch does, and fails before the selected check if
+Docker Desktop's Linux VM cannot provide them. This is execution inside
+supported Linux, not a macOS admission bypass; this exercises the Linux boundary
+rather than macOS portable supervision.
 
 This path intentionally does not run discovery, the full suite or the full
 scenario catalog. The image covers the CI Python/Node/Go toolchains, not Java,
@@ -87,8 +156,10 @@ browsers, live providers or scenarios that need the Docker socket (including
 real local-Compose mode). The checkout is writable so normal test artifacts can
 be produced; review them under `.scenario-runs/` as with a native Linux run.
 
-A Linux root shell holding `CAP_SYS_ADMIN` or `CAP_SYS_PTRACE` is also refused.
-For such a shell, use the existing capability drop for a direct focused run:
+Direct in-process tests in a Linux root shell holding `CAP_SYS_ADMIN` or
+`CAP_SYS_PTRACE` are still refused: they do not pass through CLI startup, which
+now automatically drops these capabilities. For such a test process, use the
+existing capability drop for a direct focused run:
 
 ```sh
 setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest \
@@ -99,6 +170,21 @@ setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest \
 are held and `setpriv` is available. Dropping them does not supply a missing
 kernel feature. Scenario runs in that Linux shell need
 the same prefix.
+
+To qualify startup itself, Ubuntu CI instead launches a dedicated root subprocess
+with both bits initially present (never the complete suite as privileged root):
+
+```sh
+sudo env AUTOCODE_TEST_PRIVILEGED_STARTUP=1 .venv/bin/python -m unittest \
+  tests.test_capability_startup.LinuxCapabilityStartupTests tests.test_demo
+```
+
+This proves real re-exec preserves the PID, removes exactly the two prohibited
+bits, and leaves all other bits unchanged; it also exercises the full offline
+demo and the unchanged `PAUSED_PROCESS_CLEANUP` refusal when
+`AUTOCODE_NO_CAPABILITY_DROP=1`. Without the explicit test environment variable,
+the privileged tests skip. Neither this test nor automatic startup supplies
+missing kernel features or relaxes provider admission.
 
 The existing [Ubuntu CI jobs](../.github/workflows/tests.yml) provide PR and
 master checks. Report the exact revision, selected checks and any local checks
@@ -116,6 +202,22 @@ fake providers never bypass unsupported-host admission. The always-reporting
 `ci-required` job fails when scope selection fails or a selected job fails,
 cancels or skips. Master and manual runs retain their existing complete coverage.
 
+When the pinned PR base has a completed failing `tests` workflow, CI runs the
+full head suite and selects all checks. A corrective PR can therefore prove its
+repair without the base's historical failure vetoing a passing head. Green bases
+keep changed-test selection; an unavailable base verdict is reported and keeps
+normal head checks.
+
+`tools/run_suite.py --failed-out PATH` writes a versioned JSON report with failed
+modules, test identities, failure signatures and timeout markers, in parallel or
+serial mode. The informational attribution step reruns only those modules in an
+isolated clone of the pinned base, retaining the tool environment but removing
+the comment tokens. It calls a failure pre-existing only when every recorded head
+failure reproduces on base. Additional failures remain introduced; incomplete
+evidence stays unresolved. This comparison uses the head's installed dependencies,
+so it is evidence about observed failures, not proof that all changes are sound.
+Attribution never turns a failing head suite green.
+
 Maintain the mappings in `tools/ci_scope.py` and `tools/ci_test_selection.py`
 alongside new consumers. A tests-workflow edit exercises its heavy job wiring;
 it does not enroll the whole fake catalog as a PR prerequisite. One trigger is
@@ -128,6 +230,33 @@ directory the flow depends on goes there. A `tools/` script that a scenario modu
 copies by file name and runs, which no import names, goes in `SCENARIO_FIXTURES` in
 `tools/run_suite.py` with that module: a pull request that changes the script then
 runs the scenario harness step and selects the module.
+
+#### Checking out an old revision: a standalone clone, never a linked worktree
+
+Bisecting, or running any suite at an older revision, needs a repository of its own.
+A linked worktree shares the main checkout's `.git/config`, and an older revision's
+test or delivery code writes repository settings there — with the hundreds of managed
+worktrees this repository carries, that single file decides whether every worktree has
+a work tree at all. Observed on 2026-10-31 while bisecting `50bab5745..0614ea9b`:
+running one case of that window from a linked worktree left `bare = true` in the shared
+main config, and every worktree then failed with `fatal: this operation must be run in
+a work tree` — including the checkout the installed CLI runs from. The same revision,
+the same case and the same machine in a standalone clone passed and left its own config
+byte-identical, so the difference was the shared `.git`, not the revision.
+
+Recover by putting the value back (`git -C <main checkout> config core.bare false`,
+then `git rev-parse --is-bare-repository` in each affected worktree), and move the work
+into a clone before resuming:
+
+```sh
+git clone --no-checkout file:///path/to/checkout /tmp/bisect && cd /tmp/bisect
+git checkout --detach <bad>            # materialize the tree, then the env it expects
+uv venv && uv pip install -e . pytest coverage
+git bisect start <bad> <good> && git bisect run sh /tmp/predicate.sh
+```
+
+This asks no revision to behave differently; the rule is only that an old revision must
+never be the one editing configuration shared with current work.
 
 ### Unit suite
 
@@ -205,8 +334,47 @@ Linux, where it fails: the suite job installs bubblewrap before the scenario har
 Any other problem doctor reports where bubblewrap works, such as the fake no longer
 reporting the qualified OpenCode version, fails the test everywhere.
 
+`tests.test_chat_screens` drives the full-screen `autocode chat` in a real terminal (#1646):
+`tests/terminal_screen.py` runs it in a private tmux server with the offline fixture
+provider, types, pastes and resizes, and reads the screen back. It needs tmux
+(`brew install tmux`, `apt-get install tmux`). Without tmux it skips, except in CI, where
+it fails; the suite job installs tmux. Use the same helper for a new check of what a person
+sees: a stand-in curses screen cannot show type-ahead, paste or scrolling problems.
+
+The compact terminal journey acceptance set is split by boundary: `tests.test_chat_client`
+covers starting a request, exact-plan approval, stale action refusal, failure/recovery
+explanations and leaving then reopening at approval; `tests.test_chat_screens` covers the
+real terminal presentation and completion interaction. `tests.test_chat_product_journeys`
+adds the provider-free completed-run reopen check: it renders the saved result and file/test
+summary, offers the follow-up prompt, and dispatches no task action; its negative control checks
+that an unfinished provider failure gets the saved-run next step without a completion claim. Run it with
+`.venv/bin/python -m unittest tests.test_chat_product_journeys`.
+
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
+
+#### Diff coverage of a pull request (advisory)
+
+Each pull request that selects the suite also runs the `diff-coverage` job (#2754). It
+runs the same `tools/run_suite.py --changed` selection under coverage.py, in its own venv
+(`pip install -e '.[coverage]'`, never a runtime dependency), with `COVERAGE_PROCESS_START`
+set so the CLI subprocesses the tests launch are measured too. It then intersects the result
+with the pull request's changed `tools/` lines, using the hunk logic AutoCode applies to the
+projects it builds (`tools/autocode_diff_coverage.py`). The job summary lists each changed
+line no selected test executed, and the first ten show as notices on the diff. A test that
+starts Python with a cleared environment is not measured, so its lines can show as not
+executed.
+
+The job is advisory: it is not part of `ci-required` and never fails. A line no public
+input reaches carries its reason as `# pragma: no cover - <reason>`, which removes it
+from the report. To run it locally on supported Linux:
+
+```sh
+.venv/bin/python -m pip install -e '.[coverage]'
+.venv/bin/python tools/ci_diff_coverage.py run --data-dir /tmp/dc -- \
+  .venv/bin/python tools/run_suite.py --changed origin/master
+.venv/bin/python tools/ci_diff_coverage.py report --base origin/master --coverage-json /tmp/dc/coverage.json
+```
 
 ### Opt-in product audits
 
@@ -282,17 +450,12 @@ the progressive testing plan.
 The driver also registers the [task-type scenarios](scenarios.md) (bug fix,
 feature, architecture, multi-service program, design-reference UI). Their oracles
 have offline positive and targeted negative controls in `tests/test_scenario_oracles.py`; `--score-only PATH` scores a
-workspace delivered by any route, and `--mode program` drives a scenario through
-[`autocode program`](program.md). Every task-type baseline is `NOT_RUN` until a live
+workspace delivered by any route. Each scenario runs as one task run; `PROGRAM-01` asks one
+run to build the whole multi-service system. Every task-type baseline is `NOT_RUN` until a live
 result is recorded.
 
-In program mode, `--i-authorize-live-model-spend` authorizes model calls only.
-`--authorize-deployment` is a separate opt-in for deployment workstreams and is never
-added automatically. `PROGRAM-01` needs no deployment authorization: generating its
-descriptors is ordinary code work, and no deployment is performed.
-
 `--timeout` is a single wall-clock budget shared by all CLI invocations in the
-runner-driving phase, including program child gates. Independent oracle scoring and
+runner-driving phase. Independent oracle scoring and
 bounded process cleanup are separate. On deadline the harness stops the CLI and its
 provider descendants, then records `ERROR` and scores whatever was delivered; it
 does not rewrite a still-`RUNNING` checkpoint into a successful or paused run.

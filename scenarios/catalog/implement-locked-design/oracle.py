@@ -71,5 +71,5 @@ def check(project, scenario, run=None):
     checks.append(Check("design_document_untouched", "docs/design/rate-limiter.md" not in changed_paths(project)))
     foreign = non_stdlib_imports(project)
     checks.append(Check("stdlib_only", not foreign, "; ".join(foreign)))
-    checks += run_checks(run, workflow="build", no_requirements=True, max_questions=0)
+    checks += run_checks(run, workflow="build", after_requirements="check_design", max_questions=0)
     return checks

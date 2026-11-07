@@ -20,15 +20,16 @@ change the conversation shown in another. The Runs list in each window can
 still open any task registered for that workspace.
 
 New sidebar chats start in the run mode shown on the **Run mode** chip beside the
-engine chip: **Full** (the default) or **Quick plan**. The list and each mode's
-flags come from `autocode modes list --json`
+engine chip. AutoCode lists one mode, **Full**: every chat starts with the
+Requirements conversation (the **Quick plan** mode that skipped it was removed
+on 2026-10-22). The list and each mode's flags come from
+`autocode modes list --json`
 ([Run modes for clients](task-run.md#run-modes-for-clients)); the extension
-passes the chosen mode's flags unchanged. Your choice is remembered for new
-chats in this workspace, and a chat that has started keeps the flow it started
-with, so the chip shows only on a new chat. An AutoCode without run modes shows
-no chip and starts the full flow. Quick plan sends a clear request straight to
-the plan without the Requirements conversation; you still approve the plan,
-and the Tester and Completion Reviewer still check the work.
+passes the chosen mode's flags unchanged. A choice is remembered for new
+chats in this workspace; one the list no longer names, such as Quick plan,
+starts Full. A chat that has started keeps the flow it started with, so the
+chip shows only on a new chat. An AutoCode without run modes shows no chip and
+starts the full flow.
 
 In the full flow, new sidebar chats enable joint planning and the core's `--spec-first` flow.
 The Requirements agent answers your first message, whatever it is, and talks
@@ -37,14 +38,16 @@ question gets a short answer and a question about what to build or change.
 Answer in the same composer. Requirements reuses
 its provider session, retains prior replies and streams assistant text through
 the public status view; tool output and reasoning stay outside that stream.
-You can keep writing a draft while a reply arrives. The conversation does not
-show an empty task dashboard.
+A reply still being written shows as **AutoCode · writing…** with provisional
+text, the same as the terminal chat, and status polls speed up while that
+extract is still growing. You can keep writing a draft while a reply arrives.
+The conversation does not show an empty task dashboard.
 
 Once the requirements are clear, read the bound understanding and choose
 **Approve understanding and prepare plan**, or send a correction. This releases
-independent plan preparation/review. The core then chooses the workflow
-(build, fix, review, design or discuss) from that understanding; the detailed
-model history shows it as the **Job recognizer** stage. It does not authorize
+independent plan preparation/review. Requirements has already named the
+workflow (build, fix, review, design or discuss) with that understanding, and
+the approval starts it. It does not authorize
 implementation. **Approve and build** appears later for the concrete reviewed
 execution plan. Terminal users can answer the requirements review with **plan**.
 
@@ -68,6 +71,35 @@ preference survives polling, History navigation
 and reopening the chat. Values refresh with status polling and cover the whole
 run. Cache and reasoning are already included in input/output totals. Partial
 counts are labeled; unreported usage stays unknown.
+
+Models & usage shows **Cost counted toward cap** from the core’s public budget
+accounting beside the configured cap. Partial totals say **at least** and name
+unpriced stages; unknown amounts stay unknown. The expanded breakdown keeps the
+historical comparison estimate separately. These figures describe recorded usage,
+not an invoice or a guarantee that the next step fits within the cap.
+
+**Stages** sits above Models & usage once a run has launched one. Each stage
+takes a row for how it went (✓ done, ● working, ↻ retrying, ✗ failed), its time,
+cost and attempt number, and a second row for its model, reasoning level and
+tokens (`+` when some are not reported yet). The newest four show; **N earlier**
+lists the rest. A report repair counts as the repaired stage's next attempt. When
+the working stage is retrying after a failed attempt, the working card shows a
+warning with which attempt it is, how long it has run and why the last one
+failed. A stage that runs again after succeeding, such as a second plan-review
+round, shows **2 runs** and no warning. The toolbar
+shows the run's cost against its cap and its tokens; with two or more chats open
+it adds a total for all of them, which leaves out what a restored run carried
+over and ends in `+` while any chat has not been read yet. These figures are the
+same ones the terminal chat's stage panel reads: `usage.accounting.attempts`,
+`cost.breakdown.by_stage`, `cost.spent_usd` and `usage.accounting.tokens`.
+
+A finished run closes with a card: its result, how many requirements were
+checked, the files its saved steps and acceptance tests changed, the time its
+stages ran and its cost, with **Show changes** (the saved code changes below)
+and **Run details**. A new chat opens with what AutoCode does and three example
+requests; choosing one only fills the message box. A tab shows ● while its run
+waits for you and ✓ once it has finished, and the status bar names the working
+stage and the run's cost.
 
 Provider-reported cost and the core's historical comparison estimates are shown
 separately. These estimates are not current API prices or your token-plan bill.
@@ -97,16 +129,37 @@ appears only when the status view names the pause (`view.pause`); a cancelled
 mid-step model call is not offered, and the run's terminal Stop stays outside
 the chat.
 
+**Saved code changes** offers only the comparisons and restores named by the
+core. While this chat waits for one of its commands to finish, those buttons
+are disabled with an explanation. They become available again when the command
+finishes; inspecting a run started elsewhere does not disable a named comparison.
+
 **Run details** opens the detailed progress panel. The Runs list reads the local
 registry and retains unavailable pointers with their diagnostic. Both surfaces
 use the core's named commands, including the optional `view.chat.input` offer.
 Commands use argument arrays; issued tokens stay in the child environment.
+
+While a step works, the conversation shows the live agent log the status view
+names (`view.chat.log`): what each running agent thinks (`∴`), says (`»`) and
+does (`$`, `±`, `·`), with its screen name. Like the terminal chat's `/live`,
+those entries are display only — a thought is not a report and a command shown
+is not a passed check. Where an older core offers only `chat.activity`, the
+conversation shows those tool marks instead.
 
 Starting a new chat asks you to confirm model spend. Buttons that save an input
 and then advance explicitly say **and continue**; advancing uses the run’s saved
 provider and per-role routes. Person-only recovery decisions still require their
 separate confirmation (`autocode.confirmPersonOnly`). Free text cannot bypass an
 operational stop or approve a plan.
+
+**Change sets.** For a run linked with runs in other repositories (`scope.linked`,
+`autocode changeset link`), Run details reads `autocode changeset status --json`
+and shows every run of the change set. While the set approval is offered it lists
+every run's plan, and **Approve all N plans** asks first, then approves them
+together. If a plan changes after the card was shown, nothing is approved. Once
+every run is complete and an integration check is due, **Run the set's check**
+asks first, then runs it. These are the only change-set actions the extension
+takes ([change sets in clients](task-run.md#change-sets-in-clients)).
 
 ## Run it from a checkout
 
@@ -148,6 +201,12 @@ The jsdom tests alone establish neither editor-host nor live-provider compatibil
 | `autocode.extraOptions` | `[]` | Extra engine and model flags for new chats. |
 | `autocode.pollSeconds` | `5` | Seconds between read-only status updates. |
 | `autocode.confirmPersonOnly` | `true` | Ask before acting on a pause the run stopped for a person. |
+
+Each status update is a new `autocode` process, which reads the whole workspace once
+before answering. On a large project, set `AUTOCODE_SOURCE_HOST=1` in the environment
+the editor starts the CLI with, so the updates share one warm snapshot helper; see
+[Execution](execution.md#who-approved) just above "Who approved" for what it does and
+keeps.
 
 ## Remaining scope
 
@@ -198,6 +257,20 @@ options are saved separately, so switching back to Kilo restores its token-plan
 routes. Existing chats retain their saved backend, models and budgets. Company
 providers such as GoCode appear when registered; their optional connection
 commands are described in [Providers](providers.md#connection-setup-and-company-backends).
+
+### Stage models
+
+Open **AutoCode: Stage Models** from the command palette, or **Stage models…**
+in the chat's engine picker, to choose the model and reasoning level each stage
+of a new chat runs. Each stage shows what it does and the kind of model and level
+that suits it, with one dropdown for the model and one for the level; the level
+list follows the chosen model. A model the stage may not run beside the others (a
+Builder on the model its Tester runs, for example) is greyed out with the reason.
+**Save** keeps the choice for every new chat on that backend, and **Use the
+default** forgets it. Chats already started keep their own models. The panel
+reads `autocode stages list --json` and takes only the stage's own save or reset
+command ([stage choices for clients](task-run.md#stage-choices-for-clients)),
+naming the backend when a provider or engine is chosen for new chats.
 
 ### No Kilo or OpenCode installed
 

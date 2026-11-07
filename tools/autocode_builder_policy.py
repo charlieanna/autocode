@@ -14,6 +14,7 @@ try:
     from . import autocode_route_ladder as route_ladder
     from . import autocode_route_permission as permission
     from . import autocode_run_status as run_status
+    from . import autocode_stop as stop
     from . import autocode_util as s
     from . import autocode_verifier_independence as independence
     from .autocode_failure_classification import CLASSES
@@ -23,6 +24,7 @@ except ImportError:
     import autocode_route_ladder as route_ladder
     import autocode_route_permission as permission
     import autocode_run_status as run_status
+    import autocode_stop as stop
     import autocode_util as s
     import autocode_verifier_independence as independence
     from autocode_failure_classification import CLASSES
@@ -37,6 +39,9 @@ DEFAULTS = {
     "strong_model": "openai/gpt-6-sol",
     "strong_reasoning_effort": "xhigh",
     "checker_model": "zai-coding-plan/glm-5.3",
+    # Whose stronger route this is: AutoCode's ("runner") is withdrawn when its access check
+    # fails (withdraw_unreachable); a --builder-strong-model a person named keeps its access pause.
+    "strong_origin": "runner",
 }
 # The roles that check the Builder's work, and the rule they follow, are
 # autocode_verifier_independence's: the dispatch guard pauses on exactly the clashes
@@ -48,21 +53,24 @@ CHECKERS = independence.verifiers("terra")
 SERIAL = "SERIAL_ESCALATION"
 # Efforts a replacement checker keeps; a climbed xhigh/max rung belongs to the GPT ladder.
 CHECKER_EFFORTS = ("low", "medium", "high")
-EXHAUSTED = "Implementation remains blocked after configured retry/escalation; human decision or replanning required"
+EXHAUSTED = "Implementation remains blocked after the configured retries and the stronger Builder attempt"
 CHECKER_STUCK = (
     "Implementation remains blocked after the ordinary retries; the stronger Builder model {model} "
-    "would be checked by its own model: {why}; human decision or replanning required"
+    "would be checked by its own model: {why}"
 )
 NO_STRONG_MODEL = (
     "Implementation remains blocked after the ordinary retries; this run's provider offers no stronger "
-    "Builder model (name one, and the model its checkers move to, under [builder_retry] in the provider "
-    "config); human decision or replanning required"
+    "Builder model, so the ordinary retries were all this run had"
 )
 # A new run whose provider did not list a model the stronger attempt needs has none (route_ladder.serve).
 NOT_OFFERED = (
     "Implementation remains blocked after the ordinary retries; this run has no stronger Builder attempt "
-    "because its provider does not offer {model}, which that attempt needs (start a run with "
-    "--builder-strong-model naming a model it lists); human decision or replanning required"
+    "because its provider does not offer {model}"
+)
+# The stronger route AutoCode chose failed its access check before any Builder request (model preflight).
+UNREACHABLE = (
+    "Implementation remains blocked after the ordinary retries; this run has no stronger Builder attempt "
+    "because its account cannot use {model} ({detail}); probe evidence: {evidence}"
 )
 # What the evidence ledger (autocode_evidence_ledger) adds to a charge's decision, and to its pause (#611).
 NOVELTY_NOTES = {
@@ -105,6 +113,8 @@ def configured(strong_model=None, provider=None, single_model=None):
         },
     }
     config["strong_model"] = strong_model or config["strong_model"]
+    if strong_model:
+        config["strong_origin"] = "user_explicit"
     if single_model:
         # Single-model mode may escalate reasoning effort, but cannot switch
         # to another model or checker route.
@@ -120,7 +130,9 @@ def configured(strong_model=None, provider=None, single_model=None):
     if (
         not single_model
         and config["strong_model"]
-        and independence.may_share(config["strong_model"], config["checker_model"])
+        and independence.may_share(
+            config["strong_model"], config["checker_model"], vendor_engine=getattr(provider, "NAME", None) == "claude"
+        )
     ):
         # Refused here, at run creation: the same clash found at escalation would pause mid-run.
         raise ValueError(
@@ -173,6 +185,92 @@ def lane(state: RunState):
     return lanes.setdefault(
         ident, {"initial_route": copy.deepcopy(state["settings"]["roles"]["terra"]), "failures": [], "action": None}
     )
+
+
+def escalation_routes(state: RunState) -> list[dict]:
+    """The Builder lane's own routes for this milestone, as ``{role: (model, effort)}`` maps.
+
+    First its routes before it escalated (the Builder's initial route and each checker it moved),
+    then the routes each recorded escalation set. An escalation is AutoCode's answer to this
+    milestone's own failures, not a new setting, so a binding over the run's settings taken on one
+    of them holds on another (``autocode_resolver_recovery._holds``). Empty without a lane.
+    """
+    current = (state.get("builder_retries") or {}).get(key(state))
+    if not isinstance(current, dict) or not isinstance(current.get("initial_route"), dict):
+        return []
+    checkers = {role: route for role, route in (current.get("checker_routes") or {}).items() if isinstance(route, dict)}
+
+    def pair(route):
+        return route.get("model"), route.get("reasoning_effort")
+
+    result = [{"terra": pair(current["initial_route"]), **{role: pair(route) for role, route in checkers.items()}}]
+    for decision in state.get("builder_retry_decisions") or ():
+        if (
+            not isinstance(decision, dict)
+            or decision.get("action") != "escalate"
+            or decision.get("milestone_key") != key(state)
+        ):
+            continue
+        moved = {"terra": (decision.get("selected_model"), decision.get("selected_effort"))}
+        for role, route in checkers.items():
+            effort = route.get("reasoning_effort")
+            replacement = (decision.get("checker_models") or {}).get(role)
+            moved[role] = (replacement, effort if effort in CHECKER_EFFORTS else "high") if replacement else pair(route)
+        if moved not in result:
+            result.append(moved)
+    return result
+
+
+def withdraw_unreachable(state: RunState, model, *, detail, evidence) -> bool:
+    """Undo the Builder's escalation to ``model`` when its access check failed; False leaves it.
+
+    Only AutoCode's own choice of stronger route is undone (``strong_origin`` "runner"): a
+    ``--builder-strong-model`` a person named stays theirs, keeping its access pause, and so does a
+    route outside the lane. A run saved before ``strong_origin`` existed counts as AutoCode's choice
+    only on the default stronger model. The
+    Builder and each checker it moved return to their routes before the escalation, and the lane
+    decides as for a stronger model the provider does not offer: the ordinary retries were all this
+    run had. The decision and the probe evidence are recorded; nothing asks a person about a login
+    for a route they never chose.
+    """
+    if not enabled(state):
+        return False
+    config = state["settings"].get("builder_retry") or {}
+    current = (state.get("builder_retries") or {}).get(key(state))
+    route = (state["settings"].get("roles") or {}).get("terra") or {}
+    origin = config.get("strong_origin")
+    if (
+        not isinstance(current, dict)
+        or current.get("action") != "escalate"
+        or not isinstance(current.get("initial_route"), dict)
+        or route.get("model") != model
+        or current["initial_route"].get("model") == model
+        or origin not in ("runner", None)
+        or (
+            origin is None
+            and route_ladder.normalize_model(config.get("strong_model") or "")
+            != route_ladder.normalize_model(DEFAULTS["strong_model"])
+        )
+    ):
+        return False
+    initial = current["initial_route"]
+    route.update(model=initial.get("model"), reasoning_effort=initial.get("reasoning_effort"))
+    for role, saved in (current.get("checker_routes") or {}).items():
+        checker = state["settings"]["roles"].get(role)
+        if isinstance(checker, dict) and isinstance(saved, dict):
+            checker.update(model=saved.get("model"), reasoning_effort=saved.get("reasoning_effort"))
+            state.setdefault("sessions", {}).pop(role, None)
+    current["strong_unreachable"] = {"model": model, "detail": detail, "evidence": evidence}
+    _decide(
+        state,
+        current,
+        "pause",
+        current["failures"][-1] if current.get("failures") else None,
+        f"The stronger Builder route {model} failed its access check; restored the Builder's route",
+        {},
+        UNREACHABLE.format(model=model, detail=detail, evidence=evidence),
+    )
+    return True
 
 
 def guard(state: RunState):
@@ -302,15 +400,16 @@ def _tool_swap_problem(state: RunState, config, model):
     does (autocode_roles), in prose.
     """
     roles = state["settings"]["roles"]
+    vendor = independence.same_vendor_engine(state["settings"])
     replacement = config.get("checker_model") or DEFAULTS["checker_model"]
     routed = {route.get("model") for route in roles.values() if isinstance(route, dict)}
     for role in colliding_checkers(state, model):
         route = roles[role]
-        if not independence.shares(model, route.get("model")):
+        if not independence.shares(model, route.get("model"), vendor_engine=vendor):
             return f"a Tester or Completion Reviewer route names it {route.get('model')}"
         if not _movable(state, route):
             return "a Tester or Completion Reviewer on it is pinned or uses another provider"
-        if independence.may_share(model, replacement):
+        if independence.may_share(model, replacement, vendor_engine=vendor):
             return f"the checkers would move to {replacement}, the stronger model or its family"
         if replacement not in routed:
             return f"the checkers would move to {replacement}, which no role of this run uses"
@@ -320,10 +419,12 @@ def _tool_swap_problem(state: RunState, config, model):
 def colliding_checkers(state: RunState, model):
     """Checker roles the dispatch guard would refuse with the given Builder model, or that may run it."""
     roles = state["settings"]["roles"]
+    vendor = independence.same_vendor_engine(state["settings"])
     return [
         role
         for role in CHECKERS
-        if isinstance(roles.get(role), dict) and independence.may_share(model, roles[role].get("model"))
+        if isinstance(roles.get(role), dict)
+        and independence.may_share(model, roles[role].get("model"), vendor_engine=vendor)
     ]
 
 
@@ -337,7 +438,10 @@ def swap_checkers(state: RunState, current, config, model):
     # Runs saved before checker_model existed use the default rather than check their own work.
     replacement = config.get("checker_model") or DEFAULTS["checker_model"]
     swapped = {}
-    for role in colliding_checkers(state, model) if not independence.may_share(model, replacement) else ():
+    vendor = independence.same_vendor_engine(state["settings"])
+    for role in (
+        colliding_checkers(state, model) if not independence.may_share(model, replacement, vendor_engine=vendor) else ()
+    ):
         route = state["settings"]["roles"][role]
         if not _movable(state, route):
             continue
@@ -351,6 +455,9 @@ def swap_checkers(state: RunState, current, config, model):
 
 def _escalate(state: RunState, current, config, route):
     """Move the Builder to the strong model, or say why this run cannot: (action, checkers, stop reason)."""
+    unreachable = current.get("strong_unreachable") or {}
+    if unreachable:
+        return "pause", {}, UNREACHABLE.format(**unreachable)
     if not config.get("strong_model"):
         missing = config.get("not_offered")
         return "pause", {}, NOT_OFFERED.format(model=missing) if missing else NO_STRONG_MODEL
@@ -417,7 +524,21 @@ def _decide(state: RunState, current, action, evidence, reason, checkers, stop_r
     )
     if action == "pause":
         route_ladder.record_outcome(state, "paused")
-        run_status.pause(state, "PAUSED_BUILDER_RETRY_LIMIT", "Execution failure: " + stop_reason)
+        row = (current.get("ledger") or [{}])[-1]
+        stop.end(
+            state,
+            stop_reason,
+            {
+                "milestone_key": key(state),
+                "stage": "terra",
+                "failure": evidence,
+                "attempt": len(current["failures"]),
+                **({"novelty": novelty} if novelty else {}),
+                "failing_checks": row.get("failing") or [],
+                "changed_files": row.get("changed") or [],
+            },
+            at=s.now(),
+        )
     elif action == "defer":
         state.update({"status": SERIAL, "stop_reason": "Execution failure: " + stop_reason})
 

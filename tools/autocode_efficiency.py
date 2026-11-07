@@ -20,9 +20,11 @@ import warnings
 from copy import deepcopy
 
 try:
+    from . import autocode_cost as cost
     from . import autocode_design_manifest as design_manifest
     from . import autocode_usage as usage
 except ImportError:
+    import autocode_cost as cost
     import autocode_design_manifest as design_manifest
     import autocode_usage as usage
 
@@ -157,10 +159,16 @@ def observe_replay(state: RunState, replay, *, attempt_id):
             "timed_out": check.get("timed_out"),
             "original_reason": original_reason or "unknown",
         }
+        # An execution of an obligation that already had a completed receipt is a repeat; its
+        # reason says whether it supplied new proof (#1910). A reuse imports its original
+        # execution under the same event, so it carries the original's earlier attempt too.
+        previous = schedule.get("original_previous_attempt_id" if reused else "previous_attempt_id")
+        if previous:
+            provenance["previous_attempt_id"] = previous
         record_observation(
             state,
             event_id=key + ":execute",
-            kind="activity",
+            kind="repeat" if previous else "activity",
             category="functional_proof",
             reason=reason,
             provenance=provenance,
@@ -343,7 +351,51 @@ def _observations(state: RunState):
             }
         )
         issues.append(f"Conflicting observation: {event_id}")
+    observations.extend(_waiting(state, {row.get("event_id") for row in observations}))
     return observations, issues
+
+
+def _waiting(state: RunState, seen):
+    """Time the run waited for a person, from the AutoResolver requests a person answered (#1926).
+
+    A published request records when it became answerable (`issued_at`); the person's response
+    consumes it and records when (`response.at`). Only those spans count: a request superseded
+    without a response, or still pending, adds nothing, and gaps between stages are never
+    presumed waiting. Derived from saved receipts, so older runs are measured too.
+    """
+    rows = []
+    escalations = _dict(_dict(state.get("resolver")).get("human_escalations"))
+    for request_id, entry in sorted(escalations.items()):
+        entry = _dict(entry)
+        response = _dict(entry.get("response"))
+        start, end = _time(entry.get("issued_at")), _time(response.get("at"))
+        event_id = f"waiting:{request_id}"
+        if (
+            entry.get("status") != "consumed"
+            or response.get("actor") != "user_cli"
+            or start is None
+            or end is None
+            or end < start
+            or event_id in seen
+        ):
+            continue
+        rows.append(
+            {
+                "event_id": event_id,
+                "kind": "activity",
+                "category": "waiting",
+                "reason": "unknown",
+                "provenance": {
+                    "request_id": request_id,
+                    "scope": _dict(_dict(entry.get("identity")).get("proposal")).get("scope"),
+                },
+                "attempt_id": None,
+                "finding_ids": [],
+                "started_at": entry["issued_at"],
+                "finished_at": response["at"],
+            }
+        )
+    return rows
 
 
 def _visual(state: RunState, acceptance=None, *, now=None, accounting=None):
@@ -888,6 +940,18 @@ def summary(state: RunState, now=None, *, accounting=None, completion_current=No
         measured["cost"]["reported_usd"]["value"] if visual_usage_available else None,
         denominator,
         "Cost or accepted denominator is unknown",
+    )
+    # The status view's own spend: reported where the provider reported, else the dated-table estimate, so a
+    # coding-plan run that reports no cost gets a figure too; only when every stage is priced (#1925).
+    spent = cost.view(state)
+    units["spent_usd"] = _ratio(
+        spent["spent_usd"] if spent["complete"] and visual_usage_available else None,
+        denominator,
+        "Usage coverage is incomplete"
+        if not visual_usage_available
+        else "Cost coverage is incomplete: a stage is unpriced, partial or still running"
+        if not spent["complete"]
+        else reason,
     )
     units["wall_seconds"] = _ratio(
         timing["wall_union_seconds"] if visual_usage_available else None,

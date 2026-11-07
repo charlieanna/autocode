@@ -18,15 +18,21 @@ try:
     from . import autocode_command_receipt as receipts
     from . import autocode_command_supervision as commands
     from . import autocode_runner_check as runner_check
+    from .autocode_util import boundary_pause
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_command_supervision as commands
     import autocode_runner_check as runner_check
+    from autocode_util import boundary_pause
 
 
-def raise_if_uncertain(error):
-    """Keep an ownership hold outside ordinary report rejection and archival."""
-    if isinstance(error, receipts.OwnershipUncertain):
+def raise_if_not_rejected(error):
+    """Keep an ownership hold or a completion boundary outside ordinary rejection and archival.
+
+    The runner sets a completion-gate pause's attempt aside first (autocode_run_records.set_aside_at_completion_gate,
+    #1851); a worker that already reconciled through the runner only re-raises.
+    """
+    if isinstance(error, receipts.OwnershipUncertain) or boundary_pause(error):
         raise error
 
 

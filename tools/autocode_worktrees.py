@@ -45,9 +45,11 @@ import tempfile
 from pathlib import Path
 
 try:
+    from . import autocode_registry as registry
     from . import autocode_util as util
     from . import autocode_workspaces as workspaces
 except ImportError:
+    import autocode_registry as registry
     import autocode_util as util
     import autocode_workspaces as workspaces
 
@@ -58,13 +60,13 @@ IDENTITY = {
     "GIT_COMMITTER_EMAIL": "autocode@localhost",
 }
 # The same exclusions autocode_support.snapshot applies: runner state and bytecode are not source.
-SOURCE = [
-    "--",
-    ".",
-    ":(exclude).autocode",
-    ":(exclude).autocode-ui",
-    ":(exclude,glob)**/__pycache__/**",
-    ":(exclude,glob)**/*.pyc",
+# Git refuses `git add` when a pathspec names an ignored path (git >= 2.56), so these are
+# dropped from the index after staging instead of being excluded from the pathspec.
+SOURCE_EXCLUDES = [
+    ".autocode",
+    ".autocode-ui",
+    ":(glob)**/__pycache__/**",
+    ":(glob)**/*.pyc",
 ]
 COMPLETE = "TASK_COMPLETE"
 
@@ -83,7 +85,9 @@ def source_tree(worktree) -> str:
     with tempfile.TemporaryDirectory() as scratch:
         env = {"GIT_INDEX_FILE": str(Path(scratch) / "index")}
         _git(worktree, "read-tree", "HEAD", env=env)
-        _git(worktree, "add", "-A", *SOURCE, env=env)
+        _git(worktree, "add", "-A", "--", ".", env=env)
+        for pathspec in SOURCE_EXCLUDES:
+            _git(worktree, "reset", "-q", "--", pathspec, env=env, check=False)
         return _git(worktree, "write-tree", env=env)
 
 
@@ -130,9 +134,11 @@ def deliver(state: RunState, workspace) -> str:
         _git(workspace, "update-ref", f"refs/heads/{branch}", commit, tip)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         return f"\nThe delivered source was not committed to {branch}: {error}"
+    project = state.get("project_workspace", "<project>")
     return (
-        f"\nDelivered on branch {branch} ({commit[:12]}). Merge it, then remove this worktree "
-        f"with `autocode clean-worktrees --workspace {state.get('project_workspace', '<project>')} --yes`."
+        f"\nDelivered on branch {branch} ({commit[:12]}). Merge it with "
+        f"`autocode merge --workspace {project} {workspace}` (or `git merge {branch}` from your checkout), "
+        f"then remove this worktree with `autocode clean-worktrees --workspace {project} --yes`."
     )
 
 
@@ -192,7 +198,8 @@ def _registered(project):
 
 
 def _program_owned(project):
-    """Worktree paths any program under ``project`` recorded (autocode_program owns those)."""
+    """Worktree paths any program under ``project`` recorded. ``autocode program`` is archived on branch
+    archive/program; a program an older checkout ran still owns its worktrees, so clean-up keeps them."""
     owned = set()
     for state in (project / ".autocode" / "programs").glob("*/state.json"):
         try:
@@ -224,7 +231,16 @@ def assess(project, tree, branch, registered):
         except (OSError, ValueError):
             return False, f"{path.parent.name}: unreadable state"
         if status != COMPLETE:
-            return False, f"{path.parent.name} is {status}; finish or abandon it first"
+            # No command abandons a run (#2365): name the steps that work, not a verb that does not.
+            forget = (
+                f"; then autocode registry forget-deleted --workspace {tree} --run-dir {path.parent}"
+                if registry.registry_path().is_file()
+                else ""
+            )
+            return False, (
+                f"{path.parent.name} is {status}; finish it, or drop it yourself with "
+                f"git -C {project} worktree remove --force {tree} (its run records go with it){forget}"
+            )
     if not branch:
         return False, "no branch; commit its work to a branch first"
     try:
@@ -256,11 +272,25 @@ def remove(project, tree, registered):
         shutil.copytree(
             tree / ".autocode", archive, symlinks=True, dirs_exist_ok=True, ignore=shutil.ignore_patterns("writer.lock")
         )
+        runs = sorted(p.parent for p in (tree / ".autocode" / "runs").glob("*/state.json"))
         # --force: the worktree is detached with the delivered source uncommitted relative to
         # HEAD; assess() has just shown the branch holds exactly that source.
         _git(project, "worktree", "remove", "--force", str(tree))
     _git(project, "worktree", "prune", check=False)
+    _forget_runs(tree, runs)
     return archive
+
+
+def _forget_runs(tree, runs):
+    """Drop the removed worktree's runs from the shared registry, or `runs --all` lists each of them as
+    unreadable for good (#2319). A registry kept inside the worktree went with it: never recreate one."""
+    if not runs or not registry.registry_path().is_file():
+        return
+    for run in runs:
+        try:
+            registry.forget_deleted(tree, run)
+        except registry.RegistryError:
+            continue  # the records are archived either way; the pointer is only a listing
 
 
 def parser() -> argparse.ArgumentParser:

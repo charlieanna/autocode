@@ -91,10 +91,16 @@ class DoctorRunnerCheckTests(unittest.TestCase):
         self.assertIn("1a2b3c4+modified", check.detail)
 
     def test_an_unversioned_runner_warns_that_states_will_not_identify(self):
-        check = doctor.runner_check(commit_source_returning(None))
+        check = doctor.runner_check(commit_source_returning(None), release=lambda: None)
         self.assertEqual(doctor.WARN, check.status)
         self.assertIn("unversioned", check.detail)
         self.assertIn("git checkout", check.fix)
+
+    def test_an_installed_release_is_identified_without_sending_its_user_to_a_checkout(self):
+        check = doctor.runner_check(commit_source_returning(None), release=lambda: "0.8.2")
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("installed release autocode-supervisor 0.8.2", check.detail)
+        self.assertEqual("", check.fix)
 
     def test_all_checks_carries_the_runner_check(self):
         workspace = Path(tempfile.mkdtemp(prefix="doctor-runner-all-"))

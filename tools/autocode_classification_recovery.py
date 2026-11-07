@@ -20,15 +20,18 @@ try:
     from . import autocode_builder_failure as failure
     from . import autocode_builder_policy as policy
     from . import autocode_investigation_policy as investigation_policy
+    from . import autocode_report_repair_queue as repair_queue
     from . import autocode_util as util
 except ImportError:
     import autocode_builder_failure as failure
     import autocode_builder_policy as policy
     import autocode_investigation_policy as investigation_policy
+    import autocode_report_repair_queue as repair_queue
     import autocode_util as util
 
 ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
 STAGE = "investigate_stuck"
+BOUNDARY_BOUNDS = ("max_seconds", "max_cost_usd", "iteration_ceiling")
 
 
 def _attempts(state: RunState, request):
@@ -86,11 +89,69 @@ def _repair_finished(state: RunState, context):
     )
 
 
+def pending_repair(state: RunState, request):
+    """The same Investigator still owns a bounded report-only repair, not fresh work."""
+    pending = state.get("pending_report_repair") or {}
+    original = pending.get("original") or {}
+    started, requested = original.get("started_at"), request.get("requested_at")
+    attempts = pending.get("attempts", 0)
+    return bool(
+        original.get("stage") == STAGE
+        and isinstance(started, str)
+        and isinstance(requested, str)
+        and started >= requested
+        and original.get("exit_code") == 0
+        and type(attempts) is int
+        and attempts >= 0
+        and repair_queue.pending_repair_dispatchable({**state, "next_stage": STAGE})
+    )
+
+
+def _preparation_size_stop(error):
+    # A corrected renderer can fit the same immutable inputs without another
+    # investigation. Only the two runner-owned prelaunch handoff bounds qualify;
+    # oversized source reports and all evidence/admission failures still refuse.
+    return any(
+        error.startswith(prefix) and suffix in error[len(prefix) :]
+        for prefix, suffix in (
+            ("Complete report-repair handoff exceeds ", " bytes; no unbounded repair was launched."),
+            ("Provider-decorated repair prompt exceeds ", " bytes; no request was launched."),
+        )
+    )
+
+
+def _repair_continuation(state: RunState, context):
+    error = context["history"].get("error") or ""
+    return bool(
+        (
+            error in failure.BOUNDARY_STOPS
+            or _preparation_size_stop(error)
+            or (error.startswith("Spend so far ") and error.endswith("cost cap at stage boundary"))
+        )
+        and pending_repair(state, context["request"])
+        and any(
+            row.get("stage") == STAGE and row.get("started_at") == context["report_repair"]["original"]["started_at"]
+            for row in context["attempts"]
+        )
+    )
+
+
 def configuration(state: RunState):
     settings = copy.deepcopy(state.get("settings") or {})
     # prepare_stuck derives this temporary role from the bound source roles and
     # Investigator settings; abandon removes it. It is not a user route change.
     (settings.get("roles") or {}).pop("stuck_investigator", None)
+    # The run-wide bounds and the accepted transport identity are checked at every stage boundary,
+    # not by the grant: raising the bound or accepting the transport change that stopped a queued
+    # classification is what lets it launch (#1949). Its roles and every other setting still bind.
+    settings.pop("transport_identity", None)
+    settings.pop("transport_identities", None)
+    for key in ("limits", "budget_origins"):
+        kept = {name: value for name, value in (settings.get(key) or {}).items() if name not in BOUNDARY_BOUNDS}
+        if kept:
+            settings[key] = kept
+        else:
+            settings.pop(key, None)
     return settings
 
 
@@ -137,7 +198,8 @@ def offer(state: RunState):
     used, limit = len(failure.classified(state)), policy.classification_limit(state)
     repair_finished = _repair_finished(state, context)
     enabled = investigation_policy.enabled(state)
-    if not enabled or used >= limit or not repair_finished:
+    continuation = _repair_continuation(state, context)
+    if not enabled or (not continuation and (used >= limit or not repair_finished)):
         return {
             "kind": "resume",
             "reason": state.get("stop_reason"),
@@ -174,7 +236,11 @@ def offer(state: RunState):
         ),
         "classification_attempts": {"used": used, "limit": limit},
         "action": ACTION,
-        "recovery_hint": "Inspect the retained failed classification before retrying. This grants one read-only Investigator under the remaining limits; the Resolver proposal stays unassigned until normal policy accepts a fresh diagnosis.",
+        "recovery_hint": (
+            "Continue the retained report-only repair under its remaining limits. The prelaunch stop did not spend a new classification; no Investigator work or repair allowance is restarted."
+            if continuation
+            else "Inspect the retained failed classification before retrying. This grants one read-only Investigator under the remaining limits; the Resolver proposal stays unassigned until normal policy accepts a fresh diagnosis."
+        ),
     }
 
 
@@ -223,6 +289,30 @@ def authorize(runtime, state: RunState, run_dir, workspace, token, *, supersede_
     pending = runtime.intervention_metadata(workspace, run_dir, state)
     if pending["pending_count"] or pending["inbox_error"]:
         raise ValueError("Apply queued interventions before retrying the classification")
+    if _repair_continuation(state, context):
+        # Older runtimes abandoned a live repair at the run-wide boundary. Restore
+        # that reservation, keeping its failed snapshot as evidence and every
+        # physical attempt, repair counter and consumed grant unchanged.
+        state["stuck_investigation"] = copy.deepcopy(context["request"])
+        entry = state["stuck_investigations"][context["history_index"]]
+        entry["outcome"] = "investigating"
+        entry.pop("error", None)
+        entry.pop("finished_at", None)
+        state.setdefault("user_events", []).append(
+            {
+                "kind": "classification_report_repair_resumed",
+                "at": util.now(),
+                "token": token,
+                "identity": context["request"]["identity"],
+                "retained_history": copy.deepcopy(context["history"]),
+            }
+        )
+        state.pop("builder_failure_hold")
+        supersede_job(state)
+        state.update({"status": "RUNNING", "phase": "INVESTIGATING", "next_stage": STAGE})
+        state.pop("stop_reason", None)
+        runtime.write_json(Path(run_dir) / "state.json", state)
+        return
     request = copy.deepcopy(context["request"])
     request.update(identity="builder-failure-retry:" + token[3:], requested_at=util.now())
     request["classification_retry"] = {

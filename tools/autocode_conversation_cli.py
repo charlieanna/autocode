@@ -30,27 +30,41 @@ def command():
     return (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
 
 
+ACTION_HELP = {
+    "start": "Start a conversation and its run from a first message",
+    "attach": "Attach to an existing run's conversation",
+    "read": "Print the conversation journal",
+    "send": "Queue a human message",
+    "refresh": "Refresh the draft from the run's saved state",
+    "handoff": "Hand the reviewed draft to the run",
+}
+
+
 def parser():
     root = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     actions = root.add_subparsers(dest="action", required=True)
     for name in ("start", "attach", "read", "send", "refresh", "handoff"):
-        child = actions.add_parser(name, allow_abbrev=False)
-        child.add_argument("--workspace", required=True, type=Path)
+        child = actions.add_parser(name, allow_abbrev=False, help=ACTION_HELP[name])
+        child.add_argument("--workspace", required=True, type=Path, help="Project directory")
         child.add_argument("--timeout", type=float, help="Deadline for each public task-run CLI invocation")
         if name != "start":
-            child.add_argument("--run-dir", required=True, type=Path)
+            child.add_argument("--run-dir", required=True, type=Path, help="The run the conversation belongs to")
         if name in ("start", "send"):
-            child.add_argument("--text", required=True)
+            child.add_argument("--text", required=True, help="The human message")
         if name == "start":
-            child.add_argument("--title")
+            child.add_argument("--title", help="Title of the new conversation")
         if name in ("start", "send", "refresh"):
-            child.add_argument("--request-id", required=True)
+            child.add_argument(
+                "--request-id", required=True, help="Stable ID of this request, so a repeat is recognized"
+            )
         if name in ("send", "refresh", "handoff"):
-            child.add_argument("--expected-revision", required=True, type=int)
+            child.add_argument(
+                "--expected-revision", required=True, type=int, help="The revision last read; a newer one refuses"
+            )
         if name == "send":
             child.add_argument("--supersedes-request-id", help="Pending human request with a retained runner rejection")
         if name == "refresh":
-            child.add_argument("--question-id")
+            child.add_argument("--question-id", help="Refresh only this open question")
             child.add_argument("--resolver-token", help="Inspected resolver token; '-' reads AUTOCODE_RESOLVER_TOKEN")
         if name == "handoff":
             child.add_argument(

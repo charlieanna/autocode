@@ -32,15 +32,19 @@ from pathlib import Path
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_package_scope as package_scope
+    from . import autocode_protected_commands as commands
     from . import autocode_protected_paths as paths
     from . import autocode_protected_store as store
+    from . import autocode_superseded_tests as superseded_tests
     from . import autocode_util as util
     from .autocode_protected_paths import identity, path_in
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_package_scope as package_scope
+    import autocode_protected_commands as commands
     import autocode_protected_paths as paths
     import autocode_protected_store as store
+    import autocode_superseded_tests as superseded_tests
     import autocode_util as util
     from autocode_protected_paths import identity, path_in
 
@@ -100,6 +104,7 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
     revision = getattr(args, "revise_protected_tests", None)
     previous = settings.get("protected_tests")
     if revision:
+        command_only = str(revision) == commands.SELECTOR
         if not getattr(args, "run_dir", None) or not getattr(args, "resume_paused", False):
             raise ValueError("--revise-protected-tests requires a saved pause and --resume-paused")
         if (
@@ -109,18 +114,21 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
                 state.get(key)
                 for key in (
                     "active_stage",
-                    "pending_report_repair",
                     "uncertain_artifacts",
                     "active_runner_check",
                     "runner_check",
                 )
             )
+            or state.get("pending_report_repair")
+            and not (command_only and commands.completed_gate_repair(state))
         ):
             raise ValueError("Reconcile the attempt and stop before independent validation to revise protected tests")
         if not previous:
             raise ValueError("This saved run has no original protected-test binding; start a new run")
         verify_binding(previous)
-        proposal = util.read_object(revision)
+        proposal = commands.proposal(state, previous) if command_only else util.read_object(revision)
+        if proposal is None:
+            raise ValueError("No approved command-only protected-test correction is available")
         if (
             set(proposal) != {"previous_hash", "files", "command", "reason"}
             or proposal["previous_hash"] != previous["binding_hash"]
@@ -130,10 +138,18 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
             or not proposal["command"].strip()
         ):
             raise ValueError("A protected-test revision needs the exact previous hash, command and user rationale")
-        files = inventory(workspace, is_test_path, package=package_scope.of(settings))
+        files = (
+            previous["files"]
+            if command_only
+            else inventory(workspace, is_test_path, package=package_scope.of(settings))
+        )
         if proposal["files"] != files or not files:
             raise ValueError("Protected-test revision must identify every current eligible test by hash, size and mode")
-        current = retain(workspace, run_dir, files, proposal["command"])
+        if command_only:
+            with store.opened(previous, workspace) as original_root:
+                current = retain(original_root, run_dir, files, proposal["command"])
+        else:
+            current = retain(workspace, run_dir, files, proposal["command"])
         state.setdefault("user_events", []).append(
             {
                 "kind": "protected_tests_revised",
@@ -142,13 +158,21 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
                 "previous": previous,
                 "current": current,
                 "reason": proposal["reason"],
-                "proposal_sha256": util.file_hash(revision),
+                "proposal_sha256": util.digest(proposal) if command_only else util.file_hash(revision),
             }
         )
         settings["protected_tests"] = current
+        if command_only and state.get("pending_report_repair"):
+            state.setdefault("report_repair_archive", []).append(
+                {
+                    "reason": "Explicit original-suite command correction requires fresh validation, not report formatting",
+                    "repair": state.pop("pending_report_repair"),
+                }
+            )
     elif not getattr(args, "run_dir", None):
         files = inventory(workspace, is_test_path, package=package_scope.of(settings))
-        command = (settings.get("regression") or {}).get("test_command") or (discover_command() if files else None)
+        explicit = (settings.get("regression") or {}).get("test_command")
+        command = explicit or commands.initial_command(files, discover_command() if files else None)
         settings["protected_tests"] = retain(workspace, run_dir, files, command)
     if getattr(args, "run_dir", None) and not any(state.get(key) for key in ("active_stage", "active_runner_check")):
         retained = [settings.get("protected_tests")]
@@ -169,7 +193,7 @@ MAX_ASSIGNED_TESTS = 200
 MAX_ASSIGNED_BYTES = 32_000
 
 
-def context(settings, affected_paths=()):
+def context(settings, affected_paths=(), state: RunState | None = None, *, current=None):
     record = settings.get("protected_tests")
     if not record or not record["files"]:
         return None
@@ -188,9 +212,27 @@ def context(settings, affected_paths=()):
     result = {key: copy.deepcopy(record.get(key)) for key in ("binding_hash", "root", "inventory_path", "command")}
     result |= {"total_files": len(record["files"]), "assigned_tests": assigned}
     instruction = prompts.get("fragments/protected-oracles/context.md")
+    replaced = superseded_tests.approved(state) if state is not None else []
+    if replaced:
+        result["superseded_tests"] = [{"file": row["file"], "test": row["test"]} for row in replaced]
+        instruction += "\n\n" + prompts.get("fragments/protected-oracles/superseded.md")
     if len(assigned) < len(matching):
         result |= {"assigned_total": len(matching), "assigned_omitted": len(matching) - len(assigned)}
         instruction += "\n\n" + prompts.get("fragments/protected-oracles/omitted.md")
+    if current and current.get("revision"):
+        matches = {}
+        for name, original in assigned.items():
+            digest = current["files"].get(name, "").removeprefix("executable:")
+            if "sha256" in original and len(digest) == 64 and all(c in "0123456789abcdef" for c in digest):
+                matches[name] = digest == original["sha256"]
+        if matches:
+            result["content_comparison"] = {"source_revision": current["revision"], "matches_original": matches}
+            instruction += (
+                "\nThe runner compared the retained test bytes with the current source snapshot for the listed files. "
+                "Use that comparison for file contents. Inspect changed assertions in the diff and consult the "
+                "retained original when the diff does not answer a question. This byte comparison does not check modes, "
+                "links or test results. Keep the independent checks and the runner's protected test gate."
+            )
     return result | {"instruction": instruction}
 
 
@@ -242,12 +284,15 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout):
             result["original"] = scratch_run(
                 workspace, directory / "original", command=record["command"], timeout=timeout, **overlays
             )
-        receipts = (result["candidate"], result["original"])
-        if any(
-            row.get("exit_code") != 0 or row.get("error") or row.get("timed_out") or not command_receipt.completed(row)
-            for row in receipts
-        ):
+        if _failed(result["candidate"]) or _failed(result["original"]):
             result["verdict"] = "FAIL"
+        replaced = superseded_tests.approved(state)
+        if replaced and not _failed(result["candidate"]) and command_receipt.completed(result["original"]):
+            # The approved plan replaces these original tests (#2748): only their failures are accepted.
+            excused = superseded_tests.excused(result["original"], replaced, changed)
+            if excused:
+                result["verdict"] = "PASS"
+                result["superseded"] = {"tests": _listed(replaced, changed), "excused_failures": excused}
     verify_binding(record)
     if source_scope.snapshot(workspace, state)["revision"] != revision:
         result.update(verdict="NOT_VERIFIED", error="Candidate changed during protected-test replay")
@@ -258,13 +303,35 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout):
     result["receipt_sha256"] = util.file_hash(receipt)
     if result["verdict"] != "PASS":
         tail = (result.get("original") or {}).get("tail", "")[-500:]
-        raise ValueError(
-            "Protected tests changed and the original gate did not pass on this implementation. "
+        failing = ((result.get("original") or {}).get("results") or {}).get("failed") or []
+        raise commands.OriginalGateFailure(
+            commands.ORIGINAL_GATE_FAILED + " on this implementation. "
             "Repair the implementation; a modified assertion is not proof. "
-            + result.get("error", "")
-            + f" Receipt: {receipt}. {tail}"
+            + (f"Failing original tests: {', '.join(failing[:10])}. " if failing else "")
+            + "Only an approved plan criterion's supersedes list can replace an original test that asserts the "
+            "behavior being changed. " + result.get("error", "") + f" Receipt: {receipt}. {tail}",
+            result,
         )
     return result
+
+
+def _failed(row):
+    return (
+        not isinstance(row, dict)
+        or row.get("exit_code") != 0
+        or bool(row.get("error"))
+        or bool(row.get("timed_out"))
+        or not command_receipt.completed(row)
+    )
+
+
+def _listed(replaced, changed):
+    changed = set(changed)
+    return [
+        {"criterion": row["criterion"], "file": row["file"], "test": row["test"]}
+        for row in replaced
+        if row["file"] in changed
+    ]
 
 
 def ready(state: RunState, current_revision):
@@ -296,8 +363,10 @@ def ready(state: RunState, current_revision):
                     or row.get("timed_out")
                     or row.get("error")
                     or not command_receipt.completed(row)
-                ):
+                ) and not (name == "original" and _superseded_ready(state, result)):
                     return False
+        elif result.get("superseded"):
+            return False
         return (
             result.get("verdict") == "PASS"
             and result.get("binding_hash") == record["binding_hash"]
@@ -305,3 +374,14 @@ def ready(state: RunState, current_revision):
         )
     except (OSError, ValueError, TypeError, KeyError):
         return False
+
+
+def _superseded_ready(state: RunState, result):
+    """The receipt's accepted original failures are, today, exactly the approved plan's superseded tests."""
+    row, accepted = result.get("original"), result.get("superseded")
+    if not isinstance(accepted, dict) or not isinstance(row, dict) or not command_receipt.completed(row):
+        return False
+    replaced = superseded_tests.approved(state)
+    changed = result.get("changed_tests") or []
+    excused = superseded_tests.excused(row, replaced, changed)
+    return bool(excused) and accepted == {"tests": _listed(replaced, changed), "excused_failures": excused}

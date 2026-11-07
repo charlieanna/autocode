@@ -7,8 +7,8 @@ consumes the latter. The archive retains fragments, usage and source captures.
 The failure source_paths preserve the captured inventory scope for authorize,
 reroute and admission; legacy failures retain their original Git-only scope.
 
-A job stopped on quota or by its provider's content filter (#463) also keeps, on
-state.job_failure: ``pause_status`` (PAUSED_BUDGET or PAUSED_CONTENT_FILTER; read by
+A job stopped on quota, provider refusal, authentication, output exhaustion or timeout also keeps, on
+state.job_failure: ``pause_status`` (the classified model stop; read by
 quota_route.stopped_attempt and autocode_job_route), ``route`` (the job's model question,
 quota_route.question; read by run_view's retry_job need and autocode_job_route) and, once a
 person named a model, ``route_assignment`` (that recorded change). reroute() binds the exact
@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_context_window as context_window
+    from . import autocode_job_deadline as job_deadline
     from . import autocode_job_source as source
     from . import autocode_jobs as jobs
     from . import autocode_provider_auth as provider_auth
@@ -37,6 +39,8 @@ try:
     from . import autocode_source_scope as scope
     from . import autocode_util as util
 except ImportError:
+    import autocode_context_window as context_window
+    import autocode_job_deadline as job_deadline
     import autocode_job_source as source
     import autocode_jobs as jobs
     import autocode_provider_auth as provider_auth
@@ -54,7 +58,15 @@ _ROUTE_STOPS = {
     "content_filter": quota_route.REFUSAL_STATUS,
     "quota": quota_route.QUOTA_STATUS,
     "output_limit": quota_route.OUTPUT_STATUS,
+    "context_window": quota_route.CONTEXT_STATUS,
+    "provider_auth": quota_route.AUTH_STATUS,
+    "timeout": quota_route.TIMEOUT_STATUS,
 }
+
+
+def launch_deadline(state: RunState, stage, configured, report_only=False):
+    """The hard deadline this launch runs under: a stopped job's authorized retry keeps its own (#2823)."""
+    return job_deadline.launch_limit(state, stage, configured, report_only=report_only)
 
 
 def owner(record):
@@ -144,6 +156,11 @@ def _reason(runtime, record, error):
             "output_limit",
             f"{role}: response output limit exhausted on {model}; reasoning and report text share the cap",
         )
+    if status == quota_route.CONTEXT_STATUS:
+        return "context_window", (
+            context_window.explain(runtime.support.events(path), job=role, model=model)
+            or f"{role}: the request no longer fit the model's context window on {model}"
+        )
     if status == quota_route.QUOTA_STATUS:
         message = next(
             (
@@ -158,7 +175,7 @@ def _reason(runtime, record, error):
             + (f" ({message})" if message else "")
         )
     auth = provider_auth.reason(path)
-    if auth:
+    if auth and getattr(error, "status", None) != "PAUSED_UNCERTAIN_STAGE":
         return "provider_auth", f"{role}: {auth}"
     return "exit", f"{role}: provider exited {record.get('exit_code')} without a terminal report; {error or ''}"
 
@@ -172,10 +189,18 @@ def _route_reason(failure):
         if failure.get("pause_status") == quota_route.REFUSAL_STATUS
         else f"the response output limit was exhausted on {route.get('stopped_model')}"
         if failure.get("pause_status") == quota_route.OUTPUT_STATUS
+        else f"the request no longer fit the context window on {route.get('stopped_model')}"
+        if failure.get("pause_status") == quota_route.CONTEXT_STATUS
+        else f"provider authentication failed on {route.get('stopped_model')}"
+        if quota_route.job_stop_status(failure) == quota_route.AUTH_STATUS
+        else f"the execution time limit was exceeded on {route.get('stopped_model')}"
+        if quota_route.job_stop_status(failure) == quota_route.TIMEOUT_STATUS
         else f"the provider reported its quota used up on {route.get('stopped_model')}"
     )
+    named = assignment.get("effort") or {}
+    effort = f" at {named['to']} effort (was {named['from']})" if named.get("named") else ""
     return (
-        f"{job}: {stopped}. The {job} now runs on {assignment['to']} (was {assignment['from']}); the stopped "
+        f"{job}: {stopped}. The {job} now runs on {assignment['to']}{effort} (was {assignment['from']}); the stopped "
         "attempt was set aside without replay. Retry it once with --resume-paused --retry-failed-stage "
         "--job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN), using the new token."
     )
@@ -214,8 +239,11 @@ def _reasked(runtime, state: RunState, failure):
             },
         )
     route = dict(route, current_model=model)
+    route.pop("lower_effort", None)  # the answer took it, or named another route
     if "candidates" in route:
-        route["candidates"] = [candidate for candidate in route["candidates"] if candidate != model]
+        route["candidates"] = [
+            candidate for candidate in route["candidates"] if quota_route.split_effort(candidate)[0] != model
+        ]
         route.pop("recommendation", None)
     return route
 
@@ -289,10 +317,16 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         "write_diagnosis": restoration,
         "unrestored": restoration["unrestored"],
     }
-    if kind in _ROUTE_STOPS:
+    if record.get("timed_out") and record.get("timeout_kind"):
+        failure["timeout_kind"] = record["timeout_kind"]
+    if type(record.get("stage_timeout_seconds")) is int and record["stage_timeout_seconds"] > 0:
+        # The exact retry keeps the deadline this attempt ran under, which an automatic extension
+        # may have raised for this job alone (#2823); the run's own stage limit is not changed.
+        failure["retry_stage_timeout_seconds"] = record["stage_timeout_seconds"]
+    if kind in _ROUTE_STOPS and not quota_route.deadline_stop(failure):
         failure["pause_status"] = _ROUTE_STOPS[kind]
     state.pop("job_retry_authorization", None)
-    state["recovery_context"] = {
+    recovery = {
         "kind": "job_failure",
         "stage": stage,
         "attempt_id": original_attempt,
@@ -300,6 +334,22 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         "reason": reason,
         "write_diagnosis": restoration,
     }
+    if record.get("timed_out") and record.get("timeout_kind"):
+        # Which limit stopped it (the deadline, or the exploration budget's ``progress``): the retry handoff says so.
+        recovery["timeout_kind"] = record["timeout_kind"]
+    state["recovery_context"] = recovery
+    extension = job_deadline.plan(
+        state, failure, recovery, abandoned=abandoned, deadline=record.get("stage_timeout_seconds")
+    )
+    if not extension and kind == "timeout" and (spent := job_deadline.used(state, stage)):
+        reason = failure["reason"] = reason + ". " + job_deadline.exhausted(roles.screen_name(stage), spent)
+    if extension:
+        # A hard stage deadline is machinery, not a question about models (#2605): retry with a longer one.
+        _extend_deadline(state, run_dir, failure, extension)
+        runtime.write_json(Path(run_dir) / "state.json", state)
+        for artifact in originals:
+            artifact.unlink(missing_ok=True)
+        return True
     run_status.pause(
         state,
         "PAUSED_STAGE_ABANDONED" if abandoned else "PAUSED_JOB_FAILURE",
@@ -327,9 +377,88 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
     return True
 
 
-def authorize(runtime, state: RunState, run_dir, workspace, token):
+def _extend_deadline(state: RunState, run_dir, failure, extension):
+    """Bind the exact retry to a longer deadline for this job alone and authorize that one retry.
+
+    The run's saved stage limit stays as the person set it (#2823): only this job's retry, through
+    job_deadline.launch_limit, runs on the extended deadline.
+    """
+    failure["retry_stage_timeout_seconds"] = extension["to"]
+    previous_token = failure["job_retry_token"]
+    failure["job_retry_token"] = "jr:" + util.digest(
+        {
+            "run": str(run_dir),
+            "attempt": failure["attempt_id"],
+            "previous": previous_token,
+            "source": failure["source_identity"],
+            "configuration": failure["configuration"],
+            "retry_stage_timeout_seconds": extension["to"],
+        }
+    )
+    decided = job_deadline.reason(roles.screen_name(failure["stage"]), extension)
+    failure.update(automatic_deadline_extension=copy.deepcopy(extension), reason=failure["reason"] + ". " + decided)
+    state.setdefault("user_events", []).append(
+        {
+            "kind": job_deadline.EVENT,
+            "actor": "runner",
+            "at": util.now(),
+            "stage": failure["stage"],
+            "attempt_id": failure["attempt_id"],
+            "previous_token": previous_token,
+            "token": failure["job_retry_token"],
+            "changes": {"stage_timeout_seconds": {"from": extension["from"], "to": extension["to"]}},
+            "reason": decided,
+        }
+    )
+    state["job_retry_authorization"] = {
+        "token": failure["job_retry_token"],
+        "stage": failure["stage"],
+        "consumed": False,
+    }
+    run_status.running(state, "EXECUTING", next_stage=failure["stage"])
+
+
+def retry_configuration_matches(current, saved):
+    """Compare retry authority, ignoring only a complete content-addressed config's location.
+
+    Package reinstallations relocate bundled TOML files. Their path is diagnostic;
+    bytes, executable, version and all remaining settings still bind the retry.
+    Live transport admission independently checks the currently installed provider.
+    Legacy/incomplete identities keep strict equality.
+    """
+
+    def normalized(value):
+        result = copy.deepcopy(value)
+        if not isinstance(result, dict):
+            return result
+        identities = [result.get("transport_identity")]
+        multiple = result.get("transport_identities")
+        if isinstance(multiple, dict):
+            identities.extend(multiple.values())
+        fields = {"engine", "identity_version", "executable", "version", "config_path", "config_sha256"}
+        for identity in identities:
+            if (
+                isinstance(identity, dict)
+                and set(identity) == fields
+                and type(identity.get("identity_version")) is int
+                and identity["identity_version"] == 1
+                and all(
+                    isinstance(identity.get(key), str) and identity[key]
+                    for key in ("engine", "executable", "config_path")
+                )
+                and (identity["version"] is None or isinstance(identity["version"], str))
+                and isinstance(identity["config_sha256"], str)
+                and re.fullmatch(r"[0-9a-f]{64}", identity["config_sha256"])
+            ):
+                identity.pop("config_path")
+        return result
+
+    return normalized(current) == normalized(saved)
+
+
+def _validate_retry(state: RunState, workspace, token):
     failure = state.get("job_failure") or {}
-    if state.get("status") not in PAUSES or not failure:
+    if not quota_route.job_pause_current(state):
         raise ValueError("Exact job retry requires a paused failed workflow job")
     if not token or token != failure.get("job_retry_token"):
         raise ValueError("Job retry token does not match the current failed attempt")
@@ -345,8 +474,96 @@ def authorize(runtime, state: RunState, run_dir, workspace, token):
         if failure.get("unrestored"):
             raise ValueError("Unrestored source blocks job retry: " + ", ".join(failure["unrestored"]))
         raise ValueError("Source changed since the failed attempt; retry is stale")
-    if configuration(state) != failure["configuration"]:
+    if not retry_configuration_matches(configuration(state), failure["configuration"]):
         raise ValueError("Provider configuration or limits changed; retry is stale")
+    return failure
+
+
+def change_total_caps(runtime, state: RunState, run_dir, workspace, args):
+    """Save total caps or a longer failed stage deadline; neither grants a retry."""
+    failure = _validate_retry(state, workspace, args.job_retry_token)
+    previous_settings = copy.deepcopy(state["settings"])
+    expected = copy.deepcopy(previous_settings)
+    changes = {}
+    stage_seconds = getattr(args, "max_stage_seconds", None)
+    if stage_seconds is not None:
+        recovery = state.get("recovery_context") or {}
+        old = expected.get("limits", {}).get("stage_timeout_seconds")
+        if (
+            failure.get("kind") != "timeout"
+            or recovery.get("timeout_kind") != "stage"
+            or recovery.get("attempt_id") != failure.get("attempt_id")
+            or recovery.get("stage") != failure.get("stage")
+            or type(old) is not int
+            or type(stage_seconds) is not int
+            or not 0 < old < stage_seconds <= 2_147_483_647
+            or args.max_seconds is not None
+            or args.max_cost_usd is not None
+        ):
+            raise ValueError(
+                "A stage deadline change requires only a larger finite limit for this exact hard-stage timeout"
+            )
+    selected = (
+        (("stage_timeout_seconds", stage_seconds),)
+        if stage_seconds is not None
+        else ((name, getattr(args, name, None)) for name in ("max_seconds", "max_cost_usd"))
+    )
+    for name, chosen in selected:
+        if chosen is not None:
+            old = expected.setdefault("limits", {}).get(name)
+            expected["limits"][name] = chosen
+            expected.setdefault("budget_origins", {})[name] = "user_explicit"
+            if old != chosen:
+                changes[name] = {"from": old, "to": chosen}
+    if expected != args._job_cap_settings or not changes:
+        raise ValueError(
+            "Name changed total caps or the failed stage deadline only; other settings and retry authority must stay unchanged"
+        )
+    previous_token = failure["job_retry_token"]
+    state["settings"] = expected
+    if stage_seconds is not None:
+        # The retry runs on the saved deadline, never shorter than an automatic extension it already had (#2823).
+        ran = failure.get("retry_stage_timeout_seconds")
+        failure["retry_stage_timeout_seconds"] = max(stage_seconds, ran if type(ran) is int else 0)
+    failure["configuration"] = configuration(state)
+    failure["job_retry_token"] = "jr:" + util.digest(
+        {
+            "run": str(run_dir),
+            "attempt": failure["attempt_id"],
+            "previous": previous_token,
+            "source": failure["source_identity"],
+            "configuration": failure["configuration"],
+        }
+    )
+    state.pop("job_retry_authorization", None)
+    state.setdefault("configuration_changes", []).append(
+        {
+            "at": util.now(),
+            "previous": previous_settings,
+            "selected": copy.deepcopy(expected),
+            "reason": (
+                "Explicit stage deadline increased at an exact failed-job boundary; no retry authorized"
+                if stage_seconds is not None
+                else "Explicit total caps changed at an exact failed-job boundary; no retry authorized"
+            ),
+        }
+    )
+    state.setdefault("user_events", []).append(
+        {
+            "kind": "job_stage_deadline_changed" if stage_seconds is not None else "job_total_caps_changed",
+            "actor": "user_cli",
+            "at": util.now(),
+            "attempt_id": failure["attempt_id"],
+            "previous_token": previous_token,
+            "token": failure["job_retry_token"],
+            "changes": changes,
+        }
+    )
+    runtime.write_json(Path(run_dir) / "state.json", state)
+
+
+def authorize(runtime, state: RunState, run_dir, workspace, token):
+    failure = _validate_retry(state, workspace, token)
     state["job_retry_authorization"] = {"token": token, "stage": failure["stage"], "consumed": False}
     state.setdefault("user_events", []).append(
         {
@@ -377,8 +594,8 @@ def reroute(runtime, state: RunState, run_dir, workspace, assignment):
     """
     failure = state.get("job_failure") or {}
     route = failure.get("route") or {}
-    if state.get("status") not in PAUSES or not route:
-        raise ValueError("Only a workflow job stopped on quota or a content-filter refusal takes another model")
+    if not quota_route.job_pause_current(state) or not route:
+        raise ValueError("Only a workflow job stopped on its model or authentication takes another model")
     role = route.get("route_role")
     if assignment.get("role") != role or assignment.get("attempt_id") != failure.get("attempt_id"):
         raise ValueError(
@@ -396,6 +613,9 @@ def reroute(runtime, state: RunState, run_dir, workspace, assignment):
     if not isinstance(bound, dict):
         raise ValueError("Provider configuration or limits changed; retry is stale")
     bound["model"] = assignment.get("to")
+    if isinstance(assignment.get("effort"), dict):
+        # The answer moved the role's effort to a variant the named model declares (#2006): bound too.
+        bound["reasoning_effort"] = assignment["effort"].get("to")
     if current != expected:
         raise ValueError("Provider configuration or limits changed; retry is stale")
     previous = failure["job_retry_token"]
@@ -413,6 +633,10 @@ def reroute(runtime, state: RunState, run_dir, workspace, assignment):
     )
     state.pop("job_retry_authorization", None)
     failure["reason"] = state["stop_reason"] = _route_reason(failure)
+    if state.get("status") in quota_route.JOB_PREFLIGHT_PAUSES:
+        run_status.pause(
+            state, "PAUSED_JOB_FAILURE", failure["reason"], next_stage=failure["stage"], pending_questions=[]
+        )
     return failure["job_retry_token"]
 
 
@@ -434,7 +658,7 @@ def admit(state: RunState, record, workspace):
         auth.get("consumed")
         or auth.get("token") != failure["job_retry_token"]
         or auth.get("stage") != owner(record)
-        or configuration(state) != failure["configuration"]
+        or not retry_configuration_matches(configuration(state), failure["configuration"])
         or capture.get("before_identity") != failure["source_identity"]
     ):
         raise util.Paused("PAUSED_JOB_FAILURE", "Exact job retry admission changed; no provider launched")

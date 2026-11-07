@@ -134,11 +134,63 @@ def plan_cases(body) -> list[dict]:
     return cases
 
 
+def current_diagnosis(state: RunState) -> dict:
+    """Retain historical diagnoses, but only use this turn's investigation as instructions."""
+    found = state.get("investigation") or {}
+    turns = state.get("turns") or []
+    if not turns:
+        return found
+    boundary = turns[-1].get("stage_index")
+    stages = state.get("stages") or []
+    output = found.get("output")
+    if type(boundary) is not int or not 0 <= boundary <= len(stages) or not output:
+        return {}
+    if any(row.get("output") == output for row in stages[:boundary]):
+        return {}
+    candidates = stages[boundary:] + [state.get("active_stage") or {}]
+    if any(
+        (row.get("original_stage") or row.get("stage")) == "investigate_bug"
+        and row.get("output") == output
+        and not row.get("rejected")
+        for row in candidates
+    ):
+        return found
+    return {}
+
+
 def diagnosis_cases(state: RunState) -> list[dict]:
     """A reproduced bug's English test cases (autocode_bug_job), or [] (bugs planned without an
     investigation, older runs)."""
-    found = state.get("investigation") or {}
+    found = current_diagnosis(state)
     return list(found.get("test_cases") or []) if found.get("outcome") == "reproduced" else []
+
+
+def diagnosis_test_names(state: RunState) -> dict[str, str]:
+    """Unique approved names already identifying a diagnosis case, without merging obligations.
+
+    Bind by the existing identifier matcher, never by similarity of English examples.
+    Conflicting kinds, combined identifiers and multiple names retain the legacy rule.
+    """
+    if (state.get("goal_contract") or {}).get("approval_status") != "approved" or not bugfix(state):
+        return {}
+    cases = diagnosis_cases(state)
+    candidates: dict[str, set[str]] = {case["id"]: set() for case in cases}
+    ambiguous: set[str] = set()
+    for criterion in contract_cases(state, all_due=True):
+        name = criterion.get("test_name")
+        if not name:
+            continue
+        matched = match_cases(cases, [name])
+        owners = [case for case in cases if matched[case["id"]]]
+        if len(owners) != 1:
+            ambiguous.update(case["id"] for case in owners)
+            continue
+        case = owners[0]
+        if (case.get("kind") == "preserve") != (criterion.get("kind") == "preserve"):
+            ambiguous.add(case["id"])
+        else:
+            candidates[case["id"]].add(name)
+    return {cid: next(iter(names)) for cid, names in candidates.items() if len(names) == 1 and cid not in ambiguous}
 
 
 def proof_cases(state: RunState, *, all_due: bool = False) -> list[dict]:
@@ -295,21 +347,93 @@ def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> di
     return matched
 
 
-def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "claim") -> list[dict]:
+# A probe that is a bare `scheme:reference`: an event or tool ID rather than a command (#1769).
+CITATION_PROBE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*:\S+$")
+
+# The deliberately constructed counterexample a probe must tell its claim from (#1769): the smallest
+# edit to one repository file that makes the claim false. The runner makes that edit in a scratch
+# copy and re-runs the probe, which must then fail. Not in a report's required list, so reports
+# saved before it still validate; a probe without one is refused where the job asks for it.
+COUNTEREXAMPLE = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["file", "find", "replace"],
+    "properties": {"file": {"type": "string"}, "find": {"type": "string"}, "replace": {"type": "string"}},
+}
+
+
+def apply_counterexample(text: str, counterexample: dict) -> str:
+    """``text`` with the counterexample's ``find`` replaced by its ``replace``; ``find`` must occur once."""
+    find = counterexample.get("find") or ""
+    found = text.count(find) if find else 0
+    if found != 1:
+        raise ValueError(
+            f"the counterexample's find text occurs {found} times in {counterexample.get('file')!r}; "
+            "it must be copied exactly from that file and occur once"
+        )
+    return text.replace(find, counterexample.get("replace") or "", 1)
+
+
+def _counterexample_error(row: dict, what: str, key: str) -> str:
+    """Why a probed row's counterexample cannot be run, or "" when it can."""
+    counter = row.get("counterexample") or {}
+    if not isinstance(counter, dict) or not str(counter.get("file") or "").strip() or not counter.get("find"):
+        return (
+            f"A probed {what} needs a counterexample: the smallest edit to one repository file "
+            f"(file, find, replace) that makes it false, so the runner can check that the probe fails "
+            f"there. A probe that passes whatever the code says shows nothing: {row.get(key)!r}"
+        )
+    if counter.get("find") == counter.get("replace"):
+        return f"A {what}'s counterexample must change its file; find and replace are the same: {row.get(key)!r}"
+    return ""
+
+
+# A probe that runs a test written only in the stage's own scratch workspace finds no such test in the
+# runner's copy and fails there; in a live etcd run both repairs then dropped the reproduction
+# (docs/bugs/2026-11-02-retry-loops.md).
+PROBE_COPY_NOTE = (
+    " The runner's copy holds the repository's files only, not files you created or edited in your own "
+    "scratch workspace: a probe that runs a new test must write that test itself (for example with a "
+    "heredoc in the probe command) or run a test the repository already has."
+)
+
+
+def run_probes(
+    rows: list[dict], run_probe, *, what: str = "claim", key: str = "claim", run_counterexample=None
+) -> list[dict]:
     """Run every row's ``probe`` (``run_probe(command)``, a scratch run); each must exit 0.
 
     A probed row needs its ``example`` in plain English. Returns the receipts of the rows shown;
     raises ValueError naming the rows whose probe did not exit 0. ``what`` names the rows in
     messages (claim, concern, conflict) and ``key`` is the field that identifies a row.
+
+    With ``run_counterexample(command, counterexample)`` (a scratch run with the row's
+    ``counterexample`` edit made), every probed row needs a counterexample and its probe must
+    exit non-zero there: a probe that exits 0 whatever the code says, such as
+    ``python3 -c 'assert 2 + 2 == 4'``, does not tell the claim from its opposite and is refused
+    rather than shown as a check that ran (#1769).
     """
     shown: list[Any] = []
     failed: list[Any] = []
+    vacuous: list[Any] = []
     for row in rows:
         probe = str(row.get("probe") or "").strip()
         if not probe:
             continue
+        if CITATION_PROBE.match(probe):
+            # A report-repair prompt states the schema, where a probe is just a string, and a model that
+            # guesses writes its own event ID there. Running that costs a full repair call over a shell
+            # error the model cannot read back as a rule (#1769).
+            raise ValueError(
+                f"{probe!r} is a reference, not a command: for a {what}, give the shell command that "
+                f"exits 0 exactly when it holds, run from the repository root."
+            )
         if not str(row.get("example") or "").strip():
             raise ValueError(f"A probed {what} needs its example in plain English: {row.get(key)!r}")
+        if run_counterexample is not None:
+            error = _counterexample_error(row, what, key)
+            if error:
+                raise ValueError(error)
         run = run_probe(probe)
         receipt = {
             key: row.get(key),
@@ -317,12 +441,39 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
             "exit_code": run.get("exit_code"),
             "tail": (run.get("tail") or run.get("error") or "")[-600:],
         }
-        (shown if run.get("exit_code") == 0 and not run.get("error") else failed).append(receipt)
+        if run.get("exit_code") != 0 or run.get("error"):
+            failed.append(receipt)
+            continue
+        if run_counterexample is not None:
+            counter = row["counterexample"]
+            against = run_counterexample(probe, counter)
+            receipt["counterexample"] = {
+                "file": str(counter.get("file") or "").strip(),
+                "exit_code": against.get("exit_code"),
+                "tail": (against.get("tail") or against.get("error") or "")[-600:],
+            }
+            if against.get("error") or against.get("timed_out") or against.get("exit_code") in (0, None):
+                vacuous.append(receipt)
+                continue
+        shown.append(receipt)
     if failed:
         raise ValueError(
             f"These {what}s' probes did not exit 0 on the code as it is, so they are not shown: "
             + "; ".join(
                 f"{row[key]!r} ({row['probe']}: exit {row['exit_code']}) {row['tail'][-200:]}" for row in failed
+            )
+            + PROBE_COPY_NOTE
+        )
+    if vacuous:
+        raise ValueError(
+            f"These {what}s' probes did not fail on their counterexample, so they do not tell the {what} "
+            f"from its opposite and are not shown as checked. Give a probe that exits 0 on the code and "
+            f"non-zero once the counterexample edit is made, or leave example and probe empty for a {what} "
+            f"shown by its source alone: "
+            + "; ".join(
+                f"{row[key]!r} ({row['probe']} on {row['counterexample']['file']} changed: "
+                f"exit {row['counterexample']['exit_code']}) {row['counterexample']['tail'][-200:]}"
+                for row in vacuous
             )
         )
     return shown
@@ -352,6 +503,7 @@ def builder_note(state: RunState) -> str:
     fix_note = BUGFIX_TEST_NOTE if bugfix(state) else ""
     diagnosis = diagnosis_cases(state)
     if diagnosis:
+        names = diagnosis_test_names(state)
         rows = []
         for case in diagnosis:
             before = (
@@ -359,7 +511,9 @@ def builder_note(state: RunState) -> str:
                 if case.get("kind") == "preserve"
                 else prompts.get("fragments/test-cases/builder-note-03.md")
             )
-            rows.append(f"- {case_text(case)}; test name: {case_test_name(case['id'])}; {before}.")
+            rows.append(
+                f"- {case_text(case)}; test name: {case_test_name(case['id'], names.get(case['id']))}; {before}."
+            )
         return DIAGNOSIS_BUILDER_NOTE + "\n".join(rows) + "\n" + NAMED_PROOF_NOTE + fix_note
     if contract_cases(state):
         return BUILDER_NOTE + fix_note

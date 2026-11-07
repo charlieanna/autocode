@@ -1444,11 +1444,15 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--workspace", action="append", default=[])
-    p.add_argument("--watch-root", action="append", default=[])
-    p.add_argument("--watch-depth", type=int, default=3)
-    p.add_argument("--runner", default=str(Path(__file__).resolve().parents[1] / "autocode.py"))
-    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--workspace", action="append", default=[], help="Project to show (repeatable)")
+    p.add_argument(
+        "--watch-root", action="append", default=[], help="Directory to discover projects under (repeatable)"
+    )
+    p.add_argument("--watch-depth", type=int, default=3, help="How deep to discover projects (default: 3)")
+    p.add_argument(
+        "--runner", default=str(Path(__file__).resolve().parents[1] / "autocode.py"), help="The autocode CLI to run"
+    )
+    p.add_argument("--port", type=int, default=8765, help="Local port (default: 8765)")
     p.add_argument(
         "--provider",
         help="Tool for new runs (default: AUTOCODE_PROVIDER, then default_provider in ~/.config/autocode/config.toml, then opencode)",

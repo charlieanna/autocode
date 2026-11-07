@@ -20,7 +20,7 @@ the scenario run directory; pins are lowercase SHA-256 digests of retained files
 Replace `FILE_SHA256` with the file's 64-digit digest. Append a suspicion with:
 
 ```sh
-autocode-arena annotate ATTEMPT --report attribution.json
+autocode arena annotate ATTEMPT --report attribution.json
 python scenarios/run.py annotate RUN_DIRECTORY --report attribution.json
 ```
 

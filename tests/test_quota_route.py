@@ -108,6 +108,47 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertIn("--answer route-sol=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", advice)
         self.assertIn("--abandon-stage 001/validator-01, then --resume-paused --sol-model MODEL", advice)
 
+    def test_an_output_limit_question_names_the_cap_and_offers_the_other_configured_models(self):
+        # The remedy for "reasoning and report text shared the response output limit" is
+        # a larger cap or another model; the question had been naming neither.
+        state = self.state(engine="opencode", sol="zai-coding-plan/glm-5.3")
+        state["settings"]["roles"]["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        state["settings"]["roles"]["completion"]["model"] = "alibaba-token-plan/deepseek-v4-pro"
+        attempt = {
+            "role": "sol",
+            "stage": "sol",
+            "attempt_id": "001/validator-01",
+            "model": "zai-coding-plan/glm-5.3",
+            "pause_status": quota_route.OUTPUT_STATUS,
+            "output_token_cap": {
+                "set_by": "autocode",
+                "tokens": 64000,
+                "variable": "KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX",
+            },
+        }
+        asked = quota_route.question(state, attempt, cross_check=dispatch.enforce_cross_model_verification)
+        self.assertEqual("output_limit", asked["cause"])
+        self.assertTrue(asked["question"].startswith("Tester's response exhausted its output limit"))
+        self.assertIn("64000 tokens, reasoning included", asked["why"])
+        self.assertIn("KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX", asked["why"])
+        self.assertIn("set KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX to a larger number of tokens", asked["why"])
+        self.assertIn("alibaba-token-plan/deepseek-v4-pro", asked["candidates"])
+        self.assertFalse(asked["delegable"])
+
+    def test_an_output_limit_question_without_a_recorded_cap_still_asks_for_a_model(self):
+        state = self.state(engine="opencode", sol="zai-coding-plan/glm-5.3")
+        attempt = {
+            "role": "sol",
+            "stage": "sol",
+            "attempt_id": "001/validator-01",
+            "model": "zai-coding-plan/glm-5.3",
+            "pause_status": quota_route.OUTPUT_STATUS,
+        }
+        asked = quota_route.question(state, attempt)
+        self.assertEqual("output_limit", asked["cause"])
+        self.assertNotIn("output-limit setting", asked["why"])
+        self.assertNotIn("candidates", asked)
+
     def test_completion_stop_asks_for_the_completion_route(self):
         state = self.state(stage="astra_review", role="astra")
         state["active_stage"]["route_role"] = "completion"
@@ -186,6 +227,23 @@ class QuotaRouteTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "provider/model identifier"):
             self.validate(state, "gpt-6-luna")
         self.validate(state, "local-model", configured_tool=True)
+
+    def test_assign_fits_the_roles_effort_to_the_named_models_recorded_variants(self):
+        """#2006: the Analyst moved to GLM 5.3 at its profile effort medium, which GLM does not declare, and the
+        retry refused before any request; the Analyst has no effort flag to pin."""
+        state = self.state()
+        state["settings"]["roles"]["sol"]["reasoning_effort"] = "medium"
+        state["settings"]["route_selection"] = {
+            "candidates": {"completion": [{"model": "zai-coding-plan/glm-5.3", "levels": ["low", "high", "max"]}]}
+        }
+        record = quota_route.assign(state, "sol", "zai-coding-plan/glm-5.3", at="t", via="answer")
+        self.assertEqual("high", state["settings"]["roles"]["sol"]["reasoning_effort"])
+        self.assertEqual({"from": "medium", "to": "high"}, record["effort"])
+        unknown = self.state()
+        unknown["settings"]["roles"]["sol"]["reasoning_effort"] = "medium"
+        record = quota_route.assign(unknown, "sol", "gpt-6-luna", at="t", via="answer")
+        self.assertEqual("medium", unknown["settings"]["roles"]["sol"]["reasoning_effort"], "no listing: unchanged")
+        self.assertNotIn("effort", record)
 
     def test_assign_applies_the_model_drops_the_session_and_records_the_change(self):
         state = self.state()
@@ -274,7 +332,7 @@ class QuotaRouteTests(unittest.TestCase):
             (
                 ["route-sol=gpt-6-luna"],
                 {"pause_status": "PAUSED_TIME_LIMIT"},
-                "Only a quota, content-filter or output-limit stop",
+                "Only a quota, content-filter, output-limit, context-window, failed-job authentication, stopped-job timeout or cross-model stop",
             ),
             (["route-terra=gpt-6-luna"], origin, "not the model question"),
             (["route-sol="], origin, "Name the model"),
@@ -571,8 +629,11 @@ class QuotaRouteTests(unittest.TestCase):
                 "cause": "content_filter",
                 "stopped_model": "gpt-5.6-sol",
             },
-            view["needs"]["route"],
+            {key: value for key, value in view["needs"]["route"].items() if key != "command"},
         )
+        # The answer is named as a command too (#2005): here it is the next step itself.
+        self.assertEqual(view["next_command"], view["needs"]["route"]["command"])
+        self.assertIn("--answer route-sol=MODEL --job-retry-token", view["needs"]["route"]["command"])
         self.assertIn(
             "content filter refused the Code Reviewer's response on gpt-5.6-sol", view["recovery"]["what_happened"]
         )
@@ -610,6 +671,67 @@ class QuotaRouteTests(unittest.TestCase):
             ),
             offered(abandoned),
         )
+
+
+class LowerEffortTests(unittest.TestCase):
+    """#1902: a time-limit stop offers the same model at its next lower declared variant, never an unlisted one."""
+
+    def state(self, effort="high", **settings):
+        route = {"engine": "codex", "model": "gpt-6-sol", "reasoning_effort": effort}
+        return {"settings": {"engine": "codex", "roles": {"investigator": route}, **settings}}
+
+    def test_the_next_lower_declared_level_below_the_fitted_launch_level(self):
+        state = self.state("medium", declared_variants={"gpt-6-sol": ["low", "high", "max"]})
+        # medium launched as high (the nearest declared); the next lower declared level is low.
+        self.assertEqual(
+            {"model": "gpt-6-sol", "from": "high", "to": "low", "answer": "gpt-6-sol@low"},
+            quota_route.lower_effort(state, "investigator", "gpt-6-sol"),
+        )
+        state = self.state("max", declared_variants={"gpt-6-sol": ["low", "high", "max"]})
+        self.assertEqual("high", quota_route.lower_effort(state, "investigator", "gpt-6-sol")["to"])
+
+    def test_no_listing_the_lowest_level_or_no_effort_offers_nothing(self):
+        self.assertIsNone(quota_route.lower_effort(self.state(), "investigator", "gpt-6-sol"))
+        lowest = self.state("low", declared_variants={"gpt-6-sol": ["low", "high"]})
+        self.assertIsNone(quota_route.lower_effort(lowest, "investigator", "gpt-6-sol"))
+        unset = self.state(None, declared_variants={"gpt-6-sol": ["low", "high"]})
+        self.assertIsNone(quota_route.lower_effort(unset, "investigator", "gpt-6-sol"))
+
+    def test_a_probe_certified_level_counts_when_the_tool_lists_none(self):
+        state = self.state("high", certified_variants={"gpt-6-sol": ["medium", "high"]})
+        self.assertEqual("medium", quota_route.lower_effort(state, "investigator", "gpt-6-sol")["to"])
+
+    def test_the_timeout_question_offers_it_first_and_other_stops_do_not(self):
+        state = self.state(declared_variants={"gpt-6-sol": ["low", "high"]})
+        attempt = {"role": "investigator", "stage": "investigate_bug", "model": "gpt-6-sol"}
+        asked = quota_route.question(state, {**attempt, "pause_status": quota_route.TIMEOUT_STATUS})
+        self.assertEqual(["gpt-6-sol@low"], asked["candidates"])
+        self.assertIn("retry gpt-6-sol at low effort", asked["question"])
+        self.assertIn("--answer route-investigator=gpt-6-sol@low", asked["recommendation"])
+        for status in (quota_route.QUOTA_STATUS, quota_route.AUTH_STATUS):
+            self.assertNotIn("lower_effort", quota_route.question(state, {**attempt, "pause_status": status}))
+
+    def test_a_model_answer_names_an_effort_only_with_a_known_level(self):
+        self.assertEqual(("gpt-6-sol", "low"), quota_route.split_effort("gpt-6-sol@LOW"))
+        self.assertEqual(("gpt-6-sol", None), quota_route.split_effort("gpt-6-sol"))
+        self.assertEqual(("vendor/model@2026", None), quota_route.split_effort("vendor/model@2026"))
+        self.assertEqual(("@low", None), quota_route.split_effort("@low"))
+
+    def test_a_named_effort_the_listing_omits_is_refused_and_an_unlisted_model_is_left_to_the_launch(self):
+        state = self.state(declared_variants={"gpt-6-sol": ["low", "high"]})
+        with self.assertRaisesRegex(ValueError, "does not declare reasoning variant 'medium'.*low, high"):
+            quota_route.check_effort(state, "investigator", "gpt-6-sol", "medium", job="Investigator")
+        quota_route.check_effort(state, "investigator", "gpt-6-sol", "low", job="Investigator")
+        quota_route.check_effort(self.state(), "investigator", "gpt-6-sol", "medium", job="Investigator")
+
+    def test_assign_saves_a_named_effort_as_the_persons(self):
+        state = self.state(declared_variants={"gpt-6-sol": ["low", "high"]}, effort_fits={"investigator": {}})
+        record = quota_route.assign(state, "investigator", "gpt-6-sol", at="now", via="answer", effort="low")
+        settings = state["settings"]
+        self.assertEqual({"from": "high", "to": "low", "named": True}, record["effort"])
+        self.assertEqual("low", settings["roles"]["investigator"]["reasoning_effort"])
+        self.assertEqual("user_explicit", settings["effort_origins"]["investigator"])
+        self.assertNotIn("effort_fits", settings)
 
 
 if __name__ == "__main__":

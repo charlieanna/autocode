@@ -377,6 +377,54 @@ class OperationalInformationCLITests(unittest.TestCase):
             "PAUSED_REPORT_REPAIR_LIMIT", "Bounded report-only repair attempts exhausted"
         )
 
+    def test_held_information_allows_reconciling_spent_planning_repair_before_scoped_retry(self):
+        def failed_planning(state):
+            from types import SimpleNamespace
+
+            import autocode_configure as configure
+
+            configure.configure_codex_joint(state["settings"], SimpleNamespace(), planning=runner.planning)
+            original = dict(
+                next(row for row in state["stages"] if row["stage"] == "terra"), stage="astra_finalize", role="astra"
+            )
+            revision = support.snapshot(self.project)["revision"]
+            for index in range(3):
+                record = dict(
+                    original,
+                    output=str(self.run / f"rejected-plan-{index}.json"),
+                    rejected=True,
+                    source_revision=revision,
+                )
+                runner.failures.record(state, record, ValueError("invalid source trace"), support.now())
+                state["stages"].append(record)
+            state.update(next_stage="astra_finalize")
+            state["settings"]["report_repair"] = {"max_attempts": 2}
+            state["pending_report_repair"] = {"attempts": 2, "original": record}
+
+        view = self.checkpoint("PAUSED_REPEATED_FAILURE", "Repeated invalid source trace", failed_planning)
+        self.inform(view, "Retain the validated contract; correct only contradictory source trace metadata")
+        self.assertEqual((2, False), self.resume()[:2])
+        held = self.status()
+        self.assertEqual("held", held["information_review"]["status"])
+        self.assertEqual("--resume-paused", held["needs"]["action"])
+        _, before = self.saved()
+        client = object.__new__(ConformanceDriver)
+        client.project, client.run_dir = self.project, self.run
+        words, env, _ = client.named_command(held)
+        code, launched, output = self.invoke(*words, env=env)
+        self.assertEqual((2, False), (code, launched), output)
+        after = self.status()
+        self.assertIn("Spent planning repair reconciled", output)
+        self.assertEqual("PAUSED_REPEATED_FAILURE", after["status"])
+        retry, _, _ = client.named_command(after)
+        self.assertIn("--retry-failed-stage", retry)
+        _, saved = self.saved()
+        self.assertEqual(before["pending_report_repair"], saved["report_repair_archive"][-1]["repair"])
+        self.assertNotIn("pending_report_repair", saved)
+        for key in ("failure_history", "stages", "sessions", "settings", "planning", "failure_retry_authorizations"):
+            self.assertEqual(before.get(key), saved.get(key), key)
+        self.assertEqual(1, len(self.evaluations()))
+
     def test_a_spent_report_repair_behind_a_resolver_stop_is_held(self):
         # resolver_runtime.boundary publishes an exhausted report repair as PAUSED_RESOLVER.
         self.assert_spent_report_repair_held(

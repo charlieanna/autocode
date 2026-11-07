@@ -669,8 +669,10 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
                 False,
             ),
             ("/tools/go test -json=false .", ["/tools/go", "test", "-json=false", "."], True),
+            # #2503: literal env assignments are an approved form; the copy instruments the Go command after them.
+            ("env GOWORK=off /tools/go test .", ["env", "GOWORK=off", "/tools/go", "test", "-json", "."], False),
         )
-        env_command = "env GOWORK=off /tools/go test ."
+        env_command = "env -i GOWORK=off /tools/go test ."
         unknown_command = "/tools/not-go test ."
         self.declare([command for command, _, _ in cases] + [env_command, unknown_command])
         self.approve()
@@ -706,9 +708,8 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
                 ):
                     with self.assertRaisesRegex(util.Paused, "foreign suite instrumentation"):
                         execution.instrument(framework.name, wrong_command, wrong_xml, wrong_tree)
-        # Parser recognition cannot grant approval. The existing plan policy excludes env;
-        # other executables have no Go collection claim and also refuse before copy setup.
-        self.assertEqual("go", verify.command_framework(env_command).name)
+        # An env option and an executable without a Go collection claim are refused before copy setup.
+        self.assertIsNone(verify.command_framework(env_command))
         self.assertIsNone(verify.command_framework(unknown_command))
         with patch.object(copies, "create") as create:
             for command in (env_command, unknown_command):

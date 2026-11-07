@@ -9,8 +9,8 @@ a missing fact the runner already has.
 
 So before the runner pauses with one of ``STATUSES``, ``drive`` sends the run to
 ``STAGE``: a read-only Investigator on a different model from the stuck stage's (``route``:
-Claude Opus 5.5 in kilocode runs, otherwise GPT-6 Sol, or GLM 5.3 / Luna when the stuck stage runs
-on Sol) reads the task, the run's saved state and the
+Claude Opus 5.5 in kilocode runs, otherwise GPT-6 Sol, or GLM 5.3 when the stuck stage runs on a GPT
+model, or on native Codex Luna when it runs on Sol) reads the task, the run's saved state and the
 stuck stage's attempts, and returns a diagnosis plus either guidance for one more
 attempt or the question only the user can answer. Then:
 
@@ -18,12 +18,13 @@ attempt or the question only the user can answer. Then:
   worth of the limit that stopped the stage and runs it again with the guidance in its
   prompt (``with_guidance``). Planning guidance stays in force for every planning stage
   until the plan is presented; any other stage's guidance until that stage completes.
-  Earlier report-format diagnoses remain context for the run, matching the lifetime
-  of spent investigation identities; they grant no additional retry.
+  Earlier report-format diagnoses remain context only while the diagnosed planning
+  inputs match. Spent investigation identities remain run-wide; they grant no additional retry.
 - ``pause``, a ``DIAGNOSE_ONLY`` status, or a failed investigation: the original pause
   is restored exactly, with the diagnosis added to its reason.
 
-Bounds: one investigation per distinct (stage, pause) problem and ``MAX_CALLS`` per run
+Bounds: one investigation per distinct (stage, pause) problem on one source revision, and
+``MAX_CALLS`` per run, or one per approved milestone when there are more
 (``settings.stuck_investigation.max_calls_per_run``; 0 disables). A Builder failure's
 classification (autocode_builder_failure) is not counted here: it has its own budget per
 milestone (#686). The Investigator
@@ -37,7 +38,10 @@ a command that exits 0 exactly when the files it cites in ``evidence_refs`` show
 cause. Every cited file must exist (in the repository or this run's directory). The runner
 copies only the cited run files into a scratch tree, under ``run/``, and runs the probe
 there (autocode_test_cases.run_probes); a probe that does not exit 0, or that needs an
-uncited file, rejects the report and the original pause is restored.
+uncited file, rejects the report and the original pause is restored. A retry's probe also
+names its ``counterexample``, one edit to a cited file after which that file no longer shows
+the cause; the runner makes it in another scratch tree and the probe must fail there, so a
+probe that passes whatever the files say cannot send a stage back as diagnosed (#1769).
 
 Pure module: prompt, schema, transitions and the drive loop. Imports nothing from the
 runner; the runner passes its pause exception type in, and the unit passes the function
@@ -67,23 +71,31 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_classification_recovery as classification_recovery
+    from . import autocode_model_identity as model_identity
+    from . import autocode_planning_advice as recovery_binding
     from . import autocode_progressive_state as progressive
+    from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
     from .autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from .autocode_investigation_policy import enabled, max_calls
-    from .autocode_test_cases import run_probes
+    from .autocode_test_cases import COUNTEREXAMPLE, run_probes
 except ImportError:
+    import autocode_classification_recovery as classification_recovery
+    import autocode_model_identity as model_identity
+    import autocode_planning_advice as recovery_binding
     import autocode_progressive_state as progressive
+    import autocode_recovery_accounting as recovery_accounting
     import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     from autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from autocode_investigation_policy import enabled, max_calls
-    from autocode_test_cases import run_probes
+    from autocode_test_cases import COUNTEREXAMPLE, run_probes
 
 STAGE = "investigate_stuck"
 ROUTE = "stuck_investigator"
@@ -95,6 +107,9 @@ RETRYABLE = frozenset(
         "PAUSED_PLANNING_BUDGET",
         "PAUSED_NO_PROGRESS",
         "PAUSED_COMPLETION_REVIEW",
+        # The automatic timeout recoveries ran out. Without this the run asked a person to grant more
+        # (--grant-recovery), a question about AutoCode's own retries (2026-11-06 live run).
+        "PAUSED_TIMEOUT_RECOVERY",
     }
 )
 # These have operator-only resume semantics; the Investigator explains them, the user decides.
@@ -102,6 +117,16 @@ DIAGNOSE_ONLY = frozenset(
     {"PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_BUILDER_RETRY_LIMIT", "PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_REPLAN"}
 )
 STATUSES = RETRYABLE | DIAGNOSE_ONLY
+# Pauses the runner publishes as an AutoResolver operational request when they reach it raised. An
+# investigation that ends in one of them raises it again, so it is published as before.
+PUBLISHED = frozenset({"PAUSED_TIMEOUT_RECOVERY"})
+# Run-wide holds checked at every stage boundary: the bounds, and a provider transport that changed
+# under the run. One reached before a queued Builder classification launched stops the run, not the
+# Investigator (#1949): the classification stays queued under that pause, whose own control (a raise,
+# --accept-transport-change) lets it run, and no classification is spent.
+BOUNDARY_LIMITS = frozenset(
+    {"PAUSED_TIME_LIMIT", "PAUSED_COST_LIMIT", "PAUSED_ITERATION_LIMIT", "PAUSED_TRANSPORT_CHANGED"}
+)
 PLANNING = roles.ALL_PLANNING_STAGES
 # Diagnosticians are never themselves investigated.
 NEVER = (STAGE, "astra_diagnose", "astra_resolve")
@@ -124,10 +149,13 @@ SCHEMA = {
     "properties": {
         "diagnosis": TEXT,
         # example: the diagnosed cause as one concrete case in plain English; probe: a shell command
-        # that exits 0 exactly when the cited files show it; untestable: why no command can. A retry
-        # needs the example and exactly one of probe / untestable.
+        # that exits 0 exactly when the cited files show it; counterexample: the edit to one cited file
+        # after which it no longer does, where the probe must fail (#1769); untestable: why no command
+        # can. A retry needs the example and exactly one of probe / untestable. counterexample is not
+        # required here, so reports saved before it still load.
         "example": TEXT,
         "probe": TEXT,
+        "counterexample": COUNTEREXAMPLE,
         "untestable": TEXT,
         "cause": {
             "type": "string",
@@ -149,6 +177,14 @@ def schema(state: RunState):
     result["properties"].update(
         failure_class={"type": "string", "enum": ["plan", "execution", "operational", "unknown"]}, failure_id=TEXT
     )
+    failure = (state.get("stuck_investigation") or {}).get("failure_evidence") or {}
+    if (failure.get("diagnosis") or {}).get("changed_code_evidence"):
+        # Test gaps are internal repair work. The Investigator can diagnose a
+        # bounded stop, but cannot manufacture a question for the person.
+        result["properties"]["cause"]["enum"] = [
+            value for value in result["properties"]["cause"]["enum"] if value != "needs_user"
+        ]
+        result["properties"]["user_question"] = {"type": "string", "enum": [""]}
     return result
 
 
@@ -166,6 +202,28 @@ def now() -> str:
 
 def identity(stage: str, status: str) -> str:
     return f"{stage}:{status}"
+
+
+def source_revision(state: RunState, stage: str):
+    """The source the stuck stage's latest attempt saw, or None when it recorded none."""
+    last: dict = next(
+        (
+            row
+            for row in reversed(state.get("stages") or [])
+            if (row.get("original_stage") or row.get("stage")) == stage
+        ),
+        {},
+    )
+    return last.get("source_revision")
+
+
+def same_problem(entry: dict, key: str, revision) -> bool:
+    """One (stage, pause) problem on one source. An entry saved before revisions were recorded, or a
+    stage that records none, matches its identity on any source, as before."""
+    if entry.get("identity") != key:
+        return False
+    seen = entry.get("source_revision")
+    return seen is None or revision is None or seen == revision
 
 
 def intercept(state: RunState, status: str, reason: str) -> bool:
@@ -189,9 +247,12 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
         return False
     history = state.get("stuck_investigations") or []
     key = identity(stuck, status)
+    revision = source_revision(state, stuck)
     spent = sum(entry.get("trigger") != "builder_failure" for entry in history)
     if (
-        any(entry.get("identity") == key for entry in history)
+        # The same problem again on the same source: once is enough. A Builder that changed the
+        # source makes it a new problem, still within the run's budget.
+        any(same_problem(entry, key, revision) for entry in history)
         or spent >= max_calls(state)
         or operator_retried(state, stuck)
     ):
@@ -204,6 +265,7 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
         "reason": reason,
         "phase": state.get("phase"),
         "requested_at": now(),
+        **recovery_binding.binding(state, stuck),
     }
     if state.get("pending_report_repair"):
         # The before-stage hook would replay a spent repair ahead of the investigation.
@@ -229,6 +291,8 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
             "requested_at": request["requested_at"],
             "outcome": "investigating",
             "trigger": trigger,
+            **({"source_revision": revision} if revision else {}),
+            **recovery_binding.binding(state, stuck),
         }
     )
     pause_fields: tuple[Literal["stop_reason", "paused_at"], ...] = ("stop_reason", "paused_at")
@@ -256,7 +320,9 @@ def annotate(state: RunState, status: str, reason: str) -> str:
         (
             row
             for row in reversed(state.get("stuck_investigations", []))
-            if row.get("identity") == identity(stuck or "", status) and row.get("diagnosis")
+            if same_problem(row, identity(stuck or "", status), source_revision(state, stuck or ""))
+            and row.get("diagnosis")
+            and recovery_binding.applies(state, row, stuck or "")
         ),
         None,
     )
@@ -266,22 +332,46 @@ def annotate(state: RunState, status: str, reason: str) -> str:
     return f"{reason}\nInvestigator ({entry['outcome']}): {entry['diagnosis']}{ask}"
 
 
-CLAUDE = "kilo/anthropic/claude-opus-5.5"
+# The run's own direct routes a default Investigator may use, most independent judge first. Never the Resolver's
+# Astra (user 2026-09-28: too expensive) and never a kilo/ gateway route (user 2026-10-21: direct logins only), so a
+# gateway model needs --investigator-model.
+CANDIDATE_ROLES = ("plan_reviewer", "glm", "requirements", "completion", "sol", "terra")
+GATEWAY_PREFIX = "kilo/"
+
+
+def family(model) -> str:
+    """The model family a route belongs to, so the Investigator never judges its own: the one rule in
+    autocode_model_identity (gpt-6-sol and gpt-6-luna are one family, zai-coding-plan/glm-5.3 and
+    zhipuai-coding-plan/glm-5.3 are glm, kilo/anthropic/claude-opus-5.5 is claude)."""
+    return model_identity.family(str(model or ""))
+
+
+def direct_default(roles: dict, stuck_model: str) -> str | None:
+    """The first configured direct route outside the stuck stage's family, in CANDIDATE_ROLES order; None if none."""
+    seen = []
+    for role in CANDIDATE_ROLES:
+        model = str((roles.get(role) or {}).get("model") or "")
+        if not model or model in seen or model.startswith(GATEWAY_PREFIX) or "astra" in model:
+            continue
+        seen.append(model)
+    return next((model for model in seen if family(model) != family(stuck_model)), None)
 
 
 def route(roles: dict, stuck_model: str, provider: str | None = None) -> dict:
-    """The Investigator's default route (user 2026-09-28: no Astra; Claude where the run can reach it).
+    """The Investigator's default route (user 2026-09-28: no Astra; 2026-10-21: no gateway route by default).
 
-    kilocode runs: Claude Opus 5.5 via the Kilo Gateway. OpenCode runs: GPT-6 Sol, or GLM 5.3 when
-    the stuck stage runs on Sol. Native Codex runs (GPT only): GPT-6 Sol, or Luna when the stuck
-    stage runs on Sol. A custom provider keeps its reviewer model. Always high effort, on the Plan
-    Reviewer's engine and provider; --investigator-model overrides all of this (pinned_route)."""
+    kilocode runs: the run's own direct routes, the first outside the stuck stage's family (direct_default); the
+    Kilo Gateway's Claude, the old default, bills per token and now needs --investigator-model. OpenCode runs: GPT-6
+    Sol, or GLM 5.3 when the stuck stage runs on any GPT model (one family). Native Codex runs (GPT only): GPT-6 Sol,
+    or Luna when the stuck stage runs on Sol. A custom provider keeps its reviewer model. Always high effort, on the
+    Plan Reviewer's engine and provider; --investigator-model overrides all of this (pinned_route)."""
     base = dict(roles.get("plan_reviewer") or roles.get("astra") or {})
     model, stuck_model = str(base.get("model") or ""), str(stuck_model or "")
-    if provider == "kilocode" and CLAUDE not in stuck_model:
-        choice = CLAUDE
-    elif provider == "kilocode" or model.startswith(("openai/", "zai-coding-plan/", "kilo/")):
-        choice = "zai-coding-plan/glm-5.3" if "gpt-6-sol" in stuck_model else "openai/gpt-6-sol"
+    if provider == "kilocode":
+        choice = direct_default(roles, stuck_model) or model
+    elif model.startswith(("openai/", "zai-coding-plan/", "kilo/")):
+        # All GPT models are one family (2026-10-20): a stuck Luna or Sol stage gets GLM's view.
+        choice = "zai-coding-plan/glm-5.3" if "gpt-" in stuck_model else "openai/gpt-6-sol"
     elif model.startswith("gpt-"):
         choice = "gpt-6-luna" if "gpt-6-sol" in stuck_model else "gpt-6-sol"
     else:
@@ -299,8 +389,9 @@ def add_arguments(parser) -> None:
         "--investigator-model",
         help="Pin the stuck-stage Investigator's model for this run; a provider/model id "
         "(e.g. openai/gpt-6-sol) runs it through OpenCode. Automatic runs reuse an independent "
-        "permitted reviewer route. Fixed-route default: Claude Opus 5.5 in "
-        "kilocode runs, otherwise GPT-6 Sol (GLM 5.3 when the stuck stage runs on Sol)",
+        "permitted reviewer route. Fixed-route default: in kilocode runs the run's own direct route outside "
+        "the stuck stage's model family (never a kilo/ gateway route), otherwise GPT-6 Sol (GLM 5.3 when the "
+        "stuck stage runs on Sol)",
     )
     parser.add_argument(
         "--investigator-reasoning-effort",
@@ -378,7 +469,11 @@ def prompt(
     soft_budget_tokens: int = 10000,
     engine: str | None = None,
 ) -> tuple[str, dict]:
-    text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, state_path, inventory, engine), indent=2)
+    text = (
+        PROMPT
+        + "\nCURRENT HANDOFF DATA\n"
+        + json.dumps(packet(state, state_path, inventory, engine), separators=(",", ":"))
+    )
     if state["stuck_investigation"].get("mode") == "builder_failure":
         text = prompts.get("fragments/stuck-job/prompt.md") + text
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
@@ -450,9 +545,13 @@ def release_route(state: RunState) -> dict:
     return (state.get("settings") or {}).get("roles", {}).pop(ROUTE, None) or {}
 
 
-def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> dict | None:
+def apply(
+    state: RunState, value: dict, record: dict, workspace, run_probe=None, run_counterexample=None
+) -> dict | None:
     """``run_probe(command, files)`` runs the probe in a scratch tree with ``files`` copied in (the unit
-    passes autocode_verify.scratch_run); without it a probed diagnosis is rejected rather than trusted."""
+    passes autocode_verify.scratch_run), and ``run_counterexample(command, counterexample, files)`` runs
+    it there with the counterexample made (autocode_counterexample.runner); without them a probed
+    diagnosis is rejected rather than trusted."""
     request = state["stuck_investigation"]
     if request.get("mode") == "builder_failure":
         try:
@@ -489,12 +588,25 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None)
         if run_probe
         else (lambda command: {"error": "no probe runner was given"})
     )
+    against = (
+        (lambda command, edit: run_counterexample(command, edit, cited))
+        if run_counterexample
+        else (lambda command, edit: {"error": "no counterexample runner was given"})
+    )
     shown = (
         run_probes(
-            [{"id": "the diagnosed cause", "example": value.get("example", ""), "probe": probe}],
+            [
+                {
+                    "id": "the diagnosed cause",
+                    "example": value.get("example", ""),
+                    "probe": probe,
+                    "counterexample": value.get("counterexample"),
+                }
+            ],
             runner,
             what="diagnosed cause",
             key="id",
+            run_counterexample=against,
         )
         if probe
         else []
@@ -568,6 +680,7 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None)
     grant_one_attempt(state, request)
     state["stuck_investigation"] = {
         **{k: request[k] for k in ("identity", "stage", "status")},
+        **{key: request[key] for key in ("planning_context", "execution_context") if key in request},
         "guidance": value["guidance"],
         "diagnosis": value["diagnosis"],
         "example": value.get("example", ""),
@@ -609,6 +722,46 @@ def grant_one_attempt(state: RunState, request: dict) -> None:
     elif status == "PAUSED_NO_PROGRESS":
         limit = ((state.get("settings") or {}).get("limits") or {}).get("no_progress_batches") or 1
         state["no_progress_batches"] = max(0, limit - 1)
+    elif status == "PAUSED_TIMEOUT_RECOVERY":
+        # One more automatic recovery on each counter the exhaustion stop reads
+        # (autocode_recovery_limits.stop_reason); the recovery history stays intact.
+        state["automatic_recoveries_since_resume"] = max(0, recovery_accounting.spent(state) - 1)
+        state["consecutive_timeout_recoveries"] = max(0, recovery_accounting.consecutive_timeouts(state) - 1)
+
+
+def launched(state: RunState, request: dict) -> bool:
+    """Whether a Builder classification's Investigator has started since it was queued.
+
+    Only that request waits out a boundary limit: any other investigation, or one that started,
+    is abandoned as before."""
+    if request.get("mode") != "builder_failure" or not request.get("requested_at"):
+        return True
+    return any(
+        (row.get("original_stage") or str(row.get("stage", "")).removesuffix("_report_repair")) == STAGE
+        and row.get("started_at", "") >= request["requested_at"]
+        for row in state.get("stages") or []
+    )
+
+
+def timed_out(state: RunState) -> bool:
+    """The Investigator itself ran out of time, after AutoCode's own longer deadlines.
+
+    The job runner then pauses for an exact retry of the Investigator (autocode_job_failure), a
+    question about AutoCode's machinery; a live run (2026-11-06) stopped on "Continue?" that way.
+    The investigation is abandoned instead, so the stuck stage's own pause comes back with its own
+    action. A model stop (quota, refusal, output) keeps its model question, and a Builder failure
+    classification keeps its exact retry: that classification still needs an Investigator."""
+    current = state.get("stuck_investigation") or {}
+    failure = state.get("job_failure") or {}
+    return (
+        bool(current)
+        and not current.get("in_force")
+        and current.get("mode") != "builder_failure"
+        and state.get("status") == "PAUSED_JOB_FAILURE"
+        and state.get("next_stage") == STAGE
+        and failure.get("stage") == STAGE
+        and failure.get("kind") == "timeout"
+    )
 
 
 def abandon(state: RunState, error: str) -> tuple[str, str]:
@@ -634,12 +787,14 @@ def abandon(state: RunState, error: str) -> tuple[str, str]:
 
 
 def with_guidance(state: RunState, stage: str, request):
-    """Keep report corrections while their investigation identities remain spent."""
+    """Reuse applicable corrections; expired advice never renews its spent identity."""
     current = state.get("stuck_investigation") or {}
     if stage == STAGE:
         return request
-    active = current.get("in_force") and (
-        stage == current["stage"] or (current["stage"] in PLANNING and stage in PLANNING)
+    active = (
+        current.get("in_force")
+        and recovery_binding.applies(state, current, current.get("stage", ""))
+        and (stage == current["stage"] or (current["stage"] in PLANNING and stage in PLANNING))
     )
     lessons = planning_lessons(state) if stage in PLANNING else []
     if active:
@@ -666,11 +821,11 @@ def with_guidance(state: RunState, stage: str, request):
 
 
 def planning_lessons(state: RunState) -> list[dict]:
-    """Reuse report-format advice run-wide, matching run-wide investigation identities.
+    """Reuse report-format advice only against the planning inputs it diagnosed.
 
     A clarification, feedback or follow-up does not renew an investigation identity.
     Never resurrect its retry grant or carry convergence/product advice as a lesson.
-    Legacy INVALID_OUTPUT rows identify rejected reports even without a trigger.
+    Legacy unbound rows stay in history without being presented as current advice.
     """
     lessons = [
         row
@@ -680,6 +835,7 @@ def planning_lessons(state: RunState) -> list[dict]:
         and row.get("stage") in PLANNING
         and row.get("diagnosis")
         and row.get("guidance")
+        and recovery_binding.applies(state, row, row["stage"])
         and (
             row.get("trigger") == "rejected_output"
             or ("trigger" not in row and row.get("status") == "PAUSED_INVALID_OUTPUT")
@@ -696,9 +852,25 @@ def settle(state: RunState, stage: str) -> None:
         state.pop("stuck_investigation")
 
 
-def retire(state: RunState) -> None:
-    """The run left RUNNING: guidance in force ends with the cycle it was given for."""
-    if (state.get("stuck_investigation") or {}).get("in_force"):
+def retire(state: RunState, status: str | None = None) -> None:
+    """A checkpoint or usage hold preserves applicable advice, never a new retry grant."""
+    current = state.get("stuck_investigation") or {}
+    if (
+        status
+        in {
+            "PAUSED_INTERVENTION",
+            "PAUSED_REQUESTED",
+            "PAUSED_MILESTONE_BUDGET",
+            "PAUSED_PLANNING_BUDGET",
+            "PAUSED_TIME_LIMIT",
+            "PAUSED_COST_LIMIT",
+            "PAUSED_ITERATION_LIMIT",
+        }
+        and current.get("in_force")
+        and recovery_binding.applies(state, current, current.get("stage", ""))
+    ):
+        return
+    if current.get("in_force"):
         state.pop("stuck_investigation")
 
 
@@ -734,6 +906,7 @@ def drive(
     attempts = lambda: sum(1 for row in state.get("stages") or [] if not row.get("runner_owned"))
     attempted = attempts()
     fresh = lambda: attempts() > attempted
+    owed: set[str] = set()  # PUBLISHED pauses this invocation sent to the Investigator
     while True:
         try:
             while active(state):
@@ -762,6 +935,11 @@ def drive(
                 if state.get("active_stage"):
                     # An unreconciled attempt pauses like any stage; the investigation reruns after.
                     raise
+                if status in BOUNDARY_LIMITS and (
+                    not launched(state, current) or classification_recovery.pending_repair(state, current)
+                ):
+                    release_route(state)
+                    raise
                 status, reason = abandon(state, reason)
                 if persist:
                     persist(state)
@@ -769,7 +947,7 @@ def drive(
                 if getattr(error, "quota_worker", None):
                     reraised.quota_worker = error.quota_worker
                 raise reraised from error
-            retire(state)
+            retire(state, status)
             if not fresh():
                 raise
             if not queue or not intercept(state, status, reason):
@@ -777,18 +955,35 @@ def drive(
                 if getattr(error, "quota_worker", None):
                     reraised.quota_worker = error.quota_worker
                 raise reraised from error
+            if status in PUBLISHED:
+                owed.add(status)
             if persist:
                 persist(state)
             continue
         if not investigate:
             return state
-        retire(state)
+        if timed_out(state):
+            # The stop's own cause, without the job runner's offer of an exact retry.
+            context = state.get("recovery_context") or {}
+            cause = context.pop("reason", "") if context.get("stage") == STAGE else ""
+            if context.get("stage") == STAGE:
+                state.pop("recovery_context")
+            status, reason = abandon(state, cause or state["job_failure"]["reason"])
+            state.pop("job_failure", None)
+            state.pop("job_retry_authorization", None)
+            if persist:
+                persist(state)
+            raise paused(status, reason)
+        retire(state, state.get("status"))
         if queue and fresh() and intercept(state, cast(str, state.get("status")), state.get("stop_reason") or ""):
             if persist:
                 persist(state)
             continue
         if state.get("status") in STATUSES and state.get("stop_reason"):
             state["stop_reason"] = annotate(state, state["status"], state["stop_reason"])
+        if state.get("status") in owed and state.get("stop_reason"):
+            # The Investigator did not retry: publish the restored pause as the runner always has.
+            raise paused(state["status"], state["stop_reason"])
         return state
 
 

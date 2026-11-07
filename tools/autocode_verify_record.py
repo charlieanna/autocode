@@ -10,6 +10,7 @@ except ImportError:
 import copy
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -35,6 +36,8 @@ except ImportError:
 
 # Shared snapshot/proof helpers inherit the process environment. Refuse ambient
 # redirection instead of changing that environment or authenticating another repo.
+# Only the `git -c` parameters (CONFIG_PARAMETER) are cleared from it instead.
+CONFIG_PARAMETER = re.compile(r"GIT_CONFIG_(?:COUNT|KEY_[0-9]+|VALUE_[0-9]+)")
 GIT_REDIRECTIONS = frozenset(
     {
         "GIT_DIR",
@@ -55,6 +58,21 @@ GIT_REDIRECTIONS = frozenset(
 )
 
 
+def clear_git_config_parameters(environment=None):
+    """Remove the ``git -c`` parameters an editor's terminal exports and return their names.
+
+    Cursor and VS Code set GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n and GIT_CONFIG_VALUE_n. Verification runs
+    its own Git with a scrubbed environment and gives every child GIT_CONFIG_COUNT=0
+    (autocode_pr_checkout.task_environment), so it clears them rather than refusing (#2504); the
+    caller records the names. Repository and config-file redirections are still refused.
+    """
+    environment = os.environ if environment is None else environment
+    names = sorted(name for name in environment if CONFIG_PARAMETER.fullmatch(name))
+    for name in names:
+        del environment[name]
+    return names
+
+
 def require_git_environment(environment=None):
     """Refuse repository/config overrides; diagnostics contain names only."""
     environment = os.environ if environment is None else environment
@@ -64,7 +82,12 @@ def require_git_environment(environment=None):
         if name in GIT_REDIRECTIONS or name == "GIT_CONFIG" or name.startswith("GIT_CONFIG_")
     )
     if names:
-        raise ValueError("Verification refuses ambient Git overrides: " + ", ".join(names))
+        raise ValueError(
+            "Verification refuses ambient Git overrides: "
+            + ", ".join(names)
+            + ". Unset them and run again: unset "
+            + " ".join(names)
+        )
 
 
 def source_identity(workspace):
@@ -98,7 +121,13 @@ def review_support():
             raise ValueError("Authenticated review artifact and checkout support is unavailable") from error
     if not callable(getattr(review_policy, "findings", None)) or any(
         not callable(getattr(checkout_policy, name, None))
-        for name in ("create_root", "protect_python_caches", "require_python_caches", "task_environment")
+        for name in (
+            "create_root",
+            "follow_system_links",
+            "protect_python_caches",
+            "require_python_caches",
+            "task_environment",
+        )
     ):
         raise ValueError("Authenticated review artifact and checkout support is unavailable")
     return review_policy, checkout_policy
@@ -190,9 +219,12 @@ def binding(receipt):
     )
 
 
-def evidence_pins(proof, replay, child):
+def evidence_pins(proof, replay, child, mutation_check=None):
     pins = {child["json_path"]: child["json_sha256"], child["markdown_path"]: child["markdown_sha256"]}
-    for row in [*proof.get("checks", {}).values(), *replay.get("checks", [])]:
+    receipts = [*proof.get("checks", {}).values(), *replay.get("checks", [])]
+    # The runner's mutation check ran its own project commands; their captures are evidence too (#2506).
+    receipts += [row for row in (mutation_check or {}).get("command_receipts") or [] if isinstance(row, dict)]
+    for row in receipts:
         pins.update(command_receipt.pins(row))
         if row.get("output") and row.get("output_sha256"):
             pins[row["output"]] = row["output_sha256"]
@@ -213,13 +245,16 @@ def publish(
     original,
     original_index,
     candidate,
+    mutation_check=None,
 ):
     """Use the unchanged completion predicate over explicitly runner-derived facts.
 
     This assertion is not a model Completion Reviewer report, a goal approval or
     an ordinary TASK_COMPLETE. The review child remains a findings-only review.
     External regression proof is mandatory even when the generic gate has no
-    regression obligation for a legacy state.
+    regression obligation for a legacy state. ``mutation_check`` is the runner's
+    own review mutation check of the change (autocode_verify_task.mutation_check),
+    recorded with the review's result as report-only evidence (#2506).
     """
     root = Path(root)
     artifact = child["document"].get("workflow_result") or {}
@@ -236,7 +271,7 @@ def publish(
     human = [row["id"] for row in criteria if row["human_review"]]
     if human:
         reasons.append("Human acceptance is not established: " + ", ".join(human))
-    pins = evidence_pins(proof, replay, child)
+    pins = evidence_pins(proof, replay, child, mutation_check)
     pins[str(artifact_path)] = artifact["artifact_sha256"]
     proof_path = root / "proof.json"
     util.atomic_json(proof_path, proof)
@@ -322,6 +357,7 @@ def publish(
                 "artifact": str(artifact_path),
                 "artifact_sha256": artifact["artifact_sha256"],
                 "summary": "Runner external-change verification; independent review: " + str(review.get("verdict")),
+                **({"mutation_check": mutation_check} if mutation_check is not None else {}),
             },
         },
         "verification": {
@@ -387,8 +423,13 @@ def index_identity(workspace):
 
 
 def read(root):
+    clear_git_config_parameters()
     require_git_environment()
     root = Path(root).resolve()
+    # The public verification result names this file. Accept that exact
+    # reference as well as the output directory used by older callers.
+    if root.name == "verification.json" and root.is_file():
+        root = root.parent
     receipt = util.read_object(root / "verification.json")
     reasons = []
     try:

@@ -394,7 +394,7 @@ class CarryForwardTests(unittest.TestCase):
         self.revise()
         self.assertEqual(set(), m.accepted_ids(self.state))
 
-    def test_final_completion_requires_new_revision_sol_and_full_integration(self):
+    def test_final_completion_requires_new_revision_sol_full_integration_and_line_proof(self):
         self.start()
         old = self.accept_fixture(full=True)
         self.revise()
@@ -403,14 +403,19 @@ class CarryForwardTests(unittest.TestCase):
             {**c, "status": "verified", "evidence": "event:check"} for c in self.state["acceptance_criteria"]
         ]
         self.state["validation"] = copy.deepcopy(old["accepted_validation"])
+        self.assertFalse(completion_gate.logical_completion_ready(self.state, decision, s.snapshot(self.root)))
         self.assertFalse(completion_gate.completion_ready(self.state, decision, s.snapshot(self.root)))
         self.state.pop("validation")
         self.assign("M2")
         self.validate({"C1": "PASS", "C2": "PASS", "C3": "PASS"}, flow_status="NOT_VERIFIED")
         decision.update(task_id=self.state["current_task"]["id"])
+        self.assertFalse(completion_gate.logical_completion_ready(self.state, decision, s.snapshot(self.root)))
         self.assertFalse(completion_gate.completion_ready(self.state, decision, s.snapshot(self.root)))
         self.validate({"C1": "PASS", "C2": "PASS", "C3": "PASS"}, flow_status="PASS")
-        self.assertTrue(completion_gate.completion_ready(self.state, decision, s.snapshot(self.root)))
+        self.assertTrue(completion_gate.logical_completion_ready(self.state, decision, s.snapshot(self.root)))
+        # The fixture supplies executed workflow evidence but no regression
+        # suite for its print-only product. Fresh integration cannot waive it.
+        self.assertFalse(completion_gate.completion_ready(self.state, decision, s.snapshot(self.root)))
 
     def test_joint_initial_task_cannot_replay_carried_implementation(self):
         self.start()

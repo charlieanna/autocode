@@ -13,8 +13,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_execution_prompt as execution_prompt
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_execution_prompt as execution_prompt
     import autocode_prompts as prompts
 
 
@@ -29,26 +31,30 @@ import shlex
 from pathlib import Path
 
 try:
+    from . import autocode_coordination_context as coordination_context
     from . import autocode_design_manifest as design_manifest
     from . import autocode_milestone_replan as replan
     from . import autocode_package_writes as package_writes
     from . import autocode_protected_oracles as protected_oracles
+    from . import autocode_review_source as review_source
     from . import autocode_stage_roles as stage_roles
     from . import autocode_support as support
     from . import autocode_visual_evidence as visual
     from .autocode_util import criteria_definition
 except ImportError:
+    import autocode_coordination_context as coordination_context
     import autocode_design_manifest as design_manifest
     import autocode_milestone_replan as replan
     import autocode_package_writes as package_writes
     import autocode_protected_oracles as protected_oracles
+    import autocode_review_source as review_source
     import autocode_stage_roles as stage_roles
     import autocode_support as support
     import autocode_visual_evidence as visual
     from autocode_util import criteria_definition
 
 
-def context_packet(state: RunState, stage, state_path):
+def context_packet(state: RunState, stage, state_path, *, response_schema=None):
     try:
         from . import autocode_milestones as checkpoints
     except ImportError:
@@ -72,6 +78,16 @@ def context_packet(state: RunState, stage, state_path):
         "private_source_exceptions": state.get("private_source_exceptions", []),
         "context_policy": prompts.get("fragments/stage-context/context-packet.md"),
     }
+    coordinated = coordination_context.context(state)
+    if coordinated:
+        base["coordinated_member"] = coordinated
+    elif stage in ("requirements_gather", "requirements", "recognize_workflow"):
+        try:
+            from . import autocode_catalog_context as source_catalog
+        except ImportError:
+            import autocode_catalog_context as source_catalog
+        if catalog := source_catalog.context(state):
+            base["source_catalog"] = catalog
     if stage in ("requirements_gather", "requirements"):
         try:
             from . import autocode_project_memory_lifecycle as project_memory
@@ -98,7 +114,10 @@ def context_packet(state: RunState, stage, state_path):
         if write_scope:
             base["write_scope"] = write_scope
     protected = protected_oracles.context(
-        state["settings"], (state.get("current_task") or {}).get("affected_paths", [])
+        state["settings"],
+        (state.get("current_task") or {}).get("affected_paths", []),
+        state,
+        current=current if stage in ("sol", "astra_review", "astra_checkpoint") else None,
     )
     if protected:
         base["protected_tests"] = protected
@@ -132,6 +151,16 @@ def context_packet(state: RunState, stage, state_path):
         base.update(
             affected_paths=state.get("affected_paths", []), actionable_findings=state.get("unresolved_findings", [])
         )
+        changed_code = (state.get("regression_proof") or {}).get("changed_code_evidence")
+        if changed_code and changed_code.get("status") != "PASS":
+            try:
+                from . import autocode_changed_code_rework as changed_code_rework
+            except ImportError:
+                import autocode_changed_code_rework as changed_code_rework
+            base["changed_code_evidence"] = changed_code_rework.builder_evidence(changed_code)
+            guidance = changed_code_rework.guidance(state, current["revision"])
+            if guidance:
+                base["changed_code_investigation"] = guidance
         repair = state.get("repair_plan") or {}
         if any(
             task.get("id") == cast(dict, state.get("current_task", {})).get("id") for task in repair.get("tasks", [])
@@ -154,6 +183,9 @@ def context_packet(state: RunState, stage, state_path):
             implementation=impl, validation=validation, unresolved_findings=state.get("unresolved_findings", [])
         )
     if stage in ("sol", "astra_checkpoint", "astra_review"):
+        attached_source = review_source.context(state, current)
+        if attached_source:
+            base["review_source"] = attached_source
         try:
             from . import autocode_regression as regression
         except ImportError:
@@ -223,6 +255,9 @@ def context_packet(state: RunState, stage, state_path):
         except ImportError:
             import autocode_figma as figma
         instruction += figma.instructions(state["settings"], stage=stage, current_task=state.get("current_task"))
+    # Per-run citation material rides after the static policy, not inside the
+    # instruction, so discovery prompts share the longest static prefix (#2136).
+    citation_rule = ""
     if state.get("version", 2) >= 3:
         try:
             from . import autocode_goals as goals
@@ -245,10 +280,11 @@ def context_packet(state: RunState, stage, state_path):
             {k: entry["validation"].get(k) for k in ("output", "source_revision", "contract_revision", "verdict")}
             for entry in state.get("validation_archive", [])
         ]
+        execution_instruction = goals.EXECUTION_PROMPT + execution_prompt.criteria_instruction(response_schema)
         instruction = (
             goals.DISCOVERY_PROMPT + goals.JOB_TYPE_POLICY + goals.DECISION_PROVENANCE
             if stage == "astra_discovery"
-            else instruction + goals.EXECUTION_PROMPT
+            else instruction + execution_instruction
         )
         if stage == "astra_discovery":
             # A non-joint run has no Plan Reviewer; the discovery draft's criteria
@@ -262,11 +298,12 @@ def context_packet(state: RunState, stage, state_path):
             records = brief_obligations.sources(state)
             if records:
                 base["source_inventory"] = [
-                    {"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in records
+                    {"id": row["id"], "kind": row["kind"], "text": row["text"]}
+                    for row in source_trace.quotable(records)
                 ]
                 # Full brief once in source_inventory; do not also paste it under task (#1337).
                 base["task"] = brief_obligations.handoff_task(base["task"], base["source_inventory"])
-                instruction += source_trace.rule(records)
+                citation_rule = source_trace.rule(records)
         if stage in ("astra_plan", "astra_review"):
             instruction += support.ASTRA_DECISIONS
     # No previous transcripts or history array is forwarded; exact goals are never truncated.
@@ -276,6 +313,8 @@ def context_packet(state: RunState, stage, state_path):
         base["milestone_checkpoint"]["current_evidence_ready"] = checkpoints.evidence_ready(state, current)
         base["current_milestone"] = checkpoints.scope(state)
         milestone_policy += checkpoints.POLICY
+        if stage != "terra":
+            milestone_policy += checkpoints.ADVANCEMENT_POLICY
         if cast(dict, state.get("current_task", {})).get("milestone_ids"):
             milestone_policy += prompts.get("fragments/stage-context/context-packet-07.md")
         elif stage == "sol":
@@ -294,7 +333,7 @@ def context_packet(state: RunState, stage, state_path):
         base["targeted_consultation"] = state.get("targeted_consultation")
         milestone_policy = workflow.POLICY
         if stage == "astra_checkpoint":
-            instruction = workflow.CHECKPOINT + goals.EXECUTION_PROMPT
+            instruction = workflow.CHECKPOINT + execution_instruction
         elif stage == "sol":
             instruction += prompts.get("fragments/stage-context/context-packet-11.md")
         if workflow.final_only(state):
@@ -321,6 +360,7 @@ def context_packet(state: RunState, stage, state_path):
     prompt = (
         instruction
         + milestone_policy
+        + citation_rule
         + support.COMMON
         + support.BASELINE_POLICY
         + "\nCURRENT HANDOFF DATA\n"

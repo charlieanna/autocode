@@ -10,20 +10,18 @@ coordinates along the way.
 
 Start with a rough idea and discuss it with the Requirements. It helps define the smallest
 useful end-to-end product, asks focused questions, and drafts a versioned build brief.
-The Plan Reviewer challenges that draft; the Requirements revises; the Plan Reviewer finalizes. You can revise the brief
+The Planner drafts the implementation plan. The Plan Reviewer challenges that draft; the Planner revises; the Plan Reviewer finalizes. You can revise the brief
 in the same conversation. Implementation starts only after you explicitly approve it.
 
 After approval, Autocode handles the handoffs:
 
 ```text
-You → Autopilot: recognize the kind of job (build, bugfix, review, design, discuss); saved as `workflow`,
-   printed with its reason and signals; `--workflow KIND` names it instead of recognizing it
+You → Requirements first, on every run and follow-up turn: it names the kind of job (build, bugfix,
+   review, design, discuss), saved as `workflow`; `--workflow KIND` names it instead (a pinned build or bug fix
+   still runs Requirements; review, design and discuss start their own first stages). A flow without Requirements
+   (v2 planning, no Requirements role) has the Job recognizer name it first
    review → Reviewer only: findings written to review/findings.json, repository untouched, run complete
-   bugfix → Investigator first: diagnosis written to docs/bugs/<name>.json, repository untouched;
-            not reproduced → run complete;
-            reproduced → the build pipeline below from the Planner on, planned from the
-              diagnosis: no requirements gathering, but plan review and your approval
-              (small or large; the short path for small fixes is off until the full path is dependable)
+   bugfix → the standard implementation pipeline below: Requirements → Planner → Plan Reviewer → approval
    design → Architect first: a design review is written to review/design-review.json (goals met,
             blocking/advisory concerns, questions for you), repository untouched, run complete;
             a request for a NEW design → the build pipeline below; its plan may not change a file an
@@ -42,7 +40,7 @@ You → Autopilot: recognize the kind of job (build, bugfix, review, design, dis
              conflicts (a frozen API, a documented invariant) → written to <design>.blockers.json,
                run stops (PAUSED_DESIGN_CONFLICT), nothing built, you decide;
              no conflicts → the design's binding decisions become a constraint and the pipeline starts
-               at the Planner (no requirements gathering; the Planner may not redesign or ask);
+               at the Planner (no second requirements gathering; the Planner may not redesign or ask);
                after a design turn the earlier turn's plan is archived, so the Planner drafts a new
                contract for the build instead of revising the design job's
 You → Requirements Gatherer: rough idea → saved requirements report
@@ -86,19 +84,19 @@ one another:
 
 | Setting | Question it answers | Where it applies |
 | --- | --- | --- |
-| **Job kind** (`workflow.kind`: build, bugfix, review, design, discuss) | What you get back, and so which stages run at all. | Every run. Recognized from your request, or named with `--workflow`. Fixed once recognition has run. |
-| **Workflow mode** (`settings.workflow.mode`: `glm_first_v1`, `glm_final_audit_v2`, or the legacy default) | Who checks the build: which role reviews each milestone and which audits the whole task. | Only inside the build pipeline, so only for `build` and a reproduced `bugfix`. `review`, `design` and `discuss` never reach it. |
+| **Job kind** (`workflow.kind`: build, bugfix, review, design, discuss) | What you get back, and so which stages run at all. | Every run. Named by Requirements from your request, or with `--workflow`. Fixed once named. |
+| **Workflow mode** (`settings.workflow.mode`: `glm_first_v1`, `glm_final_audit_v2`, or the legacy default) | Who checks the build: which role reviews each milestone and which audits the whole task. | Only inside the build pipeline, so only for `build` and `bugfix`. `review`, `design` and `discuss` never reach it. |
 | **Task-lane mode** (`ui` or `code` on an item of `autocode tasks`) | Which loop one lane task runs: the Figma design loop, or a normal code run. | Only in `autocode tasks`. A `code` item is an ordinary run and gets its own job kind. A `ui` item uses the Figma path and has no job kind. |
 
 So the kind decides whether the build pipeline runs, the workflow mode tunes who checks inside it,
 and the lane mode picks between two loops before either applies. If two seem to disagree, the job
 kind wins: a `review` run never builds, whatever the mode says.
 
-The kind is shown where you approve a plan (`Job kind: build (recognized: ...)`), because the two
+The kind is shown where you approve a plan (`Job kind: build (Requirements understood: ...)`), because the two
 mistakes are not equally bad. Reading "build" as "discuss" costs a little time; reading "discuss" as
 "build" writes code you never asked for. If the kind is wrong, do not approve: start a new run with
-`--workflow KIND`. A follow-up message on a finished run (`--follow-up`) is recognized again and
-still needs its own plan approval.
+`--workflow KIND`. A follow-up message on a finished run (`--follow-up`) starts at Requirements
+again, which names its job, and still needs its own plan approval.
 
 ## Four units controlled by Autopilot
 
@@ -118,8 +116,8 @@ Autopilot checks them against the approved plan and current evidence before adva
 Planning revisions, implementation handoffs, review outcomes and repair routing are
 applied by Autopilot. The shared runtime supplies provider calls, locking and persistence.
 
-The public `autocode` command and the internal `autocode-orchestrator` compatibility
-alias delegate to the same controller, including dashboard launches. `tools/autocode_orchestrator.py` is a
+The public `autocode` command and the `autocode_orchestrator` compatibility
+module delegate to the same controller, including dashboard launches. `tools/autocode_orchestrator.py` is a
 compatibility import. The saved stage named `orchestrator` remains the milestone
 scheduler inside Autocode so existing runs can resume. Autopilot owns the overall loop.
 
@@ -198,17 +196,30 @@ read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of s
 | `PAUSED_PLANNING_BUDGET` | retry grants one more review round (two calls from the challenge, one from the final review) |
 | `PAUSED_NO_PROGRESS` | retry allows one more implementation batch |
 | `PAUSED_COMPLETION_REVIEW` | retry asks the Completion Reviewer once more |
-| `PAUSED_REPORT_REPAIR_LIMIT`, `PAUSED_BUILDER_RETRY_LIMIT`, `PAUSED_MILESTONE_STALLED`, `PAUSED_MILESTONE_REPLAN` | diagnosis only; these keep their operator resume flags |
+| `PAUSED_TIMEOUT_RECOVERY` | retry allows one more automatic recovery, as `--grant-recovery 1` would; the queued diagnosis itself is not held by the spent recovery budget |
+| `PAUSED_REPEATED_FAILURE` from a stage stall | a stage that stopped twice on unchanged source, with another stage's valid report between the stops, reaches this row instead of looping |
+| `PAUSED_REPORT_REPAIR_LIMIT`, `PAUSED_MILESTONE_STALLED`, `PAUSED_MILESTONE_REPLAN` | diagnosis only; these keep their operator resume flags |
+
+When the Investigator itself runs out of time, after AutoCode's own longer deadlines for it,
+the investigation is abandoned and the stuck stage's own pause comes back with its own action,
+instead of a pause for an exact Investigator retry. A model stop (quota, refusal, output limit)
+keeps the Investigator's model question, and a Builder failure classification keeps its retry.
+
+An exhausted Builder ladder no longer pauses: the retry policy ends the run with a recorded
+could-not-finish outcome ([Recovery](execution.md#budget-ownership-and-human-escalation)).
+`PAUSED_BUILDER_RETRY_LIMIT` occurs only in saved runs from before that change; they keep their
+diagnosis and the `--retry-builder` operator flag, as the row above reads for the other limits.
 
 A rejected report pauses as `PAUSED_REPEATED_FAILURE` only after three consecutive attempts of
 the stage, at the same source, failed with the same error and left the same kind of output
 (`tools/autocode_failures.py`). Different problems that happen to share an exception type,
 such as missing responses to different concerns, pause as `PAUSED_INVALID_OUTPUT`.
 
-The Investigator runs at high effort on a model different from the stuck stage's: Claude Opus
-5.5 (`kilo/anthropic/claude-opus-5.5`) in `kilocode` runs; otherwise GPT-6 Sol, or GLM 5.3 when
-the stuck stage runs on Sol (GPT-6 Luna in native Codex runs, which have GPT models only). Never
-Astra by default. It runs on a fresh route and session. It reads the task, the saved state and the stuck stage's attempts and returns
+The Investigator runs at high effort on a model different from the stuck stage's: in `kilocode`
+runs the first of the run's own direct routes (Plan Reviewer, Planner, Requirements, Completion,
+Tester, Builder) outside the stuck stage's model family, never a `kilo/` gateway route; otherwise
+GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol (GPT-6 Luna in native Codex runs, which have
+GPT models only). Never Astra by default. A gateway model needs `--investigator-model`. It runs on a fresh route and session. It reads the task, the saved state and the stuck stage's attempts and returns
 a diagnosis, then either guidance for one more attempt or the question only you can answer.
 `--investigator-model MODEL` (and `--investigator-reasoning-effort`) pins the Investigator's model for
 a run instead; a `provider/model` id such as `openai/gpt-6-sol` runs it through OpenCode even in a
@@ -224,11 +235,17 @@ exist, in the repository or in the run's directory, and a retry must cite at lea
 runner copies only the cited run files into a scratch tree, each at `run/<name>`, and runs
 the probe there: a probe that does not exit 0, or that needs a file the Investigator did
 not cite, rejects the report, and the original pause is restored with the reason. The
-probe's receipt is recorded with the investigation.
+probe also carries `counterexample`, one edit to a cited file after which it no longer
+shows the cause; the runner makes it in another scratch tree and the probe must fail
+there, so a probe that passes whatever the files say retries nothing (#1769). The
+probe's receipt, with its counterexample's exit code, is recorded with the investigation.
 
-Bounds: one investigation per distinct stage and pause, three per run
-(`settings.stuck_investigation.max_calls_per_run`; 0 turns it off). A Builder failure the
-Investigator classifies does not count toward these three: it has its own budget per
+Bounds: one investigation per distinct stage and pause on one source revision (the same
+problem after the source changed is a new one), and per run three or one per milestone of the
+approved plan, whichever is more (`settings.stuck_investigation.max_calls_per_run`; 0 turns it
+off). A stage that stops twice on unchanged source without a valid report, even when a review
+re-issues it in between, pauses as a repeated failure and reaches the Investigator. A Builder
+failure the Investigator classifies does not count toward this budget: it has its own budget per
 milestone ([Models](models.md#builder-retry-policy)). A second failure of the
 same problem, a `pause` recommendation or a failed investigation restores the original
 pause, with the diagnosis in its reason. It never approves anything, changes requirements or
@@ -270,7 +287,9 @@ Role defaults and escalation ladders are documented in [Models](models.md).
 The Requirements Gatherer saves a separate structured report under the run's `iterations/`
 directory. The Planner receives that artifact, originates alternatives and a task DAG,
 and can push back on the Plan Reviewer using source evidence. Unanswered requirements
-questions cannot silently disappear from the draft.
+questions cannot silently disappear from the draft. A handoff that has only questions so
+far, with no behaviors or acceptance tests yet (a vague request), stops the run for your
+answers before any Planner call, on every flow; Requirements then runs again with them.
 
 Each question is classified by `kind` (`discoverable`, `inferable`, or `decision`),
 `category`, and `delegable`. A **discoverable** question, one the workspace can answer,
@@ -315,6 +334,31 @@ approach, milestones, and **first bounded implementation task**, all covered by 
 revision/hash. Approval dispatches that task directly, without a third Plan Reviewer
 call. The separate Completion Reviewer's later decisions use the normal execution budget.
 
+The final review returns a reference to the revised plan rather than a copy of it. Inside
+that reference it may correct **acceptance criteria only**, as a delta on the retained rows
+(changed or new rows, removed IDs, corrected proofs); every other row is kept byte for byte.
+Each correction passes the same change-receipt, source-coverage and proof guards as a
+Planner revision, so a removed or reworded approved criterion still needs your saved answer
+or feedback. Milestones, the technical approach and permissions stay the Planner's: a
+problem there comes back to you as a blocking question.
+
+A Planner revision that answers the Plan Reviewer's blocking concern may change one of its
+own lines without you while nobody has approved or edited the plan: a constraint it may
+reword or drop, a permission boundary it may replace. The line must be the Planner's (it
+repeats no sentence of your brief, your feedback or your answers), the change is declared
+as the Planner's own with its replacement, and the approval screen lists it under "Declared
+contract changes" with the concern that asked for it; the final review judges it. Required
+behaviors, scope exclusions, failure cases and any line that repeats your words still need
+your saved answer or feedback, and so does every line once a plan was approved or edited.
+
+A fresh first-review receipt may also correct an exact failure-case inference that the
+model invented in an unapproved draft. That receipt can compose with independently
+permitted draft criterion wording, baseline observations and engineering proof corrections.
+It grants no authority over those adjacent fields: source citations, marked proofs,
+human review and approved obligations keep their existing guards. The corrected plan
+still receives final review and exact-plan approval; AutoCode does not ask you to
+approve its own draft corrections separately.
+
 Planning defaults to **two Plan Reviewer reviews per cycle**. A review counts once it
 returns a report, whether or not the runner then accepts that report. An attempt that
 times out or whose provider fails returns no review, so it is given back before the next
@@ -322,7 +366,15 @@ attempt; the repeated-failure limit, not this allowance, stops a review that kee
 Bounded recovery does not otherwise extend the allowance. Unresolved final decisions return
 to you as blocking questions. Once you answer them, planning starts a new cycle, and its first
 review receives the previous review's concerns, its decisions and your answers
-(`previous_review`), so it checks your answers instead of reviewing the plan from scratch. If the
+(`previous_review`), so it checks your answers instead of reviewing the plan from scratch. A
+technical question that AutoCode settles with the Planner's proposed default (a
+`technical_decision`, not an answer of yours) does not start a new cycle: the redraft that
+follows continues the cycle that asked, with its spent calls, its first review and its
+revision carried over (`planning.inherited_review`). The reviewer is told which answers were
+AutoCode's, and with one call left the final review decides on the redraft; what it cannot
+settle comes back to you as blocking questions. Only when the final review itself asked that
+question with no call left does the allowance grow by one call, once per run and never past a
+limit you set. Model output never renews the allowance; your answers and feedback do. If the
 budget is exhausted, the run pauses at `PAUSED_PLANNING_BUDGET`. After inspecting a
 reconciled checkpoint, an operator can permit one more attempt without discarding the
 accepted challenge and revision (for example, increase a total allowance of 2 to 3):
@@ -379,6 +431,8 @@ move between CLIs. No global OpenCode or Codex configuration is changed.
 
 ## Bug fixes
 
+New bug fixes use the same implementation sequence as builds: Requirements, Planner, Plan Reviewer, exact-plan approval, then implementation and independent verification. In a spec-first chat, confirm Requirements before repository fan-out or planning. Unresolved business questions still return to you. Diagnosis and source inspection belong to planning; a new task does not run a separate initial Investigator or skip Planner. Saved runs keep their recorded stages and replay policy. The Investigator-specific diagnosis and compact-plan behavior described below applies only to those legacy runs.
+
 A bug report goes through the same conversation and every stage as any other
 task: requirements, planning, plan challenge, revision, final plan review, your
 approval, orchestrator, Builder, Tester and Completion Reviewer.
@@ -406,7 +460,9 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   and with no limit when the run turned that limit off;
   `settings.regression.test_timeout` overrides it. The new or changed tests
   must fail on the original code and pass on the current code, and every test
-  that passed on base must still pass (not fail, be skipped or disappear). The
+  that passed on base must still pass (not fail, be skipped or disappear). A
+  repair that changes no test is proved by the tests the project already had:
+  the base suite's tests that fail there and pass with the change. The
   checks run in clean scratch worktrees, never in the task workspace. The result
   is bound to the exact
   source revision and appears as a runner-owned step with zero tokens in the
@@ -418,6 +474,18 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   REWORK, which sends the proof's reasons back to the Builder.
 - **The completion gate requires it.** A bug fix cannot reach `TASK_COMPLETE`
   unless the proof passed for the current source. A refusal names the reason.
+- **What happens today, beside the criterion.** Each regression criterion
+  (`test:`) carries a `current_behavior` box: the Investigator's observed
+  behavior, copied from the diagnosis bound to the run whose probe the runner
+  saw show the bug (an untestable reproduction is not evidence). The runner fills an
+  empty box, and the plan shows it as "Today:" under the criterion. The box is
+  not part of the agreed outcome: a revision that sets it to exactly the
+  diagnosis text goes through with a receipt on the approval screen
+  (`current_behavior: C1 -> …`) and no question, so a wrong note on today's
+  behavior no longer costs a report repair and a second planning round
+  (#2133). Any other change to it on a protected criterion still needs your
+  saved answer, as a rewording of the criterion would. A planning report that
+  leaves the box out has an empty one; that costs no report repair either.
 - **Regression tests in plain English.** When the Investigator reproduces a
   bug, it also writes the regression tests the fix must pass as `test_cases`
   in its diagnosis. Each case has an `id` (`T1`, `T2`, …) and `given`, `when`
@@ -433,9 +501,13 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
     example `python3 -c "from pager import page_count; assert page_count(5, 2) == 2"`.
     The runner runs it in a scratch copy and rejects the report if it does
     not exit 0, so the diagnosis rests on something the runner saw, not on
-    the Investigator's word. A bug no command can show here (a live registry,
-    a race, a device) says why in `untestable` instead. The note records the
-    probe that showed the bug in `proven_by`.
+    the Investigator's word. The probe also carries `counterexample`, the one
+    edit that removes the bug, and must fail in a scratch copy with that edit
+    made: a probe that exits 0 whatever the code says, such as
+    `python3 -c 'assert 2 + 2 == 4'`, is not a reproduction (#1769). A bug no
+    command can show here (a live registry, a race, a device) says why in
+    `untestable` instead. The note records the probe that showed the bug in
+    `proven_by`.
   - **Contract criteria.** Each case becomes an acceptance criterion of the
     small-fix contract. For a large fix, it becomes one the Planner must carry
     into the plan you approve.
@@ -466,6 +538,22 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
     `autocode issue` lists them.
   - **Compatibility.** Runs whose diagnosis has no cases, including bug fixes
     planned without an Investigator and older saved runs, behave as before.
+
+If same-chat feedback corrects a named case from restored behavior to preserved
+behavior (or the reverse), the old diagnosis cannot be superseded by a sentence
+in the plan. Before approval, AutoCode checks that the corrected draft cites the
+saved feedback and an admitted change record. With unchanged source and diagnosis
+evidence, it sends that exact correction through the Investigator once, then
+returns to planning and independent review. Old reports and usage remain saved;
+unaffected cases, file scope, reproduction checks and exact-plan approval remain
+required. An already displayed conflicting draft offers Resume instead of an
+approval that cannot succeed.
+
+This refresh handles uniquely named case-kind contradictions. It does not infer
+arbitrary semantic changes or reinvestigate harmless wording. Missing authority,
+ambiguous names or changed evidence hold the run at `PAUSED_STALE_DIAGNOSIS`.
+Repeated resumes do not renew the same correction's allowance, and an approved
+plan still requires the ordinary explicit revision path.
 
 ### Features: tests in plain English
 
@@ -803,9 +891,17 @@ and the runner, not a model, runs something that shows it.
 - The runner runs every probe in a scratch copy of the code as it is now, with
   a two-minute limit each. A probe that fails rejects the answer. A probe
   cannot change the workspace.
-- Claims without a probe stay grounded by their source file only, as before.
-- Probed claims are recorded in the run state (`answer.probes`) and shown in
-  the answer's evidence list.
+- A probed claim also carries `counterexample`: the smallest edit to one
+  repository file (`file`, `find`, `replace`) that makes the claim false. The
+  runner makes that edit in a second scratch copy and runs the probe again; it
+  must fail there. A probe that exits 0 whatever the code says, such as
+  `python3 -c 'assert 2 + 2 == 4'`, does not tell the claim from its opposite,
+  so the answer is rejected and goes to the usual bounded report repair; it is
+  never shown as a check that ran (#1769).
+- Claims without a probe stay grounded by their source file only, as before,
+  and the answer lists them as read from the source, not run.
+- Probed claims are recorded in the run state (`answer.probes`, each with its
+  counterexample's exit code) and shown in the answer's evidence list.
 
 ### Design: a concern about today's code carries a probe
 
@@ -825,6 +921,11 @@ same probe rule as discussions applies to what it says about the code.
   `probe`; a constraint that lives in prose (a README rule) has none. The
   blockers file written beside the design records each conflict's proving
   probe in `proven_by`.
+- **Counterexamples.** As in a discussion, every probed concern and conflict
+  also carries `counterexample`, the one edit after which the code no longer
+  behaves as it says, and its probe must fail there. A concern or conflict
+  blocks work, so a probe that passes whatever the code says rejects the
+  report (#1769).
 
 The scratch runs are `autocode_verify.scratch_run`. A Python test delivered
 into a project with no test suite of its own still runs under unittest.
@@ -868,10 +969,17 @@ with the limits in effect and the exact `--approve-goal` and `--feedback` comman
 brief can run to hundreds of lines, so just above the limits it summarizes the decision, quoting
 the plan: its outcome and milestones, every permission boundary, the first three scope
 exclusions, each acceptance criterion with how it is checked (and whether it also needs your
-review), and what passing proves for this job. The last screen reads:
+review), and what passing proves for this job. That is what `--show-goal` and
+`autocode --details` print.
+
+The approval stop itself (`autocode --no-chat`, or the chat's approval question) shows only the
+decision (#2535): the summary first, the limits, one line naming `--details` (in the chat,
+`/details`) for the full brief with its contract diff, file hashes and request tokens, then the
+commands. No hash or token appears before that line except in the approve command, which still
+binds to the token of the plan shown. `--json` and the status view are unchanged. The stop reads:
 
 ```text
-Before you approve r3 (a summary of the plan above):
+Before you approve r3:
 What it will do:
   Provide a deterministic greeting CLI
 Built in 1 milestone: M1.
@@ -888,6 +996,10 @@ What passing proves:
   - Not proven: behavior no criterion describes, or inputs no check exercises.
 
 Limits in effect: 12 h of active time for the run, 1 h per stage, no iteration ceiling, one Builder at a time.
+
+The full plan, its changes since the last revision and the request tokens: autocode --run-dir RUN --details (in the chat, /details)
+
+Plan revision 3 (r3) waits for your approval. Approving it authorizes implementation of exactly this plan: AutoCode may then change files in the workspace to build it.
 To approve this plan: autocode --run-dir RUN --approve-goal r3:<hash>
 To change it instead: autocode --run-dir RUN --feedback 'WHAT TO CHANGE' (the revised plan gets a new token)
 
@@ -1000,7 +1112,7 @@ token locks the revision on the screen, as always. `--goal-file` revises a saved
 start a new one.
 
 When the run completes, its evidence report (`evidence.md`, and so the pull request body
-`autocode-issue pr` writes around it) gives the approved plan's goal hash, the one `--check` prints
+`autocode issue pr` writes around it) gives the approved plan's goal hash, the one `--check` prints
 for a file holding exactly that plan. When the approved plan came from a plan file, the report also
 names the file, its goal hash and the plan revision it was loaded as, and says how the two differ:
 the approved plan is the file's plan unchanged (the two goal hashes are equal), differs from it only
@@ -1018,8 +1130,8 @@ Plan file: `/repo/plans/refunds.md` (goal hash 9a07…), loaded as plan revision
 Put together, a team reviews a plan like this:
 
 1. **AutoCode drafts the plan.** A run stops with its plan waiting for approval. For a GitHub issue,
-   `autocode-issue start` gets it there.
-2. **A person opens a pull request with the file.** `autocode-issue plan ISSUE --open` exports the
+   `autocode issue start` gets it there.
+2. **A person opens a pull request with the file.** `autocode issue plan ISSUE --open` exports the
    plan, commits it as `plans/issue-N.md` on a branch of its own and opens a draft pull request
    ([GitHub issues](issues.md#reviewing-the-plan-in-a-pull-request)). Without an issue, run
    `autocode plan --export FILE`, then commit, push and open the pull request yourself.

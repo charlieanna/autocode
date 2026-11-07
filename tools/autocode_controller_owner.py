@@ -26,16 +26,21 @@ try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_process as processes
     from . import autocode_run_status as run_status
+    from . import autocode_supervision as supervision
     from . import autocode_util as util
 except ImportError:
     import autocode_checkout_lock as checkout_lock
     import autocode_process as processes
     import autocode_run_status as run_status
+    import autocode_supervision as supervision
     import autocode_util as util
 
 FILE = "controller-owner.json"
 STATUS = "PAUSED_CONTROLLER_EXIT"
 MAX_BYTES = 16384
+# A launch marker also retains argv/context; its process identities use the same
+# strict reader, but it is not a small controller receipt. Keep both bounds finite.
+MAX_PROCESS_MARKER_BYTES = 1024 * 1024
 _owners: dict[str, Owner] = {}
 _MISSING = object()
 
@@ -53,22 +58,39 @@ def _object(pairs):
     return result
 
 
-def _read_json(path):
-    try:
-        before = path.lstat()
-    except FileNotFoundError:
-        return _MISSING
-    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_BYTES:
-        raise ValueError("Controller receipt is not a bounded owned regular file")
-    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
-        opened = os.fstat(stream.fileno())
-        data = stream.read(MAX_BYTES + 1)
-        finished = os.fstat(stream.fileno())
-    after = path.lstat()
-    fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")
-    if any(getattr(before, key) != getattr(value, key) for value in (opened, finished, after) for key in fields):
-        raise ValueError("Controller receipt changed while inspected")
-    if len(data) != before.st_size or len(data) > MAX_BYTES:
+READ_ATTEMPTS = 4
+
+
+def _read_json(path, *, max_bytes=MAX_BYTES):
+    """One consistent read of the receipt, or ValueError.
+
+    The controller replaces the receipt atomically, so a viewer's read can straddle a checkpoint:
+    the file it opened is no longer the one at the path. That is a moment, not a lost owner;
+    read again a bounded number of times before reporting the ownership as uninspectable (#2304).
+    """
+    for attempt in range(READ_ATTEMPTS):
+        try:
+            before = path.lstat()
+        except FileNotFoundError:
+            return _MISSING
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > max_bytes:
+            raise ValueError("Controller receipt is not a bounded owned regular file")
+        try:
+            with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
+                opened = os.fstat(stream.fileno())
+                data = stream.read(max_bytes + 1)
+                finished = os.fstat(stream.fileno())
+            after = path.lstat()
+        except FileNotFoundError:
+            if attempt + 1 == READ_ATTEMPTS:
+                raise
+            continue  # replaced between the stat and the open: read the new one
+        fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")
+        if all(getattr(before, key) == getattr(value, key) for value in (opened, finished, after) for key in fields):
+            break
+        if attempt + 1 == READ_ATTEMPTS:
+            raise ValueError("Controller receipt changed while inspected")
+    if len(data) != before.st_size or len(data) > max_bytes:
         raise ValueError("Controller receipt was not read completely")
     value = json.loads(
         data,
@@ -131,6 +153,17 @@ def _read(run_dir):
     return value
 
 
+def ready_for(state: RunState, run_dir) -> bool:
+    """True when the last controller exited on purpose after saving this exact checkpoint (a user action
+    or unit handoff): the run advances only when someone runs its next command (#2332). A read of the
+    receipt alone, no process table, so run inventories can afford it; unreadable means False."""
+    try:
+        receipt = _read(run_dir)
+    except (OSError, ValueError, TypeError):
+        return False
+    return bool(receipt and receipt["disposition"] == "ready" and receipt["checkpoint"] == util.digest(state))
+
+
 @contextlib.contextmanager
 def _free_lock(path):
     """Probe an existing kernel lock without creating or rewriting its file."""
@@ -169,7 +202,7 @@ def _worker_ownership(state: RunState, run_dir):
             return "busy", "Birth-bound provider workers are still alive"
         if observed.get("checked") is not True or observed.get("alive") is not False:
             uncertain = True
-    marker = _read_json(Path(run_dir) / "active-processes.json")
+    marker = _read_json(Path(run_dir) / "active-processes.json", max_bytes=MAX_PROCESS_MARKER_BYTES)
     if marker is not _MISSING:
         if not isinstance(marker, dict) or not isinstance(marker.get("processes"), list) or not marker["processes"]:
             uncertain = True
@@ -182,6 +215,41 @@ def _worker_ownership(state: RunState, run_dir):
     return ("unknown", "Provider ownership cannot be verified absent") if uncertain else ("absent", None)
 
 
+def _completed_stage(state: RunState, run_dir):
+    """A collected, accounted report may be rechecked; an uncertain attempt may not."""
+    record = state.get("active_stage")
+    if (
+        not isinstance(record, dict)
+        or record.get("accounted") is not True
+        or type(record.get("exit_code")) is not int
+        or record["exit_code"] != 0
+        or record.get("timed_out")
+        or not record.get("finished_at")
+        or not _timestamp(record["finished_at"])
+        or not isinstance(record.get("output"), str)
+        or not isinstance(record.get("supervision"), dict)
+    ):
+        return False
+    output = Path(record["output"])
+    if output.is_symlink() or not output.is_file() or not output.resolve().is_relative_to(Path(run_dir).resolve()):
+        return False
+    observed = supervision.observe(record["supervision"])
+    if not isinstance(observed, dict) or not isinstance(observed.get("receipt"), dict):
+        return False
+    receipt = observed["receipt"]
+    return (
+        receipt.get("phase") == "stopped"
+        and receipt.get("cause") in ("provider_stopped", "controller_finished")
+        and receipt.get("cleanup_error") is None
+        and all(
+            isinstance(observed.get(key), dict)
+            and observed[key].get("checked") is True
+            and observed[key].get("alive") is False
+            for key in ("owner", "keeper", "provider")
+        )
+    )
+
+
 def inspect(state: RunState, run_dir, workspace, *, run_locked=False, checkout_locked=False):
     """Fresh read-only controller inspection; no saved status substitutes for it."""
     result = {
@@ -191,6 +259,7 @@ def inspect(state: RunState, run_dir, workspace, *, run_locked=False, checkout_l
         "persisted_status": state.get("status"),
         "checked": False,
         "alive": None,
+        "completed_stage": False,
     }
     try:
         receipt = _read(run_dir)
@@ -241,7 +310,11 @@ def inspect(state: RunState, run_dir, workspace, *, run_locked=False, checkout_l
                     return result
                 # A disappeared birth or a legacy checkpoint with both free
                 # exclusion locks can be recovered without guessing an exit code.
-                result.update(kind="ended", reason="No controller or provider owns the saved running checkpoint")
+                result.update(
+                    kind="ended",
+                    reason="No controller or provider owns the saved running checkpoint",
+                    completed_stage=_completed_stage(state, run_dir),
+                )
                 return result
     except (OSError, ValueError, TypeError, KeyError, OverflowError, processes.ProcessError) as error:
         result["reason"] = f"Controller ownership could not be inspected: {error}"
@@ -252,7 +325,7 @@ def project(state: RunState, inspection):
     """A status projection only; callers explicitly persist at writer boundaries."""
     if (
         state.get("status") != "RUNNING"
-        or state.get("active_stage")
+        or (state.get("active_stage") and not (inspection or {}).get("completed_stage"))
         or state.get("active_runner_check")
         or not inspection
         or inspection["kind"] in ("running", "busy", "ready", "boundary")

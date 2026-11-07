@@ -3,9 +3,12 @@
 A human-facing client (the terminal chat, the VS Code extension, the browser
 dashboard) takes only the action the status view names: ``view["next_command"]``,
 the optional ``view["chat"]["input"]`` message offer and the optional
-``view["pause"]["next_command"]`` (docs/task-run.md). It fills only the decisions
-the view leaves to a person: a ``QUESTION=ANSWER`` or ``QUESTION=MODEL`` slot, or
-the one typed number a recovery offers. A command the client cannot take from the
+``view["pause"]["next_command"]`` (docs/task-run.md), and a saved code step's
+``compare`` and ``restore`` actions (``view["code_checkpoints"]``), and for a run in a change set
+the set approval and joint check ``changeset status`` names (``changeset_action``). It fills only the decisions
+the view leaves to a person: a ``QUESTION=ANSWER`` or ``QUESTION=MODEL`` slot, a
+``QUESTION=EFFORT`` slot limited to the levels ``needs.effort`` declares, or the one
+typed number a recovery offers. A command the client cannot take from the
 view alone is a ``ClientGap``, to fix in the CLI or the view, never to work around
 in the client. These are the rules ``vscode-extension/src/core/next-command.ts``
 and the headless conformance client (``scenarios/harness/conformance.py``) follow;
@@ -28,6 +31,8 @@ UNSUPPLIED = ("GOAL_FILE", "N", "WHAT CHANGED", "TOKEN", "RUN_DIR", "--explain")
 ADVANCING = ("--no-chat", "--resume-paused")
 # Needs that are an honest stop: a person decides, a client may not answer for them.
 PERSON_ONLY_KINDS = ("resume", "retry_job", "recover_source")
+# A person's words for ``QUESTION=PLACEHOLDER`` in a named command, and the decision each is.
+PLACEHOLDERS = {"ANSWER": "answer", "MODEL": "model", "EFFORT": "effort"}
 # Resolver scopes that stop the run because it could not continue safely.
 PERSON_ONLY_SCOPES = ("blocker", "operational_exhaustion")
 MAX_SAFE_INTEGER = 9007199254740991
@@ -36,6 +41,42 @@ ENV_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 
 class ClientGap(RuntimeError):
     """The view names no action this client can take: a gap in the CLI or the status view."""
+
+
+def attention_acknowledgement(value: dict, workspace: Path, run_dir: Path):
+    """Only the core's exact acknowledgement array, never a task answer or resume."""
+    if not isinstance(value, dict):
+        raise ClientGap("The core offers no valid attention metadata")
+    item = value.get("item") or {}
+    offer = value.get("acknowledge") or {}
+    receipt = value.get("acknowledgement") or {}
+    if not all(isinstance(part, dict) for part in (item, offer, receipt)):
+        raise ClientGap("The core offers no valid attention metadata")
+    identity = item.get("id")
+    offered = offer.get("next_command")
+    wanted = [
+        "autocode",
+        "attention",
+        "ack",
+        "--workspace",
+        str(workspace),
+        "--run-dir",
+        str(run_dir),
+        "--item-id",
+        identity,
+    ]
+    if (
+        type(value.get("version")) is not int
+        or value.get("version") != 1
+        or receipt.get("available") is not True
+        or not isinstance(identity, str)
+        or re.fullmatch(r"[0-9a-f]{64}", identity) is None
+        or item.get("workspace") != str(workspace)
+        or item.get("run_dir") != str(run_dir)
+        or offered != wanted
+    ):
+        raise ClientGap("The core offers no acknowledgement for that exact alert/run")
+    return NamedCommand(list(offered[1:]), {})
 
 
 @dataclass(frozen=True)
@@ -51,7 +92,7 @@ class Decision:
     """A slot the named command leaves for a person to fill."""
 
     key: str  # the question id, or the typed input's id
-    kind: str  # "answer", "model" or "integer"
+    kind: str  # "answer", "model", "effort" or "integer"
     question: dict | None = None  # the needs.questions row an answer slot names
     integer: dict | None = None  # the needs.command_inputs row an integer slot names
 
@@ -59,6 +100,49 @@ class Decision:
 def own(view: dict, workspace: Path, run_dir: Path) -> tuple[Path, Path]:
     """The run's effective paths: a chat started in a plain folder runs in the project AutoCode bootstrapped there."""
     return Path(view.get("workspace") or workspace), Path(view.get("run_dir") or run_dir)
+
+
+def worker_transport(execution: dict, argv: list[str], workspace: Path, run_dir: Path, *, fresh=False) -> list[str]:
+    """Take only the core's exact worker envelope, keeping the named task action literal."""
+    prefix = execution.get("next_command")
+    if fresh:
+        if execution.get("id") != "durable_local" or execution.get("available") is not True:
+            raise ClientGap("Durable execution is unavailable on this host")
+        wanted = [
+            "autocode",
+            "worker",
+            "launch",
+            "--workspace",
+            "WORKSPACE",
+            "--run-dir",
+            "RUN_DIR",
+            "--checkpoint",
+            "CHECKPOINT",
+            "--",
+        ]
+        values = {"WORKSPACE": str(workspace), "RUN_DIR": str(run_dir), "CHECKPOINT": "-"}
+    else:
+        if execution.get("mode") != "durable_local" or execution.get("detach_supported") is not True:
+            raise ClientGap("This run does not advertise durable worker execution")
+        token = prefix[8] if isinstance(prefix, list) and len(prefix) == 10 else None
+        if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token):
+            raise ClientGap("The worker action has no current checkpoint token")
+        wanted = [
+            "autocode",
+            "worker",
+            "launch",
+            "--workspace",
+            str(workspace),
+            "--run-dir",
+            str(run_dir),
+            "--checkpoint",
+            token,
+            "--",
+        ]
+        values = {}
+    if prefix != wanted:
+        raise ClientGap("Unsupported or cross-run durable worker action")
+    return [values.get(word, word) for word in prefix[1:]] + list(argv)
 
 
 def parse(text: str, workspace: Path, run_dir: Path) -> NamedCommand:
@@ -101,84 +185,118 @@ def named(view: dict, workspace: Path, run_dir: Path) -> NamedCommand:
     raise ClientGap(f"needs {(view.get('needs') or {}).get('kind')!r} at {view.get('status')!r} names no next_command")
 
 
-def integer_inputs(view: dict, command: NamedCommand) -> list[dict]:
-    """The one closed number a time-limit, plan-review or recovery-grant offer leaves open, or none.
+# The numbers a person may type into a core-named command (autocode_command_inputs, #2044): the flag,
+# the row id and label the core gives it, the key `used` is reported under, and whether the saved
+# current value can be fractional. A row for any other flag is refused, as is one that disagrees here.
+INTEGER_INPUTS = {
+    "--max-seconds": ("max_seconds", "Total active time (seconds)", "elapsed", True),
+    "--max-cost-usd": ("max_cost_usd", "Cost cap (whole USD)", "used", True),
+    "--max-iterations": ("max_iterations", "Total iterations", "used", False),
+    "--max-milestone-seconds": ("max_milestone_seconds", "Milestone active time (seconds)", "used", True),
+    "--max-milestone-replans": ("max_milestone_replans", "Milestone replans", "used", False),
+    "--no-progress-limit": ("no_progress_limit", "Unchanged implementation batches allowed", "used", False),
+    "--planning-review-call-limit": ("planning_review_call_limit", "Total plan-review calls", "used", False),
+    "--grant-recovery": ("grant_recovery", "Additional recoveries", "used", False),
+}
+TOKEN_ENV = "AUTOCODE_EXPECTED_RECOVERY_TOKEN"
 
-    Anything but exactly the advertised shape is refused, so a client can never
-    type a number into a command the core did not offer it for.
+
+def _count(value, *, fractional):
+    """A saved count the core reported: a finite nonnegative safe number, whole unless ``fractional``."""
+    if type(value) is int:
+        return 0 <= value < MAX_SAFE_INTEGER
+    return fractional and type(value) is float and value == value and 0 <= value < MAX_SAFE_INTEGER
+
+
+def check_input(view: dict, row, command: NamedCommand) -> dict:
+    """``row`` when it is a closed number offer for exactly ``command``; otherwise a ClientGap.
+
+    The command must be ``[--resume-paused] FLAG N --expected-recovery-token -`` with the view's
+    current recovery token in its private channel, and the bounds must be the ones the saved
+    counts imply, so a client can never type a number into a command the core did not offer it for.
     """
     need = view.get("needs") or {}
-    rows = need.get("command_inputs")
-    if rows is None:
-        return []
-    row = rows[0] if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict) else {}
     token = (view.get("recovery") or {}).get("token")
-    current, used, argv = row.get("current"), row.get("used"), command.argv
-    time = (
-        row.get("id") == "max_seconds"
-        and view.get("status") == "PAUSED_TIME_LIMIT"
-        and need.get("kind") == "resume"
-        and argv == ["--resume-paused", "--max-seconds", "N", "--expected-recovery-token", "-"]
-        and row.get("flag") == "--max-seconds"
-        and row.get("arg_index") == 2
-        and row.get("label") == "Total active time (seconds)"
-        and type(row.get("elapsed")) in (int, float)
-        and 0 <= row["elapsed"] < MAX_SAFE_INTEGER
-        and type(current) is int
-        and row.get("minimum") == int(max(current, row["elapsed"])) + 1
-    )
-    planning = (
-        row.get("id") == "planning_review_call_limit"
-        and view.get("status") == "PAUSED_PLANNING_BUDGET"
-        and need.get("kind") == "planning_budget"
-        and row.get("flag") == "--planning-review-call-limit"
-        and row.get("label") == "Total plan-review calls"
-        and type(current) is int
-        and current >= 2
-        and type(used) is int
-        and current <= used < MAX_SAFE_INTEGER
-        and row.get("minimum") == max(current, used) + 1
-        and (
-            (
-                row.get("arg_index") == 2
-                and argv == ["--resume-paused", "--planning-review-call-limit", "N", "--expected-recovery-token", "-"]
-            )
-            or (
-                row.get("arg_index") == 1
-                and argv == ["--planning-review-call-limit", "N", "--expected-recovery-token", "-"]
-            )
+    flag = row.get("flag") if isinstance(row, dict) else None
+    known = INTEGER_INPUTS.get(flag) if isinstance(flag, str) else None
+    if known is None:
+        raise ClientGap("Unsupported or stale numeric recovery command from AutoCode")
+    identity, label, used_key, fractional = known
+    flag, current, used = row["flag"], row.get("current"), row.get(used_key)
+    prefix = ["--resume-paused"] if row.get("arg_index") == 2 else []
+    minimum, maximum = row.get("minimum"), row.get("maximum")
+    bounded = type(minimum) is int and type(maximum) is int and 1 <= minimum <= maximum <= MAX_SAFE_INTEGER
+    if flag == "--grant-recovery":
+        limits = bounded and type(used) is int and used >= 1 and minimum == 1 and maximum == used
+    else:
+        limits = (
+            bounded
+            and _count(used, fractional=fractional)
+            and maximum == MAX_SAFE_INTEGER
+            and _count(current, fractional=fractional and flag != "--max-seconds")
+            and minimum == int(max(current, used)) + 1
         )
-    )
-    grant = (
-        row.get("id") == "grant_recovery"
-        and view.get("status") == "PAUSED_TIMEOUT_RECOVERY"
-        and need.get("kind") == "resume"
-        and row.get("flag") == "--grant-recovery"
-        and row.get("arg_index") == 2
-        and row.get("label") == "Additional recoveries"
-        and argv == ["--resume-paused", "--grant-recovery", "N", "--expected-recovery-token", "-"]
-        and type(used) is int
-        and used >= 1
-        and row.get("minimum") == 1
-        and row.get("maximum") == used
-    )
     if (
-        not (time or planning or grant)
+        not limits
+        or row.get("id") != identity
+        or row.get("label") != label
+        or row.get("kind") != "integer"
+        or row.get("placeholder") != "N"
+        or row.get("arg_index") not in ((1, 2) if flag == "--planning-review-call-limit" else (2,))
+        or not _count(current, fractional=fractional and flag != "--max-seconds")
+        or (current == 0 and flag != "--max-iterations")
         or need.get("new_run_required")
         or need.get("edit_required")
         or not isinstance(token, str)
         or not token
-        or command.env != {"AUTOCODE_EXPECTED_RECOVERY_TOKEN": token}
-        or row.get("kind") != "integer"
-        or row.get("placeholder") != "N"
-        or type(current) is not int
-        or not 0 < current < MAX_SAFE_INTEGER
-        or type(row.get("minimum")) is not int
-        or type(row.get("maximum")) is not int
-        or (not grant and row["maximum"] != MAX_SAFE_INTEGER)
+        or command.env != {TOKEN_ENV: token}
+        or command.argv != [*prefix, flag, "N", "--expected-recovery-token", "-"]
     ):
         raise ClientGap("Unsupported or stale numeric recovery command from AutoCode")
-    return [row]
+    return row
+
+
+def _offered(view: dict):
+    rows = (view.get("needs") or {}).get("command_inputs")
+    if rows is None:
+        return None
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ClientGap("Unsupported or stale numeric recovery command from AutoCode")
+    return rows[0]
+
+
+def integer_inputs(view: dict, command: NamedCommand) -> list[dict]:
+    """The one closed number ``command`` (the view's next_command) leaves open, or none.
+
+    A row that names its own ``command`` is a separate offer (bound_offer), not a slot of this one.
+    """
+    row = _offered(view)
+    if row is None or "command" in row:
+        return []
+    return [check_input(view, row, command)]
+
+
+def bound_offer(view: dict, workspace: Path, run_dir: Path) -> tuple[dict, NamedCommand] | None:
+    """The raise of the bound holding the run when next_command is not that raise (#2044), or None.
+
+    At a plain resume or an operational request for a bound pause, the core names the raise as the
+    row's own ``command``: a person's number goes there, never into the plain resume or a reply.
+    """
+    row = _offered(view)
+    if row is None or "command" not in row:
+        return None
+    if not isinstance(row["command"], str) or not row["command"]:
+        raise ClientGap("Unsupported or stale numeric recovery command from AutoCode")
+    command = parse(row["command"], *own(view, workspace, run_dir))
+    return check_input(view, row, command), command
+
+
+def fill_offer(view: dict, row: dict, command: NamedCommand, text: str) -> NamedCommand:
+    """A separate bound offer's command with the person's number in its one slot."""
+    check_input(view, row, command)
+    argv = list(command.argv)
+    argv[row["arg_index"]] = integer_value(text, row)
+    return NamedCommand(argv, dict(command.env))
 
 
 def decisions(view: dict, command: NamedCommand) -> list[Decision]:
@@ -187,9 +305,32 @@ def decisions(view: dict, command: NamedCommand) -> list[Decision]:
     found = [Decision(row["id"], "integer", integer=row) for row in integer_inputs(view, command)]
     for word in command.argv:
         key, separator, placeholder = word.partition("=")
-        if separator and placeholder in ("ANSWER", "MODEL"):
-            found.append(Decision(key, "model" if placeholder == "MODEL" else "answer", question=questions.get(key)))
+        if separator and placeholder in PLACEHOLDERS:
+            found.append(Decision(key, PLACEHOLDERS[placeholder], question=questions.get(key)))
     return found
+
+
+def effort_levels(view: dict, key: str) -> list[str]:
+    """The levels an ``effort-ROLE=EFFORT`` slot may take: the ones its model declares (#2057)."""
+    effort = (view.get("needs") or {}).get("effort") or {}
+    declared = effort.get("declared")
+    if (
+        effort.get("question_id") != key
+        or not isinstance(declared, list)
+        or not declared
+        or not all(isinstance(level, str) and level for level in declared)
+    ):
+        raise ClientGap(f"{key} asks for an effort the status view does not describe")
+    return list(declared)
+
+
+def effort_value(view: dict, key: str, text: str) -> str:
+    """A level a person chose for ``key``, one its model declares."""
+    levels = effort_levels(view, key)
+    chosen = text.strip().lower()
+    if chosen not in levels:
+        raise ClientGap(f"Choose one of {', '.join(levels)}")
+    return chosen
 
 
 def unsupplied(view: dict, command: NamedCommand) -> str | None:
@@ -201,11 +342,17 @@ def unsupplied(view: dict, command: NamedCommand) -> str | None:
 def integer_value(text: str, row: dict) -> str:
     """Digits a person typed, within the advertised bounds."""
     text = text.strip()
+    # No real ceiling reads as "N or more", never as the 2^53 - 1 the core uses for none (#2607).
+    allowed = (
+        f"of {row['minimum']} or more"
+        if row["maximum"] == MAX_SAFE_INTEGER
+        else f"from {row['minimum']} to {row['maximum']}"
+    )
     if not re.fullmatch(r"[0-9]+", text) or len(text.lstrip("0")) > 16:
-        raise ClientGap(f"Enter a whole number from {row['minimum']} to {row['maximum']} for {row['label']}")
+        raise ClientGap(f"Enter a whole number {allowed} for {row['label']}")
     number = int(text)
     if not row["minimum"] <= number <= row["maximum"]:
-        raise ClientGap(f"Enter a whole number from {row['minimum']} to {row['maximum']} for {row['label']}")
+        raise ClientGap(f"Enter a whole number {allowed} for {row['label']}")
     return str(number)
 
 
@@ -223,10 +370,11 @@ def fill(view: dict, command: NamedCommand, answers: dict[str, str]) -> NamedCom
         if word in UNSUPPLIED:
             raise ClientGap(f"the command leaves {word} open, which the status view does not supply")
         key, separator, placeholder = word.partition("=")
-        if separator and placeholder in ("ANSWER", "MODEL"):
+        if separator and placeholder in PLACEHOLDERS:
             if key not in answers:
                 raise ClientGap(f"{key} is a decision for a person; none was given")
-            word = f"{key}={answers[key]}"
+            value = effort_value(view, key, answers[key]) if placeholder == "EFFORT" else answers[key]
+            word = f"{key}={value}"
         filled.append(word)
     return NamedCommand(filled, dict(command.env))
 
@@ -285,10 +433,38 @@ def plan_for_approval(view: dict) -> dict | None:
         return None
     if not all(
         isinstance(rows, list) and all(isinstance(text, str) for text in rows)
-        for rows in (plan.get("constraints"), plan.get("permission_boundaries"))
+        for rows in (plan.get("constraints"), plan.get("permission_boundaries"), plan.get("scope_exclusions", []))
     ):
         return None
+    # The completion order a person approves (#2434): optional in older cores, but when the plan
+    # carries milestones or an end-to-end flow they must be showable, never silently dropped.
+    milestones = plan.get("milestones", [])
+    if not isinstance(milestones, list) or not all(
+        isinstance(row, dict) and isinstance(row.get("id"), str) and isinstance(row.get("objective"), str)
+        for row in milestones
+    ):
+        return None
+    flow = plan.get("end_to_end_flow", [])
+    if not isinstance(flow, list) or not all(isinstance(text, str) for text in flow):
+        return None
     return plan
+
+
+def changed_files(view: dict) -> dict[str, list[str]]:
+    """The files the saved Builder steps of each criterion's milestones changed, by criterion id.
+
+    From the view's ``changes_by_criterion`` (#730): where to look before accepting a criterion,
+    not proof that the change satisfies it; {} when the view carries none.
+    """
+    rows = (view.get("changes_by_criterion") or {}).get("criteria")
+    result: dict[str, list[str]] = {}
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+            continue
+        files = [name for name in row.get("files") or [] if isinstance(name, str)]
+        if files:
+            result[row["id"]] = files
+    return result
 
 
 def review_criteria(view: dict) -> list[dict] | None:
@@ -320,7 +496,9 @@ def review_criteria(view: dict) -> list[dict] | None:
     return shown
 
 
-def message(view: dict, text: str, shown_context: str, workspace: Path, run_dir: Path) -> NamedCommand:
+def message(
+    view: dict, text: str, shown_context: str, workspace: Path, run_dir: Path, *, request_id=None
+) -> NamedCommand:
     """A person's message through the view's chat input offer, bound to the conversation they read.
 
     Only the advertised text is filled in. A Resolver reply carries its request's
@@ -335,6 +513,23 @@ def message(view: dict, text: str, shown_context: str, workspace: Path, run_dir:
     if chat.get("context") != shown_context:
         raise ClientGap("This conversation changed; review its current state before sending")
     command = parse(offered["next_command"], *own(view, workspace, run_dir))
+    if offered.get("kind") == "message":
+        message_expected = [
+            "intervention",
+            "submit",
+            "--request-id",
+            "REQUEST_ID",
+            "--kind",
+            "message",
+            "--text",
+            "MESSAGE",
+            "--json",
+        ]
+        if command.argv != message_expected or command.env or not isinstance(request_id, str) or not request_id:
+            raise ClientGap("Unsupported live message action or missing request identity")
+        return NamedCommand(
+            ["intervention", "submit", "--request-id", request_id, "--kind", "message", "--text", text, "--json"], {}
+        )
     need = view.get("needs") or {}
     if offered.get("kind") == "resolver_response":
         expected = [
@@ -387,3 +582,76 @@ def pause(view: dict, request_id: str, workspace: Path, run_dir: Path) -> list[s
     if command != expected:
         raise ClientGap("Unsupported pause action from AutoCode")
     return [request_id if word == "REQUEST_ID" else word for word in command]
+
+
+def checkpoint(view: dict, checkpoint_id: str, action_id: str, workspace: Path, run_dir: Path) -> list[str]:
+    """A saved code step's named ``compare``, ``step`` or ``restore``, as arguments after ``autocode``, or a gap.
+
+    The view names ``restore`` only where going back is allowed now; it carries ``REQUEST_ID``,
+    which the caller replaces with its own stable id, and reads the token a fresh ``compare``
+    returned from ``AUTOCODE_CHECKPOINT_EXPECTED_TOKEN`` (docs/task-run.md#saved-code-checkpoints).
+    """
+    rows = (view.get("code_checkpoints") or {}).get("rows") or []
+    row = next((row for row in rows if isinstance(row, dict) and row.get("id") == checkpoint_id), None)
+    action = next(
+        (item for item in (row or {}).get("actions") or [] if isinstance(item, dict) and item.get("id") == action_id),
+        None,
+    )
+    if action is None:
+        raise ClientGap(f"AutoCode offers no {action_id} for that saved step right now")
+    workspace, run_dir = own(view, workspace, run_dir)
+    expected = [
+        "checkpoint",
+        "--workspace",
+        str(workspace),
+        "--run-dir",
+        str(run_dir),
+        {"compare": "--compare", "step": "--step"}.get(action_id, "--restore"),
+        checkpoint_id,
+        *(["--expected-token", "-", "--request-id", "REQUEST_ID"] if action_id == "restore" else []),
+    ]
+    if action.get("next_command") != expected:
+        raise ClientGap(f"Unsupported {action_id} action from AutoCode")
+    return list(expected)
+
+
+def live_diff(view: dict, workspace: Path, run_dir: Path) -> list[str]:
+    """The view's named, display-only ``working`` diff of the running Builder's changes, or a gap."""
+    action = ((view.get("code_checkpoints") or {}).get("working")) or {}
+    workspace, run_dir = own(view, workspace, run_dir)
+    expected = ["checkpoint", "--workspace", str(workspace), "--run-dir", str(run_dir), "--working"]
+    if not action:
+        raise ClientGap("AutoCode offers no live diff right now. It is offered while the Builder works")
+    if action.get("next_command") != expected:
+        raise ClientGap("Unsupported working-diff action from AutoCode")
+    return expected
+
+
+def changeset_status(view: dict, workspace: Path, run_dir: Path) -> list[str] | None:
+    """``changeset status --json`` for a run whose view lists linked runs (``scope.linked``), as
+    arguments after ``autocode``; None when the run is in no change set (owner decision 2026-10-25, #2066)."""
+    if not ((view.get("scope") or {}).get("linked")):
+        return None
+    _, run_dir = own(view, workspace, run_dir)
+    return ["changeset", "status", "--run-dir", str(run_dir), "--json"]
+
+
+def changeset_action(summary: dict, key: str) -> list[str]:
+    """The change set's named set approval (``approval``) or joint check (``verification``), as
+    arguments after ``autocode``, or a gap. The approval carries the ``set_token`` of the plans the
+    summary shows, so taking it approves only the plans the person read."""
+    section = summary.get(key)
+    section = section if isinstance(section, dict) else {}
+    runs = summary.get("runs")
+    first = runs[0] if isinstance(runs, list) and runs and isinstance(runs[0], dict) else {}
+    source, token = first.get("run_dir"), section.get("set_token")
+    if key not in ("approval", "verification"):
+        raise ClientGap(f"AutoCode names no change-set action {key!r}")
+    if not section.get("next_command"):
+        raise ClientGap("AutoCode offers no " + ("set approval" if key == "approval" else "joint check") + " right now")
+    expected = ["autocode", "changeset", "verify", "--run-dir", str(source)]
+    if key == "approval":
+        expected = ["autocode", "changeset", "approve", "--run-dir", str(source), "--set-token", str(token)]
+    if not source or (key == "approval" and not token) or section["next_command"] != expected:
+        raise ClientGap(f"Unsupported change-set {key} action from AutoCode")
+    return expected[1:]

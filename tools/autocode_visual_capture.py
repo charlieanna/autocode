@@ -174,8 +174,8 @@ def capture(root, config_path, timeout=120):
 def parser() -> argparse.ArgumentParser:
     """The arguments `autocode visual-capture` reads; `autocode completion` reads them too."""
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--config", required=True, type=Path)
-    result.add_argument("--timeout", type=float, default=120)
+    result.add_argument("--config", required=True, type=Path, help="Capture configuration file")
+    result.add_argument("--timeout", type=float, default=120, help="Seconds per capture command (default: 120)")
     return result
 
 

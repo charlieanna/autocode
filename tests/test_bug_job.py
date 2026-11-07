@@ -1,5 +1,6 @@
 """The bug-fix workflow's Investigator: diagnose before fixing and retain questions."""
 
+import copy
 import json
 import os
 import shlex
@@ -11,12 +12,22 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_bug_job as bug_job
+import autocode_changeset_store as sets
 import autocode_jobs as jobs
 import autocode_run_view as run_view
 import autocode_workflows as workflows
 import autopilot
 from autocode_taskrun import TaskRun, TaskRunError
+from autocode_workspace_scope_state import current as current_scope
 from units import autoresolver
+
+from . import legacy_bugfix_fixture
+from .test_job_failure_recovery import PROVIDER, JobHarness
+
+COORDINATED_TASK = (
+    "Fix checkout showing '100.0 USD' for a 100 USD subtotal when the expected final total is '$110.00'. "
+    "Preserve existing behavior for a zero total and malformed receipts."
+)
 
 
 def state_for(workspace="/nowhere", task="Occasionally we renew the same domain twice after a timeout. Fix it."):
@@ -46,6 +57,7 @@ CASE = {
     "given": "the registry times out once after applying a renew",
     "when": "renew('example.com') runs",
     "then": "the registry records exactly 1 renew mutation",
+    "kind": "restore",
 }
 
 
@@ -68,6 +80,8 @@ def diagnosis(outcome="reproduced", **overrides):
         "questions": [],
         "tests_run": ["python3 -m unittest"],
         "plan_approval_requested": False,
+        "workspace_scope": {"spans_repositories": False, "external_parts": []},
+        "counterexample": {"file": "", "find": "", "replace": ""},
     }
     if outcome == "not_reproduced":
         value.update(
@@ -88,6 +102,35 @@ def diagnosis(outcome="reproduced", **overrides):
     return value
 
 
+class InvestigationRetryWorkflowTests(JobHarness):
+    def test_exact_retry_provider_receives_prior_attempt_leads_at_real_admission(self):
+        capture = self.workspace / ".autocode/provider-packets.jsonl"
+        self.env["INVESTIGATION_PACKETS"] = str(capture)
+        provider = PROVIDER.replace(
+            "sys.stdin.read()",
+            "text=sys.stdin.read()\n"
+            "data=json.loads(text.split('CURRENT HANDOFF DATA\\n',1)[1])\n"
+            "with Path(os.environ['INVESTIGATION_PACKETS']).open('a') as f:f.write(json.dumps(data)+'\\n')",
+        )
+        (self.workspace / ".autocode/bin/codex").write_text(provider)
+        run = self.start(workflow="bugfix")
+        held = run.status()
+        self.assertEqual("investigate_bug", held["needs"]["stage"])
+        first = json.loads(capture.read_text().splitlines()[-1])
+        self.assertNotIn("prior_failed_attempt", first)
+        after = run.retry_job(held["needs"]["job_retry_token"])
+        retried = json.loads(capture.read_text().splitlines()[-1])
+        prior = retried["prior_failed_attempt"]
+        self.assertEqual(held["needs"]["attempt_id"], prior["attempt_id"])
+        self.assertEqual(held["needs"]["source_identity"], prior["source_identity"])
+        self.assertEqual("unverified_leads_only", prior["evidence_status"])
+        self.assertTrue(Path(prior["previous_prompt"]).is_file())
+        self.assertTrue(Path(prior["previous_events"]).is_file())
+        self.assertNotEqual(first["investigation_workspace"], retried["investigation_workspace"])
+        self.assertEqual(held["needs"]["source_identity"], after["needs"]["source_identity"])
+        self.assertEqual(2, self.count())
+
+
 class RoutingTests(unittest.TestCase):
     def test_a_recognized_bug_goes_to_the_investigator_and_remembers_the_build_entry(self):
         state = state_for()
@@ -100,6 +143,69 @@ class RoutingTests(unittest.TestCase):
 
 
 class InvestigationPromptBoundaryTests(unittest.TestCase):
+    def retry_state(self):
+        state = state_for("/repo")
+        archive = "/repo/.autocode/runs/run/iterations/001/archived-bug-investigation-01-abc"
+        state["job_failure"] = {
+            "stage": "investigate_bug",
+            "attempt_id": "001/bug-investigation-01",
+            "job_retry_token": "jr:exact",
+            "source_identity": "original-source",
+            "archive": archive,
+        }
+        state["recovery_context"] = {
+            "kind": "job_failure",
+            "stage": "investigate_bug",
+            "attempt_id": "001/bug-investigation-01",
+            "events": archive + "/bug-investigation-01.jsonl",
+            "reason": "Stage timed out after its focused probe",
+        }
+        state["job_retry_authorization"] = {"stage": "investigate_bug", "token": "jr:exact", "consumed": False}
+        return state
+
+    def test_exact_retry_handoff_preserves_unverified_leads_without_accepting_them(self):
+        state = self.retry_state()
+        before = copy.deepcopy(state)
+        text, _ = bug_job.prompt(state, scratch_workspace="/repo/.autocode/investigation/new")
+        data = json.loads(text.split("CURRENT HANDOFF DATA\n", 1)[1])
+        prior = data["prior_failed_attempt"]
+        self.assertEqual("001/bug-investigation-01", prior["attempt_id"])
+        self.assertEqual("unverified_leads_only", prior["evidence_status"])
+        self.assertEqual(state["recovery_context"]["events"], prior["previous_events"])
+        self.assertEqual(prior["previous_events"].removesuffix(".jsonl") + ".prompt.md", prior["previous_prompt"])
+        self.assertEqual("/repo/.autocode/investigation/new", data["investigation_workspace"])
+        self.assertIsNone(data["prior_investigation"], "a timeout is not an accepted diagnosis")
+        self.assertIn("rerun the relevant focused probe", text)
+        self.assertEqual(before, state)
+
+    def test_retry_handoff_omits_unrelated_stale_or_unauthorized_attempts(self):
+        for section, key, value in (
+            ("job_failure", "stage", "review_change"),
+            ("recovery_context", "kind", "some_other_recovery"),
+            ("recovery_context", "stage", "sol"),
+            ("recovery_context", "attempt_id", "001/bug-investigation-02"),
+            ("recovery_context", "events", "/other/bug-investigation-01.jsonl"),
+            ("recovery_context", "events", self.retry_state()["job_failure"]["archive"] + "/other.jsonl"),
+            ("job_retry_authorization", "token", "jr:stale"),
+            ("job_retry_authorization", "consumed", True),
+            ("job_failure", "source_identity", ""),
+        ):
+            with self.subTest(section=section, key=key, value=value):
+                state = self.retry_state()
+                state[section][key] = value
+                self.assertNotIn("prior_failed_attempt", bug_job.packet(state))
+        self.assertNotIn("prior_failed_attempt", bug_job.packet(state_for()))
+
+    def test_investigation_receives_saved_window_and_prioritizes_reproduction(self):
+        state = state_for("/repo")
+        state["settings"]["limits"] = {"stage_timeout_seconds": 600}
+        text, _ = bug_job.prompt(state, scratch_workspace="/repo/.autocode/investigation/bug-example")
+        data = json.loads(text.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(600, data["configured_stage_timeout_seconds"])
+        self.assertIn("Attempt the smallest behavior reproduction before broad source exploration", text)
+        self.assertIn("Once the failing behavior and causal path are established", text)
+        self.assertIn("never weaken the reproduction evidence", text)
+
     def test_opencode_investigation_uses_workspace_scratch_and_foreground_checks(self):
         text, _ = bug_job.prompt(state_for("/repo"), engine="opencode")
         self.assertIn(".autocode/investigation/", text)
@@ -141,7 +247,10 @@ class PrepareTests(unittest.TestCase):
             request = autoresolver.prepare(state, bug_job.STAGE, "/run/state.json", None)
             data = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
             self.assertEqual(str(python), data["investigation_python"])
-            self.assertEqual(command, data["test_command"])
+            self.assertNotIn("test_command", data)
+            self.assertNotIn(command, request.prompt)
+            self.assertEqual(command, state["settings"]["regression"]["test_command"])
+            self.assertIn("not post-fix validation", request.prompt)
 
     def test_investigation_uses_virtualenv_dependencies_with_the_scratch_source(self):
         for name in (".venv", "venv"):
@@ -651,6 +760,53 @@ class InvariantTests(unittest.TestCase):
         )
         self.assertIn("BUG INVARIANT", request.prompt)
         self.assertIn(state["investigation"]["invariant"], request.prompt)
+        self.assertIn("Start with the ready approved verification commands", request.prompt)
+        self.assertIn("capture creates its receipt directory", request.prompt)
+
+    def test_a_feature_followup_keeps_old_diagnosis_without_ordering_another_bug_probe(self):
+        state = {
+            "investigation": diagnosis(output="previous-bug.json"),
+            "stages": [{"stage": "investigate_bug", "output": "previous-bug.json"}],
+            "turns": [{"stage_index": 1}],
+        }
+        before = copy.deepcopy(state)
+
+        self.assertEqual("", bug_job.validator_note(state))
+        self.assertEqual(before, state, "the completed turn's diagnosis and evidence remain available")
+
+    def test_a_fresh_followup_investigation_still_requires_its_own_invariant_check(self):
+        for active in (False, True):
+            with self.subTest(active=active):
+                state = {
+                    "investigation": diagnosis(output="current-bug.json"),
+                    "stages": [{"stage": "investigate_bug", "output": "previous-bug.json"}],
+                    "turns": [{"stage_index": 1}],
+                }
+                current = {"stage": "investigate_bug", "output": "current-bug.json"}
+                if active:
+                    state["active_stage"] = current
+                else:
+                    state["stages"].append(current)
+                before = copy.deepcopy(state)
+
+                note = bug_job.validator_note(state)
+                self.assertIn(state["investigation"]["invariant"], note)
+                self.assertIn("capture your own check", note)
+                self.assertEqual(before, state)
+
+    def test_an_unreproduced_followup_does_not_create_an_invariant_obligation(self):
+        state = {
+            "investigation": diagnosis("not_reproduced", output="current-bug.json"),
+            "stages": [
+                {"stage": "investigate_bug", "output": "previous-bug.json"},
+                {"stage": "investigate_bug", "output": "current-bug.json"},
+            ],
+            "turns": [{"stage_index": 1}],
+        }
+        before = copy.deepcopy(state)
+
+        self.assertEqual("", bug_job.validator_note(state))
+        self.assertEqual(before, state)
 
 
 class DiagnosisNoteTests(unittest.TestCase):
@@ -877,6 +1033,8 @@ class ReproductionProbeTests(unittest.TestCase):
 
     BUGGY = "def page_count(total, size):\n    return total // size\n"
     SHOWS_BUG = "python3 -c 'from pager import page_count; assert page_count(5, 2) == 2'"
+    # The bug removed: the probe must fail here (#1769).
+    FIXED = {"file": "pager/__init__.py", "find": "return total // size", "replace": "return -(-total // size)"}
 
     def apply(self, **overrides):
         root = Path(tempfile.mkdtemp(prefix="bug-probe-"))
@@ -892,7 +1050,7 @@ class ReproductionProbeTests(unittest.TestCase):
             affected_paths=["pager/__init__.py"],
             test_paths=["tests/test_pager.py"],
             note_path="docs/bugs/page-count.json",
-            **overrides,
+            **{"counterexample": self.FIXED, **overrides},
         )
         autoresolver.apply_job(
             bug_job.STAGE, state, value, {"changed_files": [], "output": str(root / "o.json")}, str(root)
@@ -905,6 +1063,17 @@ class ReproductionProbeTests(unittest.TestCase):
         self.assertEqual(self.SHOWS_BUG, json.loads((root / "docs/bugs/page-count.json").read_text())["proven_by"])
         self.assertEqual(("RUNNING", "astra_discovery"), (state["status"], state["next_stage"]))
         self.assertEqual(self.BUGGY, (root / "pager" / "__init__.py").read_text())  # the workspace is untouched
+        self.assertNotEqual(0, state["investigation"]["probe_result"]["counterexample"]["exit_code"])
+
+    def test_a_probe_that_passes_with_the_bug_removed_is_not_a_reproduction(self):
+        # #1769: `assert 2 + 2 == 4` exits 0 whatever the code says, so it cannot show the bug is present.
+        for probe, counterexample in (
+            ("python3 -c 'assert 2 + 2 == 4'", self.FIXED),
+            ("python3 -c 'import pager'", self.FIXED),
+            (self.SHOWS_BUG, {"file": "", "find": "", "replace": ""}),
+        ):
+            with self.subTest(probe=probe), self.assertRaisesRegex(ValueError, "counterexample"):
+                self.apply(probe=probe, untestable="", counterexample=counterexample)
 
     def test_a_probe_that_does_not_show_the_bug_rejects_the_reproduction(self):
         with self.assertRaisesRegex(ValueError, "reproduction claims' probes did not exit 0"):
@@ -999,6 +1168,7 @@ if result.returncode:
     raise SystemExit(3)
 value=json.loads(Path(sys.argv[3]).read_text())
 value['probe']=shlex.join(command)
+value['counterexample']={'file':'pager.py','find':'return total // size','replace':'return -(-total // size)'}
 value['tests_run']=[value['probe']+' exited 0 in the prepared source copy']
 Path(sys.argv[1]).write_text(json.dumps(value))
 print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_tokens':1}}))
@@ -1051,7 +1221,12 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_toke
             )
             try:
                 run = TaskRun.start(
-                    workspace, "Fix page_count(5, 2) returning 2 instead of 3.", options=options, env=env, timeout=60
+                    workspace,
+                    "Fix page_count(5, 2) returning 2 instead of 3.",
+                    options=options,
+                    env=env,
+                    timeout=60,
+                    command=legacy_bugfix_fixture.COMMAND,
                 )
             except TaskRunError as error:
                 self.assertIsNotNone(error.run_dir, str(error))
@@ -1082,6 +1257,37 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_toke
 class BugPlanningTaskAuthorityTests(unittest.TestCase):
     STAGES = ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
     TASK = "Fix duplicate renews after a timeout; preserve the existing return value and callback behavior."
+
+    def test_completed_bug_does_not_instruct_the_feature_followup_to_restore_it_again(self):
+        import autocode_follow_up as follow_up
+        from units import autoplanner
+
+        with tempfile.TemporaryDirectory() as temporary:
+            state = state_for(temporary, self.TASK)
+            state.update(
+                status="TASK_COMPLETE",
+                investigation={**diagnosis(fix_size="large"), "output": "old.json"},
+                stages=[{"stage": "investigate_bug", "output": "old.json"}],
+            )
+            follow_up.accept(state, "Add a non-destructive peek method; keep the fixed behavior.", temporary, "t1")
+            workflows.apply(
+                state, {"workflow": "build", "reason": "new method", "signals": []}, {"output": "kind.json"}
+            )
+            saved = json.loads(json.dumps(state["investigation"]))
+            for stage in self.STAGES:
+                with self.subTest(stage=stage):
+                    prompt, _ = autoplanner.context(state, stage, Path(temporary) / "state.json")
+                    instruction, raw = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
+                    packet = json.loads(raw)
+                    self.assertNotIn("bug_diagnosis", packet)
+                    self.assertNotIn(autoplanner.BUG_DIAGNOSIS_RULE, instruction)
+                    self.assertIn(
+                        "peek",
+                        packet["task"]
+                        if not packet.get("source_inventory")
+                        else json.dumps(packet["source_inventory"]),
+                    )
+            self.assertEqual(saved, state["investigation"], "the prior diagnosis remains available as history")
 
     def render(self, stage, investigation):
         from units import autoplanner
@@ -1144,5 +1350,85 @@ class BugPlanningTaskAuthorityTests(unittest.TestCase):
                 self.assertIn("a blocking plan concern", instruction)
                 self.assertIn("The Plan Reviewer checks that comparison independently", instruction)
                 self.assertIn("fix_plan is a proposed approach, not a user decision", instruction)
-                self.assertIn("unresolved choice in the task and saved user answers", instruction)
-                self.assertIn("missing or conflicting diagnosis text is not permission to redefine it", instruction)
+
+
+class CoordinatedMemberInvestigationTests(unittest.TestCase):
+    """A coordinated member's Investigator names external owners exactly (#2420)."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        environment = mock.patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry")})
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.spaces = {name: self.root / name for name in ("checkout", "history", "tax")}
+        for space in self.spaces.values():
+            space.mkdir()
+        anchor = self.root / "anchor" / ".autocode" / "runs" / "chat"
+        anchor.mkdir(parents=True)
+        record = sets.reserve(
+            source_workspace=self.spaces["checkout"],
+            source_run_dir=anchor,
+            target="history",
+            workspace=self.spaces["history"],
+            brief=COORDINATED_TASK,
+        )
+        sets.reserve(
+            source_workspace=self.spaces["checkout"],
+            source_run_dir=anchor,
+            target="tax",
+            workspace=self.spaces["tax"],
+            brief=COORDINATED_TASK,
+        )
+        run_dir = self.spaces["tax"] / ".autocode" / "runs" / "fix"
+        sets.bind(record["id"], "tax", run_dir)
+        sets.set_fields(record["id"], {"automatic_anchor": str(self.root / "coordination")})
+        self.state = {
+            **state_for(str(self.spaces["tax"]), COORDINATED_TASK),
+            "run_dir": str(run_dir),
+        }
+
+    def apply(self, target, state=None):
+        value = diagnosis(
+            workspace_scope={
+                "spans_repositories": True,
+                "external_parts": [
+                    {
+                        "target": target,
+                        "work": "Produce the final '$110.00' display",
+                        "source_quote": "Fix checkout showing '100.0 USD' for a 100 USD subtotal",
+                        "evidence": "",
+                    }
+                ],
+            }
+        )
+        bug_job.apply(
+            state or self.state,
+            value,
+            {"changed_files": [], "output": "/run/investigate_bug-01.json"},
+            str((state or self.state)["workspace"]),
+        )
+
+    def test_a_role_label_is_refused_before_anything_persists(self):
+        for target in ("Checkout display member", "Receipt-handling member"):
+            with (
+                self.subTest(target=target),
+                self.assertRaisesRegex(ValueError, "role label.*coordinated members are: checkout, history, tax"),
+            ):
+                self.apply(target)
+            self.assertFalse((self.spaces["tax"] / "docs/bugs").exists(), "No note is written for a refused report")
+            self.assertNotIn("investigation", self.state)
+            self.assertNotIn("workspace_scope", self.state)
+
+    def test_the_canonical_member_name_is_accepted(self):
+        self.apply("checkout")
+        self.assertEqual(["checkout"], [part["target"] for part in current_scope(self.state)["external_parts"]])
+        self.assertTrue((self.spaces["tax"] / "docs/bugs" / "duplicate-renew.json").is_file())
+
+    def test_a_run_outside_coordination_keeps_free_form_targets(self):
+        state = state_for(str(self.root / "plain"), COORDINATED_TASK)
+        self.apply("Checkout display member", state=state)
+        self.assertEqual(
+            ["Checkout display member"], [part["target"] for part in current_scope(state)["external_parts"]]
+        )

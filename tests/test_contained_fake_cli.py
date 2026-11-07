@@ -15,10 +15,13 @@ that launches a provider: otherwise the run stops at PAUSED_PROCESS_CLEANUP.
 """
 
 import json
+import subprocess
 import sys
 import unittest
 
 import autocode_tool_containment as containment
+import scenario_references as references
+import task_scenarios as scenarios
 
 from . import test_containment_policy_cli as policy_cli
 
@@ -33,10 +36,36 @@ CONTAINED_STAGES = ("terra", "sol", "astra_review")
 class ContainedFakeOpenCodeFlow(unittest.TestCase):
     # Composed rather than inherited, so UncontainedToolsFlow's own tests do not run twice.
     new_run_engine_args = policy_cli.UncontainedToolsFlow.new_run_engine_args
-    setUp = policy_cli.UncontainedToolsFlow.setUp
     launch = policy_cli.UncontainedToolsFlow.launch
     saved = policy_cli.UncontainedToolsFlow.saved
     status_view = policy_cli.UncontainedToolsFlow.status_view
+
+    def setUp(self):
+        policy_cli.UncontainedToolsFlow.setUp(self)
+        # Keep the native boundary fixture, but give completion a real original
+        # suite and a new test that exposes the blank-name bug before the fix.
+        references.write(scenarios.BUGFIX_SEED, self.project)
+        subprocess.run(["git", "-C", str(self.project), "add", "-A"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.project),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=f@example.test",
+                "commit",
+                "-qm",
+                "greeting baseline",
+            ],
+            check=True,
+        )
+        delivery = self.root / "builder-files.json"
+        delivery.write_text(
+            json.dumps({name: references.BUGFIX_REFERENCE[name] for name in ("greet.py", "test_greet.py")})
+        )
+        self.env["AUTOCODE_FIXTURE_FILES"] = str(delivery)
 
     def build(self, *new_run_flags):
         """Plan, answer, approve and build the greeting tool while the Builder plants a write outside the workspace."""
@@ -44,7 +73,16 @@ class ContainedFakeOpenCodeFlow(unittest.TestCase):
         self.escape = self.root / "planted-escape"
         self.assertFalse(self.escape.is_relative_to(self.project))
         self.env["AUTOCODE_FIXTURE_SHELL_ESCAPE"] = str(self.escape)
-        planning = self.launch(["Build a greeting tool", "--no-chat", *new_run_flags], 2)
+        planning = self.launch(
+            [
+                "Fix the greeting tool to reject empty names",
+                "--no-chat",
+                "--test-command",
+                f"{sys.executable} -m unittest discover -v",
+                *new_run_flags,
+            ],
+            2,
+        )
         self.assertNotIn("Refused before any stage launched", planning.stderr)
         run, _ = self.saved()
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
@@ -53,6 +91,13 @@ class ContainedFakeOpenCodeFlow(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--no-chat"], 0)
         run, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])
+        proof = state["regression_proof"]
+        self.assertEqual("PASS", proof["verdict"], proof)
+        self.assertEqual(["test_greet.TestGreet.test_blank_name_rejected"], proof["fail_to_pass"])
+        changed = proof["changed_code_evidence"]
+        self.assertEqual("PASS", changed["status"], changed)
+        self.assertTrue(changed["obligations"], changed)
+        self.assertTrue(all(row["mutation_demonstrated"] for row in changed["obligations"]), changed)
         return run, state
 
     def planted_commands(self, run):

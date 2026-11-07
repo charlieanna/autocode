@@ -5,35 +5,69 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 try:
     from . import autocode_capped_output as capped
+    from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_output_filter as filters
     from . import autocode_output_store as store
+    from . import autocode_receipts as receipts
     from .autocode_output import representation
     from .autocode_util import atomic_json
 except ImportError:
     import autocode_capped_output as capped
+    import autocode_investigation_workspace as investigation_workspace
     import autocode_output_filter as filters
     import autocode_output_store as store
+    import autocode_receipts as receipts
     from autocode_output import representation
     from autocode_util import atomic_json
 
 
+def evidence_roots(cwd: Path) -> list[Path]:
+    """Where a receipt may be written: this directory's .autocode, and its project's own.
+
+    The Investigator works in a scratch copy inside the project's .autocode, while its
+    instructions place receipts under the project workspace. Refusing that path cost
+    repeated model turns (#1630), so the owning project's .autocode is accepted there.
+    """
+    owner = investigation_workspace.owning_runner_dir(cwd)
+    return [cwd / ".autocode", *([owner] if owner else [])]
+
+
+def project_evidence_root(output: Path, cwd: Path) -> Path | None:
+    """The project's own .autocode when a relative ``.autocode/...`` output is given from a subfolder.
+
+    A Go module, a monorepo package or a nested project makes a stage run its tests from a
+    subfolder; resolving ``.autocode/evidence/x.json`` there wrote a stray file outside the
+    assigned paths and cost a rejected Builder attempt. Absolute paths, paths given from the
+    project root and investigation scratch copies keep their meaning (None).
+    """
+    if output.is_absolute() or output.parts[:1] != (".autocode",) or (cwd / ".autocode").is_dir():
+        return None
+    if investigation_workspace.owning_runner_dir(cwd):
+        return None
+    return next((folder / ".autocode" for folder in cwd.parents if (folder / ".autocode").is_dir()), None)
+
+
 def cli(argv=None, *, formatter=filters.compact_output):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True, help="File that retains the exact output")
     parser.add_argument("--no-compress", action="store_true", help="Always display the complete original")
     parser.add_argument(
-        "--mode", choices=("raw", "conservative"), default=os.environ.get("AUTOCODE_OUTPUT_MODE", "conservative")
+        "--mode",
+        choices=("raw", "conservative"),
+        default=os.environ.get("AUTOCODE_OUTPUT_MODE", "conservative"),
+        help="Display mode (default: AUTOCODE_OUTPUT_MODE or conservative)",
     )
     parser.add_argument(
         "--known-output-sha256",
         help="Omit an identical display only after verifying exact retrieval; still execute fresh proof",
     )
-    parser.add_argument("command", nargs=argparse.REMAINDER)
+    parser.add_argument("command", nargs=argparse.REMAINDER, help="The command to run, after --")
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
@@ -49,8 +83,11 @@ def cli(argv=None, *, formatter=filters.compact_output):
             for key in ("attempt", "nonce", "source_revision")
         ):
             parser.error("invalid runner capture context")
-    path = args.output.resolve()
-    if not path.is_relative_to(Path.cwd().resolve() / ".autocode"):
+    cwd = Path.cwd().resolve()
+    project = project_evidence_root(args.output, cwd)
+    path = (project.parent / args.output).resolve() if project else args.output.resolve()
+    roots = [*evidence_roots(cwd), *([project] if project else [])]
+    if not any(path.is_relative_to(root) for root in roots):
         parser.error("evidence output must be under this project's .autocode directory")
     path.parent.mkdir(parents=True, exist_ok=True)
     raw = path.with_suffix(".log")
@@ -128,7 +165,11 @@ def cli(argv=None, *, formatter=filters.compact_output):
         receipt["capture_context"] = capture_context
     atomic_json(path, receipt)
     display = json.dumps(receipt) + "\n"
-    print(display, end="")
+    print(display, end="", flush=True)
+    # On stderr after stdout is flushed: it survives a stdout filter or redirect, and a merged
+    # ``2>&1 | tail`` keeps it as the last line (autocode_receipts.attestation_line).
+    sys.stderr.write(receipts.attestation_line(path.read_bytes()))
+    sys.stderr.flush()
     if root:
         store.record(
             root,

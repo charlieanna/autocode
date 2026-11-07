@@ -32,11 +32,86 @@ def named_pause_states(root: Path = TOOLS) -> set[str]:
 
 
 class StopExplanationTests(unittest.TestCase):
+    def test_completed_views_explain_the_saved_outcome_without_recovery_or_freshness_claims(self):
+        for status in ("TASK_COMPLETE", "COMPLETE"):
+            for current in (None, False, True):
+                for note in ("", "retained completion note"):
+                    with self.subTest(status=status, completion_current=current, note=note):
+                        view = run_view.view({"status": status, "stop_reason": note}, completion_current=current)
+                        text = view["explanation"]
+                        self.assertEqual(status, view["status"])
+                        self.assertIsNone(view["needs"])
+                        self.assertIsNone(view["next_command"])
+                        self.assertIn(status, text["what_happened"])
+                        if note:
+                            self.assertIn(note, text["what_happened"])
+                        self.assertIn("saved", text["what_it_means"].lower())
+                        self.assertIn("current", text["what_it_means"].lower())
+                        self.assertIn("--status", text["what_the_command_does"])
+                        self.assertIn("follow-up", text["what_the_command_does"])
+                        for misleading in ("stopped", "environment", "resume", "wrong deliverable"):
+                            self.assertNotIn(misleading, text["explanation"].lower())
+
+    def test_a_run_autocode_ended_itself_is_explained_as_finished_with_no_command(self):
+        # #2485: the same PAUSED_INTERVENTION status, but AutoCode's own recorded outcome, never a person's
+        # intervention waiting to be resumed.
+        reason = (
+            "AutoCode could not finish this task: the sol check kept failing: x. This run launches no further stages."
+        )
+        text = stop_explanations.explain("PAUSED_INTERVENTION", stop_reason=reason)
+        self.assertEqual("The run ended. " + reason, text["what_happened"])
+        self.assertIn("could not finish this task on its own", text["what_it_means"])
+        self.assertIn("Nothing continues this run", text["what_the_command_does"])
+        for misleading in ("person intervened", "--resume-paused", "person's decision"):
+            self.assertNotIn(misleading, text["explanation"])
+        person = stop_explanations.explain(
+            "PAUSED_INTERVENTION", stop_reason="Durable stop applied at a saved boundary"
+        )
+        self.assertIn("A person intervened", person["what_it_means"])
+
+    def test_stale_diagnosis_view_explains_retained_proof_and_conditional_resume(self):
+        reason = "Accepted diagnosis note changed"
+        view = run_view.view({"status": "PAUSED_STALE_DIAGNOSIS", "stop_reason": reason})
+        text = view["explanation"]
+        self.assertEqual("resume", view["needs"]["kind"])
+        self.assertIn("--resume-paused", view["next_command"])
+        self.assertIn(reason, text["what_happened"])
+        self.assertIn("original proof cases remain required", text["what_it_means"])
+        self.assertIn("otherwise the run stays paused", text["what_the_command_does"])
+        self.assertIn("still needs approval", text["what_the_command_does"])
+        self.assertNotIn("--approve-goal", view["next_command"])
+
     def test_preparation_timeout_names_the_prelaunch_copy_and_preserves_budgets(self):
         text = stop_explanations.explain("PAUSED_VERIFICATION_PREPARATION", stop_reason="source pack timed out")
         self.assertIn("before the model started", text["what_it_means"])
         self.assertIn("existing run budgets", text["what_the_command_does"])
         self.assertIn("--resume-paused", text["what_the_command_does"])
+
+    def test_a_host_that_refuses_provider_sessions_is_explained_as_the_host_not_a_stuck_process(self):
+        """A root shell's PAUSED_PROCESS_CLEANUP was explained as a child process that did not clean up, with
+        --abandon-stage as the way forward; the fix is the one autocode doctor names."""
+        reason = (
+            "Provider session boundary unavailable; no provider launched: Provider session ownership refuses "
+            "CAP_SYS_PTRACE or CAP_SYS_ADMIN"
+        )
+        needs = {"kind": "resume", "abandon_stage": "001/requirements-gather-01"}
+        text = stop_explanations.explain("PAUSED_PROCESS_CLEANUP", stop_reason=reason, needs=needs)
+        self.assertIn("No provider was launched", text["what_it_means"])
+        self.assertIn("root in most containers", text["what_it_means"])
+        self.assertIn("setpriv --bounding-set=-sys_admin,-sys_ptrace autocode", text["what_the_command_does"])
+        # A run saved before #2296 still holds the never-launched attempt as uncertain, so name both steps.
+        self.assertIn("then --resume-paused; this run recorded", text["what_the_command_does"])
+        self.assertIn("first --abandon-stage 001/requirements-gather-01", text["what_the_command_does"])
+        # Since #2296 the refused launch leaves no attempt behind: a plain --resume-paused carries on.
+        text = stop_explanations.explain("PAUSED_PROCESS_CLEANUP", stop_reason=reason, needs={"kind": "resume"})
+        self.assertIn("then --resume-paused.", text["what_the_command_does"])
+        self.assertNotIn("--abandon-stage", text["what_the_command_does"])
+        unsupported = "Provider session boundary unavailable; no provider launched: Provider session ownership requires Linux native x86_64 or aarch64"
+        text = stop_explanations.explain("PAUSED_PROCESS_CLEANUP", stop_reason=unsupported)
+        self.assertIn("supported host", text["what_the_command_does"])
+        # A real cleanup pause keeps the table's text.
+        text = stop_explanations.explain("PAUSED_PROCESS_CLEANUP", stop_reason="child 4242 still running")
+        self.assertEqual(stop_explanations.TABLE["PAUSED_PROCESS_CLEANUP"][0], text["what_it_means"])
 
     def test_a_private_store_containment_stop_is_not_explained_as_a_missing_sandbox(self):
         # #1250: these reasons come from autocode_tool_containment (tests/test_tool_containment.py
@@ -147,6 +222,41 @@ class StopExplanationTests(unittest.TestCase):
         )
         self.assertTrue(view["explanation"]["what_the_command_does"])
 
+    def test_an_answered_operational_request_explains_the_cause_the_pause_still_holds_for(self):
+        """After --resolver-response the stop reason only records the receipt; the view still says why (#2371)."""
+        cause = "Completed requirements_gather output was rejected ($: missing assistant_reply); attempt archived"
+        state = {
+            "status": "PAUSED_REPEATED_FAILURE",
+            "stop_reason": (
+                "AutoResolver received the human response; no execution, approval or additional allowance was"
+                " authorized."
+            ),
+            "settings": {"roles": {}},
+            "acceptance_criteria": [],
+            "resolver": {
+                "human_escalations": {
+                    "req": {
+                        "status": "consumed",
+                        "identity": {
+                            "proposal": {
+                                "scope": "operational_exhaustion",
+                                "origin": {"pause_status": "PAUSED_REPEATED_FAILURE"},
+                                "request": {"discovered": cause},
+                            }
+                        },
+                    }
+                },
+                "human_response_frontier": {"request_id": "req", "pause_status": "PAUSED_REPEATED_FAILURE"},
+            },
+        }
+        text = run_view.view(state)["explanation"]
+        self.assertIn("The run is still held for: " + cause + ".", text["what_happened"])
+        self.assertIn("received the human response", text["what_happened"])
+        self.assertNotIn("authorized..", text["what_happened"])
+        plain = stop_explanations.explain("PAUSED_REPEATED_FAILURE", stop_reason="the same failure repeated.")
+        self.assertNotIn("repeated..", plain["what_happened"])
+        self.assertNotIn("still held for", plain["what_happened"])
+
     def test_a_supervised_running_view_explains_ongoing_work_without_resume(self):
         supervision = {
             "schema": 1,
@@ -186,6 +296,22 @@ class StopExplanationTests(unittest.TestCase):
         self.assertNotIn("resume", text["explanation"].lower())
         self.assertIn("in progress", text["what_it_means"])
         self.assertIn("--status", text["what_the_command_does"])
+
+    def test_a_ready_checkpoint_nothing_runs_is_not_explained_as_work_in_progress(self):
+        """#2393: after an answer, approval or follow-up the controller exits on purpose with a ready
+        receipt; the checkpoint still says RUNNING, and the explanation told the person to wait for
+        a controller that was not running."""
+        state = {"status": "RUNNING", "phase": "PLANNING", "settings": {"roles": {}}, "acceptance_criteria": []}
+        ready = {"kind": "ready", "reason": "Saved user action or unit handoff is ready to advance"}
+        text = run_view.view(state, controller=ready)["explanation"]
+        self.assertIn("no controller running", text["what_happened"])
+        self.assertIn("Nothing runs it", text["what_it_means"])
+        self.assertNotIn("in progress", text["what_it_means"])
+        self.assertIn("continues the run from its saved checkpoint", text["what_the_command_does"])
+        self.assertEqual(text, stop_explanations.explain("RUNNING", ready=True))
+        alive = run_view.view(state, controller={"kind": "running", "reason": "alive"})["explanation"]
+        self.assertIn("in progress", alive["what_it_means"])
+        self.assertEqual("The run is RUNNING.", alive["what_happened"])
 
     def test_paused_and_unknown_views_keep_their_stop_and_resume_guidance(self):
         for status in ("PAUSED_BUDGET", "PAUSED_NOT_A_REAL_STATE"):

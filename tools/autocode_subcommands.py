@@ -3,13 +3,13 @@
 A table rather than one ``if`` per subcommand in autocode.py, which is at its
 recorded size limit (tests/test_architecture.py). Each module named here has a
 ``cli(argv) -> int`` and, unless it is in WITHOUT_PARSER, a ``parser()`` that returns
-the parser its cli() reads (program's holds the parser each of its commands reads);
-`autocode completion` completes the command's options from it.
+the parser its cli() reads; `autocode completion` completes the command's options from it.
 """
 
 from __future__ import annotations
 
 import argparse
+import difflib
 import importlib
 import sys
 import tomllib
@@ -22,8 +22,9 @@ BUILTIN_COMMANDS = ("capture", "registry", "intervention")
 # Hidden replay plumbing is supplied by TaskRun and the replay driver.
 # Unattended passes ordinary run arguments through the same root parser.
 INTERNAL_FLAGS: dict[tuple[str, ...], frozenset[str]] = {
-    (): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
-    ("unattended",): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
+    (): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks", "--worker-receipt"}),
+    ("unattended",): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks", "--worker-receipt"}),
+    ("worker",): frozenset({"--receipt"}),
 }
 
 SUBCOMMANDS = {
@@ -32,8 +33,13 @@ SUBCOMMANDS = {
     "demo": "autocode_demo",
     "conversation": "autocode_conversation_cli",
     "chat": "autocode_chat_client",
+    "worker": "autocode_worker_cli",
+    "attention": "autocode_attention_cli",
     "verify": "autocode_verify_task",
     "issue": "autocode_issue",
+    "bridge": "autocode_bridge_cli",
+    "changeset": "autocode_changeset",
+    "coordinate": "autocode_coordinate",
     "arena": "autocode_arena",
     "dashboard": "dashboard.agent_console",
     "unattended": "autocode_unattended",
@@ -49,10 +55,11 @@ SUBCOMMANDS = {
     "wait": "autocode_wait_command",
     "components": "autocode_components",
     "ui": "autocode_ui",
-    "program": "autocode_program",
     "compare-baseline": "autocode_baseline",
     "visual-check": "autocode_visual_check",
     "doctor": "autocode_doctor",
+    "setup": "autocode_setup",
+    "stages": "autocode_stages_cli",
     "forget": "autocode_forget",
     "clean-worktrees": "autocode_worktrees",
     "prune-run": "autocode_prune_run",
@@ -67,7 +74,7 @@ SUBCOMMANDS = {
 ENTRY_FUNCTIONS = {"issue": "main", "arena": "main", "dashboard": "main"}
 SYS_ARGV_COMMANDS = frozenset({"dashboard", "unattended"})
 # No parser() to read: the dashboard reads sys.argv itself; unattended passes run arguments through to
-# the main parser. Program dispatches its commands by hand; its parser() gathers theirs.
+# the main parser.
 WITHOUT_PARSER = frozenset({"dashboard", "unattended"})
 DISTRIBUTION = "autocode-supervisor"
 
@@ -89,14 +96,33 @@ def dispatch(argv: list[str]) -> int | None:
     module = importlib.import_module(f"{__package__}.{name}" if __package__ else name)
     entry = getattr(module, ENTRY_FUNCTIONS.get(argv[0], "cli"))
     if argv[0] not in SYS_ARGV_COMMANDS:
-        return entry(argv[1:])
+        return as_program(argv[0], lambda: entry(argv[1:]), argv[1:])
+    return as_program(argv[0], lambda: entry(), argv[1:], none_is=0)
+
+
+def as_program(name: str, call, argv: list[str], *, none_is=None):
+    """Run ``call`` with ``sys.argv`` naming the program `autocode NAME` followed by ``argv``.
+
+    A parser with no prog of its own takes it from sys.argv[0], so its usage and error lines then
+    name `autocode NAME`, not a bare `autocode` whose arguments do not exist (#2387). ``sys.argv`` is
+    restored afterwards; ``none_is`` stands in for a None result.
+    """
     saved = sys.argv
+    # Python 3.14's argparse ignores sys.argv[0] for a process started as `python -m module` and
+    # names `python -m module` from __main__.__spec__ instead (argparse._prog_name); hiding the
+    # spec for the call keeps every subcommand parser on the argv patched above.
+    main = sys.modules.get("__main__")
+    saved_spec = getattr(main, "__spec__", None)
     try:
-        sys.argv = [f"autocode {argv[0]}", *argv[1:]]
-        result = entry()
-        return 0 if result is None else result
+        sys.argv = [f"autocode {name}", *argv]
+        if main is not None:
+            main.__spec__ = None
+        result = call()
+        return none_is if result is None else result
     finally:
         sys.argv = saved
+        if main is not None:
+            main.__spec__ = saved_spec
 
 
 def command_parser(name: str) -> argparse.ArgumentParser | None:
@@ -107,6 +133,49 @@ def command_parser(name: str) -> argparse.ArgumentParser | None:
     return importlib.import_module(f"{__package__}.{module}" if __package__ else module).parser()
 
 
+def option_typed_as_task(parser, argv, task) -> str | None:
+    """`autocode approve-goal`: a one-word task that names a main-run option without its dashes is a
+    typo, not a task to start a worktree and a run for. The refusal, else None. After ``--`` the word
+    is task text as typed."""
+    word = (task or "").strip()
+    if "--" in argv or not word or " " in word or word.startswith("-"):
+        return None
+    if f"--{word}" not in parser._option_string_actions:
+        return None
+    return f"'{word}' is the option --{word}, not a task. Use --{word}, or write the task in quotes: autocode \"your task\""
+
+
+def command_typed_with_a_typo(argv, task) -> str | None:
+    """`autocode stauts`: a one-word task that is a near miss of a command name is a typo, not a brief to
+    start a worktree and a run for (#2450). The refusal naming the likely command, else None. Exact command
+    words are dispatched before the task parser; after ``--`` the word is task text as typed."""
+    word = (task or "").strip()
+    if "--" in argv or not word or " " in word or word.startswith("-"):
+        return None
+    names = [name for name in command_names() if not name.startswith("-")]
+    if word in names:
+        return None
+    close = difflib.get_close_matches(word.lower(), names, n=1, cutoff=0.75)
+    if not close:
+        return None
+    return (
+        f"'{word}' looks like the command {close[0]}, not a task. "
+        f'Use autocode {close[0]}, or describe the task in more than one word, in quotes: autocode "your task"'
+    )
+
+
+def task_typed_as_option(argv) -> str | None:
+    """`autocode --task "Add a greeting"`: the task is the first argument, not an option. Left to argparse,
+    --task is the abbreviation of --task-preflight, the task becomes its value, and the launcher reports
+    that there is no saved run (#2391). The refusal, else None; after ``--`` the words are task text."""
+    for word in argv:
+        if word == "--":
+            return None
+        if word == "--task" or word.startswith("--task="):
+            return 'there is no --task option: the task is the first argument, in quotes: autocode "your task"'
+    return None
+
+
 def command_names() -> tuple[str, ...]:
     """Every command handled before the main task parser, in help order."""
     return ("--version", "doctor", *COMMAND_WORDS, *sorted((set(SUBCOMMANDS) | set(BUILTIN_COMMANDS)) - {"doctor"}))
@@ -115,16 +184,13 @@ def command_names() -> tuple[str, ...]:
 def public_command_paths() -> tuple[tuple[str, ...], ...]:
     """Actual parser entry routes for documentation coverage; nested argparse parsers recurse themselves.
 
-    Program dispatches manually, so its routes come from the same map its CLI uses.
     Unattended's normal arguments pass through to the main parser; --analyze has
     its own parser. Version has no parser and is displayed by command_names().
     """
-    module = importlib.import_module(f"{__package__}.autocode_program" if __package__ else "autocode_program")
     roots = sorted(set(SUBCOMMANDS) | set(BUILTIN_COMMANDS))
     return (
         (),
         *((name,) for name in roots),
-        *(("program", name) for name in module.COMMANDS),
         ("unattended", "--analyze"),
     )
 

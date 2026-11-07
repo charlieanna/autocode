@@ -10,10 +10,12 @@ Autocode reads sessions, usage, command evidence and the final report from them.
 from __future__ import annotations
 
 try:
+    from .. import autocode_access_identity as access_identity
     from .. import autocode_agent_env as agent_env
     from .. import autocode_prompts as prompts
     from .. import autocode_provider_env as provider_env
 except ImportError:
+    import autocode_access_identity as access_identity
     import autocode_agent_env as agent_env
     import autocode_prompts as prompts
     import autocode_provider_env as provider_env
@@ -132,7 +134,8 @@ class CommandProvider:
         }
 
     def transport_drift(self, current, checkpoint):
-        return current != checkpoint
+        # The same config bytes read from another checkout are the same transport (#2773).
+        return current != checkpoint and not access_identity.path_only(current, checkpoint)
 
     def check_models(self, roles, workspace=None, *, env=None, inventory=None):
         available = self._available_models(workspace, env) if inventory is None else inventory
@@ -352,7 +355,10 @@ class CommandProvider:
                 "\nFINAL REPORT DELIVERY\n"
                 + persistence
                 + "Use a permitted tool to write that JSON file before finishing. "
-                "A chat response alone does not deliver the report. Follow the schema in TOOL OUTPUT CONTRACT.\n"
+                "A chat response alone does not deliver the report. Follow the schema in TOOL OUTPUT CONTRACT. "
+                "Never mention this report file, its delivery, the sandbox or a refused write in assistant_reply "
+                "or any other text meant for the person; if a write is refused, still end with the same JSON "
+                "object as your final message.\n"
             )
         return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 

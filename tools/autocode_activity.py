@@ -157,8 +157,11 @@ class ActivityMonitor:
         reporter=None,
         idle_origin=None,
         idle_hint=CHANGE_IDLE_LIMIT,
+        progress=None,
     ):
         self.path = Path(events_path)
+        # Optional reproduction-first budget (autocode_investigation_progress.Budget): observe(row), reason().
+        self._progress = progress
         self.idle_limit = max(0, float(idle_seconds))
         self.tool_limit = max(0, float(tool_seconds))
         self.idle_origin = idle_origin
@@ -293,6 +296,8 @@ class ActivityMonitor:
     def _event(self, row, now):
         if not isinstance(row, dict):
             return
+        if self._progress is not None:
+            self._progress.observe(row)
         event_type = row.get("type")
         if event_type == "autocode_progress":
             self._stream_progress(row, now)
@@ -442,6 +447,9 @@ class ActivityMonitor:
         return max(0, now - min(starts)) if starts else None
 
     def _expired(self, now):
+        stop = self._progress.reason() if self._progress is not None else None
+        if stop:
+            return {"kind": "progress", "reason": stop}
         elapsed = self._tool_elapsed(now)
         if elapsed is not None:
             if self.tool_limit and elapsed >= self.tool_limit:
@@ -482,6 +490,7 @@ class ActivityMonitor:
             "active_tool_count": len(self._active),
             "completed_tool_count": len(self._closed),
             "process_fallback": self._fallback_started is not None,
+            **({"progress_stop": self._progress.reason()} if self._progress is not None else {}),
         }
 
     def snapshot(self):

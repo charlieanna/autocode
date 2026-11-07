@@ -100,8 +100,7 @@ def creating(project):
 
     Two tasks started at the same moment each run `git worktree add` on the same repository, and git
     does not guarantee that is safe (ref and worktree-metadata locks): one can fail, and the CLI then
-    exits 2 without a run. autocode_program takes this lock too, so a program run and a task run started
-    together in one project cannot collide (#1123).
+    exits 2 without a run.
     """
     # Beside .autocode/worktrees, not in it: everything in there is read as a worktree.
     with (keep_out_of_git(project) / "worktree-create.lock").open("a+") as handle:
@@ -134,7 +133,10 @@ def create(project, task):
     try:
         base = git(project, "rev-parse", "--verify", "HEAD")
     except ValueError as error:
-        raise ValueError("Create an initial Git commit before starting an isolated task") from error
+        raise ValueError(
+            "Create an initial Git commit before starting an isolated task: "
+            f"git -C {project} commit --allow-empty -m 'Start' (autocode doctor checks this too)"
+        ) from error
     name = (re.sub("[^a-z0-9]+", "-", task.lower()).strip("-") or "task")[:40]
     name += "-" + uuid.uuid4().hex[:10]
     parent = project / ".autocode/worktrees"
@@ -147,7 +149,7 @@ def create(project, task):
     with creating(project):
         git(project, "worktree", "add", "-b", branch, str(workspace), base)
     # kind 'task': this worktree and its branch belong to one task (autocode_worktrees
-    # delivers to and cleans up only these; programs write this file without a kind).
+    # delivers to and cleans up only these; worktrees an archived `autocode program` made have no kind).
     data = {
         "version": 1,
         "kind": "task",
@@ -159,6 +161,32 @@ def create(project, task):
     artifact = keep_out_of_git(workspace) / "task-workspace.json"
     artifact.write_text(json.dumps(data, indent=2) + "\n")
     return data
+
+
+def discard_unused(data) -> bool:
+    """Remove a task worktree and branch this invocation created when no run was saved in it.
+
+    A launch that stops before its first save (a missing provider, a refused setting) leaves
+    nothing to resume: ``autocode runs`` cannot list it and ``clean-worktrees`` finds no
+    complete run, so each retry would leave another worktree and branch behind. A worktree
+    holding a saved run, a change, or a branch moved off its base is kept.
+    """
+    if not data:
+        return False
+    tree = Path(data["workspace"])
+    try:
+        if any((tree / ".autocode" / "runs").glob("*/state.json")):
+            return False
+        if git(tree, "status", "--porcelain", "--untracked-files=all"):
+            return False
+        if git(tree, "rev-parse", "HEAD") != data["base_commit"]:
+            return False
+        project = Path(data["project_workspace"])
+        git(project, "worktree", "remove", "--force", str(tree))
+        git(project, "branch", "-D", data["branch"])
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+    return True
 
 
 def bootstrap(selected, task):
@@ -210,5 +238,24 @@ def resume_workspace(selected, state: RunState):
         raise ValueError("workspace differs from checkpoint; use the original project or task worktree")
     data = metadata(saved)
     if not data or data["project_workspace"] != str(selected):
-        raise ValueError("Saved task worktree is missing or does not belong to this project")
+        raise ValueError(_missing_worktree(selected, saved))
     return saved
+
+
+def _missing_worktree(project: Path, saved: Path) -> str:
+    """Why a saved run cannot continue: `autocode clean-worktrees` archived its worktree's records
+    to PROJECT/.autocode/archive/TREE after the merge (#2402), or the worktree is simply gone."""
+    archive = keep_out_of_git(project) / "archive" / saved.name
+    record = archive / "task-workspace.json"
+    if not saved.exists() and record.is_file():
+        try:
+            branch = json.loads(record.read_text()).get("branch")
+        except (OSError, ValueError):
+            branch = None
+        return (
+            f"The task worktree {saved} was removed by autocode clean-worktrees"
+            + (f" after branch {branch} was merged" if branch else "")
+            + f"; its run records are archived in {archive}. Read them with autocode bundle --run-dir RUN; "
+            "to continue the work, start a new task"
+        )
+    return f"Saved task worktree {saved} is missing or does not belong to this project"

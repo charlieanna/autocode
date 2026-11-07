@@ -35,6 +35,39 @@ class CoverageTests(unittest.TestCase):
                 {"task": "- The Validator must inspect images."}, self.report("The Validator must approve images.")
             )
 
+    def test_checklist_sentences_are_accepted_and_saved_as_the_briefs_own_text(self):
+        # The checklist adds a period to a heading and shows a wrapped sentence's line break, which a
+        # model writes as a space. Both prompts say to copy the checklist sentence in full; master refused
+        # both, and every repair repeated the quote until the run paused as invalid output.
+        task = "## Domain lookups must not return ()\n\nThe API must return the domains\nfor the account.\n"
+        heading, wrapped = goals.cue_sentences(task)
+        self.assertEqual("Domain lookups must not return ().", heading)
+        report = self.report(heading, " ".join(wrapped.split()))
+        goals.check_requirement_handoff({"task": task}, report)
+        self.assertEqual(
+            ["Domain lookups must not return ()", "The API must return the domains\nfor the account."],
+            [row["source_quote"] for row in report["requirements"]],
+        )
+        for row in report["requirements"]:
+            self.assertIn(row["source_quote"], task)
+
+    def test_every_unsupported_quote_is_named_with_its_closest_source_and_the_way_out(self):
+        state = {"task": "The API must return the domains for the account. Errors must be logged."}
+        report = self.report("The API must return the domains for the account.")
+        report["requirements"] += [
+            {"id": "R3", "text": "Check domains", "source_quote": "RAS.Check_Domain must be non-empty."},
+            {"id": "R4", "text": "Log", "source_quote": "Errors must be logged to syslog."},
+        ]
+        with self.assertRaises(ValueError) as caught:
+            goals.check_requirement_handoff(state, report)
+        message = str(caught.exception)
+        self.assertIn("Requirements R3, R4: source_quote is not in", message)
+        self.assertIn('the closest source sentence is "Errors must be logged."', message)
+        self.assertIn("remove that requirement", message)
+        # No Builder task or contract exists yet, so the message does not send the model looking for one.
+        self.assertNotIn("Builder task", message)
+        self.assertEqual("RAS.Check_Domain must be non-empty.", report["requirements"][1]["source_quote"])
+
     def test_builder_task_cannot_be_cited_as_new_user_requirement(self):
         inherited = "Fix the scheduling-dependent race in the conversation test."
         state = {
@@ -124,6 +157,21 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(["- You must retain drafts."], packet["requirement_coverage_checklist"])
         self.assertIsNone(packet["goal_contract"])
 
+    def test_bugfix_requirements_separate_compatibility_from_observed_values(self):
+        state = {
+            "task": "Fix the weekly timesheet report: dates around New Year get the wrong week. "
+            "Keep the CLI and output format.",
+            "workspace": "/fixture",
+            "settings": {"engine": "codex", "joint_planning": True, "roles": {"requirements": {}}},
+        }
+        prompt, _ = autoplanner.context(state, "requirements_gather", Path("/fixture/state.json"))
+        instruction, raw = prompt.split("CURRENT HANDOFF DATA\n", 1)
+        self.assertIn("separate compatibility promises from values computed by the faulty code", instruction)
+        self.assertIn("Keep a passing example scoped to that example", instruction)
+        self.assertIn("Do not promote an unverified observation to required_behaviors", " ".join(instruction.split()))
+        self.assertIn("Retain explicit preservation requirements", instruction)
+        self.assertEqual(state["task"], json.loads(raw)["task"])
+
     def follow_up(self, workflow="design"):
         earlier = "Write only `docs/decisions/cache.json`; do not write code."
         old = {
@@ -180,6 +228,43 @@ class CoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "docs/design/cache.md"):
             goals.check_requirement_trace(state, {}, {})
         goals.check_requirement_trace(state, {}, {"deliverables": ["docs/design/cache.md"]})
+
+    def test_follow_up_scans_the_receipted_task_once_without_erasing_its_sources(self):
+        state = self.follow_up()
+        text = "The design must retain the existing API."
+        event = state["brief_feedback"][-1]
+        event["text"] = text
+        state["turns"][-1]["say"] = text
+        extra = {"kind": "brief_feedback", "id": "extra", "actor": "user_cli", "text": "Only cache.md may change."}
+        state["brief_feedback"].append(extra)
+        state["user_events"].append(extra)
+        before = copy.deepcopy(state)
+        self.assertEqual([text, extra["text"]], goals.scan_texts(state))
+        self.assertIn(event, state["user_events"])
+        self.assertIn(text, goals.source_texts(state))
+        self.assertEqual(before, state, "source deduplication must not rewrite the saved journal")
+
+    def test_follow_up_checklist_and_missing_diagnostic_do_not_repeat_the_same_obligation(self):
+        state = self.follow_up()
+        text = "The design must retain the existing API."
+        state["brief_feedback"][-1]["text"] = text
+        state["turns"][-1]["say"] = text
+        prompt, _ = autoplanner.context(state, "requirements_gather", Path("/fixture/state.json"))
+        packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual([text], packet["requirement_coverage_checklist"])
+        with self.assertRaises(ValueError) as caught:
+            goals.check_requirement_handoff(state, self.report())
+        self.assertEqual([text], json.loads(str(caught.exception).split(": ", 1)[1]))
+        goals.check_requirement_handoff(state, self.report(text))
+
+    def test_only_identical_sources_are_deduplicated(self):
+        text = "The CLI must retain drafts."
+        distinct = "The CLI must retain drafts and their cursor."
+        state = {"task": text, "brief_feedback": [{"text": text}, {"text": distinct}]}
+        self.assertEqual([text, distinct], goals.scan_texts(state))
+        self.assertEqual([text, text, distinct], goals.source_texts(state))
+        with self.assertRaisesRegex(ValueError, "their cursor"):
+            goals.check_requirement_handoff(state, self.report(text))
 
     def test_same_kind_and_unreceipted_turns_keep_coverage_guards(self):
         for state in (self.follow_up("discuss"), self.follow_up()):

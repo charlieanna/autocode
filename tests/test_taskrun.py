@@ -26,6 +26,7 @@ import autocode_source_snapshot as source_snapshot
 import autocode_taskrun as taskrun
 import autocode_util as util
 import goal_fixtures
+from units import autoplanner as planner
 
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
 # The offline fixture provider plans and builds exactly this greeting task.
@@ -57,6 +58,49 @@ FIXTURE_OPTIONS = (
 
 
 class RunViewTests(unittest.TestCase):
+    def test_coordination_offer_inventory_includes_the_published_integration_identity(self):
+        import autocode_coordination_store as store
+
+        with patch.object(store, "read", return_value=None):
+            self.assertEqual(
+                {
+                    "version",
+                    "status_command",
+                    "next_command",
+                    "phase",
+                    "revision",
+                    "cancel_command",
+                    "active",
+                    "members",
+                    "integration",
+                },
+                set(store.offer("/anchor", eligible=True)),
+            )
+
+    def test_ready_boundary_names_advance_without_inventing_a_pause_category(self):
+        for status in ("RUNNING", "DISCOVERING"):
+            with self.subTest(status=status):
+                shown = run_view.view(
+                    {"status": status, "next_stage": "requirements_gather", "phase": "DISCOVERING"},
+                    workspace=Path("/project"),
+                    run_dir=Path("/runs/r1"),
+                )
+                self.assertEqual("continue", shown["needs"]["kind"])
+                self.assertIsNone(shown["pause_category"])
+                self.assertEqual("autocode --run-dir /runs/r1 --workspace /project --no-chat", shown["next_command"])
+
+    def test_continue_with_a_retained_attempt_or_runner_check_names_no_advance(self):
+        for retained in (
+            {"active_stage": {"stage": "terra"}},
+            {"active_stage": {}},
+            {"active_runner_check": {"stage": "regression"}},
+            {"active_runner_check": {}},
+        ):
+            with self.subTest(retained=retained):
+                shown = run_view.action({"status": "RUNNING", **retained})
+                self.assertEqual("continue", shown["needs"]["kind"])
+                self.assertIsNone(shown["next_command"])
+
     def test_source_inventory_pause_names_reconciliation_without_discarding_the_retained_result(self):
         state = {
             "status": "PAUSED_SOURCE_UNAVAILABLE",
@@ -78,6 +122,7 @@ class RunViewTests(unittest.TestCase):
         self.assertFalse(action_authority.explicit_recovery_requested(SimpleNamespace(retry_report=None), None))
 
     def test_contract_fields(self):
+        self.assertIn("gate", run_view.view({"status": "RUNNING"})["chat"])
         self.assertEqual(
             {
                 "schema",
@@ -87,6 +132,7 @@ class RunViewTests(unittest.TestCase):
                 "pause_category_label",
                 "next_command",
                 "chat",
+                "attention",
                 "status",
                 "done",
                 "needs",
@@ -109,8 +155,11 @@ class RunViewTests(unittest.TestCase):
                 "output_transport",
                 "direct_rework_assignments",
                 "efficiency",
+                "run_metrics",
                 "recovery",
+                "recoveries",
                 "verification",
+                "review_result",
                 "code_checkpoints",
                 "routes",
                 "provider",
@@ -130,6 +179,7 @@ class RunViewTests(unittest.TestCase):
                 "prompts_hash",
                 "task",
                 "task_sha256",
+                "request_sources",
                 "runner",
                 "explanation",
                 "replay_source",
@@ -138,12 +188,52 @@ class RunViewTests(unittest.TestCase):
                 "interaction_timing",
                 "conversation",
                 "controller",
+                "execution",
+                "observation",
                 "planning_depth",
+                "stage_policy",
                 "changes_by_criterion",
                 "dev_server",
+                "scope",
+                "coordination",
+                "related_profile",
+                "proxied_requirements",
             },
             set(run_view.view({"status": "RUNNING"})),
         )
+        external_part = run_view.view(
+            {
+                "status": "RUNNING",
+                "requirements_handoff": {
+                    "report": {
+                        "workspace_scope": {
+                            "spans_repositories": True,
+                            "external_parts": [
+                                {
+                                    "target": "history",
+                                    "work": "Record the result",
+                                    "source_quote": "keep history",
+                                    "evidence": "client.py:8",
+                                }
+                            ],
+                        }
+                    }
+                },
+            }
+        )["scope"]["external_parts"][0]
+        self.assertEqual({"target", "work", "source_quote", "evidence"}, set(external_part))
+
+    def test_accounting_attempt_inventory_names_execution_identity(self):
+        shown = run_view.view(
+            {
+                "status": "RUNNING",
+                "stages": [{"stage": "terra", "role": "terra", "engine": "codex", "model": "gpt-6-sol"}],
+            }
+        )
+        attempts = shown["usage"]["accounting"]["attempts"]
+        self.assertEqual(1, len(attempts))
+        self.assertIn("execution_identity", attempts[0])
+        self.assertEqual({}, attempts[0]["execution_identity"], "Historical launches remain unknown")
 
     def test_dev_server_is_the_callers_inspection_copied(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["dev_server"])
@@ -209,6 +299,57 @@ class RunViewTests(unittest.TestCase):
         self.assertIs(body["acceptance_criteria"][0]["human_review"], True)
         self.assertEqual(["Keep references"], body["constraints"])
 
+    def test_displayed_plan_binds_the_milestones_and_flow_the_person_approves(self):
+        # Criteria summaries alone hid a coordinator-owned joint-proof milestone inside a member
+        # plan (#2434): the approval now carries the completion order itself, additively.
+        method = "python check.py"
+        body = {
+            "acceptance_criteria": [
+                {"id": "AC1", "criterion": "Local gates", "verification_method": method, "human_review": False},
+                {
+                    "id": "AC5",
+                    "criterion": "Joint proof, owned by the coordinator's whole-set check",
+                    "verification_method": method,
+                    "human_review": False,
+                },
+            ],
+            "constraints": [],
+            "permission_boundaries": ["This repository only"],
+            "milestones": [
+                {"id": "M1", "objective": "Finish the member's local gates", "acceptance_criteria": ["AC1"]},
+                {
+                    "id": "M2",
+                    "objective": "Coordinator-owned joint integration proof over every member's actual code",
+                    "acceptance_criteria": ["AC5"],
+                },
+            ],
+            "end_to_end_flow": ["Finish this member's local gates", "The coordinator's joint check discharges AC5"],
+        }
+        contract = {"task_id": "t1", "revision": 3, "body": body}
+        contract["hash"] = util.digest(contract)
+        token = f"r3:{contract['hash']}"
+        state = {"status": "AWAITING_GOAL_APPROVAL", "goal_contract": contract, "displayed_goal": token}
+        displayed = run_view.view(state)["displayed_plan"]
+        self.assertEqual(body["milestones"], displayed["milestones"])
+        self.assertEqual(body["end_to_end_flow"], displayed["end_to_end_flow"])
+        displayed["milestones"][1]["objective"] = "rewritten"
+        displayed["end_to_end_flow"].append("rewritten")
+        self.assertEqual(
+            "Coordinator-owned joint integration proof over every member's actual code",
+            body["milestones"][1]["objective"],
+        )
+        self.assertEqual(2, len(body["end_to_end_flow"]))
+        # A body without the completion order keeps the previous unconditional fields, additively.
+        legacy = {key: value for key, value in body.items() if key not in ("milestones", "end_to_end_flow")}
+        contract["body"] = copy.deepcopy(legacy)
+        contract.pop("hash", None)
+        contract["hash"] = util.digest(contract)
+        shown = run_view.view({**state, "displayed_goal": f"r3:{contract['hash']}"})["displayed_plan"]
+        self.assertNotIn("milestones", shown)
+        self.assertNotIn("end_to_end_flow", shown)
+        self.assertIsNone(shown["git_delivery"])
+        self.assertIsNone(shown["scope_exclusions"])
+
     def test_displayed_plan_requires_current_sealed_display_identity(self):
         contract = {"task_id": "t1", "revision": 1, "body": {"acceptance_criteria": []}}
         contract["hash"] = util.digest(contract)
@@ -267,8 +408,20 @@ class RunViewTests(unittest.TestCase):
         approved = run_view.view(state)
         shown = approved["approved_contract"]
         self.assertEqual(
-            {"revision", "hash", "token", "task_id", "approved_at", "body", "goal_hash", "plan_file"}, set(shown)
+            {
+                "revision",
+                "hash",
+                "token",
+                "task_id",
+                "approved_at",
+                "approval_source",
+                "body",
+                "goal_hash",
+                "plan_file",
+            },
+            set(shown),
         )
+        self.assertEqual("person", shown["approval_source"])  # not --skip-to-build (#1731)
         # Expected values are public and independent of the saved contract: what the draft view
         # showed for approval, the token it asked for, and the inputs the run was given.
         self.assertEqual(
@@ -462,6 +615,7 @@ class RunViewTests(unittest.TestCase):
                 "source_revision": "r9",
                 "case_tests": None,
                 "unstable": None,
+                "follow_up_baseline": None,
             },
             evidence["regression_proof"],
         )
@@ -568,16 +722,25 @@ class RunViewTests(unittest.TestCase):
         )
         self.assertEqual("resume", run_view.needs({"status": "PLAN_REWORK_REQUIRED"})["kind"])
 
+    def test_saved_progress_recovery_is_a_continue_action_not_a_personal_resume(self):
+        with patch("autocode_run_view.recovery_progress.routine_resume", return_value={"remaining_count": 1}):
+            need = run_view.needs({"status": "PAUSED_BUDGET"})
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, need)
+
     def test_quota_pause_names_the_abandon_step_with_the_attempt_id(self):
-        need = run_view.needs(
-            {
-                "status": "PAUSED_BUDGET",
-                "stop_reason": "quota restored; set the attempt aside",
-                "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"},
-            }
-        )
+        state = {
+            "status": "PAUSED_BUDGET",
+            "stop_reason": "quota restored; set the attempt aside",
+            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"},
+        }
+        need = run_view.needs(state)
+        self.assertEqual("continue", need["kind"], "the core has already classified the exact recovery")
         self.assertEqual("001/terra-01", need["abandon_stage"])
         self.assertIn("--abandon-stage 001/terra-01 then --resume-paused", need["action"])
+        shown = run_view.action(state, run_dir=Path("/run"), workspace=Path("/work"))
+        self.assertEqual(
+            "autocode --run-dir /run --workspace /work --abandon-stage 001/terra-01", shown["next_command"]
+        )
 
     def test_rejected_validator_report_exposes_exact_retry_attempt(self):
         state = {
@@ -667,9 +830,10 @@ class TaskRunTests(unittest.TestCase):
         self.assertFalse((self.workspace / ".autocode").exists())
 
     def test_status_shows_the_planning_depth_decisions(self):
-        # #697: whether recognition skipped Requirements, the plan's size, the review allowance and whether
-        # the Plan Reviewer approved the draft at its first review reach --status, not only state.json.
-        for clarity, requirements_ran in (("clear", False), ("vague", True)):
+        # #697: the clarity judgment, the plan's size, the review allowance and whether the Plan Reviewer
+        # approved the draft at its first review reach --status, not only state.json. Requirements runs first
+        # on every run and makes the judgment itself (#1860), so no run skips it.
+        for clarity in ("clear", "vague"):
             with self.subTest(clarity=clarity):
                 workspace = self.workspace.parent / f"project-{clarity}"
                 shutil.copytree(self.workspace, workspace)
@@ -682,36 +846,20 @@ class TaskRunTests(unittest.TestCase):
                     {
                         "adaptive": True,
                         "clarity": clarity,
-                        "requirements_skipped": not requirements_ran,
+                        "requirements_skipped": None,
                         "plan_size": "small",
                         "review_limit": 2,
                         "challenges": 1,
                         "approved_early": True,
+                        "uncited_sentences": 0,
                     },
                     {key: value for key, value in depth.items() if key != "size_signals"},
                 )
                 self.assertEqual(1, depth["size_signals"]["milestones"])
                 stages = [row["stage"] for row in util.read(run.run_dir / "state.json")["stages"]]
-                self.assertEqual(requirements_ran, "requirements_gather" in stages, stages)
+                self.assertEqual("requirements_gather", stages[0], stages)
+                self.assertNotIn("recognize_workflow", stages)
                 self.assertNotIn("astra_finalize", stages, "approved at the first review")
-
-    def test_program_guidance_sends_the_displayed_plan_back_without_becoming_the_users_input(self):
-        # #866: a program's correction of the displayed plan re-plans the run. Saved as user feedback,
-        # its sentences became requirements the next plan had to quote; as the program's, they never are.
-        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
-        view = run.status()
-        self.assertEqual("approve_plan", view["needs"]["kind"], view)
-        token = view["needs"]["token"]
-        text = "Keep every inherited requirement. Copy their text from the brief; do not weaken or paraphrase it."
-        with self.assertRaisesRegex(taskrun.TaskRunError, "program guidance exited"):
-            run.guide_plan(text, "not-the-displayed-token")
-        self.assertEqual("RUNNING", run.guide_plan(text, token)["status"])
-        with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
-            run.approve_plan(token)  # the corrected plan is no longer the one shown
-        view = run.advance_until_input()
-        self.assertEqual("approve_plan", view["needs"]["kind"], view)
-        self.assertNotEqual(token, view["needs"]["token"])
-        run.approve_plan(view["needs"]["token"])
 
     def test_start_approve_and_complete(self):
         before = self.footprint()
@@ -738,6 +886,12 @@ class TaskRunTests(unittest.TestCase):
         run.approve_plan(token)
         view = run.advance_until_input()
         self.assertTrue(view["done"], {key: view.get(key) for key in ("status", "needs", "runner_check")})
+        changed_code = view["verification"]["changed_code_evidence"]
+        self.assertEqual("PASS", changed_code["status"], changed_code)
+        self.assertTrue(any(row["status"] == "tested" for row in changed_code["obligations"]))
+        reasons = [row for row in changed_code["obligations"] if row["status"] == "excepted"]
+        self.assertTrue(reasons, changed_code)
+        self.assertTrue(all(not row["mutation_outcomes"] for row in reasons), reasons)
         evidence = run.evidence_report(require_current=False)["document"]
         self.assertEqual(prompts.HASH, evidence["run"]["prompts_hash"])
         model_attempts = [row for row in evidence["attempts"] if not row["runner_owned"]]
@@ -823,6 +977,14 @@ class TaskRunTests(unittest.TestCase):
         contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
         state["planning"]["final_token"] = "r" + str(contract["revision"]) + ":" + contract["hash"]
         state["displayed_goal"] = state["planning"]["final_token"]
+        final = next((row for row in state["stages"] if row.get("stage") == "astra_finalize"), None)
+        if final:
+            # The checkpoint predates retained final reviews (#1858) too: its final review was asked for
+            # the full contract, so its saved schema, which the report repair reuses, asks for one.
+            schema = Path(final["schema"])
+            schema.write_text(
+                json.dumps(planner._model_report_schema(planner.schema_for(state, final["stage"]), state))
+            )
         if activate_later:
             state["settings"]["milestone_checkpoints"]["enabled"] = False
             run = taskrun.TaskRun(
@@ -905,11 +1067,10 @@ class TaskRunTests(unittest.TestCase):
     def assert_no_project_level_files(self, before, run, view, *, delivered=()):
         """#22: a normal single job creates no project-level files.
 
-        Programs, task flows and component builds coordinate several runs of one project and keep
-        their records at the project level: .autocode/programs (`autocode program`),
-        .autocode/task-flows (`autocode tasks MANIFEST`) and .autocode-components (`autocode
-        components ARCH`), with worktrees on branches of their own (autocode/program-<key>/...,
-        components/<id>-<hex>). A single job adds .autocode, its learned project record, and the
+        Task flows and component builds coordinate several runs of one project and keep their
+        records at the project level: .autocode/task-flows (`autocode tasks MANIFEST`) and
+        .autocode-components (`autocode components ARCH`), with worktrees on branches of their own
+        (components/<id>-<hex>). A single job adds .autocode, its learned project record, and the
         files it ``delivered`` to the project; launched without --in-place, also its task worktree
         and that worktree's branch.
         """
@@ -1203,14 +1364,15 @@ class TaskRunTests(unittest.TestCase):
         run.follow_up(request)
         self.env["FOLLOW_UP_PROVENANCE_TEST"] = "1"
         self.env["LIVE_FIXTURE_CLARITY"] = "clear"
-        recognizing = taskrun.TaskRun(
+        gathering = taskrun.TaskRun(
             self.workspace, run.run_dir, options=(*FIXTURE_OPTIONS, "--pause-after-stage"), env=self.env, timeout=300
         )
-        boundary = recognizing.advance()
+        boundary = gathering.advance()
+        # The follow-up began at Requirements (#1860), which refreshed the prior handoff and named a build.
         self.assertEqual(
-            ("PAUSED_REQUESTED", "requirements_gather"), (boundary["status"], boundary["next_stage"]), boundary
+            ("PAUSED_REQUESTED", "astra_discovery"), (boundary["status"], boundary["next_stage"]), boundary
         )
-        # Reattach: refresh the prior handoff, and retain the recorded request and authorization identity.
+        # Reattach: retain the recorded request and authorization identity.
         run = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         view = run.resume_paused()
         self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"], view)
@@ -1312,6 +1474,37 @@ class TaskRunTimeoutDetailTests(unittest.TestCase):
 
 
 class TaskRunClientTests(unittest.TestCase):
+    def test_cross_model_answer_uses_the_current_derived_route_without_a_resolver_token(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        need = {
+            "kind": "answer",
+            "questions": [{"id": "route-sol"}],
+            "route": {"question_id": "route-sol", "role": "sol", "cause": "cross_model"},
+        }
+        with (
+            patch.object(run, "status", return_value={"needs": need}),
+            patch.object(run, "_act", return_value={}) as act,
+        ):
+            run.answer("route-sol", "claude-opus-5-5")
+        act.assert_called_once_with("answer", "--answer", "route-sol=claude-opus-5-5")
+
+    def test_only_the_current_cross_model_route_can_answer_without_a_resolver_token(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        for route in (
+            {},
+            {"question_id": "route-sol", "cause": "quota"},
+            {"question_id": "route-completion", "cause": "cross_model"},
+        ):
+            need = {"kind": "answer", "questions": [{"id": "route-sol"}], "route": route}
+            with (
+                self.subTest(route=route),
+                patch.object(run, "status", return_value={"needs": need}),
+                patch.object(run, "_act") as act,
+            ):
+                with self.assertRaisesRegex(taskrun.TaskRunError, "no current AutoResolver request"):
+                    run.answer("route-sol", "claude-opus-5-5")
+                act.assert_not_called()
+
     def test_model_assignment_refreshes_every_saved_override_before_resume(self):
         cases = (
             (
@@ -1493,6 +1686,24 @@ class TaskRunClientTests(unittest.TestCase):
             "retry report", "--resume-paused", "--retry-report", "001/sol_report_repair-02", "--no-chat", advancing=True
         )
         status.assert_called_once()
+
+    def test_an_effort_answer_survives_a_global_effort_flag_on_resume(self):
+        # #2057: a saved run re-applies --reasoning-effort to every role, so the answered role's own flag,
+        # which wins over it, must travel beside it; an existing role flag is rewritten in place.
+        for options, expected in (
+            (
+                ("--reasoning-effort", "medium"),
+                ("--reasoning-effort", "medium", "--plan-reviewer-reasoning-effort=high"),
+            ),
+            (("--plan-reviewer-reasoning-effort", "medium"), ("--plan-reviewer-reasoning-effort", "high")),
+            (("--fake",), ("--fake",)),
+        ):
+            with self.subTest(options=options):
+                run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), options=options)
+                with patch.object(run, "_act", return_value={}) as act:
+                    run.assign_effort("plan_reviewer", "high")
+                act.assert_called_once_with("assign effort", "--answer", "effort-plan_reviewer=high")
+                self.assertEqual(expected, run.options)
 
     def test_review_rejection_carries_note_and_keeps_token_out_of_argv(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
@@ -1881,12 +2092,15 @@ from pathlib import Path
 
 name = Path(sys.argv[0]).name
 log = Path('__LOG__')
-models = (['fixture-claude'] if name == 'kilocode' else
+models = (['fixture-claude'] if name in ('fixture_command', 'kilocode') else
           ['zai-coding-plan/glm-5.3-flash', 'zai-coding-plan/glm-5.3',
            'xiaomi-token-plan-sgp/mimo-v2.6-pro'])
 def record(value):
     with log.open('a') as stream:
         stream.write(json.dumps({'tool': name, **value}) + '\n')
+if sys.argv[1:2] == ['debug']:
+    print('This transport fixture is not a native Kilo policy runtime', file=sys.stderr)
+    raise SystemExit(2)
 if sys.argv[1:] == ['--version']:
     print('1.16.0')
     raise SystemExit(0)
@@ -1913,9 +2127,22 @@ spec = importlib.util.spec_from_file_location('mixed_greeting_fixture', '__FIXTU
 fixture = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixture)
 # Reuse the deterministic greeting provider, never another test or a model.
+def prompt_schema(text):
+    # OpenCode and Kilo carry the output schema in the prompt, not as --output-schema: a compact JSON line
+    # just before the handoff data, or a configured tool's TOOL OUTPUT CONTRACT block. The fixture reads
+    # it to answer in the current protocol (a retained final review, #1858).
+    head = text.split('\nCURRENT HANDOFF DATA\n', 1)[0]
+    if '\nTOOL OUTPUT CONTRACT\n' in head:
+        contract = head.rsplit('\nTOOL OUTPUT CONTRACT\n', 1)[1]
+        return json.JSONDecoder().raw_decode(contract[contract.index('\n{') + 1:])[0]
+    last = (head.rstrip().splitlines() or [''])[-1]
+    return json.loads(last) if last.startswith('{') else {}
 with tempfile.TemporaryDirectory(dir=log.parent) as temporary:
     output = Path(sys.argv[sys.argv.index('--report') + 1]) if '--report' in sys.argv else Path(temporary) / 'report.json'
-    sys.argv = ['fixture', '-o', str(output), *(['resume', session] if session_arg else [])]
+    schema_path = Path(temporary) / 'schema.json'
+    schema_path.write_text(json.dumps(prompt_schema(prompt)))
+    sys.argv = ['fixture', '-o', str(output), '--output-schema', str(schema_path),
+                *(['resume', session] if session_arg else [])]
     original_stdin = sys.stdin
     try:
         sys.stdin = io.StringIO(prompt)
@@ -2000,18 +2227,18 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         script = _MIXED_TRANSPORT_FIXTURE.replace("__LOG__", str(self.log)).replace(
             "__FIXTURE__", str(HERE / "live_fixture_provider.py")
         )
-        for name in ("opencode", "kilocode"):
+        for name in ("opencode", "fixture_command"):
             executable = binary / name
             executable.write_text(script)
             executable.chmod(0o755)
         config_dir = self.root / "config" / "autocode" / "providers"
         config_dir.mkdir(parents=True)
-        self.config = config_dir / "kilocode.toml"
+        self.config = config_dir / "fixture_command.toml"
         self.config.write_text(
-            'name = "kilocode"\ncommand = ["kilocode", "run", "--model", "{model}", "--effort", "{effort}", '
+            'name = "fixture_command"\ncommand = ["fixture_command", "run", "--model", "{model}", "--effort", "{effort}", '
             '"--report", "{report}"]\nprompt = "stdin"\noutput = "opencode_events"\n'
-            'resume = ["--session", "{session}"]\nmodels_command = ["kilocode", "models"]\n'
-            'version_command = ["kilocode", "--version"]\n[roles]\n'
+            'resume = ["--session", "{session}"]\nmodels_command = ["fixture_command", "models"]\n'
+            'version_command = ["fixture_command", "--version"]\n[roles]\n'
             + "\n".join(
                 f'{role} = {{ model = "fixture-claude", effort = "high" }}'
                 for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
@@ -2076,7 +2303,9 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             "--allow-uncontained-tools",
         )
         self.start_options = tuple(
-            value for role in ("astra", "sol", "completion") for value in ("--role-transport", role + "=kilocode")
+            value
+            for role in ("astra", "sol", "completion")
+            for value in ("--role-transport", role + "=fixture_command")
         )
 
     def operations(self, kind=None):
@@ -2110,7 +2339,9 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         self.assertEqual(before["routes"], result["routes"])
         launches = self.operations("launch")
         self.assertTrue(launches)
-        self.assertTrue(all(row["effort"] == "high" and row["session"] for row in launches))
+        self.assertTrue(all(row["session"] for row in launches))
+        # The person set --reasoning-effort high, so the Builder's light first attempt (#1710) leaves every stage at high.
+        self.assertEqual({"high"}, {row["effort"] for row in launches})
         self.assertTrue(all(row["session"].startswith(row["tool"] + "_") for row in launches))
         self.assertTrue(all(row["resume_session"] in (None, row["session"]) for row in launches))
         expected = {
@@ -2118,8 +2349,8 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             "astra_discovery": ("opencode", "zai-coding-plan/glm-5.3"),
             "astra_challenge": ("opencode", "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
             "terra": ("opencode", "zai-coding-plan/glm-5.3"),
-            "sol": ("kilocode", "fixture-claude"),
-            "astra_review": ("kilocode", "fixture-claude"),
+            "sol": ("fixture_command", "fixture-claude"),
+            "astra_review": ("fixture_command", "fixture-claude"),
         }
         for stage, wanted in expected.items():
             actual = [row for row in launches if row["stage"] == stage]
@@ -2127,7 +2358,7 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             self.assertTrue(all((row["tool"], row["model"]) == wanted for row in actual), actual)
         readers = [row for row in launches if row["stage"] == "astra_review"]
         self.assertEqual(2, len(readers), readers)
-        self.assertEqual("kilocode", readers[0]["tool"])
+        self.assertEqual("fixture_command", readers[0]["tool"])
         self.assertIsNone(readers[0]["resume_session"])
         self.assertEqual(readers[0]["session"], readers[1]["resume_session"])
         self.assertEqual(readers[0]["session"], readers[1]["session"])
@@ -2135,13 +2366,34 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         self.assertNotIn(readers[0]["session"], {row["session"] for row in launches if row["tool"] == "opencode"})
         catalogues = self.operations("models")
         self.assertTrue(any(row["tool"] == "opencode" for row in catalogues))
-        self.assertTrue(any(row["tool"] == "kilocode" for row in catalogues))
+        self.assertTrue(any(row["tool"] == "fixture_command" for row in catalogues))
         self.assertTrue(all("fixture-claude" not in row["models"] for row in catalogues if row["tool"] == "opencode"))
         evidence = attached.evidence_report()["document"]
         stages = {row["stage"]: row for row in evidence["attempts"] if not row["runner_owned"]}
         self.assertEqual("fixture-claude", stages["sol"]["model"])
         self.assertEqual(0, stages["sol"]["exit_code"])
         self.assertEqual("TASK_COMPLETE", taskrun.TaskRun.attach(self.workspace, env=self.env).status()["status"])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Kilo native version/policy admission requires Linux")
+    def test_unqualified_kilo_reader_refuses_before_provider_launch(self):
+        # A generic command fixture must not impersonate Kilo's native policy
+        # handshake. Genuine Kilo execution is covered in test_kilocode_policy.
+        executable = self.root / "bin" / "kilocode"
+        executable.write_text((self.root / "bin" / "fixture_command").read_text())
+        executable.chmod(0o755)
+        (self.config.parent / "kilocode.toml").write_text(
+            self.config.read_text().replace("fixture_command", "kilocode")
+        )
+        self.start_options = tuple(
+            value for role in ("astra", "sol", "completion") for value in ("--role-transport", role + "=kilocode")
+        )
+        # macOS uses the portable read-only policy covered in
+        # test_kilocode_policy, rather than this Linux handshake.
+        with self.assertRaisesRegex(taskrun.TaskRunError, "kilocode requires Kilo") as caught:
+            self.start()
+        self.assertIn("found 1.16.0", str(caught.exception))
+        self.assertIn("no provider request was launched", str(caught.exception))
+        self.assertFalse(self.operations("launch"))
 
     def test_saved_override_and_selected_identity_drift_refuse_before_any_launch(self):
         run = self.start()

@@ -29,6 +29,7 @@ try:
     from . import autocode_kilo_source_relay as relay
     from . import autocode_native_conformance as observations
     from . import autocode_native_locators as native_locators
+    from . import autocode_opencode_snapshots as native_snapshots
     from . import autocode_output_cap as output_cap
     from . import autocode_process as processes
     from . import autocode_supervision as supervision
@@ -41,6 +42,7 @@ except ImportError:
     import autocode_kilo_source_relay as relay
     import autocode_native_conformance as observations
     import autocode_native_locators as native_locators
+    import autocode_opencode_snapshots as native_snapshots
     import autocode_output_cap as output_cap
     import autocode_process as processes
     import autocode_supervision as supervision
@@ -473,6 +475,15 @@ def _run(command, *, environment, cwd, timeout, receipt, input_bytes=None, check
     return Path(str(receipt) + ".stdout").read_bytes()
 
 
+def saved_config(path, identity) -> bool:
+    """Whether the config at ``path`` is the one ``identity`` saved.
+
+    Its bytes decide. It may lie in another checkout than the one it was bound in, because a
+    run resumed from another checkout keeps its saved identity (#2773).
+    """
+    return Path(path).is_file() and util.file_hash(path) == identity.get("config_sha256")
+
+
 class KiloRoleIsolation:
     """Only the two explicitly pinned readonly Claude roles can construct this."""
 
@@ -625,31 +636,30 @@ class KiloRoleIsolation:
             role == "completion" or image_preparation is not None,
             "native Sol requires its original byte-bound visual packet",
         )
-        _require(
-            str(adapter._path) == self._identity["config_path"]
-            and util.file_hash(adapter._path) == self._identity["config_sha256"],
-            "saved provider configuration changed",
-        )
+        _require(saved_config(adapter._path, self._identity), "saved provider configuration changed")
         self._check(self._state)
         target = self._run / ("native-kilo-" + uuid.uuid4().hex)
         target.mkdir(mode=0o700)
         pins, child = (
             {},
             {
-                key: env[key]
-                for key in (
-                    "PATH",
-                    "LANG",
-                    "LC_CTYPE",
-                    "LC_ALL",
-                    "TZ",
-                    "AUTOCODE_OUTPUT_MODE",
-                    "AUTOCODE_OUTPUT_STORE",
-                    "AUTOCODE_OUTPUT_ATTEMPT",
-                    "AUTOCODE_CAPTURE_CONTEXT",
-                    "OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX",
-                )
-                if key in env
+                **native_snapshots.git_config_env(env),  # the snapshot excludes file (#1630)
+                **{
+                    key: env[key]
+                    for key in (
+                        "PATH",
+                        "LANG",
+                        "LC_CTYPE",
+                        "LC_ALL",
+                        "TZ",
+                        "AUTOCODE_OUTPUT_MODE",
+                        "AUTOCODE_OUTPUT_STORE",
+                        "AUTOCODE_OUTPUT_ATTEMPT",
+                        "AUTOCODE_CAPTURE_CONTEXT",
+                        "OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX",
+                    )
+                    if key in env
+                },
             },
         )
         for key, name in DIRECTORIES.items():

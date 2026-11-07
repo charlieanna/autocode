@@ -237,8 +237,8 @@ def decisions(results: list[dict]) -> dict:
 
     ``person_answers`` are the scenario's explicit ``[fake] answers`` (a person's own decision);
     ``default_answers`` are questions answered with AutoCode's proposed default or first concrete option;
-    ``approvals`` are the gates the harness passed for the person: plan, human-review criteria, program
-    agreements, the canned feedback that grants more planning review calls (``planning_budget``), a budget
+    ``approvals`` are the gates the harness passed for the person: plan, human-review criteria, the
+    canned feedback that grants more planning review calls (``planning_budget``), a budget
     pause continued with the flags of the scenario's ``[fake] acknowledge`` (``acknowledge``), and the
     ``--auto-approve`` of a components run (one row per CLI call, the product answering its gates inside it).
 

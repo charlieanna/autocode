@@ -3,6 +3,7 @@
 import contextlib
 import copy
 import io
+import itertools
 import json
 import os
 import shlex
@@ -21,6 +22,7 @@ import autocode_builder_policy as builder_policy
 import autocode_completion as completion_gate
 import autocode_configure
 import autocode_goals as goals
+import autocode_legacy_process as legacy_process
 import autocode_milestones as milestones
 import autocode_planning as planning
 import autocode_run_view as run_view
@@ -541,15 +543,19 @@ class RetrofitTest(unittest.TestCase):
             s.assert_no_legacy_process(self.run, self.root)
 
     def test_active_legacy_guard_and_process_check_failure(self):
-        result = subprocess.CompletedProcess([], 0, stdout=f"101 python tools/autocode.py --run-dir {self.run}\n")
+        # A fake listing pid that can never be this test's own runner or an ancestor:
+        # the guard skips its lineage by design, and a container runner may really hold pid 101 (#2446).
+        pid = next(candidate for candidate in itertools.count(101) if candidate not in legacy_process.own_lineage())
+        result = subprocess.CompletedProcess([], 0, stdout=f"{pid} python tools/autocode.py --run-dir {self.run}\n")
         with patch.object(s.subprocess, "run", return_value=result):
-            with self.assertRaisesRegex(s.Paused, "101"):
+            with self.assertRaisesRegex(s.Paused, str(pid)):
                 s.assert_no_legacy_process(self.run, self.root)
         with patch.object(s.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, stdout="")):
             with self.assertRaisesRegex(s.Paused, "Cannot inspect"):
                 s.assert_no_legacy_process(self.run, self.root)
 
     def test_legacy_guard_scopes_run_paths_without_matching_another_workspace(self):
+        pid = next(candidate for candidate in itertools.count(101) if candidate not in legacy_process.own_lineage())
         relative = os.path.relpath(self.run, self.root)
         for command in (
             f"python tools/autocode.py --run-dir /another-workspace/{relative}",
@@ -559,7 +565,7 @@ class RetrofitTest(unittest.TestCase):
             with (
                 self.subTest(command=command),
                 patch.object(
-                    s.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=f"101 {command}\n")
+                    s.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=f"{pid} {command}\n")
                 ),
             ):
                 s.assert_no_legacy_process(self.run, self.root)
@@ -574,10 +580,10 @@ class RetrofitTest(unittest.TestCase):
             with (
                 self.subTest(command=command),
                 patch.object(
-                    s.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=f"101 {command}\n")
+                    s.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=f"{pid} {command}\n")
                 ),
             ):
-                with self.assertRaisesRegex(s.Paused, "Existing run process 101"):
+                with self.assertRaisesRegex(s.Paused, f"Existing run process {pid}"):
                     s.assert_no_legacy_process(self.run, self.root)
 
     def test_process_guard_allows_isolated_workspace_when_sandbox_denies_process_listing(self):
@@ -1316,6 +1322,43 @@ class RetrofitTest(unittest.TestCase):
                 )
         self.assertEqual("PAUSED_PROCESS_CLEANUP", caught.exception.status)
 
+    def test_a_launch_refused_before_any_process_started_leaves_no_uncertain_attempt(self):
+        """#2296: a root shell's boundary refusal happens before Popen. The attempt had been admitted as the
+        active stage, so every resume paused on it as an uncertain stage until it was abandoned."""
+
+        @contextlib.contextmanager
+        def launch(command, *, checkpoint, **kwargs):
+            raise runner.supervision.LaunchRefused(
+                "Provider session boundary unavailable; no provider launched: "
+                "Provider session ownership refuses CAP_SYS_PTRACE or CAP_SYS_ADMIN"
+            )
+            yield  # pragma: no cover - a generator-based context manager
+
+        with (
+            patch.object(runner.supervision, "launch", launch),
+            patch.object(s, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}),
+            patch.object(runner.processes, "preflight"),
+        ):
+            with self.assertRaises(s.Paused) as caught:
+                runner.run_role(
+                    role="terra",
+                    prompt="small handoff",
+                    sandbox="workspace-write",
+                    workspace=self.root,
+                    run_dir=self.run,
+                    state=self.state,
+                    schema=runner.SCHEMA_DIR / "v2/terra-report.schema.json",
+                    model="gpt-5.6-terra",
+                    allow_write=True,
+                    dry_run=False,
+                )
+        self.assertEqual("PAUSED_PROCESS_CLEANUP", caught.exception.status)
+        self.assertIn("no provider launched", str(caught.exception))
+        self.assertNotIn("active_stage", self.state, "nothing ran, so there is no attempt to reconcile")
+        self.assertNotIn("active_stage", json.loads((self.run / "state.json").read_text()))
+        self.assertEqual([], sorted(p.name for p in (self.run / "iterations").rglob("*.prompt.md")))
+        self.assertIsNone(runner.reconcile_active(self.state, self.run, self.root))
+
     def test_automatic_timeout_recovery_archives_stopped_terra_and_continues_glm(self):
         before = s.snapshot(self.root)
         base = self.run / "iterations/005/terra-01"
@@ -1444,7 +1487,7 @@ class RetrofitTest(unittest.TestCase):
             (self.state["next_stage"], self.state["phase"], self.state["status"]),
         )
 
-    def test_automatic_timeout_recovery_keeps_execution_routing(self):
+    def test_automatic_timeout_recovery_retries_missing_read_only_tester_report(self):
         before = s.snapshot(self.root)
         base = self.run / "iterations/005/sol-01"
         base.parent.mkdir(parents=True)
@@ -1465,7 +1508,8 @@ class RetrofitTest(unittest.TestCase):
         }
         error = s.Paused("PAUSED_PROVIDER_TIMEOUT", "timed out")
         self.assertTrue(runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, error))
-        self.assertEqual(("astra_review", "EXECUTING"), (self.state["next_stage"], self.state["phase"]))
+        self.assertEqual(("sol", "EXECUTING"), (self.state["next_stage"], self.state["phase"]))
+        self.assertIn("no accepted Tester report", self.state["recovery_context"]["instruction"])
 
     def test_automatic_external_directory_denial_retries_workspace_only(self):
         before = s.snapshot(self.root)
@@ -1572,6 +1616,32 @@ class RetrofitTest(unittest.TestCase):
         self.assertEqual("a-session", self.state["sessions"]["astra"])
 
     def test_complete_resume_loop_and_no_replay_of_completed_stages(self):
+        import scenario_references as references
+        import task_scenarios as scenarios
+
+        # This resume fixture owes the same real source/test proof as a fresh run.
+        references.write(scenarios.BUGFIX_SEED, self.root)
+        subprocess.run(["git", "-C", str(self.root), "add", "greet.py", "test_greet.py", "README.md"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "-qm",
+                "greeting baseline",
+            ],
+            check=True,
+        )
+        self.state["base_commit"] = subprocess.check_output(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"], text=True
+        ).strip()
+        command = shlex.join([sys.executable, "-m", "unittest", "discover", "-v"])
+        self.state["settings"]["regression"] = {"test_command": command}
         # v3 deliberately requires an actual displayed-revision user approval.
         approve_fixture(self.state, goals)
         local = {"auth_mode": "fixture"}
@@ -1589,17 +1659,20 @@ class RetrofitTest(unittest.TestCase):
             out = self.run / f"{stage}.json"
             ev = self.run / f"{stage}.jsonl"
             if stage == "terra":
-                (self.root / "source.rb").write_text("fixed")
+                for name in ("greet.py", "test_greet.py"):
+                    (self.root / name).write_text(references.BUGFIX_REFERENCE[name])
                 value = {
                     "summary": "fixed",
-                    "changed_files": ["source.rb"],
-                    "commands_run": ["ruby test.rb"],
-                    "results": ["pass"],
+                    "changed_files": ["greet.py", "test_greet.py"],
+                    "commands_run": [],
+                    "results": ["Greeting guard and regression test written"],
                     "remaining_risks": [],
                     "evidence_refs": [str(self.evidence)],
                 }
                 ev.write_text('{"type":"turn.completed"}\n')
             elif stage == "sol":
+                check = subprocess.run(shlex.split(command), cwd=self.root, capture_output=True, text=True)
+                self.assertEqual(0, check.returncode, check.stdout + check.stderr)
                 ev.write_text(
                     json.dumps(
                         {
@@ -1607,9 +1680,9 @@ class RetrofitTest(unittest.TestCase):
                             "item": {
                                 "id": "check",
                                 "type": "command_execution",
-                                "command": "grep -q fixed source.rb",
-                                "exit_code": 0,
-                                "aggregated_output": "",
+                                "command": command,
+                                "exit_code": check.returncode,
+                                "aggregated_output": check.stdout + check.stderr,
                             },
                         }
                     )
@@ -1617,7 +1690,7 @@ class RetrofitTest(unittest.TestCase):
                 )
                 value = {
                     "verdict": "PASS",
-                    "checks_run": ["grep -q fixed source.rb"],
+                    "checks_run": [command],
                     "findings": [],
                     "unverified_criteria": [],
                     "end_to_end_result": {
@@ -1625,11 +1698,11 @@ class RetrofitTest(unittest.TestCase):
                         "summary": "Full fixture flow checked",
                         "evidence_refs": ["event:check"],
                     },
-                    "checks": [{"command": "grep -q fixed source.rb", "exit_code": 0, "evidence_ref": "event:check"}],
+                    "checks": [{"command": command, "exit_code": check.returncode, "evidence_ref": "event:check"}],
                     "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}],
                 }
             else:
-                value = self.decision("TASK_COMPLETE")
+                value = {**self.decision("TASK_COMPLETE"), "affected_paths": ["greet.py", "test_greet.py"]}
                 ev.write_text('{"type":"turn.completed"}\n')
             value.update(envelope(kwargs["state"]))
             s.atomic_json(out, value)
@@ -1639,7 +1712,7 @@ class RetrofitTest(unittest.TestCase):
                 "iteration": 5,
                 "output": str(out),
                 "events": str(ev),
-                "changed_files": ["source.rb"] if stage == "terra" else [],
+                "changed_files": ["greet.py", "test_greet.py"] if stage == "terra" else [],
                 "after_ref": str(self.evidence),
                 "source_revision": s.snapshot(self.root)["revision"],
                 "duration_seconds": 0.01,
@@ -1663,9 +1736,15 @@ class RetrofitTest(unittest.TestCase):
         ):
             self.assertEqual(0, runner.main())
             self.assertEqual(["terra", "sol", "astra_review"], called)
-            self.assertEqual("TASK_COMPLETE", s.read(self.run / "state.json")["status"])
+            saved = s.read(self.run / "state.json")
+            self.assertEqual("TASK_COMPLETE", saved["status"])
+            proof = saved["regression_proof"]
+            self.assertEqual("PASS", proof["verdict"], proof)
+            self.assertEqual(["test_greet.TestGreet.test_blank_name_rejected"], proof["fail_to_pass"])
+            self.assertEqual("PASS", proof["changed_code_evidence"]["status"], proof)
             self.assertEqual(0, runner.main())
             self.assertEqual(3, len(called))
+            self.assertEqual(proof, s.read(self.run / "state.json")["regression_proof"])
 
     def test_serial_dispatch_blocks_paused_builder_lane_before_launch(self):
         # Admission parity on the production path: autocode.main's dispatch

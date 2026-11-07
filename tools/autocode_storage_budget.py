@@ -8,12 +8,70 @@ fits — and warns below the measured projection, so the operator sees the numbe
 before hours of model spend instead of an opaque ENOSPC git error mid-run.
 """
 
+from __future__ import annotations
+
+import os
 import shutil
+import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 SNAPSHOT_MULTIPLIER = 3
-_INTERNAL = {".git", ".autocode", ".autocode-ui"}
+_INTERNAL = {".git", ".autocode", ".autocode-ui", ".scenario-runs"}
 _SKIP_DIRS = {"__pycache__"}
+
+
+def conversation_only(state: RunState):
+    """Requirements chat does not prepare the workspace copies being budgeted."""
+    return bool((state.get("settings") or {}).get("spec_first") and state.get("next_stage") == "requirements_gather")
+
+
+def _git_common_dir(root):
+    """Resolve Git's gitdir and commondir files relative to their owning directories."""
+    dot = root / ".git"
+    try:
+        gitdir = dot
+        if not dot.is_dir():
+            text = dot.read_text(encoding="utf-8")
+            target = next(
+                (line[len("gitdir:") :].strip() for line in text.splitlines() if line.startswith("gitdir:")), ""
+            )
+            if not target:
+                return None
+            gitdir = root / target  # an absolute target also works with Path's join
+        gitdir = gitdir.resolve()
+        try:
+            common = (gitdir / "commondir").read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return gitdir  # ordinary or --separate-git-dir repository
+        return (gitdir / common).resolve() if common else None
+    except (OSError, UnicodeError):
+        return None
+
+
+def _other_worktrees(root):
+    """Other checkouts are not source inputs, even when stored below this one.
+
+    Read the git directory rather than asking git. This runs before a provider
+    dispatches, and a subprocess here would share the very seam a test pins to
+    prove that no provider launched.
+    """
+    common = _git_common_dir(root)
+    if common is None:
+        return set()
+    found = set()
+    for pointer in sorted((common / "worktrees").glob("*/gitdir")):
+        try:
+            gitdir = (pointer.parent / pointer.read_text(encoding="utf-8").strip()).resolve()
+        except (OSError, UnicodeError):
+            continue
+        path = gitdir.parent if gitdir.name == ".git" else gitdir
+        if path != root and path.is_relative_to(root):
+            found.add(path)
+    return found
 
 
 def human(size):
@@ -30,18 +88,29 @@ def workspace_bytes(workspace):
     Git objects and the run's own storage are excluded: worktrees share the
     object store, and a nested .autocode run dir is the consumer being measured,
     not its input. Dependency trees a verification copy only links are counted
-    anyway, so the projection stays conservative.
+    anyway, so the projection stays conservative. Prune excluded trees before
+    descending: run history can contain many complete workspace copies.
     """
-    root = Path(workspace)
+    root = Path(workspace).resolve()
+    other_worktrees = _other_worktrees(root)
     total = 0
-    for path in root.rglob("*"):
+    pending = [root]
+    while pending:
+        directory = pending.pop()
         try:
-            if path.is_symlink() or not path.is_file():
-                continue
-            parts = path.relative_to(root).parts
-            if parts[0] in _INTERNAL or any(part in _SKIP_DIRS for part in parts) or path.suffix == ".pyc":
-                continue
-            total += path.stat().st_size
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if entry.name in _SKIP_DIRS or entry.name in _INTERNAL:
+                        continue
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            path = Path(entry.path)
+                            if path not in other_worktrees:
+                                pending.append(path)
+                        elif entry.is_file(follow_symlinks=False) and Path(entry.name).suffix != ".pyc":
+                            total += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
         except OSError:
             continue
     return total
@@ -68,6 +137,33 @@ def refusal(projection):
             f"preparing even one source copy of the workspace ({human(projection['workspace_bytes'])}) exceeds the "
             f"free space ({human(projection['free_bytes'])}); free disk space or move the workspace to a larger disk"
         )
+    return ""
+
+
+def dispatch_refusal(workspace, run_dir, *, source_copy=True):
+    """Recheck every storage destination before spend; free space is never reusable evidence.
+
+    Workspace copies, run artifacts and tools' temporary files can be on different
+    filesystems. Use the existing one-copy floor, without treating it as proof that
+    a complete build will fit. A Requirements-only chat needs writable storage,
+    but does not make or scan a source copy. Check a fresh run's existing ancestor.
+    """
+    size = workspace_bytes(workspace) if source_copy else 0
+    for label, destination in (
+        ("workspace", workspace),
+        ("run artifacts", run_dir),
+        ("temporary files", tempfile.gettempdir()),
+    ):
+        root = Path(destination).resolve()
+        while not root.exists() and root != root.parent:
+            root = root.parent
+        free = shutil.disk_usage(root).free
+        if free < max(1, size):
+            needed = f"even one source copy needs {human(size)}" if source_copy else "run artifacts need free storage"
+            return (
+                f"Insufficient storage for {label} at {root}: {human(free)} free; "
+                f"{needed}. Free space or move the storage before resuming."
+            )
     return ""
 
 

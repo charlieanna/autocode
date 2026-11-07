@@ -13,7 +13,7 @@ line tool, so tasks started from a terminal appear automatically.
 After installing this checkout, start it from any directory:
 
 ```sh
-autocode-dashboard --port 8767
+autocode dashboard --port 8767
 ```
 
 Or run it directly from a checkout:

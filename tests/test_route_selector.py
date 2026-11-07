@@ -16,6 +16,9 @@ SOL_KILO = "kilo/openai/gpt-6-sol"
 ASTRA = "openai/gpt-6-astra"
 ASTRA_KILO = "kilo/openai/gpt-6-astra"
 DEEPSEEK = "kilo/deepseek/deepseek-v4.1-flash"
+OPUS = "anthropic/claude-opus-5-5"
+LUNA = "openai/gpt-6-luna"
+FLASH = "xiaomi-token-plan-sgp/mimo-v2.6-flash"
 ALL_ROLES = ("requirements", "glm", "terra", "plan_reviewer", "sol", "completion", "astra")
 
 
@@ -48,9 +51,25 @@ def gateway_only():
 class QualificationTableTests(unittest.TestCase):
     def test_the_shipped_table_parses_and_covers_every_pipeline_role(self):
         table = selector.table()
-        self.assertEqual("2026-10-17", table["as_of"])
+        self.assertEqual("2026-10-25", table["as_of"])
         for role in selector.PIPELINE_ROLES:
             self.assertTrue(selector.qualified(role), f"{role} has no qualified model")
+
+    def test_the_table_excludes_mimo_from_plan_review_with_the_owner_decision(self):
+        # #2121: a stock profile pins MiMo as reviewer, so a live run reaches it; the exclusion
+        # keeps that run from qualifying it and selection from ever choosing it.
+        excluded = selector.table()["excluded"]["plan_reviewer"]
+        self.assertEqual([MIMO], [entry["model"] for entry in excluded])
+        self.assertIn("Owner decision 2026-10-20", excluded[0]["evidence"])
+
+    def test_an_excluded_model_needs_evidence_and_may_not_also_be_qualified(self):
+        listed = {**selector.qualified("plan_reviewer")[0], "model": MIMO, "routes": [MIMO]}
+        table = {"as_of": "x", "roles": {"plan_reviewer": [listed]}, "excluded": {"plan_reviewer": [{"model": MIMO}]}}
+        with self.assertRaisesRegex(ValueError, "evidence is required"):
+            selector.parse(table)
+        table["excluded"]["plan_reviewer"][0]["evidence"] = "Owner decision"
+        with self.assertRaisesRegex(ValueError, "excluded and also listed"):
+            selector.parse(table)
 
     def test_every_entry_names_its_evidence_and_provenance(self):
         for role in selector.PIPELINE_ROLES:
@@ -71,6 +90,30 @@ class QualificationTableTests(unittest.TestCase):
         wrong_routes = {"model": GLM, "evidence": "run", "provenance": "qualified", "routes": [MIMO]}
         with self.assertRaisesRegex(ValueError, "including the model"):
             selector.parse({"as_of": "x", "roles": {"terra": [wrong_routes]}})
+
+    def test_run_records_are_validated_and_summarised(self):
+        # #2059: structured AutoCode evidence beside the prose; provisional entries stay selectable.
+        entry = {"model": GLM, "evidence": "run", "provenance": "qualified"}
+        bad = {**entry, "runs": [{"date": "2026-10-25", "run": "r1", "minutes": -1, "cost_usd": None}]}
+        with self.assertRaisesRegex(ValueError, "runs must be records"):
+            selector.parse({"as_of": "x", "roles": {"terra": [bad]}})
+        runs = [
+            {"date": "2026-10-24", "run": "r1", "minutes": 10, "cost_usd": 0.5},
+            {"date": "2026-10-25", "run": "r2", "minutes": 30, "cost_usd": None},
+            {"date": "2026-10-23", "run": "r3", "minutes": None, "cost_usd": 1.5},
+        ]
+        selector.parse({"as_of": "x", "roles": {"terra": [{**entry, "runs": runs}]}})
+        text = selector.evidence_summary({**entry, "runs": runs})
+        self.assertIn("qualified: 3 AutoCode runs, latest 2026-10-25", text)
+        self.assertIn("accepted-only", text)
+        self.assertIn("active median 20.0 min [2/3 runs]", text)
+        self.assertIn("cost median $1.00 (reported or historical estimate) [2/3 runs]", text)
+        self.assertIn("failed/repair amounts unavailable", text)
+        self.assertIn("not whole-task totals or invoices", text)
+        self.assertEqual(
+            "provisional: no AutoCode run yet", selector.evidence_summary({**entry, "provenance": "provisional"})
+        )
+        self.assertEqual("qualified: no recorded run", selector.evidence_summary(entry))
 
     def test_a_model_the_table_does_not_list_is_never_chosen(self):
         result = selector.select(ALL_ROLES, [candidate("kilo/unbiased/pareto-latest")])
@@ -100,32 +143,84 @@ class RankingTests(unittest.TestCase):
 
 
 class SelectionTests(unittest.TestCase):
-    def test_two_subscription_logins_reproduce_the_glm53_mimo_split(self):
+    def test_three_subscription_logins_put_gpt6_sol_on_building_and_plan_review(self):
         allowed = {"Z.AI Coding Plan", "Xiaomi Token Plan (Singapore)", "ChatGPT login"}
         result = selector.select(ALL_ROLES, coding_plans(), permissions=allowed)
         routes = result["routes"]
         self.assertIsNotNone(routes)
-        # The same family split the live glm53-mimo profile uses: MiMo builds and
-        # reviews the plan, GLM requires, plans, validates and completes.
+        # Owner decisions 2026-10-20: GPT-6 Sol builds and reviews the plan; GLM requires, plans, and checks
+        # Sol's work as Tester and Completion Reviewer (a checker never grades its own family).
         self.assertEqual(GLM, routes["requirements"]["model"])
         self.assertEqual(GLM, routes["glm"]["model"])
-        self.assertEqual(MIMO, routes["terra"]["model"])
-        self.assertEqual(MIMO, routes["plan_reviewer"]["model"])
+        self.assertEqual(SOL, routes["terra"]["model"])
+        self.assertEqual(SOL, routes["plan_reviewer"]["model"])
         self.assertEqual(GLM, routes["sol"]["model"])
         self.assertEqual(GLM, routes["completion"]["model"])
         self.assertEqual(ASTRA, routes["astra"]["model"])
         self.assertEqual({role_route.AUTO_SELECTED}, {r["origin"] for r in routes.values()})
 
+    def test_mimo_never_reviews_a_plan_and_claude_is_the_second_choice(self):
+        # Owner decision 2026-10-20: MiMo reasoned 32-45k tokens per plan review and failed twice.
+        opus = candidate(OPUS, tool="opencode", account="Anthropic", billing="pay per token")
+        plans = [row for row in coding_plans() if row["model"] not in (SOL, ASTRA)]
+        result = selector.select(("requirements", "glm", "terra", "plan_reviewer"), [*plans, opus])
+        self.assertEqual(OPUS, result["routes"]["plan_reviewer"]["model"])
+        both = selector.select(("requirements", "glm", "terra", "plan_reviewer"), [*coding_plans(), opus])
+        self.assertEqual(SOL, both["routes"]["plan_reviewer"]["model"], "GPT-6 Sol first, even beside Claude")
+
+    def test_gpt6_luna_builds_at_medium_and_no_gpt_model_checks_it(self):
+        luna = candidate(LUNA, tool="opencode", account="ChatGPT login", billing="subscription")
+        routes = selector.select(ALL_ROLES, [*coding_plans(), luna])["routes"]
+        self.assertEqual(LUNA, routes["terra"]["model"])
+        self.assertEqual("medium", routes["terra"]["reasoning_effort"])
+        # All GPT models are one family (owner, 2026-10-20): GLM checks Luna's build, never GPT-6 Sol.
+        self.assertEqual(GLM, routes["sol"]["model"])
+        self.assertEqual("medium", routes["sol"]["reasoning_effort"])  # the GLM Tester at medium (2026-10-21)
+        self.assertEqual(GLM, routes["completion"]["model"])
+
+    def test_mimo_flash_builds_when_only_a_gpt_model_could_check_an_openai_build(self):
+        account = {"tool": "opencode", "account": "ChatGPT login", "billing": "subscription"}
+        flash = candidate(FLASH, tool="opencode", account="Xiaomi Token Plan (Singapore)", billing="subscription")
+        rows = [candidate(LUNA, **account), candidate(SOL, **account), flash]
+        routes = selector.select(("terra", "sol", "completion"), rows)["routes"]
+        self.assertEqual(FLASH, routes["terra"]["model"])
+        self.assertEqual(SOL, routes["sol"]["model"])
+        self.assertEqual(SOL, routes["completion"]["model"])
+
+    def test_claude_builds_when_gpt6_sol_is_not_connected(self):
+        opus = candidate(OPUS, tool="opencode", account="Anthropic", billing="pay per token")
+        plans = [row for row in coding_plans() if row["model"] not in (SOL, ASTRA)]
+        routes = selector.select(("requirements", "glm", "terra", "sol", "completion"), [*plans, opus])["routes"]
+        self.assertEqual(OPUS, routes["terra"]["model"])
+        self.assertNotEqual(OPUS, routes["completion"]["model"], "Claude never checks its own build")
+
+    def test_without_sol_or_claude_the_person_is_offered_those_and_never_mimo(self):
+        plans = [row for row in coding_plans() if row["model"] not in (SOL, ASTRA)]
+        result = selector.select(("requirements", "glm", "terra", "plan_reviewer"), plans)
+        self.assertIsNone(result["routes"])
+        stop = result["stop"]
+        self.assertIn("Plan Reviewer: no qualified model is available.", stop)
+        self.assertIn(f"{SOL} — connect the ChatGPT login", stop)
+        self.assertIn(f"{OPUS} — connect the Anthropic (Claude) login", stop)
+        self.assertNotIn(MIMO + " —", stop)
+
+    def test_a_preference_must_be_a_nonnegative_integer(self):
+        table = {
+            "as_of": "x",
+            "roles": {"plan_reviewer": [{**selector.qualified("plan_reviewer")[0], "preference": -1}]},
+        }
+        with self.assertRaisesRegex(ValueError, "preference"):
+            selector.parse(table)
+
     def test_a_gateway_only_login_gets_the_owners_starting_table(self):
         result = selector.select(ALL_ROLES, gateway_only())
         routes = result["routes"]
         self.assertIsNotNone(routes)
-        # DeepSeek V4.1 Flash builds, GLM 5.3 requires and plans, and the checkers
-        # that GLM cannot take (Plan Reviewer) or that cost more than GLM stay on
-        # GPT-6 Sol; every route bills Kilo Gateway credits.
+        # GPT-6 Sol builds and reviews the plan, GLM 5.3 requires, plans and checks the build;
+        # every route bills Kilo Gateway credits.
         self.assertEqual(GLM_KILO, routes["requirements"]["model"])
         self.assertEqual(GLM_KILO, routes["glm"]["model"])
-        self.assertEqual(DEEPSEEK, routes["terra"]["model"])
+        self.assertEqual(SOL_KILO, routes["terra"]["model"])
         self.assertEqual(SOL_KILO, routes["plan_reviewer"]["model"])
         self.assertEqual(GLM_KILO, routes["sol"]["model"])
         self.assertEqual(GLM_KILO, routes["completion"]["model"])
@@ -140,7 +235,7 @@ class SelectionTests(unittest.TestCase):
         stop = result["stop"]
         self.assertIn("Connect a second model family", stop)
         self.assertIn("ChatGPT login", stop)
-        self.assertIn("Xiaomi Token Plan", stop)
+        self.assertIn("Anthropic (Claude) login", stop)  # plan review offers GPT-6 Sol or Claude, never MiMo
         self.assertNotIn("--single-model", stop)
 
     def test_permissions_remove_a_connected_model_and_the_stop_names_the_account(self):
@@ -171,7 +266,7 @@ class SelectionTests(unittest.TestCase):
 
     def test_unknown_access_is_listed_for_the_probe_and_known_access_is_not(self):
         result = selector.select(ALL_ROLES, gateway_only())
-        self.assertEqual(sorted({GLM_KILO, DEEPSEEK, SOL_KILO, ASTRA_KILO}), result["probe"])
+        self.assertEqual(sorted({GLM_KILO, SOL_KILO, ASTRA_KILO}), result["probe"])
         known = [dict(c, probe="known") for c in gateway_only()]
         self.assertEqual([], selector.select(ALL_ROLES, known)["probe"])
 
@@ -208,7 +303,7 @@ class NextRouteTests(unittest.TestCase):
     """Step 9's decision: the route a stopped model's role switches to on its own (#1426)."""
 
     def test_a_dead_tester_switches_to_the_next_qualified_independent_model(self):
-        result = selector.select(ALL_ROLES, coding_plans())
+        result = selector.select(ALL_ROLES, coding_plans(), pinned={"terra": MIMO})
         result["candidates"] = selector.permitted_set(coding_plans())
         switched = selector.next_route(result, "sol", GLM)
         self.assertIsNotNone(switched)
@@ -216,17 +311,15 @@ class NextRouteTests(unittest.TestCase):
         self.assertEqual("ChatGPT login", switched["account"])
 
     def test_no_candidate_left_means_ask_not_guess(self):
-        # The Builder died and its only other qualified model is the family its
-        # checkers run on: switching would break independence, so the person is asked.
-        result = selector.select(ALL_ROLES, coding_plans())
+        # A pinned MiMo Builder stops. GPT-6 Sol is preferred, but it already checks the Builder as Completion
+        # Reviewer, and GLM is the Tester's family: switching would break independence, so the person is asked.
+        result = selector.select(ALL_ROLES, coding_plans(), pinned={"terra": MIMO})
         result["candidates"] = selector.permitted_set(coding_plans())
+        self.assertEqual(SOL, result["routes"]["completion"]["model"])
         self.assertIsNone(selector.next_route(result, "terra", MIMO))
-        gateway = selector.select(ALL_ROLES, gateway_only())
-        gateway["candidates"] = selector.permitted_set(gateway_only())
-        self.assertIsNone(selector.next_route(gateway, "terra", DEEPSEEK))
 
     def test_other_roles_keep_their_routes_through_the_switch(self):
-        result = selector.select(ALL_ROLES, coding_plans())
+        result = selector.select(ALL_ROLES, coding_plans(), pinned={"terra": MIMO})
         result["candidates"] = selector.permitted_set(coding_plans())
         before = {role: route["model"] for role, route in result["routes"].items()}
         switched = selector.next_route(result, "sol", GLM)
@@ -240,6 +333,6 @@ class NextRouteTests(unittest.TestCase):
 
     def test_permitted_set_lists_each_roles_qualified_connected_candidates(self):
         permitted = selector.permitted_set(coding_plans())
-        self.assertEqual({GLM, MIMO}, {c["model"] for c in permitted["terra"]})
+        self.assertEqual({SOL, GLM, MIMO}, {c["model"] for c in permitted["terra"]})
         self.assertEqual({SOL, GLM}, {c["model"] for c in permitted["sol"]})
         self.assertEqual({ASTRA}, {c["model"] for c in permitted["astra"]})

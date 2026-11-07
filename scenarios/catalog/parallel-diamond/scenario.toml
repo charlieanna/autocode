@@ -20,20 +20,20 @@ verify = "python3 -c \"import json;t=json.load(open('dependency_trace.json'));as
 [[fake.milestones]]
 id = "B"
 depends_on = ["A"]
-paths = ["server/handler.py"]
+paths = ["server/__init__.py", "server/handler.py", "server/test_handler.py"]
 objective = "Write server/handler.py: handle(node) returns a string"
 verify = "python3 -c \"from server.handler import handle;assert isinstance(handle('x'),str)\""
 
 [[fake.milestones]]
 id = "C"
 depends_on = ["A"]
-paths = ["client/fetch.py"]
+paths = ["client/__init__.py", "client/fetch.py", "client/test_fetch.py"]
 objective = "Write client/fetch.py: fetch(node) returns a string"
 verify = "python3 -c \"from client.fetch import fetch;assert isinstance(fetch('x'),str)\""
 
 [[fake.milestones]]
 id = "D"
 depends_on = ["B", "C"]
-paths = ["integration/check.py"]
+paths = ["integration/__init__.py", "integration/check.py", "integration/test_check.py"]
 objective = "Write integration/check.py: check() exercises handle() and fetch() together"
 verify = "python3 -c \"from integration.check import check;assert isinstance(check(),str)\""

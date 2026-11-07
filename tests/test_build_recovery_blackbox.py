@@ -156,11 +156,15 @@ class RecoveryBlackbox(unittest.TestCase):
                 lambda: next((e for e in self.events() if e["milestone"] == "M1"), None), "M1 provider never started"
             )
 
-            def built(milestone):
-                path = Path(self.worker_row(milestone)["run_dir"]) / "result.json"
-                return path.is_file() and json.loads(path.read_text())["status"] == "BUILT"
+            def siblings_finished():
+                # A child publishes result.json before its controller adopts it and it exits.
+                # Kill only after both unrelated siblings are recorded complete by the owner.
+                status = json.loads(self.invoke("autocode", ["--run-dir", str(self.run), "--status"]).stdout)
+                workers = (status.get("orchestration_batch") or {}).get("workers", [])
+                finished = {row["milestone_id"] for row in workers if row["status"] == "BUILT"}
+                return {"M2", "M3"} <= finished
 
-            self.until(lambda: built("M2") and built("M3"), "M2 and M3 did not build")
+            self.until(siblings_finished, "Controller never recorded M2 and M3 complete")
             row = self.worker_row("M1")
             self.assertIn("supervision", row, "M1 was launched without a lifeline")
 

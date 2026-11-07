@@ -10,11 +10,13 @@ if TYPE_CHECKING:
 try:
     from . import autocode_recovery_accounting as accounting
     from . import autocode_recovery_context as recovery_context
+    from . import autocode_report_repair_queue as report_repair_queue
     from .autocode_permission_recovery import hold_message
     from .autocode_source_scope import snapshot
 except ImportError:
     import autocode_recovery_accounting as accounting
     import autocode_recovery_context as recovery_context
+    import autocode_report_repair_queue as report_repair_queue
     from autocode_permission_recovery import hold_message
     from autocode_source_scope import snapshot
 
@@ -41,9 +43,16 @@ RESPONSE_COMMAND = "--resolver-request ID --resolver-token - (reads AUTOCODE_RES
 # and the hold after the response must name it or a plain resume holds forever without saying why.
 CONTRACT_DECISION_ADVICE = (
     "A decision that changes the approved contract takes effect through --edit-goal body.json "
-    "(the goal_contract.body shape from state) followed by --approve-goal; information alone changes nothing."
+    "(the goal_contract.body shape from state) followed by --approve-goal; plan feedback "
+    "(--feedback) carries the correction to a fresh draft needing the same fresh approval; "
+    "information alone changes nothing."
 )
 BOUND_ADVICE = {
+    # #1815: the planning-review total is acknowledged by an allowance or by direction for the Planner.
+    "PAUSED_PLANNING_BUDGET": (
+        "To allow more plan reviews, use autocode --resume-paused --planning-review-call-limit N "
+        "(more than the calls used, or 0 for no limit); or give the Planner direction with --feedback TEXT."
+    ),
     "PAUSED_TIME_LIMIT": (
         "To acknowledge this active-time pause, use autocode resume --max-seconds N "
         "with a total above elapsed active time (and at least the total the stop names for an attempt on a "
@@ -52,7 +61,7 @@ BOUND_ADVICE = {
     ),
     "PAUSED_COST_LIMIT": (
         "To acknowledge this cost pause, use autocode resume --max-cost-usd N "
-        "with a cap above the spend so far (and at least the cap the stop names for an attempt on a stronger route), "
+        "with a cap above the spend so far (and at least the cap the stop names for a projected attempt), "
         "or 0 for no cost cap. AutoCode never raises this cap itself; "
         "you may reassert an already saved cap that is still above the spend; unrelated settings do not "
         "acknowledge this pause."
@@ -137,11 +146,86 @@ def held_request(state: RunState, stage) -> dict:
     return {}
 
 
+UNSETTLED_REFUSAL = "Reconcile owned active or uncertain workers before authorizing recovery"
+
+# The saved state that refuses a fresh execution retry, and the reason its own CLI gives. One predicate
+# for the gate (autocode_stage_recovery.authorize_failure_retry) and every projection of it, so a pause
+# cannot name a retry the person is then refused (#1897). Narrower than UNSETTLED, which also blocks a
+# novelty hold's scoped retry: an active runner check or a building batch does not refuse this one.
+RETRY_UNRECONCILED = ("active_stage", "uncertain_artifacts", "pending_report_repair")
+RETRY_UNRECONCILED_REFUSAL = "Reconcile the active attempt or pending report repair before authorizing a retry"
+
+
+def repeated_failure_retry_refusal(state: RunState) -> str | None:
+    """Why ``--retry-failed-stage`` is refused for this saved state right now, else None."""
+    return RETRY_UNRECONCILED_REFUSAL if any(state.get(key) for key in RETRY_UNRECONCILED) else None
+
+
+HOLD_STATUSES = ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING")
+
+
+def published_request(state: RunState) -> dict | None:
+    """The published AutoResolver request whose ledger entry is still pending, else None.
+
+    The status view's reading of the request. The CLI passes its receipt-verified request
+    (``autocode_resolver_human.current``) to ``scoped_retry_refusal`` instead; this module cannot
+    import that one without a cycle.
+    """
+    # autocode_goals.RESOLVER_REQUEST_KEY; this policy imports no contract module.
+    public = state.get("resolver_human_request")
+    if not isinstance(public, dict):
+        return None
+    entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get(public.get("request_id"))
+    return public if isinstance(entry, dict) and entry.get("status") == "pending" else None
+
+
+def scoped_retry_refusal(state: RunState, public: dict | None) -> str | None:
+    """Why the saved state cannot take an explicit scoped retry of its novelty hold now, else None.
+
+    The one admission rule for ``--resume-paused --retry-failed-stage`` that reads only saved state:
+    ``autocode_resolver_recovery.authorize_retry`` raises these reasons, and the status view names
+    the retry only when this returns None, or shows the reason instead (#1770). ``public`` is the
+    current published AutoResolver request, or None. The CLI separately rechecks the hold's source,
+    settings and scope binding, which needs the run's files.
+    """
+    if any(state.get(key) for key in UNSETTLED):
+        return UNSETTLED_REFUSAL
+    if state.get("status") not in HOLD_STATUSES:
+        return "Scoped recovery retry requires its no-progress hold"
+    if public:
+        entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get(public.get("request_id")) or {}
+        origin = ((entry.get("identity") or {}).get("proposal") or {}).get("origin") or {}
+        if public.get("scope") != "operational_exhaustion" or origin.get("pause_status") != "PAUSED_NO_PROGRESS":
+            return "A different human decision cannot grant a recovery retry"
+    # autocode_goals.RESOLVER_PROPOSAL_KEY: AutoResolver's request before it is published.
+    pending = state.get("resolver_human_proposal")
+    if pending and (
+        pending.get("scope") != "operational_exhaustion"
+        or (pending.get("origin") or {}).get("pause_status") != "PAUSED_NO_PROGRESS"
+        or (pending.get("origin") or {}).get("stage") != state.get("next_stage")
+    ):
+        return "A different pending decision cannot grant a recovery retry"
+    if not (public or pending) and (
+        state.get("status") != "PAUSED_NO_PROGRESS"
+        or state.get("pending_questions")
+        or (state.get("user_request") or {}).get("kind") not in (None, "none")
+    ):
+        return "A different pending decision cannot grant a recovery retry"
+    return None
+
+
 def scoped_retry(state: RunState) -> str | None:
-    """``SCOPED_RETRY`` while a novelty hold on the next stage waits for one, with nothing to reconcile first."""
+    """``SCOPED_RETRY`` while a novelty hold on the next stage waits for one and the CLI would admit it."""
     if not held_request(state, state.get("next_stage")).get("novelty_hold"):
         return None
-    return None if any(state.get(key) for key in UNSETTLED) else SCOPED_RETRY
+    return None if scoped_retry_refusal(state, published_request(state)) else SCOPED_RETRY
+
+
+def scoped_retry_unavailable(state: RunState) -> str | None:
+    """Why a novelty hold's one scoped retry cannot be given yet, else None (no hold, or it can)."""
+    if not held_request(state, state.get("next_stage")).get("novelty_hold"):
+        return None
+    return scoped_retry_refusal(state, published_request(state))
 
 
 def _no_progress_reasons(state: RunState, cause):
@@ -253,6 +337,10 @@ def repeated_failure_resume_guard(state: RunState, *, authorization=None, repeat
     if state.get("status") != "PAUSED_REPEATED_FAILURE":
         return
     pending = state.get("pending_report_repair") or {}
+    if report_repair_queue.pending_repair_dispatchable(state):
+        # This resume dispatches that bounded report-only repair instead of restarting the failed
+        # attempt, and the retry gate refuses --retry-failed-stage until it is reconciled (#1899).
+        return
     record = pending.get("original") or next(
         (row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None
     )

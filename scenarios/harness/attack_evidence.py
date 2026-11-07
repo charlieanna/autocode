@@ -20,6 +20,7 @@ ATTACKS = frozenset(
         "evidence_failing_exit",
         "evidence_cross_stage",
         "evidence_wrong_command",
+        "evidence_capture_identity",
         "evidence_stale_contract",
         "evidence_stale_task",
         "evidence_late_source_mutation",
@@ -191,7 +192,12 @@ def install(fake, config: dict, trace) -> None:
         }:
             receipt("armed", **break_greeting())
         if stage in ("sol", "astra_checkpoint"):
-            if attack == "evidence_failing_exit":
+            if attack == "evidence_capture_identity":
+                receipt(
+                    "identity_recorded",
+                    identity={key: report[key] for key in ("contract_revision", "contract_hash", "task_id")},
+                )
+            elif attack == "evidence_failing_exit":
                 report["verdict"] = "PASS"
                 for check in report.get("checks", []):
                     check["exit_code"] = 0
@@ -207,8 +213,8 @@ def install(fake, config: dict, trace) -> None:
             elif attack == "evidence_stale_contract":
                 old_revision = report.get("contract_revision", 0)
                 old_hash = report.get("contract_hash", "")
-                report["contract_revision"] = old_revision + 1000
-                report["contract_hash"] = "f" * 64
+                report["contract_revision"] = config["prior_identity"]["contract_revision"]
+                report["contract_hash"] = config["prior_identity"]["contract_hash"]
                 receipt(
                     "injected",
                     current_revision=old_revision,
@@ -218,7 +224,7 @@ def install(fake, config: dict, trace) -> None:
                 )
             elif attack == "evidence_stale_task":
                 task_id = report.get("task_id", "")
-                report["task_id"] = "unrelated-task-that-was-never-dispatched"
+                report["task_id"] = config["prior_identity"]["task_id"]
                 receipt("injected", current_task_id=task_id, claimed_task_id=report["task_id"])
             elif attack == "evidence_forged_receipt":
                 reference = ".autocode/evidence/invented-receipt.json"

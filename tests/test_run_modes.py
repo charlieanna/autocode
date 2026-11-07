@@ -27,12 +27,15 @@ class RunModeListTests(unittest.TestCase):
     def test_list_names_each_mode_with_its_start_flags_and_the_default(self):
         listed = self.listed()
         self.assertEqual(1, listed["schema_version"])
-        self.assertEqual(["full", "quick"], [mode["id"] for mode in listed["modes"]])
+        # Every chat starts with Requirements (owner decision 2026-10-22): "quick", which skipped it, is gone.
+        self.assertEqual(["full"], [mode["id"] for mode in listed["modes"]])
         self.assertEqual("full", listed["default"])
         for mode in listed["modes"]:
             self.assertEqual({"id", "label", "description", "start_args", "spend_confirmation"}, set(mode))
             self.assertTrue(all(word.startswith("--") for word in mode["start_args"]), mode)
-        self.assertEqual(["planning", "start"], [mode["spend_confirmation"] for mode in listed["modes"]])
+            self.assertNotIn("--no-spec-first", mode["start_args"], "no mode skips the Requirements conversation")
+        self.assertEqual(["--joint-planning", "--spec-first"], listed["modes"][0]["start_args"])
+        self.assertEqual(["planning"], [mode["spend_confirmation"] for mode in listed["modes"]])
 
     def test_a_listed_mode_cannot_be_changed_through_the_view(self):
         self.listed()["modes"][0]["start_args"].append("--auto-approve")
@@ -73,7 +76,7 @@ class RunModeCliTests(unittest.TestCase):
             "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
             "AUTOCODE_HOME": str(root / "registry"),
             "PYTHONDONTWRITEBYTECODE": "1",
-            # The recognizer judges this brief clear, so only Quick plan may skip Requirements.
+            # The recognizer judges this brief clear; Requirements still talks with the person first.
             "LIVE_FIXTURE_CLARITY": "clear",
         }
 
@@ -95,11 +98,14 @@ class RunModeCliTests(unittest.TestCase):
         self.assertEqual(1, self.count(run, "requirements-gather"))
         self.assertEqual(0, self.count(run, "plan-challenge"), "Full mode plans only after you confirm requirements")
 
-    def test_quick_mode_plans_a_clear_request_without_requirements_and_still_needs_approval(self):
-        run, view = self.start("quick")
+    def test_full_mode_plans_only_after_requirements_and_still_needs_approval_and_checks(self):
+        run, view = self.start("full")
+        question = view["needs"]["questions"][-1]["id"]
+        self.assertTrue(question.startswith("requirements-review-"), view.get("needs"))
+        run.answer(question, "plan")
+        view = run.advance_until_input()
         self.assertEqual("approve_plan", view["needs"]["kind"], view.get("needs"))
-        self.assertEqual(0, self.count(run, "requirements-gather"), "A clear request skips Requirements")
-        self.assertTrue(view["planning_depth"]["requirements_skipped"], view.get("planning_depth"))
+        self.assertFalse(view["planning_depth"]["requirements_skipped"], view.get("planning_depth"))
         self.assertFalse((self.workspace / "greet.py").exists(), "Nothing is built before approval")
         run.approve_plan(view["needs"]["token"])
         done = run.advance_until_input()

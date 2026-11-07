@@ -16,7 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from goal_fixtures import body
+from goal_fixtures import body, greeting_changed_code_reasons, seed_greeting_workspace, write_greeting_source
 
 _NUMBER = re.compile(r"\d+(?:\.\d+)*")
 _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
@@ -94,7 +94,34 @@ def tool_event(part_id, command, code, output):
 
 
 def deliver(value):
+    if (
+        stage == "astra_finalize"
+        and "retain_contract" not in value.get("contract", {})
+        and "retain_contract" in schema.get("properties", {}).get("contract", {}).get("properties", {})
+    ):
+        draft = value["contract"]
+        retained = {
+            "retain_contract": data.get("retained_contract")
+            or (data.get("clarification_context") or {}).get("retained_contract"),
+            "open_blocking_questions": draft.get("open_blocking_questions", []),
+        }
+        if "initial_task" in schema["properties"]["contract"]["properties"]:
+            retained["initial_task"] = draft.get("initial_task")
+        if "acceptance_criteria" in schema["properties"]["contract"]["properties"]:
+            # The reference's criteria delta (#1991); empty, it retains every row.
+            retained["acceptance_criteria"] = {
+                "retain_from": retained["retain_contract"],
+                "upsert": [],
+                "remove": [],
+                "proofs": [],
+            }
+        value["contract"] = retained
+        value["requirement_trace"] = []
     properties = schema.get("properties", {})
+    if "workspace_scope" in properties:
+        # The greeting fixture scripts one repository. Repairs retain any scope
+        # already present in the original report instead of narrowing it.
+        value.setdefault("workspace_scope", {"spans_repositories": False, "external_parts": []})
     if data.get("report_repair") and "summary" in schema.get("required", []) and "summary" in properties:
         value.setdefault("summary", "Repaired report")
     draft = value.get("contract")
@@ -249,7 +276,7 @@ def adaptive_task(draft):
     draft["initial_task"] = (
         {
             "objective": "Implement greeting CLI",
-            "affected_paths": ["greet.py"],
+            "affected_paths": ["greet.py", "test_greeting.py"],
             "kind": "implement",
             "milestone_id": "M1",
             "requirements": ["Greet names; reject empty/whitespace input"],
@@ -316,6 +343,7 @@ if data.get("report_repair"):
                 "open_questions": [],
                 "requirements": [],
                 "ignored_statements": [],
+                "workspace_scope": {"spans_repositories": False, "external_parts": []},
                 "conflicts": [],
                 "proposed_reframes": [],
                 "ignored_requirements": [],
@@ -364,7 +392,7 @@ if data.get("report_repair"):
         draft = body(questions=False, human=False)
         draft["initial_task"] = {
             "objective": "Implement greeting CLI",
-            "affected_paths": ["greet.py"],
+            "affected_paths": ["greet.py", "test_greeting.py"],
             "kind": "implement",
             "milestone_id": "M1",
             "requirements": ["Greet names"],
@@ -454,7 +482,7 @@ elif stage == "investigate_stuck" and data.get("builder_failure"):
     original = json.loads(report.read_text())
     execution = (
         bool(os.environ.get("AUTOCODE_FIXTURE_IDLE_BUILDER_MODELS"))
-        and data["current_task"]["affected_paths"] == ["greet.py"]
+        and "greet.py" in data["current_task"]["affected_paths"]
         and original.get("summary") == "No change made"
         and original.get("results") == ["Nothing written"]
         and not Path("greet.py").exists()
@@ -478,6 +506,11 @@ elif stage == "investigate_stuck" and data.get("builder_failure"):
         evidence_refs=[str(report)],
         example=diagnosis,
         probe=shlex.join([sys.executable, "-c", code]) if execution else "",
+        counterexample={
+            "file": "run/" + report.name if execution else "",
+            "find": json.dumps("No change made") if execution else "",
+            "replace": json.dumps("Implementation written") if execution else "",
+        },
         untestable="" if execution else "This is not the configured missing-output fault.",
         failure_class="execution" if execution else "unknown",
         failure_id=failure["failure_id"],
@@ -492,6 +525,7 @@ elif stage == "investigate_stuck":
         "evidence_refs": [],
         "example": "",
         "probe": "",
+        "counterexample": {"file": "", "find": "", "replace": ""},
         "untestable": "",
     }
 elif stage == "requirements_gather":
@@ -517,12 +551,20 @@ elif stage == "requirements_gather":
         "open_questions": draft["open_blocking_questions"],
         "requirements": [],
         "ignored_statements": [],
+        "workspace_scope": {"spans_repositories": False, "external_parts": []},
         "conflicts": [],
         "proposed_reframes": [],
         "ignored_requirements": [],
         "machine_resolutions": [],
         "access_blockers": [],
+        # Requirements names the job (#1860); this offline fixture treats every request as a build.
+        "job": "build",
+        "design_document": "",
     }
+    if 'Add "clarity"' in prompt or "clarity" in schema.get("properties", {}):
+        # Vague, as the recognizer answered: the review allowance counts per planning cycle as before. A report
+        # repair's prompt has no rule, but its schema still asks for clarity.
+        result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
 elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=False)
     if data["saved_answers"]:
@@ -594,7 +636,7 @@ elif stage == "astra_finalize":
     draft = dict(contract["body"])
     draft["initial_task"] = {
         "objective": "Implement greeting CLI",
-        "affected_paths": ["greet.py"],
+        "affected_paths": ["greet.py", "test_greeting.py"],
         "kind": "implement",
         "milestone_id": "M1",
         "requirements": ["Greet names; reject empty/whitespace input"],
@@ -638,17 +680,17 @@ elif stage == "terra" and MODEL and MODEL in os.environ.get("AUTOCODE_FIXTURE_ID
         "recommended_checks": [],
     }
 elif stage == "terra":
-    Path("greet.py").write_text(
-        "import sys\nif len(sys.argv) != 2 or not sys.argv[1].strip():\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n"
-    )
+    # The greeting with its own tests: a product change owes the changed-line proof (#2474).
+    seed_greeting_workspace(Path.cwd())
+    write_greeting_source(Path.cwd(), revision=str(uuid.uuid4()))
     result = {
         **common,
         "summary": "Greeting written",
-        "changed_files": ["greet.py"],
+        "changed_files": ["greet.py", "test_greeting.py"],
         "commands_run": [],
         "results": ["Written"],
         "remaining_risks": [],
-        "evidence_refs": ["greet.py"],
+        "evidence_refs": ["greet.py", "test_greeting.py"],
         "addressed_requirements": data["current_task"]["requirements"],
         "untested_behavior": ["CLI execution"],
         "recommended_checks": ["Execute valid and invalid input"],
@@ -689,6 +731,8 @@ elif stage == "sol":
         "criterion_results": [{"id": "C1", "status": "PASS" if passed else "FAIL", "evidence_refs": [str(evidence)]}],
         "finding_dispositions": [],
     }
+    if "changed_code_exceptions" in schema.get("properties", {}):
+        result["changed_code_exceptions"] = greeting_changed_code_reasons(data)
 else:
     complete = stage == "astra_review"
     result = {
@@ -717,7 +761,7 @@ else:
         "evidence": ["Validator receipt"],
         "blocker": "",
         "plan": ["Implement greeting", "Run both cases"],
-        "affected_paths": ["greet.py"],
+        "affected_paths": ["greet.py", "test_greeting.py"],
     }
 
 if stage == "sol" and os.environ.get("AUTOCODE_FIXTURE_MISSING_CHECK_EXIT"):

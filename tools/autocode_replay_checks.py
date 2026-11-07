@@ -14,10 +14,12 @@ if TYPE_CHECKING:
 
 import copy
 import hashlib
+import json
 import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_changed_code_proof as proof_policy
     from . import autocode_command_receipt as receipts
     from . import autocode_liveness as liveness
     from . import autocode_replay_bindings as identity_bindings
@@ -28,6 +30,7 @@ try:
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
 except ImportError:
+    import autocode_changed_code_proof as proof_policy
     import autocode_command_receipt as receipts
     import autocode_liveness as liveness
     import autocode_replay_bindings as identity_bindings
@@ -235,9 +238,40 @@ def _retained(state: RunState, tape, summary, purpose, *, case_ids=None, dispatc
     actual = {
         key: item for key, item in summary.items() if key not in ("simulated", "current_proof", "path", "archival")
     }
-    if actual != value:
+    if actual != value and not _reviewed_only(state, actual, value):
         raise recording.RecordingError("Replay diverged: retained archival summary differs")
     return row, value
+
+
+def _reviewed_only(state: RunState, actual, value):
+    """The retained proof differs from its archive only by the independent Tester's review of it (#2500).
+
+    The review re-assesses the archived proof's own inputs with the decisions the Tester's report bound
+    (autocode_changed_code_review_application); the same deterministic reassessment must reproduce it.
+    """
+    field = "changed_code_evidence"
+    if {key: item for key, item in actual.items() if key != field} != {
+        key: item for key, item in value.items() if key != field
+    }:
+        return False
+    decisions = (state.get("validation") or {}).get("changed_code_decisions") or []
+    return bool(decisions) and actual.get(field) == proof_policy.reviewed(value, decisions)
+
+
+def _portable(commands):
+    """Archived commands compared without the interpreter's location (#2500).
+
+    A detected suite names the interpreter the recording host resolved (``/usr/bin/python3 -m unittest
+    discover -v``); the replay host resolves its own. The program and its arguments are the obligation,
+    where it was installed is the environment, so an absolute first word compares by its name only.
+    """
+    portable = []
+    for command in commands or []:
+        words = command.split(None, 1) if isinstance(command, str) else []
+        if words and Path(words[0]).is_absolute():
+            command = " ".join([Path(words[0]).name, *words[1:]])
+        portable.append(command)
+    return portable
 
 
 def _obligation(state: RunState, workspace, record, purpose, commands, *, case_ids=None):
@@ -282,8 +316,13 @@ def _obligation(state: RunState, workspace, record, purpose, commands, *, case_i
         recorded_commands = [item.get("command") for item in value["checks"]]
     if recorded_commands is None and value.get("command"):
         recorded_commands = [value["command"]]
-    if recorded_commands != list(commands):
-        raise recording.RecordingError("Replay diverged: archived executable obligations differ")
+    if _portable(recorded_commands) != _portable(list(commands)):
+        raise recording.RecordingError(
+            "Replay diverged: archived executable obligations differ: recorded "
+            + json.dumps(recorded_commands)
+            + ", current "
+            + json.dumps(list(commands))
+        )
     original_revision = util.digest(
         {
             "head": tape.document["snapshots"][row["snapshot"]]["head"],
@@ -377,13 +416,13 @@ def regression(state: RunState, workspace, *, case_ids, suite, regression_comman
     ):
         row, value = _retained(state, tape, saved, "regression_proof", case_ids=case_ids)
         commands = value.get("commands") or {}
-        if commands.get("suite") != suite or commands.get("regression") != regression_command:
+        if _portable([commands.get("suite"), commands.get("regression")]) != _portable([suite, regression_command]):
             raise recording.RecordingError("Replay diverged: retained archival executable obligations differ")
         _retained(state, tape, state.get("regression_baseline") or {}, "regression_baseline", case_ids=case_ids)
         return saved
     base = _obligation(state, workspace, None, "regression_baseline", [suite], case_ids=case_ids)
     baseline = base["recorded"]
-    if not isinstance(baseline.get("receipt"), dict) or baseline.get("command") != suite:
+    if not isinstance(baseline.get("receipt"), dict) or _portable([baseline.get("command")]) != _portable([suite]):
         raise recording.RecordingError("Replay diverged: archived baseline is incomplete")
     state["regression_baseline"] = {
         **copy.deepcopy(baseline),
@@ -395,11 +434,17 @@ def regression(state: RunState, workspace, *, case_ids, suite, regression_comman
     envelope = _obligation(state, workspace, None, "regression_proof", [suite, regression_command], case_ids=case_ids)
     value = copy.deepcopy(envelope["recorded"])
     names, scope = value.get("case_tests"), value.get("case_scope")
+    # A build whose criteria name no test still owes the changed-line proof (#2474): its recorded
+    # proof has no named cases, and its fail-to-pass tests are the Builder's own (#2500).
+    named = (
+        isinstance(names, dict) and not any(not names.get(case) for case in case_ids)
+        if case_ids
+        else names in (None, {}) and bool(value.get("fail_to_pass"))
+    )
     if (
-        not isinstance(names, dict)
+        not named
         or not isinstance(scope, list)
         or sorted(scope) != sorted(case_ids)
-        or any(not names.get(case) for case in case_ids)
         or not isinstance(value.get("checks"), dict)
         or not value["checks"]
         or (value.get("baseline") or {}).get("health") != baseline.get("health")
@@ -462,23 +507,8 @@ def archival_ready(state: RunState, current, *, logical_ready, required_case_ids
             )
         ):
             return False
-        if required_case_ids is not None:
-            proof = state.get("regression_proof") or {}
-            wanted = set(required_case_ids)
-            if (
-                proof.get("simulated") is not True
-                or proof.get("current_proof") is not False
-                or proof.get("verdict") != "PASS"
-                or proof.get("source_revision") != current["revision"]
-                or not wanted <= set(proof.get("case_scope") or [])
-                or any(not (proof.get("case_tests") or {}).get(case) for case in wanted)
-                or (proof.get("archival") or {}).get("check_id") not in used
-            ):
-                return False
-            _retained(state, tape, proof, "regression_proof", case_ids=required_case_ids)
-            _retained(
-                state, tape, state.get("regression_baseline") or {}, "regression_baseline", case_ids=required_case_ids
-            )
+        if required_case_ids is not None and not _proof_retained(state, current["revision"], required_case_ids):
+            return False
         validation = state.get("validation") or {}
         actual_record = next(
             (
@@ -492,6 +522,43 @@ def archival_ready(state: RunState, current, *, logical_ready, required_case_ids
             return False
         _retained(state, tape, replay, "independent_clean_replay", dispatch=actual_record["replay"]["dispatch_id"])
         return True
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def _proof_retained(state: RunState, revision, case_ids):
+    """The simulated proof is the archived passing proof of ``revision`` for ``case_ids``; raises on divergence."""
+    tape = transport.selected(state["settings"])
+    used = (state.get("replay_result") or {}).get("consumed_checks") or []
+    proof = state.get("regression_proof") or {}
+    wanted = set(case_ids)
+    if (
+        proof.get("simulated") is not True
+        or proof.get("current_proof") is not False
+        or proof.get("verdict") != "PASS"
+        or proof.get("source_revision") != revision
+        or not wanted <= set(proof.get("case_scope") or [])
+        or any(not (proof.get("case_tests") or {}).get(case) for case in wanted)
+        or (proof.get("archival") or {}).get("check_id") not in used
+    ):
+        return False
+    _retained(state, tape, proof, "regression_proof", case_ids=case_ids)
+    _retained(state, tape, state.get("regression_baseline") or {}, "regression_baseline", case_ids=case_ids)
+    return True
+
+
+def proof_retained(state: RunState, revision, case_ids):
+    """Whether the runner's own archived proof stands for ``revision`` in a recorded-checks replay (#2500).
+
+    Recorded simulation never grants current proof or completion (completion_ready); the gates that need
+    only the runner's proof of the source, such as the proof finding (autocode_proof_findings), read the
+    archive's authentication through here instead of a flat refusal.
+    """
+    if not simulated(state.get("settings")):
+        return False
+    try:
+        require_supported(state)
+        return _proof_retained(state, revision, list(case_ids))
     except (OSError, ValueError, KeyError, TypeError):
         return False
 

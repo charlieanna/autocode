@@ -1,6 +1,8 @@
 """Read native OpenCode 1.x Git trees without trusting model descriptions of writes.
 
-OpenCode stores snapshot repositories under its XDG data directory. Locate a
+OpenCode stores snapshot repositories under its XDG data directory; Kilo, an
+OpenCode fork, keeps the same layout under its own name (kilo/snapshot, .git/kilo).
+The CLI the stage record ran decides which one is read. Locate a
 repository by its recorded project ID and core.worktree, never by guessing the
 workspace hash. Tree IDs are content identities; every intermediate tree is
 checked, including one followed by a restoration. Missing evidence fails closed.
@@ -15,15 +17,68 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 HASH = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+APPS = ("opencode", "kilo")  # native CLIs with OpenCode 1.x snapshots: <data>/<app>/snapshot and .git/<app>
+# What a native snapshot must leave out, as the runner's own source snapshot does (autocode_util.snapshot): run
+# state, the dashboard's state and Python bytecode, each a path a stage may add mid-run without touching source.
+# .autocode/ carries its own .gitignore (autocode_workspaces.keep_out_of_git); bytecode has nothing of the kind.
+EXCLUDES = ("/.autocode/", "/.autocode-ui/", "__pycache__/", "*.pyc")
 
 
-def context(workspace, env=None):
+def records_native_snapshots(engine, output_mode) -> bool:
+    """Whether a launch's events carry OpenCode-format Git snapshots the runner reads.
+
+    The one predicate behind the read-only guard (autocode_readonly_events.assert_unchanged_review) and the
+    launch-time exclusions, so the two cannot disagree: Kilo and every other opencode_events tool count, a
+    report_file tool and Codex do not. Before this, the guard judged every such launch while the exclusions
+    were installed for the built-in OpenCode engine only (#1630)."""
+    return engine == "opencode" and (output_mode or "opencode_events") == "opencode_events"
+
+
+def _git_config_count(env) -> int:
+    try:
+        return max(int(env.get("GIT_CONFIG_COUNT", "0")), 0)
+    except (TypeError, ValueError, AttributeError):
+        return 0
+
+
+def git_config_env(env) -> dict:
+    """The GIT_CONFIG_COUNT/KEY_n/VALUE_n entries of ``env``, kept whole: git refuses a partial set."""
+    count = _git_config_count(env)
+    if not count:
+        return {}
+    names = ["GIT_CONFIG_COUNT"] + [f"GIT_CONFIG_{part}_{i}" for i in range(count) for part in ("KEY", "VALUE")]
+    return {name: env[name] for name in names if name in env}
+
+
+def excludes_env(path, env) -> dict:
+    """Environment entries that make every git the provider runs read ``path`` as core.excludesFile.
+
+    A snapshot repository is a separate git dir with core.worktree set, so it reads its own info/exclude and never
+    the project's; the environment is the one setting every git invocation honors, including the provider's own
+    snapshot ``add``. Appended after any GIT_CONFIG_* set the environment already carries, so a later entry wins."""
+    count = _git_config_count(env)
+    return {
+        "GIT_CONFIG_COUNT": str(count + 1),
+        f"GIT_CONFIG_KEY_{count}": "core.excludesFile",
+        f"GIT_CONFIG_VALUE_{count}": str(path),
+    }
+
+
+def app(record) -> str:
+    """The native CLI a stage record ran; a Kilo stage's snapshots are Kilo's, not OpenCode's."""
+    command = record.get("command") if isinstance(record, dict) else None
+    name = Path(command[0]).name if isinstance(command, list) and command and isinstance(command[0], str) else ""
+    return name if name in APPS else "opencode"
+
+
+def context(workspace, env=None, name="opencode"):
     """Capture location inputs from the exact provider environment, without secrets."""
     effective = dict(os.environ if env is None else env)
     root = Path(workspace).resolve()
     home = Path(effective.get("HOME") or Path.home())
-    data = Path(effective.get("XDG_DATA_HOME") or home / ".local/share") / "opencode/snapshot"
-    return {"version": 1, "workspace": str(root), "root": str((data if data.is_absolute() else root / data).resolve())}
+    data = Path(effective.get("XDG_DATA_HOME") or home / ".local/share") / name / "snapshot"
+    location = str((data if data.is_absolute() else root / data).resolve())
+    return {"version": 1, "workspace": str(root), "root": location, **({"app": name} if name != "opencode" else {})}
 
 
 def workspace(record):
@@ -46,13 +101,11 @@ def _git(*args):
     return subprocess.run(["git", "--no-pager", *args], env=env, capture_output=True, check=True, timeout=5).stdout
 
 
-def _repositories(root, location):
+def _repositories(root, location, name="opencode"):
     pointers = {
-        Path(
-            os.fsdecode(_git("-C", str(root), "rev-parse", "--path-format=absolute", "--git-path", "opencode")).strip()
-        ),
+        Path(os.fsdecode(_git("-C", str(root), "rev-parse", "--path-format=absolute", "--git-path", name)).strip()),
         Path(os.fsdecode(_git("-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir")).strip())
-        / "opencode",
+        / name,
     }
     for pointer in pointers:
         if not pointer.is_file() or pointer.is_symlink():
@@ -124,14 +177,20 @@ def only_new_artifacts(record, pairs, protected, prefixes):
         root = workspace(record)
         if root is None or not pairs or any(not HASH.fullmatch(value) for pair in pairs for value in pair):
             return False
-        saved = record.get("opencode_snapshot_context", context(root))
-        if not isinstance(saved, dict) or saved.get("version") != 1 or Path(saved["workspace"]).resolve() != root:
+        name = app(record)
+        saved = record.get("opencode_snapshot_context", context(root, name=name))
+        if (
+            not isinstance(saved, dict)
+            or saved.get("version") != 1
+            or saved.get("app", "opencode") != name
+            or Path(saved["workspace"]).resolve() != root
+        ):
             return False
         location = Path(saved["root"])
         if not location.is_absolute() or not location.is_dir():
             return False
         location = location.resolve()
-        for repo in _repositories(root, location):
+        for repo in _repositories(root, location, name):
             try:
                 return all(_additions(repo, first, later, protected, prefixes) for first, later in pairs)
             except (OSError, ValueError, subprocess.SubprocessError):

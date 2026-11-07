@@ -19,10 +19,12 @@ except ImportError:
 
 
 # Stages that never change source but must write runner-owned evidence under .autocode/: the
-# capture_command receipts every Validator is promised, and their own report. They launch
-# workspace-write; the runner's after-stage source snapshot, not the sandbox, keeps their source
-# unchanged (#313).
-JUDGING_STAGES = ("sol", "astra_review", "astra_checkpoint")
+# capture_command receipts every Validator is promised, their own report, and the Resolver's
+# report and probe evidence. They launch workspace-write; the runner's after-stage source
+# snapshot, not the sandbox, keeps their source unchanged (#313). The Resolver joined them
+# after a read-only launch left its report-write contract unsatisfiable and the stage
+# misreported the failure as a sandbox denial.
+JUDGING_STAGES = ("sol", "astra_review", "astra_checkpoint", "astra_resolve")
 
 # Repository paths a workflow job's model may change, by stage. Any other change is a stray write:
 # the job rejects the attempt and the runner puts the files back (autocode_stray_writes). A job not

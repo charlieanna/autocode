@@ -16,6 +16,21 @@ except ImportError:
     import autocode_util as util
 
 
+def completion_policy(state: RunState):
+    """The same replay completion boundary for full status and saved-run inventory."""
+    settings = state.get("settings")
+    authority = settings.get("replay_recording") if isinstance(settings, dict) else None
+    observed = progress(state)
+    invalid = isinstance(settings, dict) and "replay_recording" in settings and observed is None
+    simulated = isinstance(authority, dict) and authority.get("checks") == "recorded"
+    return {
+        "progress": observed,
+        "invalid": invalid,
+        "simulated": simulated,
+        "completion_allowed": not invalid and not simulated,
+    }
+
+
 RECORD_FIELDS = (
     "prompts_hash",
     "role",
@@ -31,6 +46,7 @@ RECORD_FIELDS = (
     "criteria_revision",
     "task_id",
     "contract_hash",
+    "contract_revision",
     "expected_session",
     "thread_id",
     "output_mode",
@@ -306,10 +322,30 @@ def _project(state: RunState, *, run_dir=None):
                         "kind": "approve_plan",
                         "plan": {
                             key: deepcopy(body.get(key))
-                            for key in ("acceptance_criteria", "constraints", "permission_boundaries")
+                            for key in (
+                                "acceptance_criteria",
+                                "constraints",
+                                "permission_boundaries",
+                                "scope_exclusions",
+                                "git_delivery",
+                            )
                         },
                     },
                 }
+            )
+        elif kind == "gate_message":
+            match: dict = {"kind": "approve_plan"}
+            if event.get("gate_kind") == "requirements":
+                fields = ("id", "question", "why", "options", "proposed_default")
+                match = {
+                    "kind": "answer",
+                    "questions": [
+                        {key: deepcopy(question.get(key)) for key in fields}
+                        for question in event.get("questions") or []
+                    ],
+                }
+            actions.append(
+                {"before_dispatch": anchor, "kind": "feedback", "match": match, "payload": {"text": event["text"]}}
             )
         elif kind in ("answer", "delegated", "checkpoint_answer"):
             question = event.get("question") or {}

@@ -21,9 +21,15 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_acceptance_recovery as acceptance_recovery
+    from . import autocode_brief_obligations as brief_obligations
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_scope_pause as scope_pause
 except ImportError:
+    import autocode_acceptance_recovery as acceptance_recovery
+    import autocode_brief_obligations as brief_obligations
     import autocode_interaction_timing as interaction_timing
+    import autocode_scope_pause as scope_pause
 
 try:
     from . import autocode_acceptance_tests as acceptance_tests
@@ -41,9 +47,12 @@ try:
     from . import autocode_cost as cost
     from . import autocode_criterion_changes as criterion_changes
     from . import autocode_design_coverage as design_coverage
-    from . import autocode_efficiency, autocode_usage
+    from . import autocode_diagnosis_refresh as diagnosis_refresh
+    from . import autocode_efficiency, autocode_run_metrics, autocode_usage
+    from . import autocode_effort_question as effort_question
     from . import autocode_escalation_view as escalation_view
     from . import autocode_finding_rescope as finding_rescope
+    from . import autocode_goals as goals
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_information as operational_information
@@ -54,18 +63,26 @@ try:
     from . import autocode_pause_command as pause_command
     from . import autocode_plan_file as plan_file
     from . import autocode_plan_file_origin as plan_file_origin
+    from . import autocode_plan_retention as plan_retention
+    from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_quota_route as quota_route
+    from . import autocode_recovery_history as recovery_history
     from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_recovery_progress as recovery_progress
     from . import autocode_recovery_view as recovery_view
     from . import autocode_report_retry as report_retry
     from . import autocode_request_usage as request_usage
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_risk_disclosure as risk_disclosure
+    from . import autocode_role_transport as role_transport
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_stage_policy as stage_policy
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
     from . import autocode_tool_containment as tool_containment
+    from . import autocode_trace_coverage as trace_coverage
+    from . import autocode_transport_recovery as transport_recovery
     from . import autocode_verification_view as verification_view
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
@@ -83,9 +100,12 @@ except ImportError:
     import autocode_cost as cost
     import autocode_criterion_changes as criterion_changes
     import autocode_design_coverage as design_coverage
+    import autocode_diagnosis_refresh as diagnosis_refresh
     import autocode_efficiency
+    import autocode_effort_question as effort_question
     import autocode_escalation_view as escalation_view
     import autocode_finding_rescope as finding_rescope
+    import autocode_goals as goals
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
     import autocode_operational_information as operational_information
@@ -96,18 +116,27 @@ except ImportError:
     import autocode_pause_command as pause_command
     import autocode_plan_file as plan_file
     import autocode_plan_file_origin as plan_file_origin
+    import autocode_plan_retention as plan_retention
+    import autocode_planning_review_usage as review_usage
     import autocode_progressive_plan as progressive_rules
     import autocode_quota_route as quota_route
+    import autocode_recovery_history as recovery_history
     import autocode_recovery_limits as recovery_limits
+    import autocode_recovery_progress as recovery_progress
     import autocode_recovery_view as recovery_view
     import autocode_report_retry as report_retry
     import autocode_request_usage as request_usage
     import autocode_resolver_recommendation as recommendation
     import autocode_risk_disclosure as risk_disclosure
+    import autocode_role_transport as role_transport
     import autocode_route_ladder as route_ladder
+    import autocode_run_metrics
+    import autocode_stage_policy as stage_policy
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
     import autocode_tool_containment as tool_containment
+    import autocode_trace_coverage as trace_coverage
+    import autocode_transport_recovery as transport_recovery
     import autocode_usage
     import autocode_verification_view as verification_view
 
@@ -116,6 +145,19 @@ COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # Statuses where relaunching the run, with no user input, continues the work.
 CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
 QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
+
+
+def accepted_reviews(state: RunState) -> list:
+    """The human-review criteria whose review receipt is valid for the current validation, in plan
+    order: the plain view reports them accepted, as --inspect-evidence already did (#2342). Legacy or
+    partial plans carry no review binding to show."""
+    contract = state.get("goal_contract") or {}
+    try:
+        criteria = contract["body"]["acceptance_criteria"]
+        missing = set(goals.missing_human_reviews(state))
+        return [row["id"] for row in criteria if row.get("human_review") and row["id"] not in missing]
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return []
 
 
 def view(
@@ -133,21 +175,51 @@ def view(
     run_dir=None,
     workspace=None,
     dev_server=None,
+    observation=None,
+    execution_inspection=None,
+    stop_pending=False,
 ) -> dict:
     """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     try:
+        from . import autocode_attention as attention
+        from . import autocode_changeset_store as changeset_store
+        from . import autocode_coordination_admission as coordination_admission
+        from . import autocode_coordination_store as coordination_store
+        from . import autocode_related_profile as related_profile
         from . import autocode_replay_view as replay_view
+        from . import autocode_scope_question as scope_question
+        from . import autocode_worker_view as worker_view
     except ImportError:
+        import autocode_attention as attention
+        import autocode_changeset_store as changeset_store
+        import autocode_coordination_admission as coordination_admission
+        import autocode_coordination_store as coordination_store
+        import autocode_related_profile as related_profile
         import autocode_replay_view as replay_view
-    settings = state.get("settings")
-    authority = settings.get("replay_recording") if isinstance(settings, dict) else None
-    replay_progress = replay_view.progress(state)
-    invalid_replay = isinstance(settings, dict) and "replay_recording" in settings and replay_progress is None
-    simulated = isinstance(authority, dict) and authority.get("checks") == "recorded"
+        import autocode_scope_question as scope_question
+        import autocode_worker_view as worker_view
+    replay = replay_view.completion_policy(state)
+    replay_progress, invalid_replay, simulated = replay["progress"], replay["invalid"], replay["simulated"]
     if simulated or invalid_replay:
         completion_current = False
     status = state.get("status", "")
     next_action = action(state, run_dir=run_dir, workspace=workspace, stale_report_repair=stale_report_repair)
+    try:
+        from . import autocode_checkpoint_reconciliation as reconciliation
+    except ImportError:
+        import autocode_checkpoint_reconciliation as reconciliation
+    reconcile = reconciliation.offer(state, liveness, controller=controller, stop_pending=stop_pending)
+    if reconcile is not None:
+        next_action = {
+            "needs": reconcile,
+            "pause_category": None,
+            "pause_category_label": None,
+            "next_command": pause_command.command(
+                {**reconcile, "kind": "resume"},
+                run_dir=run_dir or state.get("run_dir"),
+                workspace=workspace or state.get("workspace"),
+            ),
+        }
     need = next_action["needs"]
     task = state.get("current_task") or {}
     active = state.get("active_stage")
@@ -180,6 +252,10 @@ def view(
         "workspace": str(workspace) if workspace is not None else state.get("workspace"),
         "run_dir": str(run_dir) if run_dir is not None else None,
         "controller": deepcopy(controller),
+        "observation": deepcopy(observation),
+        "execution": worker_view.execution(
+            state.get("execution"), observation=observation, inspection=execution_inspection
+        ),
         # Saved launch identity, never inferred from current installed resources.
         "prompts_hash": state.get("prompts_hash"),
         "task": state.get("task"),
@@ -195,7 +271,11 @@ def view(
         "done": status in COMPLETE and not simulated and not invalid_replay,
         "needs": need,
         "recovery": recovery_view.project(state, need),
-        "verification": verification_view.project(state),
+        # What went wrong and what AutoCode did about it, oldest first (autocode_recovery_history): rejected
+        # answers, rewritten reports, Builder send-backs, Investigator and Resolver calls, as plain sentences.
+        "recoveries": recovery_history.project(state),
+        "verification": verification_view.project(state, accepted_human_ids=accepted_reviews(state)),
+        "review_result": None,  # status may add a read-time inspection; evidence remains authenticated recorded facts
         "code_checkpoints": code_checkpoints.project(state, run_dir=run_dir, workspace=workspace),
         # Which saved checkpoints built each approved criterion's milestones (#730): attribution, not proof.
         "changes_by_criterion": criterion_changes.attribute((plan or {}).get("body"), state.get("code_checkpoints")),
@@ -210,6 +290,8 @@ def view(
             status,
             stop_reason=state.get("stop_reason") or "",
             needs=need,
+            held_cause=pause_authority.answered_cause(state),
+            ready=(controller or {}).get("kind") == "ready",
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job recognized from the request (autocode_workflows.WORKFLOWS);
@@ -221,6 +303,9 @@ def view(
         # How much planning the run chose and why (autocode_adaptive_planning.view, #697): whether recognition
         # skipped Requirements as clear, the plan's size, the review allowance and an early approval.
         "planning_depth": adaptive_planning.view(state),
+        # Which planning path a bug-fix run took and why (autocode_stage_policy.view, #2021): the compact path's
+        # omitted Planner draft and what covers it, or the full path's reasons; null when the run never decided.
+        "stage_policy": stage_policy.view(state),
         # Which request of the conversation the run is on: 1, then one more per --follow-up
         # (autocode_follow_up).
         "turn": len(state.get("turns") or []) + 1,
@@ -276,7 +361,34 @@ def view(
         # The pause a client may request while the run works (autocode_pause_offer, #1598); status supplies it.
         "pause": None,
     }
+    # Work that belongs to another repository, and what the person left out of this run (#2066).
+    result["scope"] = scope_question.view(
+        state, (state.get("requirements_handoff") or {}).get("dropped_external_parts")
+    )
+    result["request_sources"] = deepcopy(brief_obligations.sources(state))
+    result["related_profile"] = related_profile.project(state)
+    result["coordination"] = (
+        coordination_store.offer(
+            run_dir,
+            eligible=result["workflow"] == "bugfix"
+            and not (state.get("settings") or {}).get("coordination_member")
+            and result["scope"]["spans_repositories"]
+            and not result["scope"]["decision"]
+            and coordination_admission.pending_scope(result),
+        )
+        if run_dir and result["execution"]["mode"] == "owned"
+        else None
+    )
+    if run_dir is not None:  # the other runs of this run's change set (autocode_changeset)
+        result["scope"]["linked"] = changeset_store.linked_for(run_dir)
+    # The requirements the current plan proves only on a stand-in for what the user sees, because code
+    # outside this checkout renders it (#2068): requirement_id, the criteria it cites (evidence) and
+    # proxy_reason, from the trace that produced the current contract; [] when none or no plan yet.
+    result["proxied_requirements"] = trace_coverage.proxied_rows(plan_retention.validated_trace(state))
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
+    result["attention"] = attention.project(
+        state, result, workspace=workspace, run_dir=run_dir, context=result["chat"]["context"]
+    )
     if simulated or invalid_replay:
         result["completion_current"] = False
     result["efficiency"] = autocode_efficiency.summary(
@@ -285,6 +397,9 @@ def view(
         completion_current=completion_current,
         visual_acceptance=visual_acceptance,
     )
+    # Where the spend went, what was spent again, and what the checking stages produced,
+    # read from the cost, usage, efficiency, recoveries and evidence above (display only).
+    result["run_metrics"] = autocode_run_metrics.project(result)
     contract = state.get("goal_contract") or {}
     if isinstance(contract, dict) and isinstance(contract.get("body"), dict):
         try:
@@ -294,15 +409,34 @@ def view(
                 and state.get("displayed_goal") == contract_identity.token(contract)
                 and contract_identity.sealed(contract)
             ):
-                # Approval consumers need actual fields, not model-authored display text.
+                # Approval consumers need actual fields, not model-authored display text. The
+                # original fields keep their unconditional shape (null when absent), because the
+                # status view only grows additively. Milestones and the end-to-end flow are the
+                # completion order the person is approving — criteria summaries alone hid a
+                # coordinator-owned joint-proof milestone inside a member plan (#2434) — added
+                # only where the contract body carries them: legacy bodies predate both fields
+                # (LEGACY_BODY_SCHEMA omits them) and stay showable and approvable unchanged.
                 result["displayed_plan"] = {
                     "revision": contract["revision"],
                     "hash": contract["hash"],
                     "token": state["displayed_goal"],
                     **{
                         key: deepcopy(contract["body"].get(key))
-                        for key in ("acceptance_criteria", "constraints", "permission_boundaries", "git_delivery")
+                        for key in (
+                            "acceptance_criteria",
+                            "constraints",
+                            "permission_boundaries",
+                            "git_delivery",
+                            "scope_exclusions",
+                        )
                     },
+                    **(
+                        {
+                            key: deepcopy(contract["body"][key])
+                            for key in ("milestones", "end_to_end_flow")
+                            if key in contract["body"]
+                        }
+                    ),
                 }
         except (KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.
@@ -383,6 +517,8 @@ def approved_contract(state: RunState) -> dict | None:
             "token": contract_identity.token(contract),
             "task_id": contract.get("task_id"),
             "approved_at": (contract.get("approval_event") or {}).get("at"),
+            # "skip_to_build" when the person chose approval when starting the run, else "person" (#1731)
+            "approval_source": (contract.get("approval_event") or {}).get("source") or "person",
             "body": deepcopy(contract["body"]),
             "goal_hash": plan_file.goal_hash(contract["body"]),
         }
@@ -624,8 +760,11 @@ def evidence(state: RunState) -> dict:
                 "commands",
                 "source_revision",
                 "case_tests",
+                "follow_up_baseline",
                 "unstable",
+                "changed_code_evidence",
             )
+            if key != "changed_code_evidence" or proof.get(key) is not None
         }
         if isinstance(proof, dict)
         else None,
@@ -689,6 +828,7 @@ def workflow_result(state: RunState):
             "outcome": row.get("verdict"),
             "artifact": row.get("report_path"),
             "artifact_sha256": row.get("report_sha256"),
+            **({"source_revision": row["source_revision"]} if row.get("source_revision") else {}),
             "summary": f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings"
             + (
                 f"; {row.get('pre_existing', 0)} pre-existing observations, "
@@ -749,6 +889,9 @@ def _route(question: dict) -> dict:
     }
     if "candidates" in question:
         route["candidates"] = list(question["candidates"])
+    if isinstance(question.get("lower_effort"), dict):
+        # A time-limit stop on a model with a lighter declared variant (#1902): {model, from, to, answer}.
+        route["lower_effort"] = dict(question["lower_effort"])
     return route
 
 
@@ -761,6 +904,25 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
     uncertain attempt's abandon step in the need instead of promising a resume that
     would discard it.
     """
+    try:
+        from . import autocode_changeset_barrier as changeset_barrier
+    except ImportError:
+        import autocode_changeset_barrier as changeset_barrier
+    if changeset_barrier.held_approval(state):
+        held_need = {
+            "kind": "approve_plan",
+            "token": contract_identity.token(state["goal_contract"]),
+            "reason": changeset_barrier.refusal(state),
+            "changeset_held": True,
+        }
+        return {
+            "needs": held_need,
+            "pause_category": "your_decision",
+            "pause_category_label": "Your decision",
+            "next_command": pause_command.command(
+                held_need, run_dir=run_dir or state.get("run_dir"), workspace=workspace or state.get("workspace")
+            ),
+        }
     status = state.get("status", "")
     need = needs(state, stale_report_repair=stale_report_repair)
     category = pause_category.category(status, need)
@@ -771,21 +933,58 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         if status == "PAUSED_NO_PROGRESS" and not recovery_limits.no_progress_bound_holds(state)
         else operational_information.resume_flags(state, (need or {}).get("pause_origin") or status)
     )
-    inputs = None if terminal or not category else command_inputs.project(state, need, resume_flags)
+    inputs: list | None = None if terminal or not category else command_inputs.project(state, need, resume_flags)
+    # A bound row whose raise is not next_command names its own command (#2044). Pending information is
+    # reviewed first, as for the attached offers, so it is offered once that review has held.
+    separate = bool(inputs and "command" in inputs[0])
+    if separate and (operational_information.projection(state) or {}).get("status") == "pending":
+        inputs, separate = None, False
+    token = recovery_view.token(state) if inputs else None
+    if separate and inputs:
+        named_raise = pause_command.command(
+            {"kind": "resume", "action": command_inputs.raise_action(inputs[0])},
+            run_dir=run_dir or state.get("run_dir"),
+            workspace=workspace or state.get("workspace"),
+            recovery_token=token,
+        )
+        inputs = [{**inputs[0], "command": named_raise}] if named_raise and token else None
     if inputs and need is not None:
         need = {**need, "command_inputs": inputs}
+    ready_boundary = (
+        (need or {}).get("kind") == "continue"
+        and state.get("active_stage") is None
+        and state.get("active_runner_check") is None
+    )
+    if (
+        need is not None
+        and need.get("kind") == "retry_job"
+        and isinstance(need.get("route"), dict)
+        and need.get("job_retry_token")
+    ):
+        # The model question a stopped job keeps (#463) is named as a command too, not only in the reason's
+        # prose: a client takes a typed model through `route.command`, the core issues a new retry token
+        # for that model, and the retry on it is then `next_command` as usual (#2005).
+        answer = f"--answer {need['route']['question_id']}=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
+        named = pause_command.command(
+            {**need, "action": answer},
+            run_dir=run_dir or state.get("run_dir"),
+            workspace=workspace or state.get("workspace"),
+            resume_flags=resume_flags,
+            terminal=terminal,
+        )
+        need = {**need, "route": {**need["route"], "command": named}}
     return {
         "needs": need,
         "pause_category": category,
         "pause_category_label": pause_category.LABELS.get(category) if category else None,
         "next_command": None
-        if not category
+        if not category and not ready_boundary
         else pause_command.command(
             need,
             run_dir=run_dir or state.get("run_dir"),
             workspace=workspace or state.get("workspace"),
             resume_flags=resume_flags,
-            recovery_token=recovery_view.token(state) if inputs else None,
+            recovery_token=token if inputs and not separate else None,
             terminal=terminal,
         ),
     }
@@ -819,8 +1018,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      and requires a fresh run with valid caller inputs;
                                                      `edit_required` instead prescribes --edit-goal FILE
                                                      and `feedback_action` when offered, then fresh approval;
-                                                     when `abandon_stage` is set, --abandon-stage
-                                                     ATTEMPT first (the attempt is uncertain);
+                                                     `guidance`, when set, says in prose what the
+                                                     alternatives do (the Tester's pause: --feedback
+                                                     revises the plan, a resume reruns the Tester);
                                                      `action`, when set, is the one command that
                                                      continues (a source-only PAUSED_STALE_HANDOFF:
                                                      --resume-paused --accept-source-edit; a PAUSED_NO_PROGRESS its unchanged-
@@ -830,7 +1030,14 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      corrective information, the control it requires,
                                                      view.information_review; at a parallel Builder
                                                      member's quota or content-filter stop answered
-                                                     without a model, --resume-paused --retry-builder M)
+                                                     without a model, --resume-paused --retry-builder M;
+                                                     a recovery novelty hold, also before its request is
+                                                     published: --resume-paused --retry-failed-stage,
+                                                     named again as `retry_action`; a PAUSED_REPEATED_FAILURE
+                                                     whose active attempt, uncertain artifacts or pending
+                                                     report repair its retry gate will not authorize over:
+                                                     --resume-paused, with that CLI refusal as
+                                                     `retry_unavailable` and never the refused flag (#1897))
     retry_job     a person to inspect a stopped job  --resume-paused --retry-failed-stage --job-retry-token
                                                      TOKEN; with `route` set (quota or a content-filter
                                                      refusal), --answer route-ROLE=MODEL --job-retry-token
@@ -842,11 +1049,20 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      producer needs a person or ends; the delivery and
                                                      the resume are the dependency worker's, not a
                                                      person's command on this run
-    continue      nothing; relaunch to proceed      the same command with --run-dir
+    continue      nothing; relaunch to proceed      the same command with --run-dir;
+                                                     a core-classified uncertain attempt may name
+                                                     --abandon-stage ATTEMPT as deterministic recovery
     """
     status = state.get("status", "")
     if status in COMPLETE:
         return None
+    if scope_pause.can_resume(state):
+        return {
+            "kind": "resume",
+            "action": "--resume-paused",
+            "confirmation_required": False,
+            "reason": "Resume the boundary pause to restore its retained repository-scope question.",
+        }
     if status == "PAUSED_COMPONENT_PLAN":
         return {
             "kind": "resume",
@@ -876,7 +1092,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         known_source = bool(failure.get("source_identity"))
         need = {
             "kind": "retry_job" if known_source else "recover_source",
-            "reason": failure["reason"],
+            "reason": (str(state.get("stop_reason") or "") + ". " + failure["reason"])
+            if status in quota_route.JOB_PREFLIGHT_PAUSES
+            else failure["reason"],
             "stage": failure["stage"],
             "attempt_id": failure["attempt_id"],
             "job_retry_token": failure["job_retry_token"],
@@ -905,11 +1123,16 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             # Until a person names another model (job_failure.route_assignment), the exact retry of a
             # refused job would replay the refused model: the next step is the answer. job_retry_token
             # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).
-            if need["route"]["cause"] in ("content_filter", "output_limit") and not isinstance(
-                failure.get("route_assignment"), dict
-            ):
+            if need["route"]["cause"] in (
+                "content_filter",
+                "output_limit",
+                "authentication",
+                "timeout",
+            ) and not isinstance(failure.get("route_assignment"), dict):
+                # A timeout whose model declares a lighter variant names that answer itself (#1902).
+                value = (need["route"].get("lower_effort") or {}).get("answer") or "MODEL"
                 need["action"] = (
-                    f"--answer {need['route']['question_id']}=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
+                    f"--answer {need['route']['question_id']}={value} --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
                 )
         return need
     if status == "WAITING_FOR_DEPENDENCY":
@@ -918,6 +1141,12 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "reason": state.get("stop_reason"),
             "producer_run": (state.get("dependency_wait") or {}).get("producer_run"),
             "producer_workspace": (state.get("dependency_wait") or {}).get("producer_workspace"),
+        }
+    issued = state.get("resolver_human_request")
+    if recovery_progress.routine_resume(state, issued):
+        return {
+            "kind": "continue",
+            "action": "--resume-paused",
         }
     questions = state.get("pending_questions") or []
     reviews = [question for question in questions if question.get("review_criteria")]
@@ -970,8 +1199,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                     answer["recommended_revision_response"] = recommendation.ACCEPTANCE
         # A quota stop or a content-filter refusal asks for a model (#184): answer --answer
         # route-ROLE=MODEL. It has no default and is a person's decision, never a delegable
-        # requirements answer. ``cause`` is "quota" or "content_filter"; ``stopped_model`` is the
-        # model that stopped; ``candidates`` (refusal only) the configured models that would pass.
+        # requirements answer. ``cause`` is "quota", "content_filter", "output_limit" or
+        # "cross_model"; ``stopped_model`` is the
+        # model that stopped; ``candidates`` (refusal and cross-model) the configured models that would pass.
         route = next(
             (
                 q
@@ -991,13 +1221,67 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                 answer["retry_action"] = retry
         return answer
     if status == "AWAITING_GOAL_APPROVAL":
+        if (state.get("goal_contract") or {}).get("approval_status") == "draft" and diagnosis_refresh.conflicts(state):
+            return {
+                "kind": "resume",
+                "action": "--resume-paused",
+                "reason": "Refresh the conflicting accepted diagnosis before plan approval",
+            }
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
         return (
             {"kind": "approve_plan", "token": state["displayed_goal"]}
             if state.get("displayed_goal")
             else {"kind": "continue"}
         )
+    if status == quota_route.CROSS_MODEL_STATUS:
+        # Same model question as a quota stop, derived from the saved routes rather
+        # than an attempt: name the verifier's next model so it stops grading its
+        # own work. --answer route-ROLE=MODEL applies it; --resume-paused continues.
+        asked = quota_route.cross_model_question(state)
+        if asked:
+            return {
+                "kind": "answer",
+                "reason": state.get("stop_reason") or status,
+                "questions": [{field: asked.get(field) for field in QUESTION_FIELDS}],
+                "route": _route(asked),
+            }
+    if status == effort_question.STATUS:
+        # A level a person named that the model does not declare (#2057): the question is derived
+        # from the saved routes, its options are the declared levels, and --answer effort-ROLE=EFFORT
+        # saves one; --resume-paused continues. Once answered, the plain resume below applies.
+        asked = effort_question.question(state)
+        if asked:
+            return {
+                "kind": "answer",
+                "reason": state.get("stop_reason") or status,
+                "questions": [{field: asked.get(field) for field in QUESTION_FIELDS}],
+                "effort": effort_question.need(asked),
+            }
+    if status == "PAUSED_PERMISSION_LOOP":
+        disposition = (state.get("resolver") or {}).get("human_disposition") or {}
+        return {
+            "kind": "resume",
+            "reason": state.get("stop_reason"),
+            "action": "--feedback 'WHAT CHANGED'",
+            "permission_decisions": disposition.get("count"),
+            "permission_decision_limit": disposition.get("limit"),
+        }
     if status == "PAUSED_PLANNING_BUDGET":
+        if acceptance_recovery.can_resume(state):
+            return {
+                "kind": "resume",
+                "action": "--resume-paused",
+                "reason": "The runner reopened this approved plan for unchanged tests delivered in the prior turn. "
+                "Resume rechecks the tests and restores that exact approved plan, retaining all review charges "
+                "and its saved allowance; no new plan is approved.",
+            }
+        if review_usage.can_resume(state):
+            return {
+                "kind": "resume",
+                "action": "--resume-paused",
+                "reason": "An inherited Plan Reviewer charge was counted twice. Resume rechecks the receipts and "
+                "continues under the unchanged review limit; no plan approval is implied.",
+            }
         need = {"kind": "planning_budget", "reason": state.get("stop_reason")}
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).
         review = operational_information.projection(state) or {}
@@ -1014,18 +1298,63 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         native_need = recovery_view.native_cleanup_need(state)
         if native_need is not None:
             return native_need
+        try:
+            from . import autocode_protected_commands as protected_commands
+        except ImportError:
+            import autocode_protected_commands as protected_commands
+        if protected_offer := protected_commands.offer(state):
+            return protected_offer
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).
         active = state.get("active_stage") or {}
+        if (
+            status == "PAUSED_CONTROLLER_EXIT"
+            and active.get("accounted") is True
+            and type(active.get("exit_code")) is int
+            and active["exit_code"] == 0
+            and active.get("finished_at")
+        ):
+            # The owner projection freshly confirmed stopped supervision and a
+            # retained report. Resume rechecks it; abandonment would discard it.
+            need["action"] = "--resume-paused"
+            return need
         # An inventory refusal leaves a retained result available for the usual
         # reconciliation checks. It is not authority to discard or replay it.
         if status != "PAUSED_SOURCE_UNAVAILABLE" and active.get("output") and isinstance(active.get("iteration"), int):
             attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
             need["abandon_stage"] = attempt
             need["action"] = f"--abandon-stage {attempt} then --resume-paused"
+            held = operational_information.projection(state) or {}
+            if (
+                not stale_report_repair
+                and not (active.get("finished_at") and active.get("exit_code") == 0)
+                and not (held.get("status") == "held" and held.get("action"))
+            ):
+                # The core has classified this exact retained response as uncertain
+                # and already requires it to be archived before any further work.
+                # A cleanly finished attempt holds a result that archiving would
+                # discard (a verification hold or stale source check stands on it),
+                # and a held information review names a person's change (another
+                # model after a content-filter refusal), so those pauses stay a resume.
+                need["kind"] = "continue"
+                return need
         if stale_report_repair:
             need["action"] = "--resume-paused"
             return need
+        if status == "PAUSED_ACCEPTANCE_TESTS" and "action" not in need:
+            # The command revises the plan; a resume reruns the same Tester on the same plan (#1869).
+            need["action"] = "--feedback 'WHAT TO CHANGE'"
+            need["guidance"] = (
+                "--feedback MESSAGE revises the plan; --resume-paused reruns the Tester unchanged, "
+                "which helps only after you changed the code."
+            )
+        if "action" not in need and status == "PAUSED_TRANSPORT_CHANGED":
+            try:
+                immutable = role_transport.enabled(deepcopy(state.get("settings")))
+            except (ValueError, TypeError, AttributeError):
+                immutable = True  # A malformed binding cannot grant acceptance.
+            if transport_offer := transport_recovery.offer(state, immutable_role_transports=immutable):
+                need.update(transport_offer)
         if "action" not in need:
             # A source-only stale repair names the command that accepts the edit.
             # Other stale pauses do not.
@@ -1038,6 +1367,15 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             # review cannot release this bound either, so this command comes first (#486).
             need["action"] = "--resume-paused --no-progress-limit N"
             need["no_progress_batches"] = state.get("no_progress_batches", 0)
+        # A recovery novelty hold before its request is published (RESOLVER_PENDING) re-holds on a
+        # plain resume; its one admissible continuation is the explicit scoped retry (#1770).
+        retry = recovery_limits.scoped_retry(state)
+        if retry:
+            need["retry_action"] = retry
+            need.setdefault("action", retry)
+        elif blocked := recovery_limits.scoped_retry_unavailable(state):
+            # The hold admits no retry yet; say what must happen first instead of implying a resume will do.
+            need["retry_unavailable"] = blocked
         # A parallel member's model stop whose request a person answered continues only by its own
         # control (#541): --resume-paused --retry-builder M.
         member = member_stop.action(state) if "action" not in need else None
@@ -1055,7 +1393,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             status == "PAUSED_REPEATED_FAILURE"
             and (pending.get("original") or {}).get("stage") == "sol"
             and not any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
-            and pending.get("error") in report_retry.RETRYABLE_ERRORS
+            and report_retry.retryable(pending.get("error"))
             and report_retry.bounded_failure(
                 state, (state.get("settings") or {}).get("report_repair", {}).get("max_attempts", 0)
             )
@@ -1064,6 +1402,16 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         ):
             need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
             need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
+        # The CLI refuses --retry-failed-stage while the attempt or report repair behind this pause is
+        # unreconciled, so naming it here would be a command the person is then rejected for (#1897).
+        # Say why the retry waits, as a novelty hold does, and name the resume the CLI does take.
+        if (
+            status == "PAUSED_REPEATED_FAILURE"
+            and "action" not in need
+            and (blocked := recovery_limits.repeated_failure_retry_refusal(state))
+        ):
+            need["retry_unavailable"] = blocked
+            need["action"] = "--resume-paused"
         if "action" not in need and pause_authority.requested_only(state):
             need["confirmation_required"] = False
         return need

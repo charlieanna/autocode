@@ -95,6 +95,23 @@ class RecoverySessionTests(unittest.TestCase):
         self.assertEqual("original-reviewer", session)
         self.assertEqual(record["events"], original["events"])
 
+    def test_a_pause_while_applying_the_recovered_result_sets_the_attempt_aside(self):
+        self.attempt("reviewer")
+        gate = runner.support.Paused(
+            "PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first"
+        )
+        with patch.object(runner, "commit_stage_result", side_effect=gate):
+            with self.assertRaises(runner.support.Paused) as caught:
+                runner.reconcile_active(self.state, self.run_dir, self.workspace)
+        self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
+        self.assertEqual("PAUSED_COMPLETION_GATE", self.state["status"])
+        self.assertNotIn("failure_history", self.state, "the gate is not a failed output")
+        self.assertNotIn("active_stage", self.state)
+        # The loop #1851's first fix must not reintroduce: the next resume reconciles nothing, so it launches
+        # a fresh attempt instead of applying the same report against the same gate.
+        with patch.object(runner, "commit_stage_result", side_effect=AssertionError("re-applied the report")):
+            self.assertIsNone(runner.reconcile_active(self.state, self.run_dir, self.workspace))
+
     def test_expected_session_mismatch_preserves_the_boundary(self):
         record = self.attempt("unexpected-reviewer")
         record["expected_session"] = "expected-reviewer"

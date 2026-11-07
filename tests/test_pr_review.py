@@ -42,6 +42,29 @@ class RecordedGitHubTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(github.GitHubError):
                 github.parse_pull_request_url(url)
 
+    def test_a_value_that_is_not_a_pull_request_url_is_told_the_form_it_takes(self):
+        for given in (
+            "12",
+            "charlieanna/autocode#12",
+            "https://github.com/a/b/pulls",
+            "https://github.com/a/b/issues/7",
+        ):
+            with self.subTest(given=given), self.assertRaises(github.GitHubError) as caught:
+                github.parse_pull_request_url(given)
+            self.assertEqual(
+                f"pull request URL must be https://github.com/OWNER/REPO/pull/N, not {given!r}", str(caught.exception)
+            )
+        with self.assertRaises(github.GitHubError) as caught:
+            github.parse_pull_request_url("https://token@github.com/a/b/pull/7")
+        self.assertNotIn("token", str(caught.exception), "a credential in the value is never echoed")
+        with self.assertRaises(github.GitHubError) as caught:
+            github.parse_pull_request_url("https://foreign/a/b/pull/7", api="https://enterprise.test:8443/api/v3")
+        self.assertEqual(
+            "pull request URL must match the configured GitHub API web host and port: "
+            "https://enterprise.test:8443/OWNER/REPO/pull/N",
+            str(caught.exception),
+        )
+
     def test_web_host_and_port_bind_to_the_configured_api_before_any_get(self):
         for api, accepted in (
             ("https://api.github.com", "https://github.com/a/b/pull/7#discussion"),
@@ -139,6 +162,30 @@ class OutputCustodyTests(unittest.TestCase):
             with self.assertRaises(checkout.CheckoutError):
                 checkout.create_root(parent / "new" / ".." / "other")
             self.assertFalse((parent / "new").exists())
+
+    def test_a_refused_link_is_named_with_the_path_to_use_instead(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp).resolve()
+            (parent / "real").mkdir()
+            (parent / "alias").symlink_to(parent / "real", target_is_directory=True)
+            with self.assertRaises(checkout.CheckoutError) as refused:
+                checkout.create_root(parent / "alias" / "out" / "new")
+            self.assertIn(f"{parent / 'alias'} is a symbolic link", str(refused.exception))
+            self.assertIn(f"use {parent / 'real' / 'out' / 'new'} instead", str(refused.exception))
+
+    def test_only_a_link_its_trusted_owner_made_is_followed(self):
+        # The trusted owner is root, as for macOS's /tmp -> private/tmp (#2504); this test's
+        # links are its own, so it names itself the trusted owner to see one followed.
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp).resolve()
+            (parent / "real").mkdir()
+            (parent / "alias").symlink_to(parent / "real", target_is_directory=True)
+            wanted = parent / "alias" / "out" / "new"
+            self.assertEqual(wanted, checkout.follow_system_links(wanted, trusted_uid=-1))
+            followed = checkout.follow_system_links(wanted, trusted_uid=os.getuid())
+            self.assertEqual(parent / "real" / "out" / "new", followed)
+            self.assertTrue(checkout.create_root(followed).is_dir())
+            self.assertEqual(Path("/a/../b"), checkout.follow_system_links("/a/../b", trusted_uid=os.getuid()))
 
 
 class AnchorTests(unittest.TestCase):

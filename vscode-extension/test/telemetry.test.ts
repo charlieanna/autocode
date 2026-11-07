@@ -105,3 +105,43 @@ test("stage history retains every used model and variant independently of future
   assert.equal(result.models[0]!.model, "new");
   assert.equal(result.configuredModels[0]!.model, "future-model");
 });
+
+
+test("cap accounting is primary while the distinct historical estimate stays secondary", () => {
+  const view = { done: false, cost: { spent_usd: 1.966683, cap_usd: 2, complete: false, unpriced_stages: 10 },
+    usage: { accounting: { cost: { historical_estimated_usd: quantity(1.5335513, false) } } } };
+  const before = structuredClone(view);
+  const display = telemetry(view);
+  assert.equal(display.cost, "Cost counted toward cap: at least $1.97 / $2.00 cap (partial; 10 unpriced stages)");
+  assert.equal(display.details[0]?.label, "Cost counted toward cap");
+  assert.equal(display.details.find((row) => row.label === "Historical cost estimate")?.value, "$1.53 (partial)");
+  assert.match(display.details.find((row) => row.label === "Budget cost basis")!.value, /not a provider bill/);
+  assert.deepEqual(view, before, "displaying cap accounting must not change the core view");
+});
+
+test("budget cost distinguishes known zero, unknown, partial and missing cap fields", () => {
+  const cases = [
+    { cost: { spent_usd: 0.25, cap_usd: 2, complete: true, unpriced_stages: 0 },
+      expected: "Cost counted toward cap: $0.2500 / $2.00 cap" },
+    { cost: { spent_usd: null, cap_usd: 2, complete: false, unpriced_stages: 10 },
+      expected: "Cost counted toward cap: unknown / $2.00 cap (partial; 10 unpriced stages)" },
+    { cost: { spent_usd: 0, cap_usd: null, complete: true, unpriced_stages: 0 },
+      expected: "Cost counted toward cap: $0.00 · no configured cap" },
+    { cost: { spent_usd: 0, cap_usd: 2, complete: false, unpriced_stages: 0 },
+      expected: "Cost counted toward cap: at least $0.00 / $2.00 cap (partial)" },
+    { cost: { spent_usd: -1, cap_usd: Number.NaN, complete: false },
+      expected: "Cost counted toward cap: unknown · cap not reported (partial)" },
+    { cost: { spent_usd: 0.25, complete: true, unpriced_stages: 1 },
+      expected: "Cost counted toward cap: at least $0.2500 · cap not reported (partial; 1 unpriced stage)" },
+  ];
+  for (const row of cases) {
+    const view = { done: false, cost: row.cost };
+    assert.equal(telemetry(view).cost, row.expected);
+  }
+});
+
+test("older cores without cap accounting keep the explicitly historical display", () => {
+  const view = { done: false, usage: { accounting: { cost: { historical_estimated_usd: quantity(1.53, false) } } } };
+  assert.equal(telemetry(view).cost, "$1.53 (partial) historical est.");
+  assert.equal(telemetry({ done: false }).cost, "Cost not reported");
+});

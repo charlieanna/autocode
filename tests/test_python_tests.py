@@ -1,13 +1,94 @@
+import os
 import shlex
+import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_test_environment as test_environment
 import autocode_verify as verify
-from autocode_python_tests import parse, unittest_results, verbose_unittest
+from autocode_python_tests import (
+    empty_package_marker,
+    parse,
+    prefers_pytest,
+    pytest_classname,
+    unittest_results,
+    verbose_unittest,
+)
 from autocode_verification_schedule import collection_kind
+
+
+class PythonProofIdentityTests(unittest.TestCase):
+    def test_only_empty_package_markers_have_no_test_or_collection_behavior(self):
+        for source in ("", "\n # package marker\n"):
+            self.assertTrue(empty_package_marker("tests/__init__.py", source))
+        for path, source in (
+            ("tests/test_guard.py", ""),
+            ("tests/__init__.py", "import math\n"),
+            ("tests/__init__.py", "def load_tests(loader, tests, pattern): return tests\n"),
+            ("tests/__init__.py", "def test_guard(): assert True\n"),
+            ("tests/__init__.py", '"package documentation"\n'),
+            ("tests/__init__.py", "not valid python ?"),
+        ):
+            with self.subTest(path=path, source=source):
+                self.assertFalse(empty_package_marker(path, source))
+
+    def test_junit_prefix_must_name_the_physical_tree_and_an_existing_module(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / ".proof-output" / "scratch-run" / "candidate"
+            module = root / "repos" / "history-service" / "tests" / "test_history.py"
+            module.parent.mkdir(parents=True)
+            module.write_text("class HistoryTests: pass\n")
+            name = "repos.history-service.tests.test_history.HistoryTests"
+            prefix = root.relative_to(Path(temp)).as_posix().replace("/", ".") + "."
+            self.assertEqual(name, pytest_classname(prefix + name, root))
+            self.assertEqual(name, pytest_classname(name, root))
+            self.assertEqual(prefix + name, pytest_classname(prefix + name, None))
+            missing = prefix + "tests.test_missing.Tests"
+            self.assertEqual(missing, pytest_classname(missing, root))
+            outside = Path(temp) / "external.py"
+            outside.write_text("class Tests: pass\n")
+            linked = root / "tests/test_external.py"
+            linked.parent.mkdir(parents=True)
+            linked.symlink_to(outside)
+            foreign = prefix + "tests.test_external.Tests"
+            self.assertEqual(foreign, pytest_classname(foreign, root))
+
+    def test_real_project_prefix_and_ambiguous_module_identities_are_not_stripped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "again" / "again"
+            for name in ("test_fix.py", "again/test_fix.py", "scratch/candidate/test_fix.py"):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("class Tests: pass\n")
+            for name in ("again.again.test_fix.Tests", "scratch.candidate.test_fix.Tests"):
+                self.assertEqual(name, pytest_classname(name, root))
+
+
+class DeclaredTestStyleTests(unittest.TestCase):
+    def test_real_pytest_declarations_select_the_collector_that_runs_them(self):
+        for source in (
+            "def test_positive():\n assert 1 == 1\n",
+            "class TestTotals:\n def test_positive(self):\n  assert 1 == 1\n",
+            "import unittest\nclass Legacy(unittest.TestCase):\n def test_old(self): pass\n"
+            "def test_positive():\n assert 1 == 1\n",
+        ):
+            with self.subTest(source=source):
+                self.assertTrue(prefers_pytest({"tests/test_totals.py": source}))
+
+    def test_comments_helpers_unittest_and_collection_hooks_do_not_switch_collectors(self):
+        for files in (
+            {"tests/test_totals.py": "# def test_example(): pass\nVALUE = 'def test_fake(): pass'\n"},
+            {"helpers.py": "def test_helper(): pass\n"},
+            {"tests.py": "def test_helper(): pass\n"},
+            {"test_totals.py": "import unittest\nclass TestTotals(unittest.TestCase):\n def test_sum(self): pass\n"},
+            {"test_totals.py": "def test_sum(): pass\ndef load_tests(loader, tests, pattern): return tests\n"},
+            {"test_totals.py": "def test_sum(): pass\n", "tests/__init__.py": "from hooks import load_tests\n"},
+        ):
+            with self.subTest(files=files):
+                self.assertFalse(prefers_pytest(files))
 
 
 class DeclaredPythonEnvironmentTests(unittest.TestCase):
@@ -191,3 +272,41 @@ class UnittestResultParserTests(unittest.TestCase):
         self.assertEqual([], results["failed"])
         self.assertEqual([], results["skipped"])
         self.assertFalse(results["complete"])
+
+    def test_ensure_python_shim_links_only_python_and_verifies_target_and_owner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shim_root = Path(tmp) / "shims"
+            shim_dir = test_environment.ensure_python_shim(sys.executable, root=shim_root)
+            self.assertIsNotNone(shim_dir)
+            shim_path = Path(shim_dir)
+            self.assertTrue((shim_path / "python").is_symlink())
+            self.assertFalse((shim_path / "python3").exists())
+            self.assertEqual(sys.executable, os.readlink(shim_path / "python"))
+
+            # Replace the link with a wrong target and confirm ensure_python_shim repairs it.
+            (shim_path / "python").unlink()
+            (shim_path / "python").symlink_to(Path(tmp) / "wrong-python")
+            repaired = test_environment.ensure_python_shim(sys.executable, root=shim_root)
+            self.assertEqual(shim_dir, repaired)
+            self.assertEqual(sys.executable, os.readlink(shim_path / "python"))
+
+            # Refuse a directory whose owner does not match os.getuid().
+            if hasattr(os, "getuid"):
+                with mock.patch("os.getuid", return_value=os.getuid() + 1):
+                    self.assertIsNone(test_environment.ensure_python_shim(sys.executable, root=shim_root))
+
+    def test_test_environment_injects_shim_when_bare_python_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "empty_proj"
+            project.mkdir()
+            empty_bin = Path(tmp) / "empty_bin"
+            empty_bin.mkdir()
+            temp_root = Path(tmp) / "tmp"
+            temp_root.mkdir()
+            with mock.patch("tempfile.gettempdir", return_value=str(temp_root)):
+                env = verify.test_environment(project, env={"PATH": str(empty_bin)})
+            self.assertIn("PATH", env)
+            python_which = shutil.which("python", path=env["PATH"])
+            self.assertIsNotNone(python_which)
+            self.assertEqual(Path(sys.executable).resolve(), Path(python_which).resolve())
+            self.assertIsNone(shutil.which("python3", path=env["PATH"]))

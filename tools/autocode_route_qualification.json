@@ -1,6 +1,14 @@
 {
-  "as_of": "2026-10-17",
+  "as_of": "2026-10-25",
   "basis": "The minimum standard per role (#1426): automatic selection never chooses a model this table does not list for the role. An entry is qualified by AutoCode's own runs (a shipped default route, or a live qualification profile in scenarios/harness/profiles.py); a public benchmark admits a model only provisionally until such a run confirms it, and selection treats both alike until then. Every entry names its evidence. Routes list the spellings the tools record for the same weights, so one entry covers every tool that serves the model. Updated by pull request, like the price table.",
+  "excluded": {
+    "plan_reviewer": [
+      {
+        "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        "evidence": "Owner decision 2026-10-20 (#1723): never choose MiMo to review a plan - GPT-6 Sol first, then Claude Opus. On ladder-07 MiMo spent 32-45k reasoning tokens and up to 15 minutes per review and twice ran out of output. The stock glm-mimo-kilo profile still pins it as reviewer, so a live run can reach it; that run qualifies the other roles and leaves this one unqualified."
+      }
+    ]
+  },
   "roles": {
     "requirements": [
       {
@@ -8,7 +16,7 @@
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
         "effort": "medium",
         "provenance": "qualified",
-        "evidence": "Today's default Requirements route (tools/providers/opencode.py DEFAULT_MODELS) and the Requirements route of the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py)."
+        "evidence": "Today's default Requirements route (tools/providers/opencode.py DEFAULT_MODELS) and the Requirements route of the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
     "glm": [
@@ -17,14 +25,47 @@
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
         "effort": "high",
         "provenance": "qualified",
-        "evidence": "Today's default Planner route (DEFAULT_MODELS, 'Requirements medium -> Planner high') and the planner route of the live glm53-mimo and glm-mimo-kilo profiles."
+        "evidence": "Today's default Planner route (DEFAULT_MODELS, 'Requirements medium -> Planner high') and the planner route of the live glm53-mimo and glm-mimo-kilo profiles. Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
     "terra": [
       {
+        "model": "openai/gpt-6-luna",
+        "routes": ["openai/gpt-6-luna", "kilo/openai/gpt-6-luna"],
+        "effort": "medium",
+        "preference": 0,
+        "provenance": "qualified",
+        "evidence": "Live 2026-10-20 (ladder-07 on Kilo, GLM planning and testing, GPT-6 Sol reviewing the plan): at medium the Builder took 36 s and the task passed 9/9 in 16.3 min for $1.05; at high the Builder took 66 s and the task passed 9/9 in 34.6 min for $2.58 after one Tester send-back (its new test asserted more than the criterion). MiMo v2.6 Pro took 404-474 s to build and 34-46 min for the task. Owner decision 2026-10-20 (pay-per-use companies): Luna is the first choice; owner decision 2026-10-21: at medium, since high showed no gain on the measured task; a small task's first attempt still runs low (autocode_light_builder)."
+      },
+      {
+        "model": "openai/gpt-6-sol",
+        "routes": ["openai/gpt-6-sol", "kilo/openai/gpt-6-sol"],
+        "effort": "medium",
+        "preference": 1,
+        "provenance": "qualified",
+        "evidence": "Live 2026-10-20 (ladder-07 on Kilo, GLM planning and testing): Builder 66 s with 241 reasoning tokens against MiMo v2.6 Pro's 404-474 s; the whole task passed 9/9 in 16.4 min for $1.14. The second choice, when Luna is not connected."
+      },
+      {
+        "model": "xiaomi-token-plan-sgp/mimo-v2.6-flash",
+        "routes": ["xiaomi-token-plan-sgp/mimo-v2.6-flash"],
+        "effort": "medium",
+        "preference": 2,
+        "provenance": "provisional",
+        "evidence": "Owner decision 2026-10-20: MiMo v2.6 Flash builds only when an OpenAI Builder would leave no checker outside its family (all GPT models are one family). Provisional until an AutoCode qualification run builds with it."
+      },
+      {
+        "model": "anthropic/claude-opus-5-5",
+        "routes": ["anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5-5"],
+        "effort": "medium",
+        "preference": 3,
+        "provenance": "provisional",
+        "evidence": "Owner decision 2026-10-20: a builder outside the OpenAI family when MiMo Flash is not connected. Provisional until an AutoCode qualification run builds with it."
+      },
+      {
         "model": "zai-coding-plan/glm-5.3",
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
         "effort": "medium",
+        "preference": 4,
         "provenance": "qualified",
         "evidence": "Today's default Builder route, 'the cheap model does the volume' (DEFAULT_MODELS, user 2026-09-29)."
       },
@@ -32,13 +73,15 @@
         "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
         "routes": ["xiaomi-token-plan-sgp/mimo-v2.6-pro"],
         "effort": "medium",
+        "preference": 4,
         "provenance": "qualified",
-        "evidence": "Built in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py), checked by GLM validation and completion."
+        "evidence": "Built in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py), checked by GLM validation and completion. Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       },
       {
         "model": "kilo/deepseek/deepseek-v4.1-flash",
         "routes": ["kilo/deepseek/deepseek-v4.1-flash"],
         "effort": "medium",
+        "preference": 4,
         "provenance": "provisional",
         "evidence": "The owner's starting table for #1426 (issue comment, 2026-10-17): KiloBench 75.3% at $2.58 per task. Admitted provisionally until an AutoCode run confirms it.",
         "benchmark": {"name": "KiloBench", "score": 75.3, "source": "issue #1426 comment, 2026-10-17", "retrieved": "2026-10-17"}
@@ -49,15 +92,17 @@
         "model": "openai/gpt-6-sol",
         "routes": ["openai/gpt-6-sol", "kilo/openai/gpt-6-sol"],
         "effort": "high",
+        "preference": 0,
         "provenance": "qualified",
-        "evidence": "Today's default Plan Reviewer route (DEFAULT_MODELS, user 2026-09-28) and the plan reviewer of the default OpenCode qualification runs."
+        "evidence": "Today's default Plan Reviewer route (DEFAULT_MODELS, user 2026-09-28) and the plan reviewer of the default OpenCode qualification runs. Live 2026-10-20 (ladder-07 on Kilo): 43 s and 1.4k reasoning tokens per review with three substantive concerns, against MiMo v2.6 Pro's 526-890 s and 32-45k tokens. Owner decision 2026-10-20: the first choice when its login is connected."
       },
       {
-        "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
-        "routes": ["xiaomi-token-plan-sgp/mimo-v2.6-pro"],
+        "model": "anthropic/claude-opus-5-5",
+        "routes": ["anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5-5"],
         "effort": "high",
-        "provenance": "qualified",
-        "evidence": "Reviewed plans in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py), checking GLM planning work."
+        "preference": 1,
+        "provenance": "provisional",
+        "evidence": "Owner decision 2026-10-20: the second choice for plan review when no GPT-6 Sol login is connected; MiMo is no longer used for review. Provisional until an AutoCode qualification run reviews plans with it."
       }
     ],
     "sol": [
@@ -71,9 +116,9 @@
       {
         "model": "zai-coding-plan/glm-5.3",
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
-        "effort": "high",
+        "effort": "medium",
         "provenance": "qualified",
-        "evidence": "Validated MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py)."
+        "evidence": "Validated MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Medium since 2026-10-21 (owner decision): on ladder-07 on Kilo the GLM Tester at medium took 242 s with 14.9k reasoning tokens against 269-468 s and 23.1k at high, and the run passed 8/8 with no send-back. Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
     "completion": [
@@ -81,15 +126,17 @@
         "model": "openai/gpt-6-sol",
         "routes": ["openai/gpt-6-sol", "kilo/openai/gpt-6-sol"],
         "effort": "medium",
+        "preference": 0,
         "provenance": "qualified",
-        "evidence": "Today's default Completion Reviewer route (DEFAULT_MODELS)."
+        "evidence": "Today's default Completion Reviewer route (DEFAULT_MODELS). Owner decision 2026-10-20: the final gate is a short, high-stakes judgment, so GPT-6 Sol comes first when its login is connected; GLM 5.3 remains the fallback."
       },
       {
         "model": "zai-coding-plan/glm-5.3",
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
         "effort": "medium",
+        "preference": 1,
         "provenance": "qualified",
-        "evidence": "Completed MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py)."
+        "evidence": "Completed MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
     "astra": [

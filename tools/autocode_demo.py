@@ -50,6 +50,19 @@ OPTIONS = (
 )
 
 
+BASE_GREETING = """import sys
+
+def main():
+    if len(sys.argv) != 2 or not sys.argv[1].strip():
+        print("A nonempty name is required", file=sys.stderr)
+        return 2
+    raise SystemExit("Greeting not implemented yet")
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
+
+
 def _save(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
@@ -58,7 +71,9 @@ def _prepare(root: Path, name: str, *, failed_check=False) -> TaskRun:
     project = root / name
     project.mkdir()
     (project / "README.md").write_text("# Offline greeting demo\n\nNo model or account is used.\n")
-    (project / "greet.py").write_text('import sys\nraise SystemExit("Greeting not implemented yet")\n')
+    # The original code already rejects invalid input. The delivered rejection test passes on it and
+    # on the change, so it proves that behavior is kept for code that had no tests (#2259).
+    (project / "greet.py").write_text(BASE_GREETING)
     # Git also receives the isolated environment, never the user's configuration.
     home = root / (name + "-environment")
     home.mkdir()
@@ -94,6 +109,8 @@ def _prepare(root: Path, name: str, *, failed_check=False) -> TaskRun:
         "GIT_CONFIG_GLOBAL": os.devnull,
         "AUTOCODE_FIXTURE_MODE": "standard",
     }
+    if os.environ.get("AUTOCODE_NO_CAPABILITY_DROP") == "1":
+        environment["AUTOCODE_NO_CAPABILITY_DROP"] = "1"
     if failed_check:
         environment.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK="1")
     for args in (
@@ -155,7 +172,9 @@ def _plan(run: TaskRun) -> dict:
         run.answer(question["id"], "CLI", resolver_token=view["needs"].get("resolver_token"))
         view = run.advance_until_input()
     if view["needs"]["kind"] != "approve_plan":
-        raise TaskRunError("The demo did not produce an approval-ready plan: " + view["status"])
+        # The stop's own reason says what to fix (a root shell's refused session, a missing tool).
+        reason = f" ({view['stop_reason']})" if view.get("stop_reason") else ""
+        raise TaskRunError(f"The demo did not produce an approval-ready plan: {view['status']}{reason}")
     print("Plan ready: greet a name, reject invalid input, then independently check it.", flush=True)
     (run.workspace.parent / (run.workspace.name + "-environment") / "displayed-plan.txt").write_text(run.show_goal())
     print("Demo approval: approve the displayed sample plan before building.", flush=True)
@@ -167,6 +186,7 @@ def _plan(run: TaskRun) -> dict:
 def run_demo(root: Path) -> dict:
     started = time.monotonic()
     print("Offline demo — deterministic fake provider; no account, network or model spend.", flush=True)
+    print("Token and cost figures in this demo's run status are simulated; no charges are incurred.", flush=True)
     print("Demo files: " + str(root), flush=True)
     print("First, a check that passes only in the fake Tester's session.", flush=True)
     rejected = _prepare(root, "refused-check", failed_check=True)

@@ -85,6 +85,23 @@ def launcher_listing_proposal(records):
     }
 
 
+class ProposalOwnershipTests(unittest.TestCase):
+    def test_report_proposal_errors_are_distinct_from_authenticated_inactive_ids(self):
+        records = sources()
+        valid = proposal(records)
+        unknown = {**valid, "declaration_id": "not-a-declaration"}
+        malformed = {key: value for key, value in valid.items() if key != "steps"}
+        bad_binding = {**valid, "bindings": []}
+        for proposals in (None, [], [valid, copy.deepcopy(valid)], [unknown], [malformed], [bad_binding]):
+            with self.subTest(proposals=proposals):
+                with self.assertRaises(brief.ObservationProposalError):
+                    brief.bind(records, proposals)
+        self.assertTrue(brief.bind(records, [valid])["observations"])
+        with self.assertRaises(ValueError) as failed:
+            brief.bind(records, [valid], inactive=["not-an-authorized-declaration"])
+        self.assertNotIsInstance(failed.exception, brief.ObservationProposalError)
+
+
 # A correct multi-item to-do list, independent of the catalog reference and oracle.
 LIST_PRODUCT = """import json
 from pathlib import Path
@@ -142,6 +159,37 @@ class BriefAcceptanceTests(unittest.TestCase):
         self.sources = sources()
         self.proposal = proposal(self.sources)
         self.manifest = brief.bind(self.sources, [self.proposal])
+
+    def test_documented_reviewer_example_compiles_and_rejects_wrong_listing(self):
+        # The stalled live reviewer repeatedly searched for this undocumented format.
+        from autocode_prompts import get
+
+        rule = get("fragments/autoplanner/brief-observation-review-rule.md")
+        examples = [json.loads(line) for line in rule.splitlines() if line.startswith('{"declaration_id"')]
+        self.assertEqual(1, len(examples), "Reviewers need a self-contained valid format example")
+        example = examples[0]
+        example["declaration_id"] = brief.inventory(self.sources)[0]["id"]
+        manifest = brief.bind(self.sources, [example])
+        observation = manifest["observations"][0]
+        for output, expected in (
+            (b"ticket-z buy milk [open]\n", True),
+            (b"ticket-z other item [open]\n", False),
+            (b"ticket-z buy milk open\n", False),
+        ):
+            with self.subTest(output=output):
+                reason = brief.output_reason(
+                    output,
+                    observation["pattern"],
+                    brief.line_pattern(observation),
+                    brief.required_values(observation),
+                    brief.absent_values(observation),
+                    True,
+                    fields=brief.field_patterns(observation),
+                    id_fields=brief.field_patterns(observation, ids=True),
+                    required_ids=brief.id_values(observation, "expect"),
+                    absent_ids=brief.id_values(observation, "absent"),
+                )
+                self.assertEqual(expected, not reason, reason)
 
     def test_exact_original_quote_literal_and_source_hash_bind_inventory(self):
         declaration = brief.inventory(self.sources)[0]
@@ -456,6 +504,59 @@ class BriefAcceptanceTests(unittest.TestCase):
                 code, observation, _ = self.run_candidate(PRODUCT.replace(" [open]", suffix))
                 self.assertEqual(1, code)
                 self.assertIn("original brief format", observation["reason"])
+
+    def test_saved_sweep_id_expectation_is_checked_in_id_fields_not_text(self):
+        rows = [{"placeholder": "TEXT", "step": 0, "argument": 1}, {"placeholder": "ID", "step": 1, "argument": 1}]
+        proposal_value = {
+            **proposal(self.sources, "buy milk"),
+            "steps": [{"argv": ["add", "buy milk"]}, {"argv": ["complete", "1"]}, {"argv": ["list"]}],
+            "observe_step": 2,
+            "bindings": rows,
+            "expect": rows,
+            "absent": [],
+        }
+        manifest = brief.bind(self.sources, [proposal_value])
+        observed = manifest["observations"][0]
+        for output, passed in (
+            (b"1 buy milk [done]\n", True),
+            (b"2 buy milk [done]\n", False),
+            (b"1 buy milk done\n", False),
+            (b"1 other [done]\n", False),
+            (b"1 buy milk [done]\n1 buy milk [done]\n", False),
+            (b"1 buy milk [done]\n2 buy milk [done]\n", False),
+        ):
+            with self.subTest(output=output):
+                reason = brief.output_reason(
+                    output,
+                    observed["pattern"],
+                    brief.line_pattern(observed),
+                    brief.required_values(observed),
+                    brief.absent_values(observed),
+                    True,
+                    fields=brief.field_patterns(observed),
+                    id_fields=brief.field_patterns(observed, ids=True),
+                    required_ids=brief.id_values(observed, "expect"),
+                    absent_ids=brief.id_values(observed, "absent"),
+                )
+                code, actual, _ = self.run_candidate(printing(output), manifest=manifest)
+                self.assertEqual(passed, not reason, reason)
+                self.assertEqual(0 if passed else 1, code, actual)
+                self.assertEqual(reason, actual["reason"])
+
+    def test_absent_id_does_not_reject_equal_text_and_cannot_be_hidden_by_different_text(self):
+        records = sources(TASK + " `todo.py remove ID` removes the item and exits 0.")
+        value = {
+            **proposal(records, "1"),
+            "steps": [{"argv": ["add", "1"]}, {"argv": ["remove", "1"]}, {"argv": ["list"]}],
+            "observe_step": 2,
+            "expect": [{"placeholder": "TEXT", "step": 0, "argument": 1}],
+            "absent": [{"placeholder": "ID", "step": 1, "argument": 1}],
+        }
+        manifest = brief.bind(records, [value])
+        for output, code in ((b"2 1 [open]\n", 0), (b"1 1 [open]\n", 1)):
+            with self.subTest(output=output):
+                actual, report, _ = self.run_candidate(printing(output), records=records, manifest=manifest)
+                self.assertEqual(code, actual, report)
 
     def test_live_multi_item_listing_of_a_correct_product_passes_and_its_mutant_fails(self):
         manifest = brief.bind(self.sources, [listing_proposal(self.sources)])

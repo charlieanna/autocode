@@ -325,6 +325,18 @@ class Paused(RuntimeError):
         self.status = status
 
 
+def boundary_pause(error) -> bool:
+    """A pause after a report was accepted, not a rejected output.
+
+    The completion gate runs once the report passed its own checks; it says the run
+    still lacks evidence, so recording that report as a failed output would hide the
+    gate's reason behind an Investigator (#1851). The runner sets the attempt aside
+    under the gate's own status instead (autocode_run_records.set_aside_at_completion_gate).
+    Output-shaped pauses such as PAUSED_ASSIGNMENT_SCOPE stay ordinary rejections.
+    """
+    return isinstance(error, Paused) and error.status == "PAUSED_COMPLETION_GATE"
+
+
 class MissingModule:
     """Stands in for a dependency that failed to import, so a module that needs it only
     at call time still loads: `autocode --version` and `autocode doctor` work without
@@ -549,10 +561,14 @@ class ContentHashes:
 _CONTENT_HASHES = ContentHashes()
 
 
-def _other_entry(path):
+def _other_entry(path, unborn_ok=True):
     """A listed name that is neither a file nor a link: a nested repository, gone, or left out."""
     if path.is_dir():
-        return "submodule:" + snapshot(path)["revision"] if (path / ".git").exists() else "uninitialized-submodule"
+        return (
+            "submodule:" + snapshot(path, nested=True, unborn_ok=unborn_ok)["revision"]
+            if (path / ".git").exists()
+            else "uninitialized-submodule"
+        )
     if not path.exists():
         return "deleted"
     return None
@@ -572,8 +588,38 @@ def _snapshot_git(root, *args, text=False):
         ) from error
 
 
-def snapshot(workspace):
-    """Hash current source content, executable modes and nested Git worktrees."""
+def _unborn(root):
+    """Whether ``root`` is a Git repository with no commit yet (``git init`` and nothing more)."""
+    try:
+        found = subprocess.run(["git", "rev-parse", "--verify", "--quiet", "HEAD"], cwd=root, capture_output=True)
+    except OSError:
+        return False
+    return found.returncode == 1 and not found.stdout and not found.stderr
+
+
+_SNAPSHOT_SERVICE = None
+
+
+def use_snapshot_service(service) -> None:
+    """Ask ``service(workspace, nested)`` first; None from it means take the snapshot here (#1707)."""
+    global _SNAPSHOT_SERVICE
+    _SNAPSHOT_SERVICE = service
+
+
+def inventory_excluded(name: str) -> bool:
+    """Whether a workspace name is outside the checked source inventory: run state and Python bytecode caches."""
+    return name.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{name}" or name.endswith(".pyc")
+
+
+def snapshot(workspace, nested=False, unborn_ok=True):
+    """Hash current source content, executable modes and nested Git worktrees.
+
+    A nested repository with no commit yet (a scratch ``git init`` inside the project) has
+    head "unborn" rather than stopping the run; the workspace itself still needs a HEAD.
+    ``unborn_ok=False`` keeps the refusal for callers that bind an identity to the whole tree.
+    """
+    if _SNAPSHOT_SERVICE is not None and unborn_ok and (served := _SNAPSHOT_SERVICE(workspace, nested)) is not None:
+        return served
     root = Path(workspace)
     names = git_names(_snapshot_git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"))
     hashes = _CONTENT_HASHES
@@ -582,7 +628,7 @@ def snapshot(workspace):
     kept = {}
     files = {}
     for name in sorted(set(names)):
-        if name.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{name}" or name.endswith(".pyc"):
+        if inventory_excluded(name):
             continue
         # One lstat on a plain string: building a Path and stating it three times cost more than hashing.
         # Git lists an embedded repository as "name/"; Path dropped that slash, so lstat must not follow it.
@@ -596,9 +642,13 @@ def snapshot(workspace):
         elif info is not None and stat.S_ISREG(info.st_mode):
             content = hashes.content(full, info, known, kept, settled_before)
             files[name] = ("executable:" if info.st_mode & 0o111 else "") + content
-        elif (entry := _other_entry(root / name)) is not None:
+        elif (entry := _other_entry(root / name, unborn_ok)) is not None:
             files[name] = entry
-    head = _snapshot_git(root, "rev-parse", "HEAD", text=True).strip()
+    head = (
+        "unborn"
+        if nested and unborn_ok and _unborn(root)
+        else _snapshot_git(root, "rev-parse", "HEAD", text=True).strip()
+    )
     hashes.finish(key, kept, epoch)
     return {"head": head, "files": files, "revision": digest({"head": head, "files": files})}
 
@@ -647,8 +697,25 @@ def model_output_schema(schema):
     return result
 
 
+SCHEMA_ERROR_LIMIT = 20
+
+
 def validate_schema(value, schema, where="$"):
-    """The small, strict JSON Schema subset used by our checked-in verdicts."""
+    """The small, strict JSON Schema subset used by our checked-in verdicts.
+
+    Raises one ValueError naming every violation found, in document order and joined by "; ", so a
+    report repair can fix them all in one attempt instead of discovering them one repair at a time.
+    The first violation is the one earlier versions reported alone.
+    """
+    errors: list[str] = []
+    _schema_errors(value, schema, where, errors)
+    if errors:
+        shown = errors[:SCHEMA_ERROR_LIMIT]
+        more = len(errors) - len(shown)
+        raise ValueError("; ".join(shown) + (f"; and {more} more" if more else ""))
+
+
+def _schema_errors(value, schema, where, errors):
     kind = schema.get("type")
     types = {
         "object": dict,
@@ -663,26 +730,27 @@ def validate_schema(value, schema, where="$"):
     if kinds and not any(
         isinstance(value, types[k]) and not (k in ("integer", "number") and isinstance(value, bool)) for k in kinds
     ):
-        raise ValueError(f"{where}: expected {' or '.join(kinds)}")
+        errors.append(f"{where}: expected {' or '.join(kinds)}")
+        return
     if "enum" in schema and value not in schema["enum"]:
-        raise ValueError(f"{where}: invalid enum")
+        errors.append(f"{where}: invalid enum")
     if isinstance(value, dict):
         for key in schema.get("required", []):
             if key not in value:
-                raise ValueError(f"{where}: missing {key}")
+                errors.append(f"{where}: missing {key}")
         props = schema.get("properties", {})
         if schema.get("additionalProperties") is False and value.keys() - props.keys():
-            raise ValueError(f"{where}: unexpected fields: {', '.join(sorted(value.keys() - props.keys()))}")
+            errors.append(f"{where}: unexpected fields: {', '.join(sorted(value.keys() - props.keys()))}")
         for key, child in value.items():
             if key in props:
-                validate_schema(child, props[key], f"{where}.{key}")
+                _schema_errors(child, props[key], f"{where}.{key}", errors)
     if isinstance(value, list):
         if len(value) < schema.get("minItems", 0):
-            raise ValueError(f"{where}: too few items")
+            errors.append(f"{where}: too few items")
         if len(value) > schema.get("maxItems", len(value)):
-            raise ValueError(f"{where}: too many items")
+            errors.append(f"{where}: too many items")
         for index, child in enumerate(value):
-            validate_schema(child, schema.get("items", {}), f"{where}[{index}]")
+            _schema_errors(child, schema.get("items", {}), f"{where}[{index}]", errors)
 
 
 def criteria_definition(criteria):

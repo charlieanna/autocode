@@ -12,3 +12,6 @@ the actual integration plan or a user decision about scope. An 'unverified' assu
 does not authorize replacing real behavior with a prototype.
 Give concise, numbered concerns, evidence references,
 requested changes and acceptance tests. Do not manufacture objections or write a second essay.
+For a one-milestone bug fix, record the exact results of your worked-example comparisons in
+the summary, keyed by criterion ID. Include the rule or source used. Report only observations
+you actually made. This lets a final review compare unchanged examples with the earlier results.

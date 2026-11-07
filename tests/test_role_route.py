@@ -301,12 +301,50 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
                 settings = {"roles": {"plan_reviewer": {"reasoning_effort": "medium"}}}
                 if selected:
                     settings["route_selection"] = {"routes": {"plan_reviewer": {"origin": "auto_selected"}}}
-                role_route.record_reviewer_effort(SimpleNamespace(reasoning_effort=global_effort), settings, fresh=True)
+                role_route.record_efforts(SimpleNamespace(reasoning_effort=global_effort), settings, fresh=True)
                 self.assertEqual(expected, settings["effort_origins"]["plan_reviewer"])
                 planning.apply_reviewer_effort_tier({"settings": settings})
                 self.assertEqual(
                     "medium" if global_effort else "low", settings["roles"]["plan_reviewer"]["reasoning_effort"]
                 )
+
+    def test_configure_records_whether_the_person_chose_the_builders_effort(self):
+        # The light first Builder attempt (#1710) lowers only the runner's own default.
+        for flags, origin in (({}, "runner_default"), ({"terra_reasoning_effort": "high"}, "user_explicit")):
+            with self.subTest(flags=flags):
+                settings = self.configure({"workspace": "/fixture", "iteration": 0}, **flags)
+                self.assertEqual(origin, settings["effort_origins"]["terra"])
+
+    def test_the_builders_effort_provenance_follows_the_same_rule(self):
+        for named, global_effort, fresh, expected in (
+            ("high", None, True, "user_explicit"),
+            (None, "medium", True, "user_explicit"),
+            (None, None, True, "runner_default"),
+            (None, None, False, None),
+        ):
+            with self.subTest(named=named, global_effort=global_effort, fresh=fresh):
+                settings = {"roles": {"terra": {"reasoning_effort": "medium"}}}
+                args = SimpleNamespace(terra_reasoning_effort=named, reasoning_effort=global_effort)
+                role_route.record_efforts(args, settings, fresh=fresh)
+                self.assertEqual(expected, (settings.get("effort_origins") or {}).get("terra"))
+                self.assertEqual(
+                    expected in ("runner_default", "auto_selected"), role_route.effort_can_reduce(settings, "terra")
+                )
+
+    def test_a_saved_stage_choice_is_the_persons_ceiling_not_a_typed_level(self):
+        # Owner decision 2026-11-05: the stage choices supply the level (autocode_stage_choices.apply), which
+        # the review stages treat as a ceiling; a typed flag for another role stays exact.
+        settings = {"roles": {"sol": {"reasoning_effort": "high"}, "terra": {"reasoning_effort": "high"}}}
+        args = SimpleNamespace(
+            sol_reasoning_effort="high",
+            terra_reasoning_effort="high",
+            reasoning_effort=None,
+            stage_choice_efforts=("sol",),
+        )
+        role_route.record_efforts(args, settings, fresh=True)
+        self.assertEqual({"sol": "stage_choice", "terra": "user_explicit"}, settings["effort_origins"])
+        self.assertFalse(role_route.effort_can_reduce(settings, "sol"), "the runner's own tiers stay off")
+        self.assertFalse(role_route.reviewer_effort_can_reduce({"effort_origins": {"plan_reviewer": "stage_choice"}}))
 
     def test_a_new_run_records_why_each_role_has_the_route_it_has(self):
         settings = self.configure({"workspace": "/fixture", "iteration": 0}, sol_model=LUNA)

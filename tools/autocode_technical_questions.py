@@ -44,9 +44,9 @@ def settle(state: RunState, questions, contract_token):
         if event.get("actor") == "user_cli" and event.get("kind") in ("answer", "brief_feedback", "goal_edit"):
             break
         if event.get("kind") == "technical_decision" and event.get("actor") == "autocode":
-            settled.append(event.get("question"))
+            settled.append((event.get("question") or {}).get("id"))
     for question in internal:
-        if question in settled:
+        if question["id"] in settled:
             raise ValueError(
                 f"Internal technical question {question['id']} is already settled; use the saved technical_decision "
                 "event and return a repaired draft, not another question"

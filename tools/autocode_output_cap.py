@@ -26,6 +26,7 @@ from collections.abc import Mapping, MutableMapping
 
 STATUS = "PAUSED_OUTPUT_CAP"
 VARIABLE = "OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"
+KILO_VARIABLE = "KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX"
 OPENCODE_DEFAULT = 32000
 DEFAULT_TOKENS = 64000
 # How a provider's length stop starts; explain() adds the cap to exactly these reasons.
@@ -34,28 +35,39 @@ SET_BY = {
     "operator": "set by the operator",
     "autocode": "AutoCode's default",
     "opencode": "OpenCode's default; the variable did not reach it",
+    "kilo": "Kilo's default; the variable did not reach it",
 }
 _WHOLE_NUMBER = re.compile(r"[0-9]{1,9}")
 
 
-def configured(env: Mapping[str, str]) -> int | None:
+def configured(env: Mapping[str, str], variable: str = VARIABLE) -> int | None:
     """The requested limit ``env`` sets, or None for OpenCode's default setting."""
-    value = env.get(VARIABLE, "")
+    value = env.get(variable, "")
     return int(value) if _WHOLE_NUMBER.fullmatch(value) and int(value) > 0 else None
 
 
-def apply(child: MutableMapping[str, str]) -> None:
-    """Set AutoCode's requested limit unless the launch already holds a usable one."""
-    if configured(child) is None:
-        child[VARIABLE] = str(DEFAULT_TOKENS)
+def apply(child: MutableMapping[str, str], variable: str = VARIABLE) -> None:
+    """Use the native setting; preserve the legacy OpenCode override for Kilo callers."""
+    if configured(child, variable) is None:
+        legacy = configured(child) if variable == KILO_VARIABLE else None
+        child[variable] = str(legacy or DEFAULT_TOKENS)
 
 
-def recorded(operator: Mapping[str, str], child: Mapping[str, str]) -> dict:
-    """The launch setting and who chose it, without claiming provider enforcement."""
-    tokens = configured(child)
-    if tokens is None:
-        return {"tokens": OPENCODE_DEFAULT, "set_by": "opencode"}
-    return {"tokens": tokens, "set_by": "operator" if configured(operator) == tokens else "autocode"}
+def recorded(operator: Mapping[str, str], child: Mapping[str, str], variable: str = VARIABLE) -> dict:
+    """The native launch setting and who chose it, without claiming provider enforcement."""
+    tokens = configured(child, variable)
+    explicit = configured(operator, variable)
+    if explicit is None and variable == KILO_VARIABLE:
+        explicit = configured(operator)
+    result = {
+        "tokens": tokens or OPENCODE_DEFAULT,
+        "set_by": ("operator" if explicit == tokens else "autocode")
+        if tokens is not None
+        else ("kilo" if variable == KILO_VARIABLE else "opencode"),
+    }
+    if variable != VARIABLE:
+        result["variable"] = variable
+    return result
 
 
 def length_stop(tokens) -> str:
@@ -75,11 +87,12 @@ def explain(reason: str | None, cap: Mapping | None) -> str | None:
     """Name the requested setting and qualify advice to increase it after a length stop."""
     if not reason or not reason.startswith(LENGTH_STOP) or not isinstance(cap, Mapping):
         return reason
+    variable = cap.get("variable") or VARIABLE
     return (
         f"{reason.rstrip('.')}. The recorded output-limit setting is {cap.get('tokens')} tokens, "
-        f"reasoning included ({VARIABLE}, {SET_BY.get(cap.get('set_by') or '') or cap.get('set_by') or VARIABLE}); "
+        f"reasoning included ({variable}, {SET_BY.get(cap.get('set_by') or '') or cap.get('set_by') or variable}); "
         f"the provider's effective limit may differ, and some routes ignore this requested setting. "
-        f"On routes that honor it, set {VARIABLE} to a larger number of tokens before resuming; "
+        f"On routes that honor it, set {variable} to a larger number of tokens before resuming; "
         f"model and provider limits still apply."
     )
 

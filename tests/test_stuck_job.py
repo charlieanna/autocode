@@ -1,6 +1,7 @@
 """A stage that stops converging goes to an Investigator before the run pauses for the user."""
 
 import copy
+import json
 import shlex
 import subprocess
 import sys
@@ -10,7 +11,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_builder_failure as builder_failure
+import autocode_investigation_policy as investigation_policy
 import autocode_jobs as jobs
+import autocode_planning_advice as recovery_binding
+import autocode_recovery_accounting as recovery_accounting
+import autocode_recovery_limits as runner_limits
 import autocode_stuck_job as stuck
 import autocode_util as util
 import autopilot
@@ -80,6 +85,50 @@ def report(recommendation="retry", **overrides):
     return value
 
 
+class PromptHandoffTests(unittest.TestCase):
+    """C1 (#2113): the Investigator handoff renders as one compact line and round-trips its packet exactly."""
+
+    def test_prompt_names_every_required_report_field(self):
+        # A live MiMo Investigator put the cause inside diagnosis because the prompt described the
+        # six causes but never named the field; its report was rejected for "$: missing cause".
+        # untestable is defined inside the probe entry ("say why in untestable").
+        named = {*(f for f in stuck.SCHEMA["required"] if f"- {f}:" in stuck.PROMPT), "untestable"}
+        unnamed = [field for field in stuck.SCHEMA["required"] if field not in named]
+        self.assertIn("say why in untestable", stuck.PROMPT)
+        self.assertEqual(unnamed, [])
+
+    def state(self, mode="ordinary"):
+        state = state_for()
+        request = {
+            "stage": "terra",
+            "status": "PAUSED_REPEATED_FAILURE",
+            "reason": "rejected three times",
+            "identity": "fixed-identity",
+            "mode": mode,
+        }
+        if mode == "builder_failure":
+            request["failure_evidence"] = {"failure_id": "F1", "evidence_refs": ["run/failure.json"]}
+        state["stuck_investigation"] = request
+        return state
+
+    def check_compact_round_trip(self, mode):
+        state = self.state(mode)
+        text, metrics = stuck.prompt(state, "/run/state.json", engine="opencode")
+        _, handoff = text.split("\nCURRENT HANDOFF DATA\n", 1)
+        self.assertNotIn("\n", handoff, "the Investigator handoff must be one compact line (C1)")
+        self.assertEqual(
+            stuck.packet(state, "/run/state.json", engine="opencode"),
+            json.loads(handoff),
+        )
+        self.assertEqual((len(text.encode()) + 3) // 4, metrics["estimated_prompt_tokens"])
+
+    def test_the_ordinary_handoff_is_compact_and_round_trips(self):
+        self.check_compact_round_trip("ordinary")
+
+    def test_the_builder_failure_handoff_is_compact_and_round_trips(self):
+        self.check_compact_round_trip("builder_failure")
+
+
 class InterceptTests(unittest.TestCase):
     def test_a_non_convergence_pause_goes_to_the_investigator(self):
         state = state_for(
@@ -141,8 +190,49 @@ class InterceptTests(unittest.TestCase):
         state["next_stage"] = "astra_challenge"
         self.assertFalse(stuck.intercept(state, "PAUSED_PLANNING_BUDGET", "x"), "three per run by default")
 
+    def test_the_same_problem_on_changed_source_is_a_new_problem(self):
+        state = state_for()
+        state["stages"] = [{"stage": "sol", "source_revision": "rev-a", "exit_code": -15}]
+        state["next_stage"] = "sol"
+        self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "stalled twice"))
+        self.assertEqual("rev-a", state["stuck_investigations"][-1]["source_revision"])
+        state.update(next_stage="sol", status="RUNNING")
+        self.assertFalse(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "stalled again"), "same source: once")
+        state["stages"].append({"stage": "sol", "source_revision": "rev-b", "exit_code": -15})
+        self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "stalled on the Builder's new source"))
+        # An entry saved before revisions were recorded still matches its problem on any source.
+        legacy = state_for()
+        legacy["stuck_investigations"] = [{"identity": "sol:PAUSED_INVALID_OUTPUT", "outcome": "retried"}]
+        legacy["stages"] = [{"stage": "sol", "source_revision": "rev-c"}]
+        legacy["next_stage"] = "sol"
+        self.assertFalse(stuck.intercept(legacy, "PAUSED_INVALID_OUTPUT", "rejected again"))
+
+    def test_a_plan_with_more_milestones_than_the_budget_gets_one_investigation_each(self):
+        state = state_for()
+        self.assertEqual(stuck.MAX_CALLS, investigation_policy.max_calls(state))
+        state["goal_contract"] = {"body": {"milestones": [{"id": f"M{n}"} for n in range(1, 8)]}}
+        self.assertEqual(7, investigation_policy.max_calls(state))
+        for n, stage in enumerate(("astra_challenge", "astra_review", "sol", "terra")):
+            state.update(next_stage=stage, status="RUNNING")
+            self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", f"stuck {n}"), "beyond three")
+        state["settings"]["stuck_investigation"] = {"max_calls_per_run": 4}
+        state.update(next_stage="astra_finalize", status="RUNNING")
+        self.assertFalse(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x"), "an explicit budget wins")
+
 
 class BuilderFailureClassificationTests(unittest.TestCase):
+    def test_changed_line_investigation_does_not_offer_a_person_question(self):
+        state = {
+            "stuck_investigation": {
+                "mode": "builder_failure",
+                "failure_evidence": {"diagnosis": {"changed_code_evidence": {"status": "UNVERIFIED"}}},
+            }
+        }
+        fields = stuck.schema(state)["properties"]
+        self.assertNotIn("needs_user", fields["cause"]["enum"])
+        self.assertEqual([""], fields["user_question"]["enum"])
+        self.assertIn("needs_user", stuck.SCHEMA["properties"]["cause"]["enum"])
+
     def fixture(self, root):
         workspace = Path(root) / "workspace"
         workspace.mkdir()
@@ -445,6 +535,38 @@ class ApplyTests(unittest.TestCase):
         stuck.apply(state, report(), {}, state["workspace"])
         self.assertEqual(2, state["no_progress_batches"])
 
+    def test_exhausted_timeout_recovery_goes_to_the_investigator_which_grants_one_recovery(self):
+        # A live run (2026-11-06) asked a person to --grant-recovery after three stage timeouts.
+        self.assertIn("PAUSED_TIMEOUT_RECOVERY", stuck.RETRYABLE)
+        state = self.investigated(
+            "PAUSED_TIMEOUT_RECOVERY",
+            stage="astra_review",
+            automatic_recoveries_since_resume=3,
+            consecutive_timeout_recoveries=3,
+            automatic_timeout_recoveries=[{"stage": "astra_review"}] * 3,
+        )
+        stuck.apply(state, report(), {}, state["workspace"])
+        self.assertEqual(
+            (2, 2, "RUNNING", "astra_review"),
+            (
+                state["automatic_recoveries_since_resume"],
+                state["consecutive_timeout_recoveries"],
+                state["status"],
+                state["next_stage"],
+            ),
+        )
+        self.assertEqual(3, len(state["automatic_timeout_recoveries"]))
+        self.assertIsNone(
+            runner_limits.stop_reason(
+                state, recovery_accounting.spent(state), recovery_accounting.MAX_AUTOMATIC_RECOVERIES
+            )
+        )
+        state.update(automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3)
+        self.assertEqual(
+            "PAUSED_TIMEOUT_RECOVERY",
+            runner_limits.stop_reason(state, 3, recovery_accounting.MAX_AUTOMATIC_RECOVERIES)[0],
+        )
+
     def test_pause_restores_the_original_pause_with_the_diagnosis(self):
         state = self.investigated("PAUSED_REPEATED_FAILURE", pending_report_repair={"attempts": 2})
         stuck.apply(state, report("pause"), {}, state["workspace"])
@@ -486,8 +608,104 @@ class ApplyTests(unittest.TestCase):
 
 
 class GuidanceTests(unittest.TestCase):
+    def test_execution_guidance_handles_a_saved_snapshot_path_without_reading_it(self):
+        state = state_for(next_stage="sol", source_snapshot="/saved/source-1.json")
+        stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x")
+        stuck.apply(state, report(), {}, state["workspace"])
+        self.assertIn("INVESTIGATOR GUIDANCE", stuck.with_guidance(state, "sol", self.request()).prompt)
+        state["source_snapshot"] = "/saved/source-2.json"
+        self.assertEqual(self.request(), stuck.with_guidance(state, "sol", self.request()))
+
+    def test_execution_guidance_is_bound_to_the_task_source_contract_and_user_input(self):
+        for change in (
+            {"current_task": {"id": "another-task"}},
+            {"goal_contract": {"revision": 5, "hash": "new-contract"}},
+            {"source_snapshot": {"revision": "changed-source"}},
+            {"answers": {"Q1": {"text": "Changed requirement"}}},
+            {"brief_feedback": [{"id": "new", "text": "Use the other API"}]},
+            {"task": "Another task"},
+        ):
+            with self.subTest(change=change):
+                state = self.in_force("sol")
+                state.update(change)
+                self.assertEqual(self.request(), stuck.with_guidance(state, "sol", self.request()))
+                stuck.retire(state, "PAUSED_INTERVENTION")
+                self.assertNotIn("stuck_investigation", state)
+
+    def test_boundary_pause_keeps_advice_without_changing_grants_history_or_limits(self):
+        for stage in ("terra", "sol", "astra_review", "astra_discovery"):
+            with self.subTest(stage=stage):
+                state = self.in_force(stage)
+                before = copy.deepcopy(state)
+                stuck.retire(state, "PAUSED_INTERVENTION")
+                self.assertEqual(before, state)
+                self.assertIn("INVESTIGATOR GUIDANCE", stuck.with_guidance(state, stage, self.request()).prompt)
+                stuck.retire(state, "PAUSED_REPEATED_FAILURE")
+                self.assertNotIn("stuck_investigation", state)
+
+    def test_checkpoint_and_budget_holds_keep_the_pending_retry_guidance(self):
+        # Live run: --pause-after-stage saved an Investigator report, then the milestone
+        # budget stopped the retry. Both holds discarded the very advice the retry needed.
+        for pause in (
+            "PAUSED_REQUESTED",
+            "PAUSED_MILESTONE_BUDGET",
+            "PAUSED_PLANNING_BUDGET",
+            "PAUSED_TIME_LIMIT",
+            "PAUSED_COST_LIMIT",
+            "PAUSED_ITERATION_LIMIT",
+        ):
+            with self.subTest(pause=pause):
+                state = self.in_force("terra")
+                before = copy.deepcopy(state)
+
+                def hold(current):
+                    raise Paused(pause, "No stage launched")
+
+                with self.assertRaises(Paused) as caught:
+                    stuck.drive(
+                        state,
+                        lambda *_: self.fail("A held retry must not launch"),
+                        before=hold,
+                        active=lambda s: s["status"] == "RUNNING",
+                        skip=object(),
+                        paused=Paused,
+                        investigate=True,
+                    )
+                self.assertEqual(pause, caught.exception.status)
+                self.assertEqual(before, state, "A hold must not renew retry authority or change limits")
+                prompt = stuck.with_guidance(state, "terra", self.request()).prompt
+                self.assertIn("Cite docs/bugs/cent-drift.json exactly", prompt)
+                self.assertLess(prompt.index("INVESTIGATOR GUIDANCE"), prompt.index("CURRENT HANDOFF DATA"))
+
+                state["source_snapshot"] = {"revision": "changed-after-pause"}
+                stuck.retire(state, pause)
+                self.assertEqual(self.request(), stuck.with_guidance(state, "terra", self.request()))
+                self.assertNotIn("stuck_investigation", state)
+
+    def test_replanning_does_not_replay_obsolete_report_instructions_or_diagnoses(self):
+        for change in (
+            {"goal_contract": {"revision": 5, "hash": "new-contract"}},
+            {"answers": {"rewording-1": {"text": "Keep the approved wording"}}},
+            {"brief_feedback": [{"id": "new", "text": "Require real joint proof"}]},
+            {"planning": {"reports": {"astra_challenge": {"report": {"concerns": [{"id": "PR-01"}]}}}}},
+            {"task": "A different bug"},
+        ):
+            with self.subTest(change=change):
+                state = self.in_force("astra_finalize")
+                state.update(change)
+                before = copy.deepcopy(state)
+                self.assertEqual(self.request(), stuck.with_guidance(state, "astra_finalize", self.request()))
+                self.assertEqual(
+                    "current rejection", stuck.annotate(state, "PAUSED_REPEATED_FAILURE", "current rejection")
+                )
+                stuck.retire(state)
+                self.assertEqual(self.request(), stuck.with_guidance(state, "astra_finalize", self.request()))
+                self.assertEqual(before["stuck_investigations"], state["stuck_investigations"])
+                self.assertFalse(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "new rejection"))
+
     def history(self, **overrides):
         return {
+            **recovery_binding.binding({}, "astra_discovery"),
             "identity": "astra_discovery:PAUSED_INVALID_OUTPUT",
             "stage": "astra_discovery",
             "requested_at": "2026-09-30T08:00:00+00:00",
@@ -500,8 +718,9 @@ class GuidanceTests(unittest.TestCase):
             **overrides,
         }
 
-    def test_report_corrections_reach_a_fresh_planning_request_after_clarification(self):
+    def test_report_corrections_reach_a_fresh_request_with_the_same_planning_inputs(self):
         state = {"stuck_investigations": [self.history()], "answers": {"Q1": {"text": "Use the existing API"}}}
+        state["stuck_investigations"][0].update(recovery_binding.binding(state, "astra_discovery"))
         before = copy.deepcopy(state)
         for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
             with self.subTest(stage=stage):
@@ -518,6 +737,7 @@ class GuidanceTests(unittest.TestCase):
             self.history(cause="environment"),
             self.history(stage="terra"),
             self.history(guidance=""),
+            self.history(planning_context=None),
         ):
             with self.subTest(row=row):
                 self.assertEqual(
@@ -638,12 +858,36 @@ class RouteTests(unittest.TestCase):
         pick = lambda roles, stuck_model, provider=None: tuple(
             stuck.route(roles, stuck_model, provider)[k] for k in ("model", "reasoning_effort")
         )
-        # kilocode runs reach Claude through the Kilo Gateway.
-        self.assertEqual((stuck.CLAUDE, "high"), pick(roles, "zai-coding-plan/glm-5.3", "kilocode"))
-        self.assertEqual(("openai/gpt-6-sol", "high"), pick(roles, stuck.CLAUDE, "kilocode"))
+        # kilocode runs use the run's own direct routes, never the Resolver's Astra and never a kilo/ gateway
+        # route (user 2026-10-21): the first configured role outside the stuck stage's family.
+        self.assertEqual(("openai/gpt-6-sol", "high"), pick(roles, "zai-coding-plan/glm-5.3", "kilocode"))
+        self.assertEqual(("zai-coding-plan/glm-5.3", "high"), pick(roles, "openai/gpt-6-sol", "kilocode"))
+        self.assertEqual(("zai-coding-plan/glm-5.3", "high"), pick(roles, "kilo/anthropic/claude-opus-5.5", "kilocode"))
+        direct = {
+            "plan_reviewer": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "engine": "opencode"},
+            "glm": {"model": "zai-coding-plan/glm-5.3"},
+            "astra": {"model": "kilo/anthropic/claude-opus-5.5"},
+        }
+        self.assertEqual(
+            ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "high"), pick(direct, "zai-coding-plan/glm-5.3", "kilocode")
+        )
+        self.assertEqual(
+            ("zai-coding-plan/glm-5.3", "high"), pick(direct, "xiaomi-token-plan-sgp/mimo-v2.6-pro", "kilocode")
+        )
+        gateway = {
+            "plan_reviewer": {"model": "kilo/anthropic/claude-opus-5.5"},
+            "glm": {"model": "kilo/openai/gpt-6-sol"},
+        }
+        # Only gateway routes configured: the reviewer's own, which prepare_stuck's independence check then judges.
+        self.assertEqual(
+            ("kilo/anthropic/claude-opus-5.5", "high"), pick(gateway, "zai-coding-plan/glm-5.3", "kilocode")
+        )
+        self.assertEqual("glm", stuck.family("zhipuai-coding-plan/glm-5.3"))
+        self.assertEqual(stuck.family("openai/gpt-6-luna"), stuck.family("gpt-6-sol"))
         # OpenCode runs: Sol, or GLM when the stuck stage runs on Sol.
         self.assertEqual(("openai/gpt-6-sol", "high"), pick(roles, "zai-coding-plan/glm-5.3"))
         self.assertEqual(("zai-coding-plan/glm-5.3", "high"), pick(roles, "openai/gpt-6-sol"))
+        self.assertEqual(("zai-coding-plan/glm-5.3", "high"), pick(roles, "openai/gpt-6-luna"))  # one GPT family
         self.assertEqual("opencode", stuck.route(roles, "x")["engine"])
         # Native Codex runs have GPT models only: Sol, or Luna when the stuck stage runs on Sol.
         codex = {"plan_reviewer": {"model": "gpt-6-astra", "engine": "codex"}}
@@ -666,9 +910,10 @@ class RouteTests(unittest.TestCase):
             ("astra", stuck.ROUTE, False, stuck.SCHEMA),
             (request.role, request.route_role, request.allow_write, request.schema),
         )
-        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"][stuck.ROUTE]["model"])
+        # The stuck Plan Reviewer runs GPT-6 Astra: another GPT model shares its family, so GLM investigates.
+        self.assertEqual("zai-coding-plan/glm-5.3", state["settings"]["roles"][stuck.ROUTE]["model"])
         self.assertNotIn(stuck.ROUTE, state["sessions"])
-        self.assertIn('"status": "PAUSED_PLANNING_BUDGET"', request.prompt)
+        self.assertIn('"status":"PAUSED_PLANNING_BUDGET"', request.prompt)
         self.assertIn(str(Path(workspace) / "state.json"), request.prompt)
         self.assertEqual("autoresolver", autopilot.unit_for(stuck.STAGE))
         self.assertIn(stuck.STAGE, jobs.STAGES)
@@ -686,9 +931,10 @@ class DriveTests(unittest.TestCase):
             return action(current) if callable(action) else action
 
         def apply(current, stage, outcome):
-            if stage == stuck.STAGE:
+            if stage == stuck.STAGE and outcome != "paused":
                 return stuck.apply(current, outcome, {}, state["workspace"])
-            current.update(next_stage=None, status="TASK_COMPLETE")
+            if stage != stuck.STAGE:
+                current.update(next_stage=None, status="TASK_COMPLETE")
 
         def fail(status):
             def raise_(current):
@@ -733,6 +979,47 @@ class DriveTests(unittest.TestCase):
         self.assertEqual("PAUSED_REPEATED_FAILURE", caught.exception.status)
         self.assertIn("could not finish", str(caught.exception))
         self.assertEqual(("PAUSED_REPEATED_FAILURE", "terra"), (state["status"], state["next_stage"]))
+
+    def test_an_investigator_out_of_time_restores_the_stuck_pause_not_an_exact_retry_question(self):
+        # A live run (2026-11-06): the Investigator of a planner that kept timing out timed out
+        # three times itself, and the run stopped on "Continue?" for an exact Investigator retry.
+        def stopped(kind):
+            def stop(current):
+                current["stages"].append({"stage": stuck.STAGE, "rejected": True})
+                cause = "Investigator: Stage exceeded its 480-second hard runtime limit"
+                current["job_failure"] = {
+                    "stage": stuck.STAGE,
+                    "kind": kind,
+                    "reason": cause + ". AutoCode already retried the Investigator ... waits for its exact retry",
+                }
+                current["recovery_context"] = {"kind": "job_failure", "stage": stuck.STAGE, "reason": cause}
+                current.update(status="PAUSED_JOB_FAILURE", stop_reason=current["job_failure"]["reason"])
+                return "paused"
+
+            return stop
+
+        state = state_for()
+        with self.assertRaises(Paused) as caught:
+            self.run_loop(state, {"terra": ["!PAUSED_TIMEOUT_RECOVERY"], stuck.STAGE: [stopped("timeout")]})
+        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", caught.exception.status)
+        self.assertIn("PAUSED_TIMEOUT_RECOVERY at terra", str(caught.exception))
+        self.assertIn("could not finish: Investigator: Stage exceeded its 480-second", str(caught.exception))
+        self.assertNotIn("exact retry", str(caught.exception))
+        self.assertEqual(("PAUSED_TIMEOUT_RECOVERY", "terra"), (state["status"], state["next_stage"]))
+        for key in ("job_failure", "recovery_context", "stuck_investigation"):
+            self.assertNotIn(key, state)
+        self.assertEqual("investigation_failed", state["stuck_investigations"][-1]["outcome"])
+
+        # A model stop keeps the job's model question; nothing is abandoned.
+        state = state_for()
+        done, _ = self.run_loop(state, {"terra": ["!PAUSED_TIMEOUT_RECOVERY"], stuck.STAGE: [stopped("quota")]})
+        self.assertEqual(("PAUSED_JOB_FAILURE", stuck.STAGE), (done["status"], done["next_stage"]))
+        self.assertIn("stuck_investigation", done)
+        # A Builder failure classification keeps its exact retry: it still needs an Investigator.
+        done.update(job_failure={**done["job_failure"], "kind": "timeout"})
+        self.assertTrue(stuck.timed_out(done))
+        done["stuck_investigation"]["mode"] = "builder_failure"
+        self.assertFalse(stuck.timed_out(done))
 
     def test_a_pause_set_on_the_state_is_investigated_too(self):
         state = state_for(next_stage="astra_review")
@@ -843,6 +1130,13 @@ class ProbeTests(unittest.TestCase):
     """A retry's diagnosed cause is shown by a probe the runner runs over the cited files only; no model."""
 
     REJECTED = {"code_refs": ["docs/bugs/cent-drift.json (see the note)"], "summary": "plan"}
+    # The rejected output with the path fixed: the cause the probe shows is gone (#1769).
+    FIXED_REF = {
+        "file": "run/astra_discovery-03.json",
+        "find": "cent-drift.json (see the note)",
+        "replace": "cent-drift.json",
+    }
+    SPACE_PROBE = "python3 -c \"import json; r = json.load(open('run/astra_discovery-03.json')); assert ' ' in r['code_refs'][0]\""
 
     def setup(self):
         import json
@@ -863,7 +1157,14 @@ class ProbeTests(unittest.TestCase):
         return state, workspace, run_dir
 
     def apply(self, state, run_dir, workspace, **overrides):
-        value = report(**{"evidence_refs": [str(run_dir / "astra_discovery-03.json")], "untestable": "", **overrides})
+        value = report(
+            **{
+                "evidence_refs": [str(run_dir / "astra_discovery-03.json")],
+                "untestable": "",
+                "counterexample": self.FIXED_REF,
+                **overrides,
+            }
+        )
         autoresolver.apply_job(
             stuck.STAGE,
             state,
@@ -886,8 +1187,25 @@ class ProbeTests(unittest.TestCase):
         )
         entry = state["stuck_investigations"][0]
         self.assertEqual(("retried", 0, probe), (entry["outcome"], entry["probe_result"]["exit_code"], entry["probe"]))
+        self.assertNotEqual(0, entry["probe_result"]["counterexample"]["exit_code"])
         self.assertEqual("astra_discovery", state["next_stage"])
         self.assertTrue((run_dir / "secret-uncited.json").is_file())  # the real run directory is untouched
+        self.assertEqual(
+            self.REJECTED["code_refs"], json.loads((run_dir / "astra_discovery-03.json").read_text())["code_refs"]
+        )
+
+    def test_a_probe_that_passes_whatever_the_cited_files_say_sends_nothing_back(self):
+        # #1769: a retry is checked, not trusted, so its probe must fail once the cited file no longer shows
+        # the cause. Without that the stage is not retried, and the original pause is restored.
+        for probe, counterexample in (
+            ("python3 -c 'assert 2 + 2 == 4'", self.FIXED_REF),
+            ("test -f run/astra_discovery-03.json", self.FIXED_REF),
+            (self.SPACE_PROBE, {"file": "", "find": "", "replace": ""}),
+        ):
+            with self.subTest(probe=probe, counterexample=counterexample):
+                state, workspace, run_dir = self.setup()
+                with self.assertRaisesRegex(ValueError, "counterexample"):
+                    self.apply(state, run_dir, workspace, example="x", probe=probe, counterexample=counterexample)
 
     def test_an_archived_output_is_probed_at_its_file_name_as_the_prompt_says(self):
         # Live run 2026-09-29: the rejected output had been moved to archived-sol-01-*/ and a probe

@@ -64,6 +64,32 @@ def reserve(workspace: Path, destination: Path, *, named_from: Path | None = Non
     return destination
 
 
+def discard_unsaved(run_dir: Path | None) -> bool:
+    """Remove a fresh run directory the launch never saved a checkpoint in: at most its ``writer.lock``.
+
+    A launch refused after the directory was reserved and locked but before ``state.json`` (a missing
+    engine, an unsupported host) otherwise leaves a directory that run listings show as unreadable for
+    ever. Anything else in it, a symlink, or a missing directory is left alone; never raises."""
+    if run_dir is None:
+        return False
+    run_dir = Path(run_dir)
+    try:
+        if run_dir.is_symlink() or not run_dir.is_dir():
+            return False
+        entries = list(run_dir.iterdir())
+    except OSError:
+        return False
+    if any(entry.name != "writer.lock" or entry.is_symlink() or not entry.is_file() for entry in entries):
+        return False
+    try:
+        for entry in entries:
+            entry.unlink()
+        run_dir.rmdir()
+    except OSError:
+        return False
+    return True
+
+
 def resolve_relocated(workspace: Path, run_dir: Path) -> tuple[Path, Path] | None:
     """The run a destination named under ``workspace`` denotes after relocation.
 

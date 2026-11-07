@@ -33,10 +33,11 @@ def investigator(settings, stuck_model):
     Astra remains reserved for the Resolver, as in the fixed-route policy.
     """
     roles = settings.get("roles") or {}
+    vendor = independence.same_vendor_engine(settings)
     for source in ("plan_reviewer", "sol", "glm", "completion", "requirements"):
         route = roles.get(source) or {}
         model = route.get("model")
-        if not model or "astra" in model.lower() or independence.may_share(model, stuck_model):
+        if not model or "astra" in model.lower() or independence.may_share(model, stuck_model, vendor_engine=vendor):
             continue
         if allows(settings, source, model, route.get("reasoning_effort")):
             return source, dict(route)

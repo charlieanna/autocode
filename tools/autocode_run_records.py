@@ -30,7 +30,9 @@ try:
     from . import autocode_process as processes
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_accounting as accounting
+    from . import autocode_report_edits as report_edits
     from . import autocode_report_repair_queue as report_repair_queue
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as resolver_human
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
@@ -49,7 +51,9 @@ except ImportError:
     import autocode_process as processes
     import autocode_progressive_state as progressive
     import autocode_recovery_accounting as accounting
+    import autocode_report_edits as report_edits
     import autocode_report_repair_queue as report_repair_queue
+    import autocode_requirements_review as requirements_review
     import autocode_resolver_human as resolver_human
     import autocode_roles as roles
     import autocode_run_status as run_status
@@ -141,6 +145,7 @@ def normalize_human_boundary(state: RunState, run_dir):
         or milestones.release_obsolete_gate_request(state, public)
     ):
         return
+    requirements_review.recover_scope(state, resolver_human.queue)
     proposal = state.get(resolver_human.PRIVATE)
     # The batch's last records belong to its members, never the parent. A pending member request
     # left stale by a settings write must stay for its retry/answer instead of becoming a legacy decision.
@@ -216,6 +221,8 @@ def normalize_human_boundary(state: RunState, run_dir):
     if state.get("next_stage") == "astra_resolve" and state.get("resolution_request"):
         return
     disposition = resolver_human.evaluate(state)
+    if disposition == "permission_loop":
+        return
     if disposition == "escalate":
         milestones.release_obsolete_gate_request(state, resolver_human.current(state))
         return
@@ -299,8 +306,17 @@ def normalize_human_boundary(state: RunState, run_dir):
             autopilot.queue_resolution(
                 state, value, source, source_stage=semantic, source_report=not semantic.startswith("astra")
             )
-            state.update({"status": "RUNNING", "phase": "RESOLVING"})
-            return
+            if state.get("next_stage") == "astra_resolve" and state.get("resolution_request"):
+                state.update({"status": "RUNNING", "phase": "RESOLVING"})
+                return
+            # Requeueing scheduled no diagnosis: this task and source already have one, so it staged
+            # the same blocker again. Setting the run RUNNING here repeated the stage that blocked,
+            # without limit (11 Completion Reviews on an unchanged source, 2026-10-25). Hold instead.
+            state["stop_reason"] = (
+                "The Completion Owner still does not accept this unchanged source after the existing "
+                "diagnosis, so another automatic review would reach the same result. Change the setting "
+                "or source the diagnosis names, or give feedback, then resume."
+            )
     # Deferred or rejected proposals stay private for resolver diagnosis.
     state.update({"status": "RESOLVER_PENDING", "phase": "RESOLVING"})
 
@@ -384,7 +400,7 @@ def default_missing_provenance(value, record):
     if not isinstance(value, dict):
         return value
     try:
-        properties = read_json(Path(record["schema"])).get("properties", {})
+        properties = report_edits.validation_schema(read_json(Path(record["schema"]))).get("properties", {})
     except (OSError, ValueError, KeyError):
         return value
     optional = {}
@@ -403,7 +419,20 @@ def default_missing_provenance(value, record):
         if optional:
             record["defaulted_fields"] = sorted(optional)
         return {**value, **optional}
-    contract_schema = properties.get("contract", {}).get("properties", {})
+    contract_offer = properties.get("contract", {})
+    if "anyOf" in contract_offer:
+        # Revision references and legacy full reports have different optional fields.
+        # Do not inject full-body defaults into a reference, or lose them for old reports.
+        reference = isinstance(value.get("contract"), dict) and "revise_contract" in value["contract"]
+        contract_offer = next(
+            (
+                branch
+                for branch in _offers(contract_offer)
+                if ("revise_contract" in branch.get("properties", {})) == reference
+            ),
+            {},
+        )
+    contract_schema = contract_offer.get("properties", {})
     if isinstance(value.get("contract"), dict):
         # A report-level field written inside the contract is the model's own content, only misplaced:
         # move it up instead of rejecting the report (`$.contract: unexpected fields`, 8 repairs to
@@ -435,10 +464,66 @@ def default_missing_provenance(value, record):
         missing.append("contract.task_kind")
     elif "task_kind" in defaults:
         missing.append("task_kind")
+    if isinstance(contract, dict):
+        # An omitted current_behavior box is an empty one (#2133), and an omitted supersedes list
+        # replaces no original test (#2748): the strict generation schema requires both on every
+        # criterion, but a provider that leaves one out has said nothing, which the runner fills from
+        # the bound diagnosis or leaves empty. It costs no report-repair call.
+        rows = contract_schema.get("acceptance_criteria", {})
+        offered = {
+            box for box in BOXES if any(box in offer.get("items", {}).get("properties", {}) for offer in _offers(rows))
+        }
+        filled = {**(defaults.get("contract") or contract)}
+        criteria = filled.get("acceptance_criteria")
+        for box in sorted(offered):
+            if isinstance(criteria, list) and _without_box(criteria, box):
+                criteria = _boxed(criteria, box)
+                filled["acceptance_criteria"] = criteria
+                defaults["contract"] = filled
+                missing.append("contract.acceptance_criteria." + box)
+            elif isinstance(criteria, dict) and _without_box(criteria.get("upsert"), box):
+                criteria = {**criteria, "upsert": _boxed(criteria["upsert"], box)}
+                filled["acceptance_criteria"] = criteria
+                defaults["contract"] = filled
+                missing.append("contract.acceptance_criteria.upsert." + box)
     if not defaults:
         return value
     record["defaulted_fields"] = sorted(missing)
     return {**value, **defaults}
+
+
+def _offers(schema):
+    """The criteria list schemas a contract schema offers: the plain list, or each anyOf branch and a
+    finalize delta's upsert list (autocode_plan_retention.model_schema)."""
+    if not isinstance(schema, dict):
+        return []
+    branches = schema.get("anyOf") if isinstance(schema.get("anyOf"), list) else [schema]
+    offers = []
+    for branch in branches:
+        if not isinstance(branch, dict):
+            continue
+        offers.append(branch)
+        upsert = branch.get("properties", {}).get("upsert")
+        if isinstance(upsert, dict):
+            offers.append(upsert)
+    return offers
+
+
+# Optional criterion boxes a provider may leave out, and the empty value that means it said nothing.
+BOXES = {"current_behavior": "", "supersedes": []}
+
+
+def _without_box(rows, box):
+    return isinstance(rows, list) and any(
+        isinstance(row, dict) and "criterion" in row and box not in row for row in rows
+    )
+
+
+def _boxed(rows, box):
+    return [
+        {**row, box: type(BOXES[box])()} if isinstance(row, dict) and "criterion" in row and box not in row else row
+        for row in rows
+    ]
 
 
 def stage_supports_sessions(state: RunState, record):
@@ -520,6 +605,28 @@ def archive_rejected_stage(state: RunState, run_dir, record, reason):
     )
     state.pop("active_stage", None)
     return originals
+
+
+def set_aside_at_completion_gate(state: RunState, run_dir, record, error, *, persist):
+    """A completion-gate pause (util.boundary_pause) sets its attempt aside and is re-raised; any other error returns.
+
+    The report passed its own checks and the completion gate refused the run's claim (#1851).
+    Not a rejected output: no failure record, no escalation, no report repair, so the
+    Investigator is never involved and the run pauses under the gate's own status and
+    reason. The attempt is still set aside like one (archive_rejected_stage), because an
+    attempt left active made every resume re-apply the same report against the same gate.
+    --resume-paused starts a fresh attempt; the person's review or --accept-completion
+    settle the gap the reason names. ``persist`` is the runner's state writer.
+    """
+    if not util.boundary_pause(error):
+        return
+    account_stage(state, record)
+    originals = archive_rejected_stage(state, run_dir, record, error)
+    run_status.pause(state, error.status, str(error), paused_at=now())
+    persist(Path(run_dir) / "state.json", state)
+    for artifact in originals:
+        artifact.unlink(missing_ok=True)
+    raise error
 
 
 def assert_stage_stopped(record):

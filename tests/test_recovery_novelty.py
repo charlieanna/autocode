@@ -20,6 +20,7 @@ import autocode_recovery_inputs as inputs
 import autocode_recovery_novelty as novelty
 import autocode_resolver_recovery as recovery
 import autocode_rework_policy as rework
+import autocode_run_status as run_status
 import autocode_util as util
 import autocode_visual_evidence as visual
 
@@ -427,6 +428,118 @@ class RecoveryPacketTests(unittest.TestCase):
                 retry_authorization=retained,
             )
 
+    def routed_hold(self):
+        self.state["settings"]["roles"]["resolver"] = {
+            "engine": "opencode",
+            "model": "old/model",
+            "reasoning_effort": "medium",
+        }
+        state = self.legacy_failure()
+        state.update(status="PAUSED_NO_PROGRESS", next_stage="astra_resolve", active_seconds=123)
+        with self.assertRaisesRegex(util.Paused, "No causal progress"):
+            recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": "held"}, self.root, self.run)
+        return state
+
+    def test_explicit_resolver_route_retains_packet_and_history_without_restart_credit(self):
+        state = self.routed_hold()
+        pointer = state["resolution_request"]["recovery_packet"]
+        packet = recovery.load_packet(pointer, self.run)
+        before = copy.deepcopy(state)
+        state["settings"]["roles"]["resolver"]["model"] = "openai/gpt-6-astra"
+        state["settings"]["route_origins"] = {"resolver": "user_explicit"}
+        selected = copy.deepcopy(state)
+        preview = recovery.authorize_retry(
+            runner, state, self.run, self.root, previous_settings=before["settings"], preview=True
+        )
+        self.assertEqual(selected, state)
+        self.assertNotIn("consumed", preview)
+        authorization = recovery.authorize_retry(
+            runner, state, self.run, self.root, previous_settings=before["settings"]
+        )
+        attempt = {"stage": "astra_resolve", "output": "approved-new-model"}
+        recovery.admit_dispatch(state, attempt, self.root, self.run, retry_authorization=authorization)
+        self.assertEqual("explicit_retry", attempt["recovery_novelty"]["reason"])
+        self.assertEqual("openai/gpt-6-astra", state["settings"]["roles"]["resolver"]["model"])
+        for key in ("failure_history", "active_seconds", "stages"):
+            self.assertEqual(before[key], state[key])
+        self.assertEqual(packet, recovery.load_packet(pointer, self.run))
+        state["stages"].append(attempt)
+        audit = state["failure_retry_authorizations"][-1]
+        for grant in (None, audit, authorization):
+            with self.assertRaisesRegex(util.Paused, "No causal progress"):
+                recovery.admit_dispatch(
+                    state,
+                    {"stage": "astra_resolve", "output": "not-approved"},
+                    self.root,
+                    self.run,
+                    retry_authorization=grant,
+                )
+        # A later explicit effort change is still the same incident and retains both assignments.
+        previous = copy.deepcopy(state["settings"])
+        state["settings"]["roles"]["resolver"]["reasoning_effort"] = "high"
+        second = recovery.authorize_retry(runner, state, self.run, self.root, previous_settings=previous)
+        recovery.admit_dispatch(
+            state,
+            {"stage": "astra_resolve", "output": "approved-effort"},
+            self.root,
+            self.run,
+            retry_authorization=second,
+        )
+        self.assertEqual(packet, recovery.load_packet(pointer, self.run))
+        self.assertEqual(2, len(state["failure_retry_authorizations"]))
+        self.assertIsNotNone(escalation.advance(state, "resolver", trigger="rejected_output"))
+        with self.assertRaisesRegex(util.Paused, "No causal progress"):
+            recovery.admit_dispatch(
+                state, {"stage": "astra_resolve", "output": "climbed-no-credit"}, self.root, self.run
+            )
+
+        # Choosing an earlier rung after that climb is another explicit grant,
+        # not permission for old climb records to swallow the new assignment.
+        previous = copy.deepcopy(state["settings"])
+        state["settings"]["roles"]["resolver"]["reasoning_effort"] = "high"
+        third = recovery.authorize_retry(runner, state, self.run, self.root, previous_settings=previous)
+        recovery.admit_dispatch(
+            state,
+            {"stage": "astra_resolve", "output": "approved-earlier-rung"},
+            self.root,
+            self.run,
+            retry_authorization=third,
+        )
+        self.assertEqual(packet, recovery.load_packet(pointer, self.run))
+
+    def test_resolver_route_retry_refuses_other_changes_and_unsettled_work(self):
+        for mutation in ("other-role", "permission", "engine", "source", "scope", "contract", "active", "uncertain"):
+            with self.subTest(mutation=mutation):
+                state = self.routed_hold()
+                previous = copy.deepcopy(state["settings"])
+                state["settings"]["roles"]["resolver"]["model"] = "new/model"
+                if mutation == "other-role":
+                    state["settings"]["roles"]["terra"]["model"] = "also-changed"
+                elif mutation == "permission":
+                    state["settings"]["allow_uncontained_tools"] = True
+                elif mutation == "engine":
+                    state["settings"]["roles"]["resolver"]["engine"] = "codex"
+                elif mutation == "scope":
+                    state["current_task"]["acceptance_criteria"].append("C2")
+                elif mutation == "contract":
+                    state["goal_contract"]["hash"] = "changed"
+                elif mutation == "active":
+                    state["active_stage"] = {"stage": "astra_resolve"}
+                elif mutation == "uncertain":
+                    state["uncertain_artifacts"] = ["unsettled"]
+                selected = copy.deepcopy(state)
+                revision = "changed-source" if mutation == "source" else "s1"
+                with patch.object(util, "snapshot", return_value={"revision": revision, "files": {}}):
+                    with self.assertRaises(ValueError):
+                        recovery.authorize_retry(runner, state, self.run, self.root, previous_settings=previous)
+                self.assertEqual(selected, state)
+
+    def test_resolver_change_without_current_invocation_provenance_is_stale(self):
+        state = self.routed_hold()
+        state["settings"]["roles"]["resolver"]["model"] = "new/model"
+        with self.assertRaisesRegex(ValueError, "stale"):
+            recovery.authorize_retry(runner, state, self.run, self.root)
+
     def capture_resolution(self, state, decision):
         self.output.write_text(json.dumps(decision))
         source = {key: value for key, value in self.record.items() if key != "recovery_packet"}
@@ -492,6 +605,13 @@ class RecoveryPacketTests(unittest.TestCase):
         decision["next_task"]["kind"] = "implement"
         self.capture_resolution(state, decision)
         self.assertEqual("pause", recovery.builder_policy.failure(state, str(self.output), "Independent failure"))
+        # A run saved before #2597 holds this exhaustion as a builder-retry-limit pause, not an ended
+        # outcome; the grant accounting below reads exactly such a saved run, so restore that shape.
+        state["applied_interventions"] = [
+            row for row in state.get("applied_interventions", []) if row.get("kind") != "stop"
+        ]
+        state.pop("stop_intent", None)
+        run_status.pause(state, "PAUSED_BUILDER_RETRY_LIMIT", "Execution failure: " + str(self.output))
         state["next_stage"] = "terra"
         builder_recovery.request_serial_retry(state, ["M1"])
         return state
@@ -514,6 +634,69 @@ class RecoveryPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
             recovery.admit_dispatch(state, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
         self.assertEqual(settings, state["settings"])
+
+    def test_a_changed_line_repair_after_a_passing_proof_is_not_a_retry_of_the_old_incident(self):
+        # Live, #2815: a repair fixed the Completion Reviewer's failing proof; the Tester then sent the
+        # Builder back for changed lines without evidence, and that round was held as "no causal
+        # progress" on the fixed incident, which ended the run.
+        state = self.builder_retry_state()
+        diagnosis = {"stage": "astra_resolve", "started_at": util.now(), "output": str(self.run / "new-diagnosis.json")}
+        recovery.admit_dispatch(state, diagnosis, self.root, self.run)
+        state["stages"].append(diagnosis)
+        state["current_task"]["id"] = "T2"
+        plan = {"source_output": str(self.output), "tasks": [copy.deepcopy(state["current_task"])]}
+        recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
+        state.update(repair_plan=plan, next_stage="terra")
+        attempt = {"stage": "terra", "started_at": util.now(), "output": str(self.run / "granted-builder.json")}
+        recovery.admit_dispatch(state, attempt, self.root, self.run)
+        state["stages"].append(attempt)
+        state["regression_proof"] = {"verdict": "PASS", "source_revision": "s1"}
+        rework_row = {
+            "kind": "changed_code_rework",
+            "action": "builder",
+            "task_id": "T2",
+            "contract_hash": "h",
+            "contract_revision": 1,
+            "source_revision": "s1",
+            "review_output": str(self.run / "tester.json"),
+        }
+        state["regression_proofs"] = [rework_row]
+        again = {"stage": "terra", "output": "changed-line-builder"}
+        recovery.admit_dispatch(state, again, self.root, self.run)
+        self.assertNotIn("recovery_novelty", again)
+        # Anything short of that exact repair is still the packet's retry and is held.
+        for change in (
+            {"action": "investigator"},
+            {"source_revision": "s0"},
+            {"task_id": "T1"},
+            {"kind": "builder_retry"},
+        ):
+            with self.subTest(change=change):
+                held = copy.deepcopy(state)
+                held["regression_proofs"] = [{**rework_row, **change}]
+                with self.assertRaisesRegex(util.Paused, "No causal progress"):
+                    recovery.admit_dispatch(held, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+        for proof in ({"verdict": "FAIL", "source_revision": "s1"}, {"verdict": "PASS", "source_revision": "s0"}):
+            with self.subTest(proof=proof):
+                held = copy.deepcopy(state)
+                held["regression_proof"] = proof
+                with self.assertRaisesRegex(util.Paused, "No causal progress"):
+                    recovery.admit_dispatch(held, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+        held = copy.deepcopy(state)
+        held["regression_proofs"] = [rework_row, {"path": "later-proof.json", "verdict": "PASS"}]
+        with self.assertRaisesRegex(util.Paused, "No causal progress"):
+            recovery.admit_dispatch(held, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+        # The Builder round the runner queued for an approved check that cannot find a test it names.
+        checked = copy.deepcopy(state)
+        checked["regression_proofs"] = []
+        planned_row = {"task_id": "T2", "contract_hash": "h", "contract_revision": 1, "source_revision": "s1"}
+        checked["planned_check_reworks"] = [{**planned_row, "command": "python -m unittest t.T.test_x"}]
+        checked["iteration"] = 3
+        checked["planned_check_reworks"][0]["iteration"] = 3
+        recovery.admit_dispatch(checked, {"stage": "terra", "output": "planned-check-builder"}, self.root, self.run)
+        checked["iteration"] += 1
+        with self.assertRaisesRegex(util.Paused, "No causal progress"):
+            recovery.admit_dispatch(checked, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
 
     def test_legacy_builder_grant_consumed_without_novelty_receipt_stays_spent(self):
         for stage, timestamp in (("terra", True), ("astra_resolve", True), ("terra", False)):
@@ -711,6 +894,45 @@ class RecoveryPacketTests(unittest.TestCase):
                 self.state["settings"]["limits"] = limits
                 recovery.restate_hold(self.state)
                 self.assertEqual(reason + stated + advice, self.state["stop_reason"])
+
+    def test_a_restated_hold_keeps_one_copy_of_the_stage_costs(self):
+        # #1728 ends the cost line with "Stage costs: ..." when a stage ran more than once. A settings change at
+        # the hold restates that whole line with the budgets after it, never keeping the old copies alongside
+        # the new (master's tests.test_rework_cli, 2026-10-21: three "Active time" sentences after two changes).
+        first = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
+        recovery.admit_dispatch(self.state, first, self.root, self.run)
+        self.state["stages"][0]["metrics"] = {"provider_cost_usd": 1.25}
+        self.state["stages"].append({**first, "metrics": {"provider_cost_usd": 0.5}})
+        self.state.update(next_stage="astra_resolve", active_seconds=1250)
+        self.state["settings"]["limits"] = {"max_cost_usd": 5, "max_seconds": 43200}
+        costs = " Stage costs: Orchestrator 2 attempts: $0.00; Builder 2 attempts: $0.03; Tester 2 attempts: at least $0.09 (1 unpriced)."
+
+        def line(view):
+            return f"Cost: $1.75 so far; cap {recovery.cost.usd(view['cap_usd'])}." + costs
+
+        with patch.object(recovery.cost, "line", side_effect=line):
+            again = {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}
+            with self.assertRaisesRegex(util.Paused, "Stage costs"):
+                recovery.admit_dispatch(self.state, again, self.root, self.run)
+            reason = self.state["resolution_request"]["novelty_hold"]["reason"]
+            advice = "AutoResolver could not resolve no_progress; no automatic operational recovery ran."
+            self.state["stop_reason"] += " " + advice
+            active = " Active time: 1,250 s of the {} s limit. "
+            for limits, stated in (
+                (
+                    {"max_cost_usd": 20, "max_seconds": 43200},
+                    ". Cost: $1.75 so far; cap $20.00." + costs + active.format("43,200"),
+                ),
+                (
+                    {"max_cost_usd": 20, "max_seconds": 7200},
+                    ". Cost: $1.75 so far; cap $20.00." + costs + active.format("7,200"),
+                ),
+                ({"max_seconds": 7200}, "." + active.format("7,200")),
+            ):
+                with self.subTest(limits=limits):
+                    self.state["settings"]["limits"] = limits
+                    recovery.restate_hold(self.state)
+                    self.assertEqual(reason + stated + advice, self.state["stop_reason"])
 
     def test_a_hold_states_what_is_left_of_the_time_limit_and_the_milestone_budget(self):
         # #611: after the spend, the stop states the run's active time against its time limit and the current
@@ -1000,6 +1222,32 @@ class RecoveryPacketTests(unittest.TestCase):
                 self.assertEqual("repair", attempt["recovery_novelty"]["action"])
                 self.assertEqual(pointer, attempt["recovery_novelty"]["packet"])
 
+    def test_a_launch_boundary_fit_does_not_stale_the_packets_settings_binding(self):
+        # #2057: the fit records its derivation in settings when each role first launches. That
+        # evidence is not a changed route, so another role's launch must not stale a held packet.
+        def admit(change):
+            state = self.milestone_budget_failure({})
+            plan = {"tasks": [copy.deepcopy(state["current_task"])]}
+            recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
+            state.update(repair_plan=plan, next_stage="terra")
+            change(state["settings"])
+            attempt = {"stage": "terra", "output": str(self.run / "repair-builder.json")}
+            recovery.admit_dispatch(state, attempt, self.root, self.run)
+            return attempt
+
+        def fitted(settings):
+            settings["effort_fits"] = {"resolver": {"from": "medium", "to": "high", "reason": "route_fit"}}
+            settings["declared_variants"] = {"zai-coding-plan/glm-5.3": ["low", "high"]}
+
+        self.assertEqual("repair", admit(fitted)["recovery_novelty"]["action"])
+
+        def rerouted(settings):
+            settings["roles"]["terra"] = {**settings["roles"]["terra"], "reasoning_effort": "max"}
+
+        with self.assertRaisesRegex(util.Paused, "settings, contract or scope changed") as caught:
+            admit(rerouted)
+        self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
+
     def test_a_packet_saved_before_the_milestone_budget_left_its_binding_still_binds(self):
         # Saved-run compatibility (#611): an earlier version hashed the milestone budget with the other settings.
         # Its packet still admits a dispatch while those settings are unchanged; for the packet's own binding, a
@@ -1210,7 +1458,7 @@ class RecoveryPacketTests(unittest.TestCase):
             attempt = {"stage": "astra_resolve", "output": str(self.run / "must-not-launch.json")}
             with self.assertRaises(util.Paused) as caught:
                 recovery.admit_dispatch(state, attempt, self.root, self.run)
-            self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", caught.exception.status)
+            self.assertEqual("PAUSED_INTERVENTION", caught.exception.status)
             self.assertEqual(settings, state["settings"])
             self.assertNotIn("recovery_novelty", attempt)
         self.assertEqual(["pause"], [row["action"] for row in state["builder_retry_decisions"]])
@@ -2220,19 +2468,36 @@ class RecoveryNoveltyCLI(unittest.TestCase):
     def trace(self):
         return [json.loads(line) for line in (self.root / "rework-trace.jsonl").read_text().splitlines()]
 
-    def test_same_ineffective_edit_holds_before_another_diagnosis_and_plain_resume(self):
+    def assert_autocodes_own_retries(self, driver, view, stages):
+        """#2485: the repeat held the Resolver, then the Builder, and AutoCode took the one scoped retry of
+        each itself (the grants a person used to give with --resume-paused --retry-failed-stage); the
+        retried repair delivered. No stop asked the person for a flag, a token or a packet."""
+        self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
+        self.assertEqual(
+            ["terra", "sol", "astra_review"] * 2 + ["astra_resolve", "terra", "sol", "astra_review"], stages
+        )
+        state = driver.state()
+        grants = state["failure_retry_authorizations"]
+        self.assertEqual(
+            [("autocode", "astra_resolve"), ("autocode", "terra")], [(g["actor"], g["stage"]) for g in grants]
+        )
+        receipts = [row["recovery_novelty"] for row in state["stages"] if row.get("recovery_novelty")]
+        self.assertEqual(
+            [(None, "first_incident"), ("automatic", "explicit_retry"), ("automatic", "explicit_retry")],
+            [(row.get("grant_kind"), row["reason"]) for row in receipts],
+        )
+        self.assertEqual([util.digest(g) for g in grants], [row["grant_id"] for row in receipts[1:]])
+        # The grants are AutoCode's, so no person's authorization event exists and no step printed the
+        # hold's retry route for a person to type.
+        self.assertFalse([row for row in state.get("user_events", []) if row.get("kind") == "failure_retry_authorized"])
+        for step in driver.steps:
+            self.assertNotIn("--retry-failed-stage", step["stdout_tail"] + step["stderr_tail"], step)
+        return state
+
+    def test_same_ineffective_edit_takes_autocodes_own_retries_without_a_person(self):
         driver = self.driver("hold")
         view = driver.drive(self.scenario.brief)
-        self.assertFalse(view["done"], view.get("status"))
-        self.assertIn("No causal progress", view.get("stop_reason", ""))
-        stages = [row["stage"] for row in self.trace()]
-        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review"], stages)
-        source_hash = util.file_hash(self.project / "greet.py")
-        driver.call("plain-resume", "--resume-paused")
-        self.assertEqual(stages, [row["stage"] for row in self.trace()])
-        self.assertEqual(source_hash, util.file_hash(self.project / "greet.py"))
-        driver.call("authorized-retry", "--resume-paused", "--retry-failed-stage", "--pause-after-stage")
-        self.assertEqual(stages + ["astra_resolve"], [row["stage"] for row in self.trace()])
+        self.assert_autocodes_own_retries(driver, view, [row["stage"] for row in self.trace()])
 
     def test_discriminating_fix_executes_then_requires_fresh_independent_acceptance(self):
         driver = self.driver("fix")
@@ -2252,26 +2517,15 @@ class RecoveryNoveltyCLI(unittest.TestCase):
     def test_foreign_proof_does_not_buy_a_diagnosis_or_repair(self):
         driver = self.driver("bad_refs")
         view = driver.drive(self.scenario.brief)
-        self.assertFalse(view["done"], view.get("status"))
         # #418: the foreign refs make the proposal unproven. They used to raise while the
         # Completion review was applied, so the review itself was rejected and archived
-        # (PAUSED_INVALID_OUTPUT). Now the review stands and novelty holds the repeat.
+        # (PAUSED_INVALID_OUTPUT). Now the review stands and novelty holds the repeat, and
+        # the hold is settled by AutoCode's own scoped retries (#2485): the unproven proposal
+        # bought the Resolver no diagnosis and the Builder no novelty of its own, as the
+        # receipts' reasons show, and every status the run passed was its own to settle.
         self.assertNotIn(view.get("status"), ("PAUSED_INVALID_OUTPUT", "PAUSED_STALE_HANDOFF"))
-        self.assertIn("No causal progress", view.get("stop_reason", ""))
-        self.assertIn(
-            "Proposed change is unproven (evidence_refs do not cite pinned originals)", view.get("stop_reason", "")
-        )
-        stages = [row["stage"] for row in self.trace()]
-        self.assertEqual(["terra", "sol", "astra_review"] * 2, stages)
-        # An authorized retry buys one Resolver run. Its own unproven proposal does not reject
-        # its repair either, and buys the Builder no novelty: the same repeat still holds.
-        driver.call("authorized-retry", "--resume-paused", "--retry-failed-stage")
-        self.assertEqual(stages + ["astra_resolve"], [row["stage"] for row in self.trace()])
-        view = driver.view()
-        self.assertEqual("PAUSED_NO_PROGRESS", view.get("status"), view.get("stop_reason"))
-        self.assertIn(
-            "Proposed change is unproven (evidence_refs do not cite pinned originals)", view.get("stop_reason", "")
-        )
+        state = self.assert_autocodes_own_retries(driver, view, [row["stage"] for row in self.trace()])
+        self.assertIn("Proposed change is unproven (evidence_refs do not cite pinned originals)", json.dumps(state))
 
     def test_specific_new_experiment_may_use_one_bounded_diagnosis(self):
         driver = self.driver("question")
@@ -2298,46 +2552,17 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         self.assertTrue(all(check.ok for check in self.scenario.oracle()(self.project, self.scenario)))
 
     @unittest.skipUnless(shutil.which("node"), "JavaScript public control requires Node")
-    def test_nonpython_unproven_novelty_supports_scoped_user_retries_not_a_dead_end(self):
+    def test_nonpython_unproven_novelty_takes_autocodes_own_retries_not_a_dead_end(self):
         driver = self.driver("nonpython")
         try:
             view = driver.drive(self.scenario.brief)
         except Exception as error:
             details = [(step["kind"], step["stdout_tail"], step["stderr_tail"]) for step in driver.steps[-3:]]
             self.fail((str(error), details))
-        self.assertFalse(view["done"])
-        self.assertIn("unsupported grammar", view.get("stop_reason", ""))
-        original = ["terra", "sol", "astra_review"] * 2
-        self.assertEqual(original, [row["stage"] for row in self.trace()])
-        driver.call("authorize-diagnosis", "--resume-paused", "--retry-failed-stage", "--pause-after-stage")
-        self.assertEqual(original + ["astra_resolve"], [row["stage"] for row in self.trace()])
-        # Resume the saved configured escalation, rather than reapplying the
-        # harness's initial model flags and legitimately invalidating its pins.
-        flags = driver.flags
-        driver.flags = [
-            value
-            for index, value in enumerate(flags)
-            if not value.endswith("-model") and not (index and flags[index - 1].endswith("-model"))
-        ]
-        ordinary = driver.call("ordinary-resume", "--resume-paused")
-        self.assertEqual(original + ["astra_resolve"], [row["stage"] for row in self.trace()])
-        authorized = driver.call("authorize-builder", "--resume-paused", "--retry-failed-stage")
-        view = driver.until_stopped()
-        self.assertTrue(
-            view["done"],
-            (
-                view.get("status"),
-                view.get("stop_reason"),
-                ordinary.stdout[-1200:],
-                ordinary.stderr[-1200:],
-                authorized.stdout[-1200:],
-                authorized.stderr[-1200:],
-            ),
-        )
-        self.assertEqual(
-            original + ["astra_resolve", "terra", "sol", "astra_review"], [row["stage"] for row in self.trace()]
-        )
-        self.assertTrue(all(row.ok for row in self.scenario.oracle()(self.project, self.scenario)))
+        # A proposal in a grammar novelty cannot attest is unproven, not a dead end: the repeat holds,
+        # and AutoCode's own scoped retries (#2485) settle the hold without a person.
+        state = self.assert_autocodes_own_retries(driver, view, [row["stage"] for row in self.trace()])
+        self.assertIn("unsupported grammar", json.dumps(state))
 
     def test_oracle_rejects_broken_reference_controls(self):
         from scenarios import run

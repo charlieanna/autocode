@@ -1,10 +1,11 @@
-"""The Builder's stronger attempt fails like its ordinary ones, and the run pauses at the ladder's end (#612).
+"""The Builder's stronger attempt fails like its ordinary ones, and the run ends at the ladder's end (#612).
 
 In check mode (``run is None``) the oracle scores the greeting fix of completion-rework-direct, so the
 controls reject the seed and accept the reference. With a run it judges the stop, never the undelivered
 fix: the status view's ``escalations`` (the rows ``autocode --status --json`` prints) list the one stronger
-attempt with what it cost and end it ``paused``; no Builder attempt followed; the run paused at the retry
-limit with the stuck-stage Investigator's diagnosis in its reason; and the seed's tests were kept.
+attempt with what it cost and end it ``paused``; no Builder attempt followed; the run ends with AutoCode's
+recorded could-not-finish outcome (#2597), its reason in the status view and the charged incident in the
+outcome's evidence; and the seed's tests were kept.
 """
 
 import hashlib
@@ -20,10 +21,16 @@ BUILDS = 3
 # The runner's own stamps (the view's escalation_outcomes): the ordinary retry and the stronger attempt, both
 # `paused` at the retry-limit pause, as the row reads.
 STAMPED = {"passed": 0, "paused": 2, "open": 0}
-PAUSE = "PAUSED_BUILDER_RETRY_LIMIT"
-# The pause's own words, then what the Investigator read in the delivered greet.py (harness/escalation_provider.py).
-EXHAUSTED = "remains blocked after configured retry/escalation"
-DIAGNOSIS = ("Investigator", "greet.py still guards only the argument count", "empty or whitespace-only name")
+# The run ends instead of pausing (#2597): the status view shows the recorded could-not-finish outcome.
+ENDED = "PAUSED_INTERVENTION"
+# The outcome's own words in the view's stop reason (autocode_stop, builder_policy.EXHAUSTED).
+EXHAUSTED = (
+    "AutoCode could not finish this task: Implementation remains blocked after the configured retries "
+    "and the stronger Builder attempt"
+)
+# The charged incident the outcome's evidence keeps (harness/escalation_provider.py names the stage and
+# the ladder's length: the ordinary retry, the stronger attempt, then the end).
+INCIDENT = {"stage": "terra", "attempt": 3}
 
 
 def digest(path):
@@ -55,12 +62,23 @@ def check(project, scenario, run=None):
     reason = view.get("stop_reason") or ""
     checks.append(
         Check(
-            "paused_at_the_ladders_end",
-            run.get("status") == PAUSE and view.get("done") is False and EXHAUSTED in reason,
+            "ended_at_the_ladders_end",
+            run.get("status") == ENDED and view.get("done") is False and EXHAUSTED in reason,
             f"status {run.get('status')!r}; done {view.get('done')!r}; reason {reason[:300]!r}",
         )
     )
-    checks.append(Check("the_pause_carries_the_diagnosis", all(part in reason for part in DIAGNOSIS), reason[:600]))
+    outcome = (view.get("recovery") or {}).get("outcome") or {}
+    evidence = outcome.get("evidence") or {}
+    checks.append(
+        Check(
+            "the_outcome_keeps_the_incident",
+            outcome.get("result") == "could_not_finish"
+            and str(evidence.get("failure") or "") != ""
+            and evidence.get("stage") == INCIDENT["stage"]
+            and evidence.get("attempt") == INCIDENT["attempt"],
+            f"outcome {outcome.get('result')!r}; evidence { {k: evidence.get(k) for k in ('stage', 'attempt', 'failure')}!r}",
+        )
+    )
     checks.append(
         Check(
             "seed_tests_kept",

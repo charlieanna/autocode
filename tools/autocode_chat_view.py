@@ -16,15 +16,94 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_tests_job as acceptance_tests_job
     from . import autocode_chat_history as history
+    from . import autocode_gate_chat as gate_chat
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_planning_feedback as planning_feedback
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
+    from . import autocode_run_status as run_status
+    from . import autocode_scope_question as scope_question
 except ImportError:
+    import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_chat_history as history
+    import autocode_gate_chat as gate_chat
     import autocode_pause_authority as pause_authority
+    import autocode_planning_feedback as planning_feedback
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
+    import autocode_run_status as run_status
+    import autocode_scope_question as scope_question
+
+
+# The id prefix of the Requirements question the chat is waiting on; the rest names the question.
+REQUIREMENTS_QUESTION = "requirements-question"
+# The stage's own prose beside a question, kept as its own message so it cannot displace the question.
+REQUIREMENTS_SAY = "requirements-say"
+
+
+# What approving a chat's understanding starts, by the job Requirements named (#1846): the button's
+# label, then the spend confirmation's title, detail and button. A question is never offered (it is
+# answered at once), and an unnamed job is offered as the plan it becomes.
+APPROVAL_OFFERS = {
+    "build": (
+        "Approve understanding and prepare plan",
+        "Prepare a reviewed plan?",
+        "Planning uses your selected models and saved limits. Building still waits for your approval of the displayed plan.",
+        "Prepare plan",
+    ),
+    "bugfix": (
+        "Approve understanding and investigate",
+        "Investigate the bug?",
+        "The investigation uses your selected models and saved limits. Fixing still waits for your approval of the displayed plan.",
+        "Investigate",
+    ),
+    "review": (
+        "Approve understanding and start the review",
+        "Start the review?",
+        "The review uses your selected models and saved limits. It changes no files.",
+        "Start review",
+    ),
+    "design": (
+        "Approve understanding and start the design",
+        "Start the design work?",
+        "The design work uses your selected models and saved limits. Nothing is built.",
+        "Start design",
+    ),
+}
+
+
+def raised_bound(need) -> dict | None:
+    """The one bound a person may raise to continue (autocode_command_inputs, #2044), or None."""
+    rows = (need or {}).get("command_inputs")
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        return None
+    row = rows[0]
+    return row if isinstance(row.get("label"), str) and row.get("minimum") is not None else None
+
+
+def _amount(row, value) -> str:
+    if row.get("id") == "max_cost_usd":
+        return f"${value:.2f}" if isinstance(value, (int, float)) else str(value)
+    if str(row.get("id", "")).endswith("seconds") and isinstance(value, (int, float)):
+        seconds = int(value)
+        if seconds < 60:
+            return f"{seconds}s"
+        if seconds < 3600:
+            return f"{seconds // 60}m{seconds % 60:02d}s"
+        return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
+    return str(value)
+
+
+def bound_words(row) -> str:
+    """'total active time (2m05s used of 2m00s)': a bound and how much of it the run used, in words."""
+    name = row["label"].split(" (")[0].lower()
+    used = next((row[key] for key in ("elapsed", "used") if key in row), None)
+    current = row.get("current")
+    if used is None or current is None:
+        return name
+    return f"{name} ({_amount(row, used)} used of {_amount(row, current)})"
 
 
 def notice(public):
@@ -34,11 +113,25 @@ def notice(public):
         return "Your model connection settings changed. Check Connections before continuing."
     if status == "PAUSED_PROVIDER_UNCERTAIN":
         return "I couldn’t confirm the model connection. Check Connections, then try again."
+    ended = (public.get("recovery") or {}).get("outcome") if status == "PAUSED_INTERVENTION" else None
+    if isinstance(ended, dict) and ended.get("reason"):
+        # AutoCode ended the run itself with a recorded outcome (#2485): say so, with the reason; ask nothing.
+        return f"I couldn’t finish this task: {ended['reason']} Your work so far is saved; new work is a new task."
+    need = public.get("needs") or {}
+    if (
+        status == "PAUSED_INTERVENTION"
+        and need.get("kind") == "resume"
+        and str(need.get("reason") or "").startswith(run_status.APPLIED_FEEDBACK_PREFIX)
+    ):
+        return "Feedback applied. Your work is saved; continue to update the plan."
     if status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
         # A pause someone asked for is not a failure (#1598).
         return "Paused as you asked. Your work so far is saved; resume when you’re ready."
+    if status == "PAUSED_INTERVENTION_PENDING":
+        # The run stopped to apply a pause, feedback or stop someone asked for; not a failure either.
+        return "Paused to apply your request. Your work so far is saved; continue when you’re ready."
     if status.startswith("PAUSED"):
-        return "I couldn’t finish this step. Open Run details to see what needs attention."
+        return "I couldn’t finish this step. The run’s details say what needs attention."
     if status == "RUNNING":
         liveness = public.get("liveness") or {}
         if isinstance(liveness, dict) and liveness.get("kind") in ("supervised", "unsupervised"):
@@ -47,9 +140,24 @@ def notice(public):
     return None
 
 
+def context(state: RunState, public):
+    """The same opaque decision context for status and cold-start run inventory."""
+    return hashlib.sha256(
+        json.dumps(
+            [
+                public.get("status"),
+                len(state.get("turns") or []),
+                public.get("needs") or {},
+                state.get("displayed_goal"),
+                len(state.get("user_events") or []),
+            ],
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+
+
 def project(state: RunState, public, *, run_dir=None, workspace=None):
     """Expose only actions admitted at this checkpoint; the CLI rechecks on write."""
-    turns = state.get("turns") or []
     messages = history.messages(state, completed=public.get("done", False))
 
     need = public.get("needs") or {}
@@ -69,12 +177,39 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
     if text:
         messages.append({"id": "requirements-live", "role": "assistant", "text": text, "streaming": True})
     elif need.get("kind") == "answer" and not resolver_reply and requirements_chat.enabled(state):
+        questions = need.get("questions", [])
+        routing = (
+            scope_question.question(state)
+            if public.get("coordination") or (state.get("settings") or {}).get("coordination_member")
+            else None
+        )
+        displayed = [q for q in questions if not routing or q.get("id") != routing["id"]]
+        asked = [q.get("id") for q in displayed]
+        # A client puts the requirements-question message in front of the person as the
+        # question to answer, so it carries the questions' own text. The stage's prose only
+        # frames them, and after a report repair that prose describes the repair, so it may
+        # not stand in for the question.
+        # The coordinator settles its own routing gate. Keep the exact gate in
+        # public needs, without asking the person to narrow the coordinated task.
+        question = "\n\n".join(q.get("question", "") for q in displayed).strip()
         spoken = requirements_chat.reply(state)
-        if not spoken:
-            spoken = "\n\n".join(q.get("question", "") for q in need.get("questions", []))
-        if spoken:
-            messages.append({"id": "requirements-question", "role": "assistant", "text": spoken})
+        contains_question = bool(question and question in spoken and len(displayed) == len(questions))
+        if spoken and spoken != question and not contains_question:
+            messages.append(
+                {
+                    "id": f"{REQUIREMENTS_SAY}-{hashlib.sha256(spoken.encode()).hexdigest()[:12]}",
+                    "role": "assistant",
+                    "text": spoken,
+                }
+            )
+        text = spoken if contains_question else question or (spoken if len(displayed) == len(questions) else "")
+        if text:
+            # Each question is its own message: a client shows a message id once, so a shared id
+            # hid every Requirements question after the first (#1792).
+            key = hashlib.sha256(json.dumps([asked, text]).encode()).hexdigest()[:12]
+            messages.append({"id": f"{REQUIREMENTS_QUESTION}-{key}", "role": "assistant", "text": text})
     action = None
+    blocker_hold = False  # an answered semantic blocker waiting for its contract decision (#2434)
     # A completed stage record may remain as active_stage: use the public
     # checkpoint, never infer liveness from the presence of a retained attempt.
     if status == "TASK_COMPLETE" and public.get("done"):
@@ -94,13 +229,71 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             else ("Send message" if (state.get("settings") or {}).get("spec_first") else "Send plan feedback"),
             "--feedback",
         )
-    context = hashlib.sha256(
-        json.dumps(
-            [status, len(turns), need, state.get("displayed_goal"), len(state.get("user_events") or [])],
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
+    elif status == acceptance_tests_job.PAUSE and not pause_authority.feedback_refusal(state):
+        # The Tester's pause says --feedback revises the plan; offer it so a client can take it (#1869).
+        action = ("feedback", "Send plan feedback", "--feedback")
+    elif (
+        status == "RUNNING"
+        and need.get("kind") == "continue"
+        and (public.get("controller") or {}).get("kind") == "ready"
+        and planning_feedback.between_stages(state)
+        and not pause_authority.feedback_refusal(state)
+    ):
+        action = ("feedback", "Send plan feedback", "--feedback")
+    elif (
+        (
+            planning_feedback.semantic_stop(state, status)
+            # An answered semantic blocker holds for its contract decision: the person's explicit
+            # plan feedback takes it, through the same named --feedback action (#2434).
+            or (blocker_hold := status == state.get("status") and pause_authority.answered_blocker_decision(state))
+        )
+        and need.get("kind") == "resume"
+        and need.get("resolver_scope") not in ("blocker", "operational_exhaustion")
+        and not pause_authority.feedback_refusal(state)
+    ) or (
+        status == "PAUSED_INVALID_OUTPUT"
+        and planning_feedback.invalid_report(state)
+        and not pause_authority.feedback_refusal(state)
+    ):
+        action = (
+            "feedback",
+            "Send plan feedback" if blocker_hold else "Explain what should change",
+            "--feedback",
+        )
+    context_token = context(state, public)
     message_input = None
+    if (
+        status == "RUNNING"
+        and (state.get("settings") or {}).get("spec_first")
+        and (state.get("intervention_capability") or {}).get("supports_messages") is True
+        and not (state.get("settings") or {}).get("coordination_member")
+        and not public.get("coordination")
+        and not any(row.get("kind") == "stop" for row in state.get("applied_interventions", []))
+        and run_dir is not None
+        and workspace is not None
+    ):
+        message_input = {
+            "kind": "message",
+            "label": "Send message",
+            "next_command": shlex.join(
+                [
+                    "autocode",
+                    "intervention",
+                    "submit",
+                    "--workspace",
+                    str(workspace),
+                    "--run-dir",
+                    str(run_dir),
+                    "--request-id",
+                    "REQUEST_ID",
+                    "--kind",
+                    "message",
+                    "--text",
+                    "MESSAGE",
+                    "--json",
+                ]
+            ),
+        }
     if action and run_dir is not None and workspace is not None:
         kind, label, flag = action
         message_input = {
@@ -117,11 +310,18 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         )
         # The recovery card owns the human explanation; raw causes and full
         # question/options remain available in Run details.
-        if need.get("resolver_scope") == "operational_exhaustion":
+        bound = raised_bound(need)
+        if need.get("resolver_scope") == "operational_exhaustion" and bound:
+            # A limit is lifted only by a larger total (#2607): never ask for a reply that cannot do it.
+            question_text = (
+                f"The run reached its limit for {bound_words(bound)}. A written reply can't lift a limit: "
+                "give the run a larger total to continue, or leave it paused. Your saved work and evidence are kept."
+            )
+        elif need.get("resolver_scope") == "operational_exhaustion":
             recovery = public.get("recovery") or {}
             explanation = recovery.get("what_happened") or "I couldn’t finish this step."
             question_text = explanation + (
-                " Open Run details to see what needs attention.\n\n"
+                " The run’s details say what needs attention.\n\n"
                 "Your saved work and evidence are kept. Reply with what changed so recovery can be reviewed. "
                 "Sending a reply does not authorize a retry or change your limits; the run stays paused until "
                 "you take its next recovery action."
@@ -161,21 +361,20 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         and len(questions) == 1
         and questions[0].get("id") == requirements_review.review_question(state)["id"]
     ):
+        label, title, detail, confirm = APPROVAL_OFFERS.get(
+            requirements_review.confirmation_job(state) or "", APPROVAL_OFFERS["build"]
+        )
         review = {
             "question_id": questions[0]["id"],
-            "answer": "plan",
-            "label": "Approve understanding and prepare plan",
+            "answer": requirements_review.APPROVE,
+            "label": label,
             "summary": requirements_review.review_question(state)["question"],
-            "spend_confirmation": {
-                "match": "trim_lower",
-                "title": "Prepare a reviewed plan?",
-                "detail": "Planning uses your selected models and saved limits. Building still waits for your approval of the displayed plan.",
-                "label": "Prepare plan",
-            },
+            "spend_confirmation": {"match": "trim_lower", "title": title, "detail": detail, "label": confirm},
         }
     return {
         "messages": messages,
-        "context": context,
+        "gate": gate_chat.offer(state),
+        "context": context_token,
         "input": message_input,
         "review": review,
         "notice": notice(public),

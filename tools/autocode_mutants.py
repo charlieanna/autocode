@@ -18,6 +18,21 @@ Operators, each only on a span that touches a changed line:
   a string empty or ``"x"``, anything else ``None``).
 * ``shift_bound``: an integer literal on either side of ``<``, ``<=``, ``>`` or ``>=`` becomes one more
   (an ``==``, ``!=``, ``is`` or ``in`` operand is not a bound and is left alone).
+* ``constant_assignment``: a bool, number or string literal assigned to a name (``TEXT = "hello"``,
+  ``LIMIT: int = 3``) becomes another constant, as ``constant_return`` chooses it. A line whose whole
+  behavior is the value it binds has no other site, and a test that reads the value sees the change.
+* ``swap_tuple_assignment``: exchange the first two distinct names of a simple tuple assignment
+  when they share a changed line. Keep the assigned expression and the other targets intact.
+* ``drop_call``: a call made as a statement (``write_plan(...)``, ``sys.exit(2)``, ``await save()``)
+  becomes ``None``, so it is never made.
+* ``none_assignment``: any other value assigned to a target (``args = parser.parse_args()``,
+  ``ports = [a, b]``) becomes ``None``.
+* ``skip_loop``: a ``for`` loop iterates over ``()``, so its body never runs.
+
+The last three give an ordinary statement a site: without them most changed lines of a large change
+had none, and each such line became a decision the Tester had to write by hand (#2815). A statement
+under a ``__main__`` or ``TYPE_CHECKING`` guard gets none of them, as no test can see it, and a
+line that already has a site of another operator keeps only those.
 
 ``TYPE_CHECKING`` and ``__main__`` guards, f-strings and annotations are never mutated, and a
 branch that already does nothing is never dropped: those mutants change nothing a test can see.
@@ -40,7 +55,20 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from typing import Any
 
-OPERATORS = ("negate_condition", "swap_bound", "drop_branch", "constant_return", "shift_bound")
+OPERATORS = (
+    "negate_condition",
+    "swap_bound",
+    "drop_branch",
+    "constant_return",
+    "shift_bound",
+    "constant_assignment",
+    "swap_tuple_assignment",
+    "drop_call",
+    "none_assignment",
+    "skip_loop",
+)
+# Sites that stand for a whole ordinary statement; used only on a line no other operator reaches.
+STATEMENT_OPERATORS = frozenset({"drop_call", "none_assignment", "skip_loop"})
 PER_FILE_LIMIT = 6
 DISPLAY_CHARS = 60
 NEWLINE = re.compile(rb"\r\n|\r|\n")
@@ -156,6 +184,14 @@ def python_mutants(
         _sites(tree, body, starts, lines, notes, path),
         key=lambda site: (site.start, OPERATORS.index(site.operator), site.end, site.replacement),
     )
+
+    # A statement-level site only gives a line that has no other site one (#2815): a line whose
+    # condition, bound, return or literal is already mutated keeps exactly the mutants it had.
+    def lines_of(site: _Site) -> range:
+        return range(bisect_right(starts, site.start), bisect_right(starts, max(site.start, site.end - 1)) + 1)
+
+    sited = {line for site in sites if site.operator not in STATEMENT_OPERATORS for line in lines_of(site)}
+    sites = [site for site in sites if site.operator not in STATEMENT_OPERATORS or sited.isdisjoint(lines_of(site))]
     ordinals: dict[tuple[int, str], int] = {}
     numbered = []
     for site in sites:
@@ -260,7 +296,10 @@ def _sites(tree, body, starts, lines, notes, path):
     """Every candidate splice on the changed lines, in ast.walk order. A node whose sites cannot be built
     is skipped with a note; the other nodes still give theirs."""
     excluded: set[int] = set()
+    guarded: set[int] = set()  # statements no test can see (#2815: they get no statement-level site)
     for node in ast.walk(tree):
+        if isinstance(node, ast.If) and _guard(node.test):
+            guarded.update(id(inner) for statement in node.body for inner in ast.walk(statement))
         roots = [node] if isinstance(node, ast.JoinedStr) else []
         roots += [getattr(node, name, None) for name in ("annotation", "returns")]
         for root in roots:
@@ -329,6 +368,51 @@ def _sites(tree, body, starts, lines, notes, path):
             start, end = span(node.value)
             replacement = _pad(text, body[start:end], expression=True)
             yield _Site("constant_return", start, end, replacement, node.value, constant, text)
+        if (
+            isinstance(node, (ast.Assign, ast.AnnAssign))
+            and isinstance(node.value, ast.Constant)
+            and type(node.value.value) in (bool, int, float, str)
+            and id(node.value) not in excluded
+            and _touches(lines, node.value.lineno, node.value.end_lineno)
+        ):
+            constant, text = _constant(node.value)
+            start, end = span(node.value)
+            replacement = _pad(text, body[start:end], expression=True)
+            yield _Site("constant_assignment", start, end, replacement, node.value, constant, text)
+        if id(node) in guarded or not isinstance(node, ast.stmt) or not _touches(lines, node.lineno, node.end_lineno):
+            return
+        if isinstance(node, ast.Expr) and isinstance(node.value, (ast.Call, ast.Await)):
+            start, end = span(node.value)
+            yield _Site("drop_call", start, end, _pad(b"None", body[start:end], expression=True), node.value, None)
+        elif (
+            isinstance(node, (ast.Assign, ast.AnnAssign))
+            and node.value is not None
+            and not isinstance(node.value, ast.Constant)
+            and id(node.value) not in excluded
+        ):
+            start, end = span(node.value)
+            replacement = _pad(b"None", body[start:end], expression=True)
+            yield _Site("none_assignment", start, end, replacement, node.value, None)
+        elif (
+            isinstance(node, (ast.For, ast.AsyncFor))
+            and not _inert(node.body)
+            and not (isinstance(node.iter, ast.Tuple) and not node.iter.elts)
+        ):
+            start, end = span(node.iter)
+            yield _Site("skip_loop", start, end, _pad(b"()", body[start:end], expression=True), node.iter, None)
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(target := node.targets[0], ast.Tuple)
+            and len(target.elts) >= 2
+            and all(isinstance(element, ast.Name) for element in target.elts)
+        ):
+            first, second = target.elts[:2]
+            if first.id != second.id and first.lineno == second.lineno and _touches(lines, first.lineno, second.lineno):
+                start, first_end = span(first)
+                second_start, end = span(second)
+                replacement = body[second_start:end] + body[first_end:second_start] + body[start:first_end]
+                yield _Site("swap_tuple_assignment", start, end, replacement, target, None)
 
     for node in ast.walk(tree):
         try:
@@ -404,6 +488,10 @@ def _intended(holder, site) -> str:
         twin.value = twin.value + 1
     elif site.operator == "drop_branch":
         setattr(twin, site.detail, [ast.Pass()])
+    elif site.operator == "skip_loop":
+        _replace(clone, twin, ast.Tuple(elts=[], ctx=ast.Load()))
+    elif site.operator == "swap_tuple_assignment":
+        twin.elts[0], twin.elts[1] = twin.elts[1], twin.elts[0]
     else:
         _replace(clone, twin, ast.Constant(value=site.detail))
     return ast.dump(clone)

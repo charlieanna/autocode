@@ -10,9 +10,13 @@ if TYPE_CHECKING:
 import copy
 
 try:
+    from . import autocode_changed_code_review as changed_code_review
     from . import autocode_design_coverage as design_coverage
+    from . import autocode_planning_report_policy as planning_policy
 except ImportError:
+    import autocode_changed_code_review as changed_code_review
     import autocode_design_coverage as design_coverage
+    import autocode_planning_report_policy as planning_policy
 
 
 def normalize_absent_authority(value, schema, record):
@@ -22,7 +26,8 @@ def normalize_absent_authority(value, schema, record):
     The loader preserves the raw report before calling this pure normalizer.
     Older schemas and unrelated stages must not gain optional fields.
     """
-    result = copy.deepcopy(value)
+    result = changed_code_review.normalize_absent(value, schema, record)
+    result = copy.deepcopy(result)
     properties = schema.get("properties", {})
     for target, fields in (
         (result, properties),
@@ -33,7 +38,23 @@ def normalize_absent_authority(value, schema, record):
             target.setdefault("git_delivery", None)
     if "recovery_change" in properties:
         result.setdefault("recovery_change", None)
+    # A trace row's proxy_reason (#2068) is null except on a proxied row; reports written before it, and
+    # fixtures that never mark a proxy, leave it out.
+    trace_row = properties.get("requirement_trace", {}).get("items", {}).get("properties", {})
+    if "proxy_reason" in trace_row and isinstance(result.get("requirement_trace"), list):
+        for row in result["requirement_trace"]:
+            if isinstance(row, dict):
+                row.setdefault("proxy_reason", None)
     stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")
+    # A missing first-review correction receipt grants no authority. Strict generation makes this optional
+    # field required; accept legacy omissions as null without changing supplied receipts or old schemas.
+    concern_fields = properties.get("concerns", {}).get("items", {}).get("properties", {})
+    kind = concern_fields.get("draft_failure_correction", {}).get("type")
+    nullable = kind == "null" or isinstance(kind, list) and "null" in kind
+    if stage == "astra_challenge" and nullable and isinstance(result.get("concerns"), list):
+        for row in result["concerns"]:
+            if isinstance(row, dict):
+                row.setdefault("draft_failure_correction", None)
     if stage in ("requirements_gather", "requirements") and "project_conventions" in properties:
         result.setdefault("project_conventions", [])
     request = result.get("user_request")
@@ -44,9 +65,58 @@ def normalize_absent_authority(value, schema, record):
     return result
 
 
+def _single_spelling_edit(left: str, right: str) -> bool:
+    """One insertion, deletion, substitution or adjacent transposition; no fuzzy threshold."""
+    if len(left) == len(right):
+        changed = [i for i, (a, b) in enumerate(zip(left, right, strict=True)) if a != b]
+        return len(changed) == 1 or (
+            len(changed) == 2
+            and changed[1] == changed[0] + 1
+            and left[changed[0]] == right[changed[1]]
+            and left[changed[1]] == right[changed[0]]
+        )
+    if len(left) > len(right):
+        left, right = right, left
+    return len(right) == len(left) + 1 and any(right[:i] + right[i + 1 :] == left for i in range(len(right)))
+
+
+def normalize_review_severities(value, schema, record):
+    """Correct an unambiguous one-edit spelling error in standalone review severity only.
+
+    This is serialization, never a decision/approval normalizer. The two closed labels are
+    far apart; valid labels, verdicts, evidence, finding IDs and other stages are untouched.
+    Unknown/multi-edit labels still fail schema validation. The loader validates the entire
+    corrected report and preserves the original response in its existing reported artifact.
+    """
+    stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")
+    labels = ("blocking", "advisory")
+    field = schema.get("properties", {}).get("findings", {}).get("items", {}).get("properties", {}).get("severity", {})
+    if stage != "review_change" or field.get("type") != "string" or field.get("enum") != list(labels):
+        return value
+    if not isinstance(value.get("findings"), list):
+        return value
+    result = copy.deepcopy(value)
+    for row in result["findings"]:
+        supplied = row.get("severity") if isinstance(row, dict) else None
+        if not isinstance(supplied, str) or supplied in labels or not supplied.isascii() or not supplied.isalpha():
+            continue
+        matches = [label for label in labels if _single_spelling_edit(supplied, label)]
+        if len(matches) == 1:
+            row["severity"] = matches[0]
+    return result
+
+
+def normalize_loaded_report(value, schema, record):
+    """Pure schema compatibility for the loader; raw preservation and validation stay with its caller."""
+    return normalize_review_severities(normalize_absent_authority(value, schema, record), schema, record)
+
+
 def review_generation_schema(schema, state: RunState, stage):
     """Constrain runner-owned identity at generation, not by accepting bad reports."""
     result = design_coverage.extend_schema(copy.deepcopy(schema), state, stage)
+    result = changed_code_review.generation_schema(
+        result, (state.get("regression_proof") or {}).get("changed_code_evidence"), stage
+    )
     if stage not in ("sol", "astra_review", "astra_checkpoint"):
         return result
     props = result.get("properties", {})
@@ -83,6 +153,7 @@ def review_validation_schema(schema, state: RunState | None, record, value):
     New providers produce ID-only rows; legacy reports must still copy every
     literal exactly. This also accepts ID-only responses against older saved schemas.
     """
+    schema = planning_policy.concern_validation_schema(schema, record)
     stage = record.get("original_stage") or record.get("stage")
     if state and stage in ("sol", "astra_checkpoint"):
         design_coverage.report_refs(state, value.get("validation", value))

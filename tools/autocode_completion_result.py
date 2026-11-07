@@ -32,18 +32,237 @@ def before_review(state: RunState, stage, workspace, run_dir):
     regression.before_review(state, stage, workspace, run_dir)
     if stage not in ("sol", "astra_checkpoint", "astra_review"):
         return
+    _reconcile_proof_finding(state, workspace)
+    if stage == "astra_review":
+        _reconcile_preservation_review(state, workspace, run_dir)
     try:
         if delivery.requirement((state.get("goal_contract") or {}).get("body") or {}) is None:
             return
         current = source_scope.snapshot(workspace, state)
         if (
             regression.required(state, all_due=True)
-            and regression.complete(state, current["revision"], all_due=True)
+            and regression.complete(state, current["revision"], all_due=True, require_changed_code=False)
             and delivery.prepare(state, workspace, current)
         ):
             regression.before_review(state, stage, workspace, run_dir)
     except (OSError, ValueError) as error:
         raise Paused("PAUSED_COMPLETION_GATE", "Git delivery required: " + str(error)) from error
+
+
+def _reconcile_preservation_review(state: RunState, workspace, run_dir):
+    """Retain an obsolete private proof blocker and let the independent review run.
+
+    This grants no completion: the fresh runner receipt and the independent
+    review remain required. Published questions and all other blocker causes stay.
+    """
+    import copy
+    from datetime import datetime
+    from pathlib import Path
+
+    try:
+        from . import autocode_goals as goals
+        from . import autocode_regression as regression
+        from . import autocode_resolver_human as human
+        from . import autocode_source_scope as source_scope
+        from . import autocode_util as util
+    except ImportError:
+        import autocode_goals as goals
+        import autocode_regression as regression
+        import autocode_resolver_human as human
+        import autocode_source_scope as source_scope
+        import autocode_util as util
+    proposal = state.get(human.PRIVATE) or {}
+    origin = proposal.get("origin") or {}
+    proof = state.get("regression_proof") or {}
+    task = state.get("current_task") or {}
+    contract = state.get("goal_contract") or {}
+    if (
+        state.get("status") != "RUNNING"
+        or state.get("next_stage") != "astra_review"
+        or state.get(human.PUBLIC)
+        or state.get("pending_questions")
+        or proposal.get("scope") != "blocker"
+        or origin.get("stage") != "astra_review"
+        or not goals.approved(state)
+        or not regression.preserve_only(state)
+        or not task.get("id")
+        or task.get("contract_hash") != contract.get("hash")
+        or (proof.get("execution_context") or {}).get("contract_identity") != util.digest(contract)
+        or proof.get("verdict") != "PASS"
+        or proof.get("source_files") != []
+        or any(
+            state.get(k)
+            for k in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts")
+        )
+    ):
+        return False
+    revision = source_scope.snapshot(workspace, state)["revision"]
+    review = next(
+        (
+            row
+            for row in reversed(state.get("stages", []))
+            if (
+                row.get("stage") == "astra_review"
+                and row.get("output") == origin.get("output")
+                and row.get("task_id") == task.get("id")
+                and row.get("contract_hash") == contract.get("hash")
+                and row.get("source_revision") == revision
+                and not row.get("rejected")
+            )
+        ),
+        None,
+    )
+    review_finished_at = review.get("finished_at") if isinstance(review, dict) else None
+    if not isinstance(review_finished_at, str):
+        return False
+    try:
+        newer = datetime.fromisoformat(proof["proved_at"]) > datetime.fromisoformat(review_finished_at)
+    except (KeyError, TypeError, ValueError):
+        return False
+    if not newer or not regression.complete(state, revision, all_due=False, require_changed_code=False):
+        return False
+    previous = None
+    root = (Path(run_dir) / "regression").resolve()
+    for row in reversed(state.get("regression_proofs", [])):
+        if row.get("verdict") != "FAIL" or not row.get("path") or not row.get("source_revision"):
+            continue
+        path = Path(row["path"]).absolute()
+        try:
+            if not path.resolve().is_relative_to(root) or not path.is_file() or path.stat().st_nlink != 1:
+                continue
+            if any(p.is_symlink() for p in (path, *path.parents) if p.is_relative_to(root)):
+                continue
+            captured = any(
+                s.get("stage") == "regression_proof"
+                and s.get("runner_owned")
+                and s.get("output") == str(path)
+                and datetime.fromisoformat(s["finished_at"]) < datetime.fromisoformat(review_finished_at)
+                for s in state.get("stages", [])
+            )
+            receipt = util.read(path) if captured else {}
+            if (
+                isinstance(receipt, dict)
+                and receipt.get("verdict") == "FAIL"
+                and receipt.get("source_revision") == row["source_revision"]
+                and receipt.get("failures") == ["Only test files changed; a fix must change product code"]
+            ):
+                previous = {"history": copy.deepcopy(row), "receipt": receipt}
+                break
+        except (OSError, KeyError, TypeError, ValueError):
+            continue
+    if previous is None:
+        return False
+    state.setdefault("validation_archive", []).append(
+        {
+            "at": util.now(),
+            "reason": "Fresh authenticated preservation proof supersedes the private product-code-only blocker",
+            "resolver_proposal": copy.deepcopy(proposal),
+            "regression_proof": copy.deepcopy(previous),
+            "validation": copy.deepcopy(state.get("validation", {})),
+        }
+    )
+    state.pop(human.PRIVATE)
+    if state.get("user_request") == proposal.get("request"):
+        state.pop("user_request", None)
+    return True
+
+
+def _proof_routing(state: RunState) -> bool:
+    """Runs whose unproven regression is carried by a runner finding (autocode_proof_findings)."""
+    try:
+        from . import autocode_workflow as workflow
+    except ImportError:
+        import autocode_workflow as workflow
+    return state.get("version", 2) >= 3 and not workflow.enabled(state)
+
+
+def _reconcile_proof_finding(state: RunState, workspace):
+    try:
+        from . import autocode_proof_findings as proof_findings
+        from . import autocode_proof_infrastructure as infrastructure
+        from . import autocode_regression as regression
+        from . import autocode_source_scope as source_scope
+    except ImportError:
+        import autocode_proof_findings as proof_findings
+        import autocode_proof_infrastructure as infrastructure
+        import autocode_regression as regression
+        import autocode_source_scope as source_scope
+    if not _proof_routing(state):
+        return
+    revision = source_scope.snapshot(workspace, state)["revision"]
+    required = regression.required(state, all_due=False)
+    current_milestone = (state.get("current_task") or {}).get("milestone_id")
+    settle_same_revision_ids = [
+        row["id"]
+        for row in proof_findings.open_rows(state)
+        if current_milestone
+        and (row.get("scope") or {}).get("milestone_id") == current_milestone
+        and revision in (row.get("failed_revisions") or [])
+        and regression.MISSING_CASES_REASON in row.get("finding", "")
+    ]
+    # The runner's own proof only: an equivalent-mutant or unreachable-line reason is the independent
+    # reviewer's to give in the review this precedes (#2474), and a missing one has its own Builder route
+    # (autocode_changed_code_rework), so it must not open a proof finding the Builder cannot clear.
+    proved = required and regression.complete(state, revision, all_due=False, require_changed_code=False)
+    reason = "" if proved or not required else regression.rejection(state, all_due=False)
+    if proved:
+        settle_same_revision_ids.extend(
+            row["id"]
+            for row in proof_findings.open_rows(state)
+            if current_milestone
+            and (row.get("scope") or {}).get("milestone_id") == current_milestone
+            and infrastructure.disk_collection_failure(state, row, revision)
+        )
+    proof_findings.reconcile(
+        state,
+        revision,
+        required=required,
+        proved=proved,
+        reason=reason,
+        settle_same_revision_ids=settle_same_revision_ids,
+    )
+
+
+def _send_back_unproven(state: RunState, current, record, regression_complete):
+    """Fields that return a completion request to review while the runner's proof finding is open, or None."""
+    try:
+        from . import autocode_proof_findings as proof_findings
+    except ImportError:
+        import autocode_proof_findings as proof_findings
+    if (
+        record.get("stage") != "astra_review"
+        or not _proof_routing(state)
+        or not proof_findings.open_rows(state)
+        or regression_complete(state, current["revision"], all_due=False)
+    ):
+        return None
+    return {
+        "next_stage": "astra_review",
+        "iteration": state.get("iteration", 0) + 1,
+        **proof_findings.send_back(state, current["revision"]),
+    }
+
+
+def check_source_verdict(decision):
+    """Refuse a completion the Completion Reviewer's own source verdict contradicts (#1909).
+
+    On a traced contract the reviewer records ``source_verdict`` beside its decision (#595), and
+    its prompt says a FAIL without a real gap only costs a repair. A COMPLETE decision whose
+    verdict is FAIL, or names an uncovered sentence, is therefore an invalid report: the bounded
+    report repair asks for one consistent answer. The runner's mechanical trace check stays the gate.
+    """
+    verdict = decision.get("source_verdict")
+    if not isinstance(verdict, dict):
+        return
+    uncovered = [str(sentence) for sentence in verdict.get("uncovered") or []]
+    if verdict.get("verdict") != "FAIL" and not uncovered:
+        return
+    named = "; ".join(f'"{sentence}"' for sentence in uncovered) or "none named"
+    raise ValueError(
+        f"source_verdict is {verdict.get('verdict')} with uncovered source sentences ({named}) but status is "
+        f"{decision.get('status')}: record PASS with no uncovered sentence if the delivery honors every source "
+        "sentence, or return REWORK with a next_task that covers them"
+    )
 
 
 def apply(
@@ -80,6 +299,7 @@ def apply(
     save path in place. Native publication still follows acceptance and precedes
     that path; simulated completion never acquires current proof or publication.
     """
+    check_source_verdict(decision)
     try:
         from . import autocode_replay_checks as recorded_checks
     except ImportError:
@@ -109,6 +329,11 @@ def apply(
         **({"scope_authority": prepared_completion.scope_authority} if prepared_completion is not None else {}),
     )
     prepare_progressive_completion(state, current, record, product_findings=blocking_entries(state))
+    if modern and (sent_back := _send_back_unproven(state, current, record, regression_complete)):
+        commit_fields(sent_back)
+        record_decision(state, decision)
+        save_record(state, record)
+        return True
     if modern and blocking_entries(state):
         raise paused("PAUSED_COMPLETION_GATE", ledger_rejection(state))
     if modern and missing_human_reviews(state):

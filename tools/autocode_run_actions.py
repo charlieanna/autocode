@@ -32,17 +32,20 @@ try:
     from . import autocode_action_prepare as action_prepare
     from . import autocode_action_recovery as action_recovery
     from . import autocode_action_resolver as action_resolver
+    from . import autocode_action_scope as action_scope
     from . import autocode_conversation_ingress as conversation_ingress
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_jobs as jobs
     from . import autocode_operational_information as operational_information
     from . import autocode_planning as planning
+    from . import autocode_recovery_limits as recovery_limits
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_role_transport as role_transport
     from . import autocode_run_finder as run_finder
     from . import autocode_run_records as records
+    from . import autocode_skip_requirements as skip_requirements
     from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_worktrees as worktrees
@@ -53,17 +56,20 @@ except ImportError:
     import autocode_action_prepare as action_prepare
     import autocode_action_recovery as action_recovery
     import autocode_action_resolver as action_resolver
+    import autocode_action_scope as action_scope
     import autocode_conversation_ingress as conversation_ingress
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_jobs as jobs
     import autocode_operational_information as operational_information
     import autocode_planning as planning
+    import autocode_recovery_limits as recovery_limits
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_role_transport as role_transport
     import autocode_run_finder as run_finder
     import autocode_run_records as records
+    import autocode_skip_requirements as skip_requirements
     import autocode_stop as stop
     import autocode_support as support
     import autocode_worktrees as worktrees
@@ -78,6 +84,7 @@ class Decided:
     retained_report: object = None  # an inspected Investigator report on offer, never authority to adopt it
     decision_action: bool = False  # an answer, approval, feedback or other decision was given
     information_admitted: bool = False  # AutoResolver admitted corrective information for one continuation
+    evidence_reconciled: bool = False  # exact retained evidence corrected; ordinary admission, no allowance resets
     checked_authority: bool = False  # the held pause's own authority, checked before queued input applies
     issued: dict | None = None  # AutoResolver's current request when that authority was weighed
     released: bool = False  # that authority released the held pause (autocode_stop)
@@ -97,6 +104,10 @@ def next_command(state: RunState, issued, run_dir, workspace):
     pause = origin.get("pause_status") or state.get("status")
     where = f"--workspace {workspace} --run-dir {run_dir}"
     flags = operational_information.resume_flags(state, pause)
+    if flags == recovery_limits.SCOPED_RETRY and recovery_limits.repeated_failure_retry_refusal(state):
+        # The retry is refused until that attempt or repair is reconciled, so advising it would be
+        # a dead end; the plain resume below is the step the CLI takes (#1897).
+        flags = None
     if flags:
         return f"Next command: autocode {flags} {where}"
     if issued:
@@ -198,6 +209,11 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
 
     It runs only when no user decision was given: action_decisions.apply stops for every one.
     """
+    if args.resume_paused and lifecycle.refresh_diagnosis(state, workspace):
+        runner.write_json(state_path, state)
+        if state["status"] == "PAUSED_STALE_DIAGNOSIS":
+            print(f"{state['status']}: {state['stop_reason']}")
+            return 2
     if state["status"] == "TASK_COMPLETE":
         runner.recheck_completion(state, workspace, run_dir=run_dir)
         if state["status"] != "TASK_COMPLETE":
@@ -205,6 +221,8 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
     if state["status"] == "TASK_COMPLETE":
         print(jobs.render(state, goals.render_completion) + worktrees.deliver(state, workspace))
         return 0
+    if skip_requirements.settle(runner, state, run_dir, native=getattr(runner, "native_calls", None)):
+        runner.write_json(state_path, state)  # a resumed worker's run answers and approves as it started (#1731)
     if state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
         if args.chat:
             if not runner.chat_checkpoint(state, run_dir):
@@ -214,7 +232,10 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         else:
             rendered = lifecycle.present(state, run_dir)
             runner.write_json(state_path, state)
-            print(rendered)
+            if getattr(args, "json", False):
+                print(rendered)  # the one JSON payload is printed by json_output.finish (#714)
+            else:  # the same output as the stop that got here: header, presentation, the command last (#2301)
+                runner.print_pause(state, args, workspace, run_dir, rendered)
             return 2
     if state["status"] == "PAUSED_PLANNING_BUDGET" and (
         runner.recover_default_budget(state, run_dir, workspace, "planning_review_call_limit")
@@ -277,6 +298,7 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
 # handle()'s steps, in the order they take precedence. Each returns an exit code to end the
 # invocation, or None to go on; one that sets decided.dispatch sends the run straight to the build.
 STEPS = (
+    action_recovery.reconcile_checkpoint,  # metadata-only ownership inspection, before configuration/decisions
     honor_stops,  # an applied or pending stop, and a bound retry mixed with other actions
     action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt
     action_edits.apply,  # a standalone edit: design revision, dependency, report recovery, repair handoff
@@ -286,6 +308,7 @@ STEPS = (
     action_authority.reconsider,  # AutoResolver reconsiders its operational request
     action_recovery.resume,  # --abandon-stage, or an explicit resume's recovery
     prepare,  # migration, settings, queued input, --retry-builder
+    action_scope.apply,  # exact core-owned external repository assignment; no plan approval
     action_decisions.apply,  # answers, approvals, feedback and completion
     admit,  # a completed or waiting run stops; anything else is made ready to build
 )

@@ -4,7 +4,7 @@ names the rejected citation, a real OpenAI model, and the failure history left i
 
 import json
 
-from harness.oracle import Check, load_json, mentions, python_change_checks, run_checks
+from harness.oracle import Check, bugfix_entry, load_json, mentions, python_change_checks, run_checks
 
 DIAGNOSIS_FIELDS = ("observed", "reproduction", "root_cause", "affected_paths", "invariant")
 NOTE = "docs/bugs/word-count.json"
@@ -19,7 +19,7 @@ def check(project, scenario, run=None):
     if isinstance(note, dict):
         missing = [field for field in DIAGNOSIS_FIELDS if not note.get(field)]
         checks.append(Check("diagnosis_has_required_fields", not missing, f"missing: {missing}"))
-    checks += run_checks(run, workflow="bugfix", no_requirements=True)
+    checks += run_checks(run, workflow="bugfix", after_requirements=bugfix_entry(run))
     if run is not None:
         checks += investigation_checks(project)
     return checks

@@ -44,6 +44,9 @@ export const chatStyles = /* css */ `
   .message.notice .speaker { color: var(--vscode-errorForeground, #a1260d); }
   .message.user { white-space: pre-wrap; padding: 10px 12px; border-radius: 8px;
     background: var(--vscode-textCodeBlock-background); }
+  /* A streaming extract is provisional display content, not a finished reply. */
+  .message.streaming { opacity: .85; }
+  .message.streaming .message-content { white-space: pre-wrap; font-style: italic; }
   .speaker { font-size: .75rem; font-weight: 600; color: var(--vscode-descriptionForeground); margin-bottom: 6px; }
   .message p { margin: 0 0 10px; }
   .message pre { white-space: pre; word-break: normal; overflow: auto; padding: 10px; }
@@ -98,7 +101,7 @@ export const chatStyles = /* css */ `
   .action-strip button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
   .action-strip button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
   .action-strip button:disabled { opacity: 0.5; cursor: not-allowed; }
-  #latest { align-self: center; margin-top: -34px; margin-bottom: 6px; z-index: 3;
+  #latest { align-self: center; flex-shrink: 0; margin: 6px 0;
     border-radius: 16px; font-size: .75rem; box-shadow: 0 2px 8px var(--vscode-widget-shadow); }
   #latest[hidden] { display: none; }
   .chat-toolbar { display: flex; flex-wrap: wrap; flex-shrink: 0; justify-content: flex-end; padding: 2px 8px; gap: 2px; }

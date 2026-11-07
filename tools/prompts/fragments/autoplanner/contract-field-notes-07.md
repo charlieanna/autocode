@@ -1,0 +1,1 @@
+What happens today that this criterion replaces, for a bug fix: copy bug_diagnosis.observed exactly. Empty when nothing is wrong today or there is no diagnosis. Today's behavior never goes in criterion, which states only the agreed outcome; this box is not part of it.

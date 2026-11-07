@@ -63,6 +63,7 @@ def classify_unchanged_attempt(data):
         "evidence_refs": list(failure["evidence_refs"]),
         "example": "The fixture's Builder reported No source changes for its assigned implementation.",
         "probe": "",
+        "counterexample": {"file": "", "find": "", "replace": ""},
         "untestable": "The unchanged report is evidence of no progress, not proof of a cause that would make a retry succeed.",
         "failure_class": "unknown",
         "failure_id": failure["failure_id"],

@@ -54,6 +54,12 @@ def investigate(data):
         "example": "Given the attempt left stock_current.py in the root, when the runner compared the tree with "
         "the assigned paths, then it rejected the attempt and removed that file.",
         "probe": "grep -q 'invalid choice' tests/test_stock.py",
+        # The probe must fail once the strengthened assertion is gone (#1769).
+        "counterexample": {
+            "file": "tests/test_stock.py",
+            "find": (text := (Path.cwd() / "tests/test_stock.py").read_text()),
+            "replace": text.replace("invalid choice", "unknown command"),
+        },
         "untestable": "",
     }
 

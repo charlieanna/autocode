@@ -57,11 +57,12 @@ nav:
       - Figma: figma.md
       - Visual captures: visual-captures.md
       - Parallel tasks and components: task-lanes.md
-      - Large projects: program.md
+      - Several repositories: multi-repo.md
   - Review and approve:
       - Pauses and commands: cli.md
       - Interventions: interventions.md
       - GitHub issues and PR review: issues.md
+      - Channel bridge: channels.md
       - Verify an existing change: verify.md
       - Dashboard: dashboard.md
       - macOS app: macos-app.md

@@ -9,7 +9,6 @@ from pathlib import Path
 import autocode_builder_policy as builder_policy
 import autocode_configure as configure
 import autocode_prices as prices
-import autocode_stuck_job as stuck_job
 import autocode_usage as usage
 from harness import driver, profiles
 from providers import claude, opencode
@@ -25,7 +24,7 @@ def _flag_models(argv):
 def default_profile_models():
     """Every model a default route, default profile or fake catalog run is recorded under."""
     models = {*opencode.DEFAULT_MODELS.values(), *configure.DEFAULT_ROLE_MODELS.values()}
-    models |= {builder_policy.DEFAULTS["strong_model"], builder_policy.DEFAULTS["checker_model"], stuck_job.CLAUDE}
+    models |= {builder_policy.DEFAULTS["strong_model"], builder_policy.DEFAULTS["checker_model"]}
     kilo = tomllib.loads((ROOT / "tools/providers/configs/kilocode.toml").read_text())
     models |= {route["model"] for route in kilo["roles"].values()}
     models |= {*claude.DEFAULT_MODELS.values(), *claude.LISTED_MODELS, *claude.BUILDER_RETRY.values()}
@@ -45,6 +44,23 @@ class PriceTableTests(unittest.TestCase):
                 self.assertLessEqual(row["retrieved"], table["as_of"])
                 self.assertGreater(row["output"], 0)
                 self.assertLessEqual(row.get("cached_input", 0), row["input"])
+
+    def test_selected_gocode_sol_route_has_a_sourced_conservative_budget_rate(self):
+        row = prices.rate("gpt-6.1-sol")
+        self.assertIsNotNone(row, "The selected GoCode route must not start with unknown spend")
+        self.assertEqual((2.0, 10.0), (row["input"], row["output"]))
+        self.assertIn("caas-gocode-prod", row["source"])
+        self.assertEqual(
+            3.0,
+            prices.estimate(
+                "gpt-6.1-sol",
+                {
+                    "input_tokens": 1000000,
+                    "output_tokens": 100000,
+                    "cached_input_tokens": 900000,
+                },
+            ),
+        )
 
     def test_every_default_profile_model_has_a_row(self):
         unpriced = sorted(model for model in default_profile_models() if prices.key(model) is None)
@@ -79,6 +95,26 @@ class PriceTableTests(unittest.TestCase):
             usage.REFERENCE_PRICES["zai-coding-plan/glm-5.3"]["input"], prices.rate("zai-coding-plan/glm-5.3")["input"]
         )
 
+    def test_qualified_claude_aliases_share_the_dated_rates_and_provenance(self):
+        tokens = {"input_tokens": 1_000_000, "cached_input_tokens": 600_000, "output_tokens": 100_000}
+        for alias, existing in (
+            ("anthropic/claude-opus-5-5", "claude-opus-5-5"),
+            ("kilo/anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5.5"),
+            ("anthropic/claude-sonnet-5-5", "claude-sonnet-5-5"),
+            ("anthropic/claude-haiku-4-5", "claude-haiku-4-5-20251001"),
+        ):
+            with self.subTest(alias=alias):
+                self.assertIsNotNone(prices.rate(alias))
+                for key in ("input", "cached_input", "output", "source", "retrieved"):
+                    self.assertEqual(prices.rate(existing)[key], prices.rate(alias)[key])
+                self.assertAlmostEqual(prices.estimate(existing, tokens), prices.estimate(alias + "#high", tokens))
+        self.assertAlmostEqual(3.72, prices.estimate("anthropic/claude-opus-5-5#high", tokens))
+
+    def test_mimo_flash_on_the_token_plan_route_is_priced(self):
+        # Live Kilo runs on 2026-10-19 and 10-21 recorded this route's tokens with no rate.
+        tokens = {"input_tokens": 1_000_000, "cached_input_tokens": 600_000, "output_tokens": 100_000}
+        self.assertAlmostEqual(0.08568, prices.estimate("xiaomi-token-plan-sgp/mimo-v2.6-flash", tokens))
+
     def test_a_malformed_table_is_refused_with_the_field(self):
         cases = {
             "negative": ("input", -1),
@@ -96,6 +132,54 @@ class PriceTableTests(unittest.TestCase):
                 prices.parse(broken)
         with self.assertRaisesRegex(ValueError, "USD"):
             prices.parse({**SHIPPED, "currency": "EUR"})
+
+
+class PriceHistoryTests(unittest.TestCase):
+    """A row keeps the rates it replaced, so a tariff update never reprices an earlier stage (#1867 S1a)."""
+
+    MODEL = "openai/gpt-6-sol"
+
+    def table(self, history):
+        document = copy.deepcopy(SHIPPED)
+        document["models"][self.MODEL]["history"] = history
+        return prices.parse(document)
+
+    def old(self, until="2026-10-15", **changes):
+        return {
+            "input": 1.0,
+            "output": 4.0,
+            "source": "https://example.test/old",
+            "retrieved": "2026-09-01",
+            "until": until,
+            **changes,
+        }
+
+    def test_a_stage_is_priced_at_the_rate_in_force_on_the_utc_day_it_finished(self):
+        from unittest import mock
+
+        with mock.patch.object(prices, "table", return_value=self.table([self.old()])):
+            current = SHIPPED["models"][self.MODEL]
+            self.assertEqual("2026-10-15", prices.rate(self.MODEL, "2026-10-14T23:59:59+00:00")["until"])
+            self.assertEqual(1.0, prices.rate(self.MODEL, "2026-10-14T23:59:59+00:00")["input"])
+            # 2026-10-14 20:00 in New York is already 10-15 in UTC: the new rate.
+            self.assertEqual(current["input"], prices.rate(self.MODEL, "2026-10-14T20:00:00-04:00")["input"])
+            self.assertNotIn("until", prices.rate(self.MODEL, "2026-10-15T00:00:00+00:00"))
+            self.assertNotIn("until", prices.rate(self.MODEL))  # no date: today's rate, as before
+            self.assertNotIn("until", prices.rate(self.MODEL, "not a date"))
+            tokens = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+            self.assertEqual(5.0, prices.estimate(self.MODEL, tokens, "2026-10-01T10:00:00Z"))
+
+    def test_a_history_out_of_order_or_without_its_fields_is_refused(self):
+        for name, history in {
+            "not a list": {"until": "2026-10-15"},
+            "bad date": [self.old(until="15 Oct 2026")],
+            "timestamp": [self.old(until="2026-10-15T00:00:00Z")],
+            "out of order": [self.old(until="2026-10-15"), self.old(until="2026-10-01")],
+            "no source": [self.old(source="")],
+            "negative": [self.old(input=-1)],
+        }.items():
+            with self.subTest(name), self.assertRaisesRegex(ValueError, "history"):
+                self.table(history)
 
 
 if __name__ == "__main__":

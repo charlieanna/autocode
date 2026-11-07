@@ -11,9 +11,11 @@ import compileall
 import contextlib
 import io
 import json
+import re
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -383,6 +385,46 @@ class ScenarioModulesTests(unittest.TestCase):
         with mock.patch.object(run_suite, "scenario_modules", return_value=modules):
             self.assertEqual(([modules[0]], modules[1:]), run_suite.scenario_selection(["tools/fake_opencode.py"], {}))
 
+    def test_runtime_policy_selects_evidence_and_planning_black_box_consumers(self):
+        modules = [
+            "scenarios.test_adversarial_evidence",
+            "scenarios.test_adversarial_planning",
+            "scenarios.test_lying_matrix",
+        ]
+        cases = {
+            "tools/autocode_report_identity.py": modules[0],
+            "tools/autocode_planning_advice.py": modules[1],
+            "tools/autocode_stuck_job.py": modules[1],
+        }
+        with mock.patch.object(run_suite, "scenario_modules", return_value=modules):
+            for path, expected in cases.items():
+                with self.subTest(path=path):
+                    selected, skipped = run_suite.scenario_selection([path], {expected: "slow"})
+                    self.assertEqual([expected], selected)
+                    self.assertIn(modules[2], skipped)
+
+    def test_proof_policy_selects_trap_replay_scoring_without_other_harness_runs(self):
+        targets = [
+            "scenarios.test_harness.StockRefusalsRunTests.test_reference",
+            "scenarios.test_harness.HybridRunTests.test_routes",
+            "scenarios.test_harness.DriverFlagTests.test_flags",
+            "scenarios.test_harness.UnrelatedSlowTests.test_other",
+        ]
+        with mock.patch.object(run_suite, "split_module", return_value=targets):
+            for path in ("tools/autocode_regression.py", "tools/autocode_verify.py"):
+                with self.subTest(path=path):
+                    self.assertEqual(targets[:3], run_suite.harness_tests([path]))
+
+    def test_runtime_consumer_paths_and_test_targets_still_exist(self):
+        for path, targets in run_suite.SCENARIO_RUNTIME_CONSUMERS.items():
+            with self.subTest(path=path):
+                self.assertTrue((run_suite.REPO_ROOT / path).is_file(), path)
+            for target in targets:
+                with self.subTest(target=target):
+                    cases = list(run_suite.iter_tests(unittest.defaultTestLoader.loadTestsFromName(target)))
+                    self.assertTrue(cases, target)
+                    self.assertFalse(any("._FailedTest." in case.id() for case in cases), target)
+
     def test_each_scenario_fixture_is_a_tools_script_its_scenario_module_names(self):
         # A renamed fixture or scenario module fails here instead of quietly dropping the selection.
         modules = run_suite.scenario_modules()
@@ -433,6 +475,62 @@ class ScenarioModulesTests(unittest.TestCase):
         self.assertEqual(["scenarios.test_fast.T.a", "scenarios.test_fast.T.b", "scenarios.test_harness.H.h"], ran)
         self.assertIn("Left out 1 scenario module(s)", printed.getvalue())
         self.assertIn("scenarios.test_slow", printed.getvalue())
+
+
+class ModuleTimeoutTests(unittest.TestCase):
+    """#1681: a hung module, and a server it started, end at --module-timeout instead of holding the run."""
+
+    def test_a_hung_module_and_its_child_are_ended_and_reported_with_what_they_printed(self):
+        with tempfile.TemporaryDirectory(prefix="suite-timeout-") as directory:
+            root = Path(directory)
+            (root / "test_hangs.py").write_text(
+                "import subprocess, sys, time, unittest\n"
+                "class Hangs(unittest.TestCase):\n"
+                "    def test_server(self):\n"
+                "        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+                "        print('child', child.pid, flush=True)\n"
+                "        time.sleep(120)\n"
+            )
+            started = time.monotonic()
+            with mock.patch.object(run_suite, "REPO_ROOT", root):
+                result = run_suite.run_module("test_hangs", 1, timeout=2)
+            self.assertLess(time.monotonic() - started, 30, "a child holding the module's output cannot hold the run")
+        self.assertEqual((False, True), (result["ok"], result["timed_out"]))
+        self.assertIn("still running after 2s", result["output"])
+        child = int(re.search(r"^child (\d+)$", result["output"], re.MULTILINE).group(1))
+        if Path("/proc").is_dir():  # Linux: ended means gone, or a zombie no reaper has collected yet
+            self.assertTrue(self.ended(child), f"process {child} was still alive after the module's tree was ended")
+
+    @staticmethod
+    def ended(pid, within=10.0):
+        """Whether `pid` is gone or a zombie. The kill is asynchronous: a process that has been sent SIGKILL can
+        still be running for a moment on a loaded host, after the module it belonged to was reaped."""
+        deadline = time.monotonic() + within
+        while True:
+            try:
+                state = Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()[0]
+            except FileNotFoundError:
+                return True
+            if state == "Z":
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.02)
+
+    def test_a_timed_out_module_is_a_named_failure_in_its_row_and_the_summary(self):
+        def run_module(module, _verbosity, timeout):
+            self.assertEqual(5, timeout)
+            hung = module == "tests.test_b"
+            return {"module": module, "ok": not hung, "timed_out": hung, "seconds": 0.0, "tests": 1, "output": module}
+
+        with mock.patch.object(run_suite, "run_module", run_module), contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertFalse(run_suite.run_parallel(["tests.test_a", "tests.test_b"], 2, 1, timeout=5))
+        lines = out.getvalue().splitlines()
+        self.assertIn("FAIL    0.0s  tests.test_b (1 tests, timed out)", lines)
+        self.assertIn(
+            "Ran 2 tests in 2 modules, 2 at a time, in 0s: 1 module(s) FAILED: tests.test_b (1 timed out: tests.test_b)",
+            lines,
+        )
 
 
 class ModuleEnvironmentTests(unittest.TestCase):

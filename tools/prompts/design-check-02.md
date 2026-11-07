@@ -12,8 +12,12 @@ You do not write code and you do not edit anything.
    breaks>") and, when the constraint is something the code enforces today, probe: a shell command run from
    the repository root that exits 0 exactly when the repository holds that constraint (for example:
    python3 -c "from ratelimit.bucket import TokenBucket; assert TokenBucket().try_acquire('k') is True").
-   The runner runs every probe in a scratch copy and rejects the report if one fails. A constraint that
-   lives only in prose (a README rule) has probe "". Do not list style preferences, better
+   The runner runs every probe in a scratch copy and rejects the report if one fails. A probed conflict
+   also gives counterexample: the smallest edit to one repository file after which the repository no
+   longer holds the constraint, as file, find (text copied exactly from that file, occurring once) and
+   replace. The runner makes that edit in another scratch copy and the probe must fail there; a probe
+   that passes whatever the code says shows nothing and rejects the report. A constraint that lives only
+   in prose (a README rule) has probe "" and counterexample file, find and replace "". Do not list style preferences, better
    alternatives you would have chosen, or gaps the implementation can fill without contradicting anything:
    the design is approved, and your job is not to redesign it.
 3. constraints: the design's binding decisions the plan must follow exactly (module and file layout,

@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_contract_identity as goals
+    from . import autocode_plan_retention as retention
     from . import autocode_progressive_activation as activation
     from . import autocode_progressive_artifacts as artifacts
     from . import autocode_progressive_budget as budget
@@ -49,6 +50,7 @@ try:
     from . import autocode_verification_plan as verification
 except ImportError:
     import autocode_contract_identity as goals
+    import autocode_plan_retention as retention
     import autocode_progressive_activation as activation
     import autocode_progressive_artifacts as artifacts
     import autocode_progressive_budget as budget
@@ -69,6 +71,24 @@ def view(state: RunState):
     """The progressive record, or {} on the ordinary path."""
     record = state.get(KEY)
     return record if isinstance(record, dict) else {}
+
+
+def ordinary_initial_draft(state: RunState) -> bool:
+    """Identify a sealed first draft whose saved report explicitly has no slice proposal."""
+    contract = state.get("goal_contract") or {}
+    if (
+        view(state)
+        or contract.get("origin") != "glm_draft"
+        or contract.get("revision") != 1
+        or contract.get("approval_status") != "draft"
+        or not contract.get("task_id")
+        or "body" not in contract
+        or not goals.sealed(contract)
+    ):
+        return False
+    report = ((state.get("planning") or {}).get("reports") or {}).get("astra_discovery") or {}
+    proposal = (report.get("report") or {}).get("progressive_proposal")
+    return isinstance(proposal, dict) and proposal.get("version") == 0 and not rules.declares(proposal)
 
 
 def retained_review_budget_pause(state: RunState, status):
@@ -242,6 +262,41 @@ def _canonical_contract(body, proposal, criteria, limits, prior_disclosure=None)
     return canonical
 
 
+def _expand_retained(saved, reviewed):
+    """The saved final review may hold a retained-contract reference (#1858).
+
+    The runner expanded it from the contract it named when the review was
+    applied, so the retained text is the reviewed contract's own. What the
+    reviewer authored in the reference stays compared: its first task, any
+    blocking questions it raised and its criteria delta (#1991), which changes
+    nothing when applied again to the criteria the runner expanded from it.
+    """
+    if "retain_contract" not in saved:
+        return saved
+    expanded = copy.deepcopy(reviewed)
+    if "initial_task" in saved:
+        expanded["initial_task"] = copy.deepcopy(saved["initial_task"])
+    if "acceptance_criteria" in saved:
+        delta, rows = saved["acceptance_criteria"], reviewed.get("acceptance_criteria") or []
+        well_formed = (
+            isinstance(delta, dict)
+            and all(isinstance(delta.get(key), list) for key in ("upsert", "remove"))
+            and isinstance(delta.get("proofs", []), list)
+            and all(
+                isinstance(row, dict) and isinstance(row.get("id"), str)
+                for row in [*rows, *delta["upsert"], *delta.get("proofs", [])]
+            )
+            and all("verification_method" in row for row in delta.get("proofs", []))
+        )
+        # A malformed delta is kept as written, so the comparison names the difference.
+        expanded["acceptance_criteria"] = retention.apply_delta(rows, delta) if well_formed else delta
+    held = {row.get("id") for row in reviewed.get("open_blocking_questions") or [] if isinstance(row, dict)}
+    for row in saved.get("open_blocking_questions") or []:
+        if not isinstance(row, dict) or row.get("id") not in held:
+            expanded["open_blocking_questions"] = [*expanded.get("open_blocking_questions", []), row]
+    return expanded
+
+
 def clear_candidate(state: RunState):
     record = state.get(KEY)
     if record:
@@ -391,7 +446,11 @@ def prepare_seal(state: RunState, contract_token):
     if raw.get("progressive_proposal") != candidate["proposal"]:
         raise ValueError("saved final review differs from its accepted progressive proposal")
     raw_body = _canonical_contract(
-        raw.get("contract") or {}, candidate["proposal"], criteria, limits, candidate.get("prior_disclosure")
+        _expand_retained(raw.get("contract") or {}, final["report"]["contract"]),
+        candidate["proposal"],
+        criteria,
+        limits,
+        candidate.get("prior_disclosure"),
     )
     reviewed_body = _canonical_contract(
         final["report"]["contract"], candidate["proposal"], criteria, limits, candidate.get("prior_disclosure")

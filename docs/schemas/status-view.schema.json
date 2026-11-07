@@ -21,20 +21,81 @@
         "schema", "status", "done", "needs", "pause_category", "pause_category_label", "next_command",
         "phase", "next_stage", "iteration", "stop_reason", "explanation", "current_task", "task", "task_sha256",
         "workflow", "workflow_source", "workflow_reason", "turn", "evidence", "approvals", "evidence_report",
-        "acceptance_tests", "usage", "cost", "progress", "delivery", "liveness", "controller", "recovery",
-        "verification", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
+        "acceptance_tests", "usage", "cost", "progress", "summary", "delivery", "liveness", "controller", "recovery", "recoveries",
+        "verification", "review_result", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
         "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
-        "efficiency", "conversation", "chat"
+        "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "stage_policy", "pause", "package",
+        "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention",
+        "scope", "coordination", "related_profile", "proxied_requirements", "request_sources", "run_metrics"
       ],
       "properties": {
+        "execution": {
+          "type": "object",
+          "description": "Core lifetime capability. Older clients ignore this additive field; clients reading older cores treat its absence as unknown.",
+          "required": ["version", "mode", "detach_supported"],
+          "properties": {
+            "version": {"type": "integer", "enum": [1]},
+            "mode": {"type": "string", "enum": ["owned", "durable_local", "unknown"]},
+            "detach_supported": {"type": "boolean"},
+            "launch_id": {"type": "string"},
+            "controller_epoch": {"type": "string"},
+            "next_command": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "observation": {
+          "type": ["object", "null"],
+          "description": "Read-only sample metadata supplied by the status command. sampled_at identifies this read and may differ between equivalent status requests; checkpoint_token identifies saved state and grants no action authority. Null in an uninspected pure projection.",
+          "properties": {
+            "version": {"type": "integer", "enum": [1]},
+            "workspace": {"type": "string"},
+            "run_dir": {"type": "string"},
+            "checkpoint_token": {"type": "string"},
+            "sampled_at": {"type": "string"}
+          }
+        },
+        "attention": {
+          "type": "object",
+          "description": "Versioned current human-boundary or completed-turn identity. Acknowledgement records only this local OS user's read state, never task approval or delivery verification. Missing fields in older cores mean unknown.",
+          "required": ["version", "item", "acknowledgement", "acknowledge"],
+          "properties": {
+            "version": {"type": "integer", "enum": [1]},
+            "item": {
+              "type": ["object", "null"],
+              "properties": {
+                "id": {"type": "string", "description": "Opaque core identity for this run incarnation and current decision context or completed same-chat turn; grants no task authority."},
+                "workspace": {"type": "string"},
+                "run_dir": {"type": "string"},
+                "kind": {"type": "string"},
+                "label": {"type": "string"},
+                "summary": {"type": "string", "description": "Bounded, redacted task snippet, never raw provider output."}
+              }
+            },
+            "acknowledgement": {
+              "type": "object",
+              "properties": {
+                "available": {"type": "boolean"},
+                "state": {"type": "string", "enum": ["unread", "acknowledged", "unknown"]},
+                "receipt": {"type": ["object", "null"]}
+              }
+            },
+            "acknowledge": {
+              "type": ["object", "null"],
+              "description": "Only this acknowledgement's exact named argument array may be dispatched; it answers no question and approves no plan.",
+              "properties": {
+                "label": {"type": "string"},
+                "next_command": {"type": "array", "items": {"type": "string"}}
+              }
+            }
+          }
+        },
         "schema": {"type": "integer", "enum": [2], "description": "The view's version; it changes only if a field's meaning changes."},
         "status": {"type": "string", "description": "The exact run status, such as RUNNING, WAITING_FOR_USER, AWAITING_GOAL_APPROVAL, a PAUSED_* status or TASK_COMPLETE."},
         "done": {"type": "boolean", "description": "True when the task completed: status TASK_COMPLETE or COMPLETE, and not a replay with recorded checks."},
         "needs": {
           "type": ["object", "null"],
-          "description": "What must happen next for the run to progress; null when it is complete. `kind` is an open vocabulary (approve_plan, answer, review, resume, continue, ...); `continue` means relaunching the run needs nothing from a person.",
+          "description": "What must happen next for the run to progress; null when it is complete. `kind` is an open vocabulary (approve_plan, answer, review, resume, continue, ...); `continue` means no person input is needed, including when the core names a deterministic recovery action in `next_command`.",
           "required": ["kind"],
           "properties": {
             "kind": {"type": "string"},
@@ -73,6 +134,7 @@
         },
         "task": {"type": ["string", "null"], "description": "The exact saved request text."},
         "task_sha256": {"type": ["string", "null"], "description": "The UTF-8 SHA-256 of `task`."},
+        "request_sources": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "text"], "properties": {"id": {"type": "string"}, "kind": {"type": "string"}, "text": {"type": "string"}}}, "description": "Authenticated live human source texts, including clarifications. Excludes model prose and discarded answers. Coordinated tasks pin these exact sources and carry their text into member and joint briefs; changed sources invalidate the saved coordination."},
         "workflow": {"type": ["string", "null"], "description": "The kind of job recognized from the request (build, bugfix, review, design, discuss); null until recognized."},
         "workflow_source": {"type": ["string", "null"]},
         "workflow_reason": {"type": ["string", "null"]},
@@ -81,14 +143,164 @@
         "approvals": {"type": "array", "description": "Who approved each plan and review, edited the plan, resumed the run from a pause or accepted its completion, oldest first (#722). Recorded as given and never verified."},
         "evidence_report": {"type": ["object", "null"]},
         "acceptance_tests": {"type": ["object", "null"]},
-        "usage": {"type": "object", "description": "Tokens and cost so far; unknown cost is not zero."},
+        "usage": {
+          "type": "object",
+          "description": "Tokens and cost so far; unknown cost is not zero.",
+          "required": [
+            "accounting"
+          ],
+          "properties": {
+            "accounting": {
+              "type": "object",
+              "required": [
+                "attempts"
+              ],
+              "properties": {
+                "attempts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "execution_identity"
+                    ],
+                    "properties": {
+                      "execution_identity": {
+                        "type": "object",
+                        "description": "Frozen launch identity, validated against the attempt. Empty object for legacy, unknown or contradictory facts. Known records have schema 1 and all identity fields; billing is a saved selected-route classification, not an invoice. Endpoints identify configured targets, not redirects or compatibility.",
+                        "properties": {
+                          "schema": {
+                            "type": "integer",
+                            "enum": [
+                              1
+                            ]
+                          },
+                          "role": {
+                            "type": "string"
+                          },
+                          "engine": {
+                            "type": "string"
+                          },
+                          "provider": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "reasoning_effort": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Effective launch effort; blank/null can preserve the provider default."
+                          },
+                          "runtime_commit": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "billing_kind": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "enum": [
+                              null,
+                              "subscription",
+                              "pay per token"
+                            ]
+                          },
+                          "billing_basis": {
+                            "type": "string",
+                            "enum": [
+                              "unrecorded",
+                              "saved_selected_route"
+                            ]
+                          },
+                          "endpoint": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "required": [
+                              "origin",
+                              "sha256",
+                              "protocol",
+                              "api_provider"
+                            ],
+                            "properties": {
+                              "origin": {
+                                "type": "string"
+                              },
+                              "sha256": {
+                                "type": "string"
+                              },
+                              "protocol": {
+                                "type": "string",
+                                "enum": [
+                                  "compatible",
+                                  "anthropic"
+                                ]
+                              },
+                              "api_provider": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "reasoning_effort": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "Effective effort when recorded; absent on historical attempts."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "cost": {"type": "object", "description": "Spend against the money cap."},
         "progress": {"type": "object", "description": "How far the run has got, from saved records; `line` is for a person, the fields beside it for programs."},
+        "summary": {
+          "type": "object",
+          "description": "The run in one sentence (#2049). `state` is `done` only when completion is verified against the current checkout; a finished run without that, or a running checkpoint nothing supervises, is `stopped`. `next_command` is the view's own `next_command` (null when done).",
+          "required": ["state", "label", "sentence", "next_command"],
+          "properties": {
+            "state": {"enum": ["needs_you", "working", "done", "stopped"]},
+            "label": {"type": "string"},
+            "sentence": {"type": "string"},
+            "next_command": {"type": ["string", "null"]}
+          }
+        },
         "delivery": {"type": ["object", "null"]},
         "liveness": {"type": "object"},
         "controller": {"type": ["object", "null"]},
         "recovery": {"type": ["object", "null"]},
+        "recoveries": {
+          "type": "array",
+          "description": "What went wrong and what AutoCode did about it, oldest first, at most 20 (tools/autocode_recovery_history.py): rejected answers, rewritten reports, Builder send-backs for untested lines, Investigator and Resolver calls. Display text only; it grants nothing.",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "at", "job", "headline", "problem", "action", "by", "detail"],
+            "properties": {
+              "id": {"type": "string"},
+              "kind": {"type": "string", "enum": ["rejected", "report_repaired", "sent_back", "investigated", "resolved"]},
+              "at": {"type": ["string", "null"]},
+              "job": {"type": ["string", "null"]},
+              "headline": {"type": "string"},
+              "problem": {"type": ["string", "null"]},
+              "action": {"type": "string"},
+              "by": {"type": ["string", "null"]},
+              "detail": {"type": ["string", "null"]}
+            }
+          }
+        },
         "verification": {"type": ["object", "null"]},
+        "review_result": {"type": ["object", "null"], "description": "Read-time review inspection, separate from authenticated evidence.workflow_result; null until inspected. Includes recorded outcome/artifact/source binding, freshness and reasons."},
         "verification_obligation": {"type": ["object", "null"]},
         "code_checkpoints": {"type": ["object", "null"]},
         "runner": {"type": ["object", "null"]},
@@ -163,12 +375,111 @@
         "tool_containment": {"type": ["string", "null"]},
         "job_report_recovery": {"type": ["object", "null"]},
         "efficiency": {"type": ["object", "null"]},
+        "run_metrics": {
+          "type": "object",
+          "required": ["schema", "spent_usd", "complete", "by_job", "tokens", "waste", "single_model"],
+          "properties": {
+            "schema": {"const": 1},
+            "spent_usd": {"type": ["number", "null"]},
+            "complete": {"type": "boolean"},
+            "by_job": {"type": "array", "items": {
+              "type": "object",
+              "required": ["job", "stages", "attempts", "spent_usd", "complete", "share"],
+              "properties": {
+                "job": {"type": "string"},
+                "stages": {"type": "array"},
+                "attempts": {"type": "integer"},
+                "spent_usd": {"type": "number"},
+                "complete": {"type": "boolean"},
+                "share": {"type": ["number", "null"]}
+              }
+            }},
+            "tokens": {
+              "type": "object",
+              "required": ["input", "new", "cache_write", "cache_read", "output", "complete", "cache_read_share", "cache_write_share"],
+              "properties": {
+                "input": {"type": ["integer", "null"]},
+                "new": {"type": ["integer", "null"]},
+                "cache_write": {"type": ["integer", "null"]},
+                "cache_read": {"type": ["integer", "null"]},
+                "output": {"type": ["integer", "null"]},
+                "complete": {"type": "boolean"},
+                "cache_read_share": {"type": ["number", "null"]},
+                "cache_write_share": {"type": ["number", "null"]}
+              }
+            },
+            "waste": {
+              "type": "object",
+              "required": ["failed_attempts", "failed_usd", "failed_usd_complete", "repeated_jobs", "report_repair_usd", "report_repair_complete"],
+              "properties": {
+                "failed_attempts": {"type": "integer"},
+                "failed_usd": {"type": "number"},
+                "failed_usd_complete": {"type": "boolean"},
+                "repeated_jobs": {"type": "array", "items": {
+                  "type": "object", "required": ["job", "attempts"],
+                  "properties": {"job": {"type": "string"}, "attempts": {"type": "integer"}}
+                }},
+                "report_repair_usd": {"type": ["number", "null"]},
+                "report_repair_complete": {"type": "boolean"}
+              }
+            },
+            "single_model": {
+              "type": "object",
+              "required": ["builder_usd", "builder_share", "checking_usd", "basis", "produced"],
+              "properties": {
+                "builder_usd": {"type": ["number", "null"]},
+                "builder_share": {"type": ["number", "null"]},
+                "checking_usd": {"type": ["number", "null"]},
+                "basis": {"type": "string"},
+                "produced": {
+                  "type": "object",
+                  "required": [
+                    "criteria_requested", "criteria_accepted", "regression_verdict", "fail_to_pass_tests",
+                    "clean_replay_checks", "clean_replay_verdict", "mutants_killed", "mutants_tried",
+                    "findings", "blocking_findings", "problems_handled"
+                  ],
+                  "properties": {
+                    "criteria_requested": {"type": ["integer", "null"]},
+                    "criteria_accepted": {"type": ["integer", "null"]},
+                    "regression_verdict": {"type": ["string", "null"]},
+                    "fail_to_pass_tests": {"type": "integer"},
+                    "clean_replay_checks": {"type": "integer"},
+                    "clean_replay_verdict": {"type": ["string", "null"]},
+                    "mutants_killed": {"type": "integer"},
+                    "mutants_tried": {"type": "integer"},
+                    "findings": {"type": "integer"},
+                    "blocking_findings": {"type": "integer"},
+                    "problems_handled": {"type": "integer"}
+                  }
+                }
+              }
+            }
+          }
+        },
         "conversation": {"type": ["object", "null"]},
         "chat": {
           "type": "object",
-          "required": ["messages", "context", "input"],
+          "required": ["messages", "context", "input", "gate"],
           "properties": {
+            "gate": {"type": ["object", "null"], "required": ["kind", "token", "stage", "decision"], "properties": {
+              "kind": {"enum": ["requirements", "plan"]},
+              "token": {"type": "string"},
+              "stage": {"type": "string"},
+              "decision": {"type": ["object", "null"], "required": ["message_id", "intent"], "properties": {
+                "message_id": {"type": "string"}, "intent": {"enum": ["confirm"]}
+              }}
+            }, "description": "A displayed gate whose free-text replies are interpreted by its responsible saved agent. A current decision records the interpretation; clients still take the fresh ordinary named confirmation or approval action."},
             "progress": {"type": "array", "items": {"type": "string"}, "description": "Optional core-authored activity, saved progress counts and recent attempt descriptions. A finished attempt does not mean its result passed verification."},
+            "activity": {"type": "array", "maxItems": 20, "items": {
+              "type": "object", "required": ["kind", "text", "status"],
+              "properties": {
+                "kind": {"enum": ["command", "edit", "tool"]},
+                "text": {"type": "string"},
+                "status": {"enum": ["running", "done", "failed"]},
+                "paths": {"type": "array", "maxItems": 8, "items": {"type": "string"}}
+              }
+            }, "description": "Optional display-only events of the running, supervised attempt, oldest first. A command that exited 0 is not a passed check; never proof, approval or authority to retry."},
+            "last_output_at": {"type": "string", "description": "Optional: when the running, supervised attempt's event file was last written (UTC). Display only; never proof of progress or a liveness decision."},
             "review": {"type": ["object", "null"], "properties": {
               "spend_confirmation": {"type": "object", "required": ["title", "detail", "label"], "properties": {
                 "title": {"type": "string"}, "detail": {"type": "string"}, "label": {"type": "string"},
@@ -177,15 +488,159 @@
             }},
             "messages": {"type": "array", "items": {
               "type": "object", "required": ["id", "role", "text"],
-              "properties": {"id": {"type": "string"}, "role": {"enum": ["user", "assistant"]}, "text": {"type": "string"}}
+              "properties": {"id": {"type": "string"}, "role": {"enum": ["user", "assistant"]}, "text": {"type": "string"},
+                "conversation": {"type": "object", "required": ["request_id", "intent", "affected_targets", "context_sha256"],
+                  "properties": {"request_id": {"type": "string"}, "intent": {"enum": ["question", "change"]},
+                    "affected_targets": {"type": "array", "items": {"type": "string"}}, "context_sha256": {"type": "string"}}}
+              }
             }},
             "context": {"type": "string"},
             "input": {"type": ["object", "null"], "required": ["kind", "label", "next_command"],
-              "properties": {"kind": {"enum": ["feedback", "follow_up", "resolver_response"]}, "label": {"type": "string"}, "next_command": {"type": "string"}}}
+              "properties": {"kind": {"enum": ["feedback", "follow_up", "resolver_response", "message"]}, "label": {"type": "string"}, "next_command": {"type": "string"}}}
           }
         },
-        "displayed_plan": {"type": "object", "description": "Present while a sealed plan is displayed for approval."},
-        "approved_contract": {"type": "object", "description": "Present once a plan is approved."}
+        "displayed_plan": {
+          "type": "object",
+          "description": "Present while a sealed plan is displayed for approval. milestones and end_to_end_flow (#2434) carry the completion order the person approves and are present only where the contract body has them; sealed legacy plans omit both.",
+          "properties": {
+            "milestones": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string"},
+                  "objective": {"type": "string"},
+                  "acceptance_criteria": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["id", "objective"]
+              }
+            },
+            "end_to_end_flow": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "approved_contract": {"type": "object", "description": "Present once a plan is approved."},
+        "workspace": {"type": ["string", "null"], "description": "The run's effective workspace; after bootstrap relocation it can differ from the handle a client started with."},
+        "run_dir": {"type": ["string", "null"], "description": "The run's effective run directory, compared with a named command's run before it is taken."},
+        "planning_depth": {"type": "object", "description": "How much planning the run chose and why (docs/adaptive-planning.md); documented in docs/task-run.md."},
+        "stage_policy": {"type": ["object", "null"], "description": "Which planning path a bug-fix run took and why (docs/adaptive-planning.md#compact-planning-for-bug-fixes): path, reasons, basis, decisions and fallback; null when the run never decided. Documented in docs/task-run.md."},
+        "pause": {"type": ["object", "null"], "description": "The boundary pause a working run offers: label, effect, requested and next_command. Null when nothing is working.",
+          "properties": {"label": {"type": "string"}, "effect": {"type": "string"}, "requested": {"type": "boolean"}, "next_command": {"type": ["array", "null"], "items": {"type": "string"}}}},
+        "package": {"type": ["string", "null"], "description": "The repository directory a run started with --package works in; null for a run of the whole repository."},
+        "tool_containment_backend": {"type": ["object", "null"], "description": "The kernel boundary the latest contained launch ran in; null until a stage launches contained."},
+        "changes_by_criterion": {"type": ["object", "null"], "description": "Saved Builder steps attributed to the approved plan's criteria; null until a plan is approved. Attribution, not proof."},
+        "dev_server": {"type": ["object", "null"], "description": "The run's development server: configured, status, url, code_checkpoint, restarts and waiting."},
+        "scope": {"type": "object", "required": ["identity", "spans_repositories", "external_parts", "uncovered", "decision", "dropped", "linked", "briefs"], "properties": {"identity": {"type": "string", "description": "Opaque identity of the current user turn and grounded external work; grants no plan approval."}, "spans_repositories": {"type": "boolean"}, "external_parts": {"type": "array", "items": {"type": "object", "required": ["target", "work", "source_quote", "evidence"], "properties": {"target": {"type": "string"}, "work": {"type": "string"}, "source_quote": {"type": "string", "description": "Verbatim ticket or requirement text grounding this repository's involvement."}, "evidence": {"type": "string", "description": "Cited file and optional line range grounding this repository's involvement."}}}}, "uncovered": {"type": "array", "items": {"type": "string"}}, "decision": {"type": ["string", "null"]}, "dropped": {"type": "array", "items": {"type": "string"}}, "linked": {"type": "array", "items": {"type": "object", "required": ["changeset", "target", "role", "workspace", "run_dir"], "properties": {"changeset": {"type": "string"}, "target": {"type": "string"}, "role": {"type": "string", "enum": ["source", "member"]}, "workspace": {"type": "string"}, "run_dir": {"type": ["string", "null"]}}}, "description": "The other runs of this run's change set (autocode changeset link): the source run and each linked run, with the repository it covers; run_dir is null while a linked run is starting."}, "briefs": {"type": "array", "items": {"type": "object", "required": ["repository", "brief"], "properties": {"repository": {"type": "string"}, "brief": {"type": "string"}}}, "description": "A ready brief for each repository the request spans, this one first, for a person who stops here and runs them separately."}}, "description": "Work the request places in another repository (#2066): the grounded external parts, the targets the person left out of this run (each recorded in scope_exclusions), the exact human decision (this_repository), the core-owned assignment (linked_repositories), or null while unanswered, the targets dropped for want of a verbatim quote or a cited file, and the other runs of this run's change set (linked)."},
+        "coordination": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Automatic multi-repository coordination offer; null without an eligible bug or an existing record. Clients read status_command and take only exact named next_command or cancel_command arrays.",
+          "required": [
+            "version",
+            "status_command",
+            "next_command",
+            "phase",
+            "revision",
+            "cancel_command",
+            "active",
+            "members",
+            "integration"
+          ],
+          "properties": {
+            "integration": {
+              "type": ["object", "null"],
+              "required": ["workspace", "run_dir"],
+              "properties": {"workspace": {"type": "string"}, "run_dir": {"type": "string"}},
+              "description": "Current joint participant's public status identity, published before its start action returns; null before preparation or after retirement. Display only; grants no action authority."
+            },
+            "version": {
+              "type": "integer",
+              "enum": [
+                1
+              ]
+            },
+            "status_command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "next_command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cancel_command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "phase": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "integer"
+            },
+            "active": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "target",
+                  "run_dir",
+                  "status",
+                  "pr_url"
+                ],
+                "properties": {
+                  "target": {
+                    "type": "string"
+                  },
+                  "run_dir": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "pr_url": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "related_profile": {
+          "type": "object",
+          "description": "Versioned copy of inheritable role routes and limits, excluding credentials, sessions and approvals. Installation still enforces the target project approval policy.",
+          "required": [
+            "version",
+            "settings"
+          ],
+          "properties": {
+            "version": {
+              "type": "integer",
+              "enum": [
+                1
+              ]
+            },
+            "settings": {
+              "type": "object"
+            }
+          }
+        },
+        "proxied_requirements": {"type": "array", "items": {"type": "object", "required": ["requirement_id", "evidence", "proxy_reason"], "properties": {"requirement_id": {"type": ["string", "null"]}, "evidence": {"type": ["string", "null"]}, "proxy_reason": {"type": ["string", "null"]}}}, "description": "The requirements the current plan proves only on a stand-in because code outside this checkout renders what the user sees (#2068): the criteria it cites (evidence) and why (proxy_reason); [] when none or no plan yet. Documented in docs/task-run.md."}
       }
     },
     "result": {

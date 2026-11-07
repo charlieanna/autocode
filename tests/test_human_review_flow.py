@@ -139,3 +139,107 @@ class HumanReviewFlowTests(unittest.TestCase):
         self.assertFalse(self.ready(report))
         self.assertFalse(self.ready(criterion="J0"))
         self.assertFalse(self.ready(criteria=[{**row, "human_review": False} for row in self.criteria]))
+
+
+class HumanPendingProofTests(unittest.TestCase):
+    """The repairable deadlock shape from #1851: technical PASS, human proof missing."""
+
+    setUp = HumanReviewFlowTests.setUp
+
+    def require(self, validation=None, *, human_pending=None, review_missing=True, criteria=None):
+        report = self.validation if validation is None else validation
+        pending = (
+            review_flow.human_only_pending_validation(criteria or self.criteria, report, "C1")
+            if human_pending is None
+            else human_pending
+        )
+        return review_flow.require_human_pending_proof(criteria or self.criteria, report, pending, review_missing)
+
+    def case_five_shape(self):
+        report = copy.deepcopy(self.validation)
+        report["criterion_results"][0].update(status="NOT_VERIFIED", evidence_refs=[])
+        report["end_to_end_result"] = {
+            "status": "NOT_VERIFIED",
+            "summary": "",
+            "evidence_refs": [],
+            "technical_result": None,
+            "pending_human_criteria": ["C1"],
+        }
+        return report
+
+    def test_the_reported_shape_is_rejected_with_the_missing_proof_named(self):
+        report = self.case_five_shape()
+        self.assertFalse(review_flow.human_only_pending_validation(self.criteria, report, "C1"))
+        with self.assertRaises(review_flow.IncompleteHumanProof) as caught:
+            self.require(report)
+        message = str(caught.exception)
+        for expected in ("C1", "technical_result", "awaiting human acceptance", "never rerun", "never invent"):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, message)
+
+    def test_a_complete_human_pending_report_passes_untouched(self):
+        before = copy.deepcopy(self.validation)
+        self.assertIsNone(self.require(self.validation))
+        self.assertEqual(before, self.validation)
+
+    def test_technical_blocks_and_findings_keep_their_own_gate(self):
+        report = copy.deepcopy(self.validation)
+        report["criterion_results"][1]["status"] = "FAIL"
+        self.assertIsNone(self.require(report))
+        report = copy.deepcopy(self.validation)
+        report["findings"] = [{"blocking": True}]
+        self.assertIsNone(self.require(report))
+        report = copy.deepcopy(self.validation)
+        report["verdict"] = "FAIL"
+        self.assertIsNone(self.require(report))
+        report = copy.deepcopy(self.validation)
+        report["end_to_end_result"]["status"] = "FAIL"
+        self.assertIsNone(self.require(report))
+        report = self.case_five_shape()
+        report["criterion_results"][0]["status"] = "FAIL"
+        self.assertIsNone(self.require(report))
+
+    def test_no_human_criteria_or_recorded_receipt_is_not_this_deadlock(self):
+        criteria = [{**row, "human_review": False} for row in self.criteria]
+        self.assertIsNone(self.require(self.case_five_shape(), criteria=criteria))
+        self.assertIsNone(self.require(self.case_five_shape(), review_missing=False))
+        report = copy.deepcopy(self.validation)
+        for row in report["criterion_results"]:
+            row["status"] = "PASS"
+        self.assertIsNone(self.require(report))
+        report["end_to_end_result"]["status"] = "PASS"
+        report["end_to_end_result"]["pending_human_criteria"] = []
+        self.assertIsNone(self.require(report))
+
+    def test_each_unfinished_part_is_named_for_the_report_repair(self):
+        report = copy.deepcopy(self.validation)
+        report["criterion_results"][0]["evidence_refs"] = []
+        with self.assertRaises(review_flow.IncompleteHumanProof) as caught:
+            self.require(report)
+        self.assertIn("C1 must cite the automated evidence", str(caught.exception))
+
+        report = copy.deepcopy(self.validation)
+        report["end_to_end_result"]["pending_human_criteria"] = []
+        self.assertFalse(review_flow.human_only_pending_validation(self.criteria, report, "C1"))
+        with self.assertRaises(review_flow.IncompleteHumanProof) as caught:
+            self.require(report)
+        self.assertIn("pending_human_criteria must list exactly ['C1']", str(caught.exception))
+
+        report = copy.deepcopy(self.validation)
+        report["criterion_results"] = report["criterion_results"][1:]
+        with self.assertRaises(review_flow.IncompleteHumanProof) as caught:
+            self.require(report, human_pending=False)
+        self.assertIn("criterion_results must report C1", str(caught.exception))
+
+        report = copy.deepcopy(self.validation)
+        report["end_to_end_result"]["technical_result"]["evidence_refs"] = []
+        with self.assertRaises(review_flow.IncompleteHumanProof) as caught:
+            self.require(report)
+        self.assertIn("technical_result must be PASS", str(caught.exception))
+
+        report = copy.deepcopy(self.validation)
+        report["end_to_end_result"]["status"] = "PASS"
+        report["criterion_results"][0]["status"] = "NOT_VERIFIED"
+        with self.assertRaises(review_flow.IncompleteHumanProof) as caught:
+            self.require(report, human_pending=False)
+        self.assertIn("must stay NOT_VERIFIED", str(caught.exception))

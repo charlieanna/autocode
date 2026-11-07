@@ -14,22 +14,26 @@ import sys
 from pathlib import Path
 
 try:
+    from . import autocode_access_evidence as access_evidence
     from . import autocode_agent_env as agent_env
     from . import autocode_containment_policy as containment_policy
     from . import autocode_native_locators as native_locators
     from . import autocode_native_role_isolation as native_isolation
     from . import autocode_output_cap as output_cap
     from . import autocode_prompts as prompts
+    from . import autocode_route_evidence as route_evidence
     from . import autocode_storage_errors as storage_errors
     from . import autocode_util as util
     from . import autocode_verification_copy as verification_copy
 except ImportError:
+    import autocode_access_evidence as access_evidence
     import autocode_agent_env as agent_env
     import autocode_containment_policy as containment_policy
     import autocode_native_locators as native_locators
     import autocode_native_role_isolation as native_isolation
     import autocode_output_cap as output_cap
     import autocode_prompts as prompts
+    import autocode_route_evidence as route_evidence
     import autocode_storage_errors as storage_errors
     import autocode_util as util
     import autocode_verification_copy as verification_copy
@@ -63,13 +67,15 @@ def prepare(
     native_environment=None,
     native_image_preparation=None,
     replay_context=None,
+    planning_report_recovery=False,
 ):
     """Return (command, environment, overrides, worker) for one stage launch.
 
     ``settings`` are the run's saved settings. Their --allow-uncontained-tools opt-out (#413),
     never an environment variable or model choice, launches without the kernel tool boundary:
     ``tool_commands`` (a list, or a callable returning one) is then not computed, and a
-    non-planning OpenCode worker carries ``uncontained_tools`` for its stage record (stage_record).
+    built-in OpenCode worker, a Planner's included, carries ``uncontained_tools`` for its stage record
+    (stage_record). A planning stage gets the same shell as a read-only checker; its report recovery gets no tools.
     Explicit native role isolation always requires its kernel tool boundary; the
     saved uncontained-tools opt-out cannot weaken that owner.
     """
@@ -104,10 +110,21 @@ def prepare(
         )
     native_launch = enforce_tool_boundary
     try:
-        from .providers.kilocode import KiloProvider
+        from .providers.kilocode import KiloEffortError, KiloProvider
     except ImportError:
-        from providers.kilocode import KiloProvider
+        from providers.kilocode import KiloEffortError, KiloProvider
     kilo_owner = type(native_role_isolation) is native_isolation.KiloRoleIsolation and type(adapter) is KiloProvider
+    # A planning stage gets the same shell as a read-only checker (owner decision 2026-10-21): Planners compute the
+    # exact literals the example rule asks for instead of working them out by hand. Report recovery keeps no tools.
+    planner_shell = planning and not planning_report_recovery and not allow_write
+    kilo_readonly = (
+        type(adapter) is KiloProvider and not allow_write and (not planning or planner_shell) and not kilo_owner
+    )
+    # macOS has no kernel shell boundary (owner decision 2026-10-21, #1766; as #1195 for every provider there): a
+    # read-only Kilo checker gets Kilo's own policy instead, read tools and its shell with edits denied. A source
+    # write it still makes is put back after the stage (autocode_stray_writes), as for any read-only stage.
+    kilo_portable = kilo_readonly and sys.platform == "darwin"
+    kilo_readonly = kilo_readonly and not kilo_portable
     uncontained = containment_policy.accepted(settings)
     if native_image_preparation is not None:
         try:
@@ -166,8 +183,8 @@ def prepare(
         containment = None
         if (
             enforce_tool_boundary
-            and (not planning or native_role_isolation is not None)
-            and (not getattr(adapter, "CONFIGURED", False) or kilo_owner)
+            and (not planning or planner_shell or native_role_isolation is not None)
+            and (not getattr(adapter, "CONFIGURED", False) or kilo_owner or kilo_readonly)
         ):
             session = None
             runtime = Path(__file__).resolve().parent
@@ -175,19 +192,42 @@ def prepare(
             developer_tools = Path("/Library/Developer/CommandLineTools")
             if developer_tools.is_dir():
                 roots.add(developer_tools.resolve())
+            if (
+                not allow_write
+                and not planning_report_recovery
+                and (Path(run_dir) / "planning/source-catalog.json").is_file()
+            ):
+                try:
+                    from . import autocode_catalog_context as source_catalog
+                except ImportError:
+                    import autocode_catalog_context as source_catalog
+                roots.update(Path(path) for path in source_catalog.read_roots({"run_dir": str(run_dir)}))
             containment = {
                 "source_paths": list(source_paths),
                 "tool_commands": list(tool_commands),
                 "read_roots": [str(path) for path in sorted(roots)],
                 "protected_paths": [str(Path(run_dir).resolve()), str(runtime)],
             }
-            if planning and type(native_role_isolation) is native_isolation.NativeRoleIsolation:
-                # Its readonly planning shell coordinates through the handoff, not private run
+            if planning and not kilo_owner:
+                # A readonly planning shell coordinates through the handoff, not private run
                 # state: no run's state, events or receipts are readable, only this run's
-                # planning/ artifacts (#1250).
+                # planning/ artifacts (#1250). Native Kilo isolation keeps its own profile.
                 containment["private_run"] = str(Path(run_dir).resolve())
         launch_kwargs = {"containment": containment} if containment else {}
         launch_kwargs["env"] = environment
+        if planner_shell and uncontained and not getattr(adapter, "CONFIGURED", False):
+            # The person accepted uncontained tools (#413): the planner's shell runs under OpenCode's own
+            # permissions with edits denied, like every other stage of this run.
+            launch_kwargs["planning_shell"] = True
+        if type(adapter) is KiloProvider and not kilo_owner and planning_report_recovery:
+            launch_kwargs["report_recovery"] = True
+        if kilo_portable and enforce_tool_boundary:
+            launch_kwargs["portable_shell"] = True
+            print(
+                f"{route_role}: Kilo checks run with Kilo's own permissions on macOS (no kernel sandbox there); "
+                "edits are denied and any source change is put back",
+                file=sys.stderr,
+            )
         if native_image_preparation is not None:
             launch_kwargs["image_preparation"] = native_image_preparation
         if engine == "opencode" and not getattr(adapter, "CONFIGURED", False):
@@ -213,21 +253,29 @@ def prepare(
                 **launch_kwargs,
                 **({"isolation": native_role_isolation} if native_role_isolation is not None else {}),
             )
+        except KiloEffortError as error:
+            raise util.Paused("PAUSED_TRANSPORT_UNVERIFIED", str(error)) from error
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             if not containment:
+                if type(adapter) is KiloProvider and (planning or not allow_write):
+                    raise util.Paused(
+                        "PAUSED_TOOL_CONTAINMENT", "Kilo readonly tool policy was not established: " + str(error)
+                    ) from error
                 raise
             try:
                 from . import autocode_tool_containment as tool_containment
             except ImportError:
                 import autocode_tool_containment as tool_containment
             recovery = (
-                # It names a private .autocode store and what clears the stop; the setup is not the cause (#1250).
+                # These errors name their own remedy; reinstalling the sandbox does not clear a policy refusal.
                 ""
-                if isinstance(error, tool_containment.STORE_ERRORS)
+                if isinstance(error, (*tool_containment.STORE_ERRORS, tool_containment.NativePermissionDenied))
                 else ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
                 if native_role_isolation is not None
+                else ". Restore qualified Kilo 7.8.3 and its kernel shell setup; readonly Kilo cannot waive this boundary"
+                if kilo_readonly
                 else ". Restore the qualified setup, or resume with --allow-uncontained-tools to run "
-                "this run's non-planning stages with OpenCode's own permission checks only"
+                "this run's stages with OpenCode's own permission checks only"
             )
             raise util.Paused(
                 "PAUSED_TOOL_CONTAINMENT", "Native tool boundary was not established: " + str(error) + recovery
@@ -264,6 +312,7 @@ def prepare(
         and not allow_write
         and sandbox == "workspace-write"
         and not kilo_owner
+        and not (kilo_readonly and enforce_tool_boundary)
         and (engine == "codex" or getattr(adapter, "CONFIGURED", False))
     ):
         try:
@@ -294,11 +343,18 @@ def prepare(
         "environment": environment,
         "provider_session": session,
     }
+    if type(adapter) is KiloProvider and (planning or not allow_write) and not kilo_owner:
+        worker["provider_session"] = None
+        session = None
+        fresh_reason = "Kilo restricted stages require a fresh session without prior tool grants"
+        worker["kilo_readonly_tools"] = True
+        worker["planning_report_recovery"] = planning_report_recovery
+        worker["kilo_portable_shell"] = bool(kilo_portable and enforce_tool_boundary)
     if prior_session and session is None:
         worker["fresh_session_reason"] = (
             fresh_reason or "Native tool containment requires a newly bound provider session"
         )
-    if uncontained and engine == "opencode" and not planning and not worker["configured"]:
+    if uncontained and engine == "opencode" and (not planning or planner_shell) and not worker["configured"]:
         worker["uncontained_tools"] = True
     if environment.get("AUTOCODE_TOOL_CONTAINMENT"):
         worker["tool_containment"] = json.loads(environment["AUTOCODE_TOOL_CONTAINMENT"])
@@ -312,9 +368,28 @@ def prepare(
         )
     if native_image_preparation is not None:
         worker["visual_runtime"] = native_image_preparation.context()
-    if engine == "opencode" and (not worker["configured"] or kilo_owner):
+    if engine == "opencode" and (not worker["configured"] or type(adapter) is KiloProvider):
         # Read from the scrubbed environment: the cap the process will actually get.
-        worker["output_token_cap"] = output_cap.recorded(os.environ, environment)
+        variable = (
+            output_cap.KILO_VARIABLE
+            if type(adapter) is KiloProvider and native_role_isolation is None
+            else output_cap.VARIABLE
+        )
+        worker["output_token_cap"] = output_cap.recorded(os.environ, environment, variable)
+    if engine == "opencode":
+        worker["access_preflight_identity"] = access_evidence.launch_binding(
+            settings, route_role, adapter, model, effort
+        )
+    worker["execution_identity"] = route_evidence.launch_identity(
+        role=route_role,
+        engine=engine,
+        provider=worker["provider"],
+        model=model,
+        effort=effort,
+        runtime_commit=util.runner_identity().get("commit"),
+        settings=settings,
+        endpoint=(overrides or {}).get("endpoint_identity"),
+    )
     return command, environment, overrides, worker
 
 
@@ -330,10 +405,20 @@ def stage_record(worker):
         }
     engine = worker.get("engine", "opencode")
     record = {"prompts_hash": prompts.HASH}
+    if route_evidence.valid_execution_identity(worker.get("execution_identity")):
+        from copy import deepcopy
+
+        record["execution_identity"] = deepcopy(worker["execution_identity"])
+    if worker.get("access_preflight_identity"):
+        from copy import deepcopy
+
+        record["access_preflight_identity"] = deepcopy(worker["access_preflight_identity"])
     if engine == "opencode" and worker.get("configured"):
         record["provider"] = worker["provider"]
         if worker.get("fresh_session_reason"):
             record["fresh_session_reason"] = worker["fresh_session_reason"]
+    if worker.get("output_token_cap") is not None:
+        record["output_token_cap"] = worker["output_token_cap"]
     if worker.get("verification_copy"):
         checks = "Codex sandbox" if engine == "codex" else "Configured-provider permission checks"
         record.update(
@@ -351,6 +436,18 @@ def stage_record(worker):
             "output_token_cap": worker.get("output_token_cap"),
         }
     if worker.get("configured"):
+        if worker.get("kilo_readonly_tools"):
+            return {
+                **record,
+                "isolation": "Kilo report-only recovery; all tools disabled"
+                if worker.get("planning_report_recovery")
+                else "Kernel-constrained Kilo shell; other tools disabled"
+                if worker.get("tool_containment")
+                else "Kilo read tools and shell with edits denied; no kernel sandbox on macOS"
+                if worker.get("kilo_portable_shell")
+                else "Kilo read-tools-only permissions; no shell or OS sandbox",
+                "tool_containment": worker.get("tool_containment"),
+            }
         return {**record, "isolation": "Config-tool sandbox flag and workspace snapshot checks"}
     record.update(
         {
@@ -384,16 +481,22 @@ def render_native_image_prompt(
 
 def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=False, regression_handoff=None):
     """Advertise only the current stage's permitted scratch area, not broader write access."""
+    if worker.get("kilo_readonly_tools") and worker.get("planning_report_recovery"):
+        before, marker, after = prompt.rpartition("\nCURRENT HANDOFF DATA\n")
+        instruction = prompts.get("fragments/provider-launch/tool-free-report-repair.md")
+        return before + instruction + marker + after if marker else prompt + instruction
     policy = worker.get("tool_containment")
     if not policy:
         return prompt
     # The kernel boundary lets the stage write only its scratch, so every capture example names it:
-    # the provider contract's and COMMON's alike, never a location the stage could not write.
+    # the provider contract's and COMMON's alike, never a location the stage could not write. The
+    # examples name the handoff field as a token (#2113): the exact per-launch path is carried by
+    # tool_containment.scratch in the handoff below, so instruction bytes stay stable across attempts.
     for example in (
         "--output .autocode/evidence/<unique-name>.json",
         "--output <run-directory>/evidence/<unique-name>.json",
     ):
-        prompt = prompt.replace(example, "--output " + str(Path(policy["scratch"]) / "evidence-<unique-name>.json"))
+        prompt = prompt.replace(example, "--output <tool_containment.scratch>/evidence-<unique-name>.json")
     marker = "\nCURRENT HANDOFF DATA\n"
     before, separator, after = prompt.rpartition(marker)
     if not separator:
@@ -403,6 +506,9 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
     # copy of thousands of SDK member hashes. Full CODE-owned launch records
     # and verification keep the original inventory; no task input is omitted.
     data["tool_containment"] = native_locators.boundary_value(policy)
+    # Planning stays compact (#1635); execution must not inflate a packet
+    # that the context and provider serializers already rendered compactly.
+    compact = data.get("joint_planning") is True or "\n" not in after.strip()
     instruction = prompts.get("fragments/provider-launch/containment-prompt.md")
     if policy.get("private_reads"):
         instruction += prompts.get("fragments/provider-launch/containment-prompt-run-store.md")
@@ -421,7 +527,12 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
             if regression_proof_current
             else prompts.get("fragments/provider-launch/containment-prompt-07.md")
         )
-    return before + instruction + marker + json.dumps(data, indent=2)
+    return (
+        before
+        + instruction
+        + marker
+        + (json.dumps(data, separators=(",", ":")) if compact else json.dumps(data, indent=2))
+    )
 
 
 def verify_containment(

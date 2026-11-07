@@ -52,6 +52,8 @@ except ImportError:
 
 DEFAULTS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_replans": 1}
 POLICY = prompts.get("fragments/milestones/policy.md")
+# Assignment, advancement and replan rules: only for the stages that decide them, never the Builder (#2136 B2).
+ADVANCEMENT_POLICY = prompts.get("fragments/milestones/advancement.md")
 
 
 def route_review_only_request(state: RunState, request, origin, *, visual_proof=None):
@@ -200,6 +202,37 @@ def account(state: RunState, record):
     row["seconds"] += seconds
     role = record.get("role", "unknown")
     row["seconds_by_role"][role] = row["seconds_by_role"].get(role, 0) + seconds
+    if acceptance_test_work(state, record):
+        # Writing a wave's tests first is not an attempt at the milestone (attempted_seconds).
+        row["acceptance_test_seconds"] = row.get("acceptance_test_seconds", 0) + seconds
+
+
+def acceptance_test_work(state: RunState, record) -> bool:
+    """A stage record spent getting the wave's tests written, not building the milestone.
+
+    That is the Tester's own call, a repair of its report (``original_stage``), or the
+    Investigator looking at why it stopped (the subject of ``stuck_investigation``, or of the
+    latest ``stuck_investigations`` entry once the investigation is settled).
+    """
+    stage = record.get("original_stage") or record.get("stage")
+    if stage == "investigate_stuck":
+        history = state.get("stuck_investigations") or [{}]
+        request = state.get("stuck_investigation") or history[-1]
+        stage = request.get("stage") if isinstance(request, dict) else None
+    return stage == "write_acceptance_tests"
+
+
+def attempted_seconds(row) -> float:
+    """Time spent building or checking a milestone, leaving out the Tester writing its tests first.
+
+    The Orchestrator builds in parallel only milestones nobody has attempted yet
+    (autocode_dispatch.select). On a spec-first run the Tester writes a wave's acceptance tests
+    before that dispatch, and that time is charged to the current milestone like any other
+    stage's. Counting it as an attempt sent every wave to one Builder, which then built the
+    first member against the other members' unbuilt tests.
+    """
+    row = row or {}
+    return max(0, (row.get("seconds") or 0) - (row.get("acceptance_test_seconds") or 0))
 
 
 def _functional_evidence_ready(state: RunState, current):
@@ -427,7 +460,7 @@ def before_assignment(state: RunState, decision, current, *, visual_proof=None):
         return
     spec = decision["next_task"]
     # A validate task writes nothing: assign_task gives it its milestone's paths, so it may have none
-    # when its milestone owns none, as a program's final check does (#615).
+    # when its milestone owns none, as a final check may (#615).
     if not spec["milestone_id"].strip() or not (decision.get("affected_paths") or spec["kind"] == "validate"):
         raise ValueError(
             "Milestone tasks require a named milestone and explicit affected paths: an implement "

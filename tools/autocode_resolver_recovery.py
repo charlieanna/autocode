@@ -28,41 +28,51 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_access_identity as access_identity
     from . import autocode_builder_failure as builder_failure
     from . import autocode_builder_policy as builder_policy
+    from . import autocode_changed_code_rework as changed_code_rework
     from . import autocode_check_refs as check_refs
     from . import autocode_cost as cost
     from . import autocode_efficiency as efficiency
-    from . import autocode_escalation as escalation
     from . import autocode_failure_classification as classification
     from . import autocode_failures as failures
+    from . import autocode_planned_check_rework as planned_check_rework
     from . import autocode_process as processes
-    from . import autocode_quota_route as quota_route
     from . import autocode_recovery_inputs as inputs
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_recovery_novelty as novelty
+    from . import autocode_resolver_retry_route as retry_route
     from . import autocode_retained_work as retained
     from . import autocode_rework_policy as rework
+    from . import autocode_role_names as role_names
+    from . import autocode_route_fit as route_fit
+    from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_time_left as time_left
     from . import autocode_tool_containment as containment
     from . import autocode_util as util
 except ImportError:
+    import autocode_access_identity as access_identity
     import autocode_builder_failure as builder_failure
     import autocode_builder_policy as builder_policy
+    import autocode_changed_code_rework as changed_code_rework
     import autocode_check_refs as check_refs
     import autocode_cost as cost
     import autocode_efficiency as efficiency
-    import autocode_escalation as escalation
     import autocode_failure_classification as classification
     import autocode_failures as failures
+    import autocode_planned_check_rework as planned_check_rework
     import autocode_process as processes
-    import autocode_quota_route as quota_route
     import autocode_recovery_inputs as inputs
     import autocode_recovery_limits as recovery_limits
     import autocode_recovery_novelty as novelty
+    import autocode_resolver_retry_route as retry_route
     import autocode_retained_work as retained
     import autocode_rework_policy as rework
+    import autocode_role_names as role_names
+    import autocode_route_fit as route_fit
+    import autocode_stop as stop
     import autocode_support as support
     import autocode_time_left as time_left
     import autocode_tool_containment as containment
@@ -154,10 +164,15 @@ _CEILINGS = {
 }
 
 
-def _bound_settings(state: RunState, ceilings):
+def _bound_settings(state: RunState, ceilings, *, derived=False):
     # A model a person named at a quota stop (#184) is bound as the route it replaced,
     # and the Resolver's own climb (#1345) as the rung it left.
-    settings = escalation.unclimbed(state, quota_route.unassigned(state, state.get("settings", {})), "resolver")
+    settings = retry_route.unassigned(state, state.get("settings", {}))
+    # The launch-boundary fit and its probe evidence describe how an effort was derived, not the
+    # source, task or scope a held recovery acts on: another role's first launch must not stale it.
+    if not derived:  # a binding saved before #2057 hashed these with the other settings
+        for key in route_fit.DERIVED:
+            settings.pop(key, None)
     for section, keys in ceilings.items():
         for key in keys:
             if section in settings:
@@ -192,13 +207,65 @@ def _holds(saved, state: RunState, revision):
     they are unchanged when hashed that way, so a run upgraded with a recovery packet keeps it; for
     that binding a changed milestone budget remains a changed setting. A binding recorded after the
     upgrade, such as the repair admission ``finish_resolution_packet`` writes for that packet, leaves
-    the budget out.
+    the budget out. A binding saved before #2057 also hashed the fit's derived evidence (#2057).
+
+    A binding also holds when it was saved while the primary tool's config lay at an earlier
+    location that the run's own settings history proves content-identical
+    (``access_identity.relocations``): resuming from another checkout moves the bundled config,
+    and only its path changes. Each earlier location is tried in both hashings above. So is
+    each route of the Builder lane's own escalation (``_escalated``).
     """
     current = _binding(state, revision)
-    return saved == current or saved == {
-        **current,
-        "settings_hash": util.digest(_bound_settings(state, _EARLIER_CEILINGS)),
-    }
+    for located in (state, *_relocated(state)):
+        for candidate in _escalated(located):
+            if saved == {**current, "settings_hash": util.digest(_bound_settings(candidate, _CEILINGS))} or saved == {
+                **current,
+                "settings_hash": util.digest(_bound_settings(candidate, _EARLIER_CEILINGS, derived=True)),
+            }:
+                return True
+    return False
+
+
+def _escalated(state: RunState):
+    """``state``, then ``state`` on each other route of the Builder lane it is on now.
+
+    A repair held before the Builder escalated, or before an escalation was undone, was bound on
+    another of the lane's own routes (``builder_policy.escalation_routes``). A route outside the
+    lane, such as a model a person named, matches none, and the binding sees it.
+    """
+    yield state
+    roles = (state.get("settings") or {}).get("roles") or {}
+    lanes = builder_policy.escalation_routes(state)
+    on = [
+        lane
+        for lane in lanes
+        if all(
+            isinstance(roles.get(role), dict)
+            and (roles[role].get("model"), roles[role].get("reasoning_effort")) == route
+            for role, route in lane.items()
+        )
+    ]
+    if not on:
+        return
+    for lane in lanes:
+        if lane in on:
+            continue
+        moved = copy.deepcopy(state.get("settings") or {})
+        for role, (model, effort) in lane.items():
+            moved["roles"][role].update(model=model, reasoning_effort=effort)
+        yield {**state, "settings": moved}
+
+
+def _relocated(state: RunState):
+    """``state`` as it was bound at each proven earlier location of its config."""
+    settings = state.get("settings") or {}
+    for before in access_identity.relocations(state):
+        moved = copy.deepcopy(settings)
+        if "transport_identity" in moved:
+            moved["transport_identity"] = copy.deepcopy(before)
+        if isinstance(moved.get("transport_identities"), dict) and "opencode" in moved["transport_identities"]:
+            moved["transport_identities"]["opencode"] = copy.deepcopy(before)
+        yield {**state, "settings": moved}
 
 
 def _scope(state: RunState):
@@ -957,6 +1024,43 @@ def _investigation_grant(state: RunState, request, record):
     )
 
 
+# The actor of the scoped retry grant AutoCode records itself at a no-progress hold (#2485).
+AUTOMATIC_ACTOR = "autocode"
+
+
+def _automatic_grants(state: RunState, packet, stage):
+    """AutoCode's own scoped retry grants of ``packet`` at ``stage`` (recover_no_progress), oldest first."""
+    digest = util.digest(packet)
+    return [
+        row
+        for row in state.get("failure_retry_authorizations") or []
+        if isinstance(row, dict)
+        and row.get("actor") == AUTOMATIC_ACTOR
+        and row.get("stage") == stage
+        and row.get("novelty_packet") == digest
+    ]
+
+
+def _automatic_grant(state: RunState, packet, request: dict, record, prior):
+    """The one scoped retry AutoCode authorized itself at this packet's no-progress hold (#2485), while
+    unspent and still bound to the hold's source, settings, contract and scope. Any dispatch it admits
+    spends it, as a person's --retry-failed-stage grant is spent."""
+    held = request.get("novelty_hold") or {}
+    revision = packet["binding"]["source_revision"]
+    for grant in reversed(_automatic_grants(state, packet, record["stage"])):
+        ident = util.digest(grant)
+        if any(row.get("grant_id") == ident for row in prior):
+            continue
+        if (
+            grant.get("binding") == packet["binding"]
+            and _holds(grant.get("dispatch_binding"), state, revision)
+            and _holds(held.get("binding"), state, revision)
+            and held.get("scope") == _scope(state)
+        ):
+            return ident
+    return None
+
+
 def _explicit_grant(state: RunState, packet, request, record, prior, authorization):
     ident = _live_grant(state, packet, record, authorization)
     if ident is not None and not any(row.get("grant_id") == ident for row in prior):
@@ -970,7 +1074,10 @@ def _explicit_grant(state: RunState, packet, request, record, prior, authorizati
     if ident is not None and not any(row.get("grant_id") == ident for row in receipts(state, returned=True)):
         return ident, "diagnosis"
     ident = _investigation_grant(state, request, record)
-    return ident, "investigation" if ident is not None else None
+    if ident is not None:
+        return ident, "investigation"
+    ident = _automatic_grant(state, packet, request, record, prior)
+    return ident, "automatic" if ident is not None else None
 
 
 def finish_resolution_packet(state: RunState, request, plan):
@@ -1277,42 +1384,42 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
     return True
 
 
-def authorize_retry(runner, state: RunState, run_dir, workspace):
+def authorize_retry(runner, state: RunState, run_dir, workspace, *, previous_settings=None, preview=False):
     """Existing explicit CLI control, bound to the actual suppressed frontier."""
     request = _request(state, state.get("next_stage"))
     held = request.get("novelty_hold")
     if not held:
         return None
     if any(state.get(key) for key in recovery_limits.UNSETTLED):
-        raise ValueError("Reconcile owned active or uncertain workers before authorizing recovery")
+        raise ValueError(recovery_limits.UNSETTLED_REFUSAL)
     packet = load_packet(request["recovery_packet"], run_dir)
     revision = _source_revision(state, held.get("stage"), request["recovery_packet"], packet, workspace)
-    if not _holds(held.get("binding"), state, revision) or held.get("scope") != _scope(state):
+    route_change = retry_route.change(state, previous_settings)
+    checked = state
+    if route_change:
+        # Prospective provenance is checked before it is saved. Every other
+        # setting, source, contract and scope must still match the old hold.
+        checked = {
+            **state,
+            "failure_retry_authorizations": [
+                *state.get("failure_retry_authorizations", []),
+                {
+                    "actor": "user_cli",
+                    "stage": "astra_resolve",
+                    "novelty_packet": util.digest(packet),
+                    "resolver_route_change": route_change,
+                },
+            ],
+        }
+    if not _holds(held.get("binding"), checked, revision) or held.get("scope") != _scope(state):
         raise ValueError("Scoped recovery retry is stale; source, settings or approved scope changed")
-    if state.get("status") not in ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING"):
-        raise ValueError("Scoped recovery retry requires its no-progress hold")
-    public = runner.resolver_human.current(state)
-    if public:
-        entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(public["request_id"], {})
-        if (
-            public.get("scope") != "operational_exhaustion"
-            or entry.get("identity", {}).get("proposal", {}).get("origin", {}).get("pause_status")
-            != "PAUSED_NO_PROGRESS"
-        ):
-            raise ValueError("A different human decision cannot grant a recovery retry")
+    # The saved-state admission rule is shared with the status view, which names this retry only
+    # where it holds (#1770). A route change is checked against the request under the old settings.
+    public = runner.resolver_human.current({**state, "settings": previous_settings} if route_change else state)
+    refusal = recovery_limits.scoped_retry_refusal(state, public)
+    if refusal:
+        raise ValueError(refusal)
     pending = cast(dict, state).get(runner.resolver_human.PRIVATE)
-    if pending and (
-        pending.get("scope") != "operational_exhaustion"
-        or pending.get("origin", {}).get("pause_status") != "PAUSED_NO_PROGRESS"
-        or pending.get("origin", {}).get("stage") != state.get("next_stage")
-    ):
-        raise ValueError("A different pending decision cannot grant a recovery retry")
-    if not (public or pending) and (
-        state.get("status") != "PAUSED_NO_PROGRESS"
-        or state.get("pending_questions")
-        or (state.get("user_request") or {}).get("kind") not in (None, "none")
-    ):
-        raise ValueError("A different pending decision cannot grant a recovery retry")
     grant = {
         "actor": "user_cli",
         "at": util.now(),
@@ -1323,6 +1430,10 @@ def authorize_retry(runner, state: RunState, run_dir, workspace):
         or ("terra" if state.get("next_stage") == "orchestrator" else state.get("next_stage")),
         "ordinal": len(state.get("failure_retry_authorizations", [])),
     }
+    if route_change:
+        grant["resolver_route_change"] = route_change
+    if preview:
+        return grant  # Validate before run setup writes settings; this is not launch credit.
     if pending:
         grant["superseded_proposal"] = copy.deepcopy(pending)
         cast(dict, state).pop(runner.resolver_human.PRIVATE)
@@ -1478,14 +1589,17 @@ def _exhausted_builder(state: RunState, request, packet):
 
 
 def known_builder_pause(state: RunState):
-    """Keep the existing raw pause when the same saved Builder policy owns it."""
+    """Keep the existing outcome when the same saved Builder policy owns it."""
     source = (state.get("resolution_request") or {}).get("source_output")
     key = builder_policy.key(state)
     lane = state.get("builder_retries", {}).get(key) or {}
     decision = (state.get("builder_retry_decisions") or [{}])[-1]
+    receipt = stop.applied_stop(state)
     return bool(
         source
-        and state.get("status") == "PAUSED_BUILDER_RETRY_LIMIT"
+        and state.get("status") == stop.STOP_STATUS
+        and receipt is not None
+        and (receipt.get("outcome") or {}).get("result") == "could_not_finish"
         and state.get("next_stage") == "terra"
         and lane.get("action") == "pause"
         and lane.get("failures", [])[-1:] == [source]
@@ -1517,10 +1631,12 @@ def hold_stop(state: RunState, reason):
     return reason + (f". {' '.join(stated)}" if stated else "")
 
 
-# The budgets hold_stop states after a hold's reason (#611): with a cap, `cost.line` ends "; cap $N.", then
-# autocode_time_left's active-time and milestone sentences.
+# The budgets hold_stop states after a hold's reason (#611): with a cap, `cost.line` ends "; cap $N." and,
+# when a stage ran more than once, a "Stage costs: ..." sentence whose only inner dots are in amounts
+# (#1728), then autocode_time_left's active-time and milestone sentences.
 _STATED_BUDGETS = re.compile(
     r"\.(?: (?:Cost: .*?; cap (?:under )?\$[\d,]+\.\d+\."
+    r"|Stage costs: (?:[^.\n]|\.\d)+\."
     r"|Active time: [\d,.]+ s of the [\d,.]+ s limit\."
     r"|Milestones? [^\n]*?: [\d,.]+ s of (?:its|their) [\d,.]+ s budget\.))+"
 )
@@ -1542,6 +1658,96 @@ def restate_hold(state: RunState):
     state["stop_reason"] = head + ("" if not rest or head.endswith(".") else ".") + rest
 
 
+def _no_progress_outcome(incident, action, pointer, stage):
+    """The outcome that ends a run whose incident repeated with nothing new after its scoped retry.
+
+    No automatic step is left, and asking a person to retry again would hand them AutoCode's
+    recovery machinery, so the run records this finished, failed outcome with its reason and
+    evidence (autocode_stop.end) and launches no further stages."""
+    failure = str(incident.failure).rstrip(".")
+    try:
+        step = role_names.role_name(incident.operation)  # the role a person knows the stage by
+    except (KeyError, ValueError, AttributeError, TypeError):
+        step = str(incident.operation)
+    return {
+        "reason": (
+            f"the {step} step kept failing for the same reason after AutoCode's own "
+            f"{'repair' if action == 'repair' else 'diagnosis'} retry, with nothing new to try: {failure}."
+        ),
+        "evidence": {
+            "incident_id": incident.id,
+            "operation": incident.operation,
+            "invariant": incident.invariant,
+            "failure": incident.failure,
+            "action": action,
+            "stage": stage,
+            "packet": copy.deepcopy(pointer),
+        },
+    }
+
+
+def recover_no_progress(runner, state: RunState, run_dir, workspace, error):
+    """RECOVERY_CHAIN row (autocode_recovery_dispatch): a no-progress hold decides itself (#2485).
+
+    An incident that repeats with nothing new holds its stage (novelty.NO_PROGRESS). A person used
+    to authorize the one scoped retry with --resume-paused --retry-failed-stage; now AutoCode records
+    that grant itself and the loop dispatches the stage again, where admission spends it
+    (_automatic_grant) under the existing limits. When the same hold comes back after that retry,
+    nothing automatic is left, so the run ends with a finished, failed outcome recorded as
+    AutoCode's own stop (autocode_stop.end): never a request for a flag, token or packet
+    (AGENTS.md "What a person is asked"). A hold for another reason, one whose binding no longer
+    holds, or one with unsettled work pauses as before. Returns True when it recorded the grant.
+    """
+    if getattr(error, "status", None) != "PAUSED_NO_PROGRESS":
+        return False
+    request = _request(state, state.get("next_stage"))
+    held = request.get("novelty_hold") or {}
+    pointer = request.get("recovery_packet")
+    stage = held.get("stage")
+    # Holds saved before the bare cause was recorded carry it inside their stop text.
+    cause = held.get("cause") or (novelty.NO_PROGRESS if novelty.NO_PROGRESS in str(held.get("reason") or "") else None)
+    if (
+        not held
+        or not pointer
+        or cause != novelty.NO_PROGRESS
+        or state.get("next_stage") not in (stage, "orchestrator" if stage == "terra" else stage)
+    ):
+        return False
+    if any(state.get(key) for key in recovery_limits.UNSETTLED):
+        return False
+    packet = load_packet(pointer, run_dir)
+    revision = _source_revision(state, stage, pointer, packet, workspace)
+    if not _holds(held.get("binding"), state, revision) or held.get("scope") != _scope(state):
+        return False
+    taken = _automatic_grants(state, packet, stage)
+    if taken:
+        spent = {row.get("grant_id") for row in receipts(state)}
+        if not all(util.digest(grant) in spent for grant in taken):
+            return False  # The grant stands unspent: another guard holds the stage, and its pause says which.
+        action = "repair" if stage == "terra" else "diagnosis"
+        incidents = [novelty.Incident(**row) for row in packet["incidents"]]
+        incident = next((row for row in incidents if row.id == held.get("incident_id")), incidents[0])
+        ended = _no_progress_outcome(incident, action, pointer, stage)
+        stop.end(state, ended["reason"], ended["evidence"], at=util.now())
+        runner.write_json(Path(run_dir) / "state.json", state)
+        raise util.Paused(stop.STOP_STATUS, stop.stop_reason(state))
+    grant = {
+        "actor": AUTOMATIC_ACTOR,
+        "at": util.now(),
+        "novelty_packet": util.digest(packet),
+        "binding": copy.deepcopy(packet["binding"]),
+        "dispatch_binding": copy.deepcopy(held["binding"]),
+        "stage": stage,
+        "incident_id": held.get("incident_id"),
+        "ordinal": len(state.get("failure_retry_authorizations", [])),
+    }
+    state.setdefault("failure_retry_authorizations", []).append(grant)
+    state.pop("stop_reason", None)
+    runner.write_json(Path(run_dir) / "state.json", state)
+    print(f"{stage}: the same incident repeated with nothing new; AutoCode takes its one scoped retry", flush=True)
+    return True
+
+
 def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authorization=None):
     """Run inside the caller's final locked admission, before any allowance charge."""
     stage = record.get("stage")
@@ -1551,6 +1757,14 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
     pointer = request.get("recovery_packet")
     if not pointer:
         return  # Legacy requests retain their existing conservative limits.
+    if stage == "terra":
+        revision = source_scope.snapshot(workspace, state)["revision"]
+        if changed_code_rework.owns_builder_round(state, revision) or planned_check_rework.owns_builder_round(
+            state, revision
+        ):
+            # The runner's own bounded Builder round for a new reason at this source is not a retry of the
+            # packet's incident (#2815).
+            return
     packet = load_packet(pointer, run_dir)
     if stage == "astra_resolve" and (
         request.get("source_output") != packet.get("source_output")
@@ -1659,6 +1873,7 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
                 "stage": stage,
                 "incident_id": incident.id,
                 "reason": reason,
+                "cause": decision.reason,  # the bare policy reason (recover_no_progress reads it, #2485)
             }
             efficiency.record_observation(
                 state,

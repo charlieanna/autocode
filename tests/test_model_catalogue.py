@@ -155,14 +155,22 @@ class AdviseTest(unittest.TestCase):
         )
         self.assertEqual("openai/gpt-6-luna", advice["suggestions"]["sol"]["model"])
 
+    def test_family_is_the_shared_identity_rule(self):
+        # One rule for every caller (autocode_model_identity): a gateway in front of a model does not
+        # make it another family, and GPT tiers are one family (2026-10-20).
+        self.assertEqual(mc.family("openai/gpt-6-luna"), mc.family("kilo/openai/gpt-6-sol"))
+        self.assertEqual(mc.family("anthropic/claude-sonnet-5.5"), mc.family("kilo/anthropic/claude-opus-5.5"))
+        self.assertNotEqual(mc.family("zai-coding-plan/glm-5.3"), mc.family("openai/gpt-6-sol"))
+
     def test_new_mimo_routes_keep_the_existing_family_independence_rule(self):
         self.assertEqual("mimo", mc.family("mimo-token-plan/mimo-v2.6-pro"))
         self.assertFalse(mc.independent("mimo-token-plan/mimo-v2.6-pro", "opencode/mimo-v2.6-flash-free"))
 
     def test_a_producer_never_takes_the_model_that_checks_it(self):
         advice = mc.advise(routes(), ["openai/gpt-6-sol", "openai/gpt-6-astra", "zai/glm-5.3"], openai_auth="oauth")
-        self.assertEqual("openai/gpt-6-astra", advice["suggestions"]["terra"]["model"])
-        self.assertEqual("openai/gpt-6-astra", advice["suggestions"]["glm"]["model"])
+        # The Tester runs GPT-6 Sol, so no GPT tier may build: GLM does (GPT tiers are one family, 2026-10-20).
+        self.assertEqual("zai/glm-5.3", advice["suggestions"]["terra"]["model"])
+        self.assertEqual("zai/glm-5.3", advice["suggestions"]["glm"]["model"])  # the Plan Reviewer is a GPT tier
 
     def test_resolver_tier_can_be_suggested_for_other_roles(self):
         advice = mc.advise(routes(), ["zai-coding-plan/glm-5.3", "openai/gpt-6-astra"], openai_auth="oauth")
@@ -339,8 +347,12 @@ class ChooseTest(unittest.TestCase):
         }
         actions = [policy.failure(state, f"e{n}", "failure") for n in (1, 2, 3)]
         self.assertEqual(["retry", "retry", "pause"], actions)
+        # #2597: the ladder's end is a recorded could-not-finish outcome, naming the model its provider lacks.
         self.assertEqual(
-            "Execution failure: " + policy.NOT_OFFERED.format(model="openai/gpt-6-sol"), state["stop_reason"]
+            "AutoCode could not finish this task: "
+            + policy.NOT_OFFERED.format(model="openai/gpt-6-sol")
+            + " This run launches no further stages.",
+            state["stop_reason"],
         )
 
     def test_a_stronger_model_the_person_named_and_the_list_lacks_stops_the_new_run(self):
@@ -450,12 +462,33 @@ class SelectionViewTest(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertIn("Automatic selection on kilocode", text)
         self.assertIn("Kilo Gateway (oauth, pay per token)", text)
-        self.assertIn("Builder: kilo/deepseek/deepseek-v4.1-flash", text)
+        self.assertIn("Builder: kilo/openai/gpt-6-sol", text)  # Luna is not connected here: Sol is next
         # An unconnected qualified model says so in account terms.
         self.assertIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", text)
         self.assertIn("not connected", text)
         # The probe debt is named.
         self.assertIn("Still to prove", text)
+        # Each listed entry says what admitted it (#2059).
+        self.assertIn("[provisional: no AutoCode run yet]", text)
+
+    def test_selection_discloses_role_metric_scope_and_missing_coverage_without_changing_choice(self):
+        import autocode_route_selector as selector
+
+        table = copy.deepcopy(selector.table())
+        for item in table["roles"]["terra"]:
+            if item["model"] == "openai/gpt-6-sol":
+                item["runs"] = [
+                    {"date": "2026-10-27", "run": "a", "minutes": 2, "cost_usd": 0},
+                    {"date": "2026-10-27", "run": "b", "minutes": None, "cost_usd": None},
+                ]
+        with patch.object(selector, "table", return_value=table):
+            code, text = self.run_selection()
+        self.assertEqual(0, code)
+        self.assertIn("Builder: kilo/openai/gpt-6-sol", text)
+        self.assertIn("accepted-only", text)
+        self.assertIn("1/2 runs", text)
+        self.assertIn("$0.00", text)
+        self.assertIn("not whole-task totals or invoices", text)
 
     def test_a_stopped_selection_prints_the_stop_and_fails(self):
         one_family = {
@@ -495,4 +528,171 @@ class SelectionViewTest(unittest.TestCase):
         self.assertEqual(0, code)
         payload = jsonlib.loads(out.getvalue())
         self.assertEqual("kilocode", payload["tool"])
-        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", payload["routes"]["terra"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-sol", payload["routes"]["terra"]["model"])
+
+
+SEED_ONLY = "zhipuai-coding-plan/glm-5.3"
+SELECTED = ["zai-coding-plan/glm-5.3", "openai/gpt-6-luna", "openai/gpt-6-sol", "openai/gpt-6-astra"]
+KILO_PROFILE = {
+    "requirements": SEED_ONLY,
+    "glm": SEED_ONLY,
+    "terra": "openai/gpt-6-luna",
+    "plan_reviewer": "openai/gpt-6-sol",
+    "sol": SEED_ONLY,
+    "completion": SEED_ONLY,
+    "astra": "openai/gpt-6-astra",
+}
+
+
+def kilo_provider(lists_routes=True, listed=SELECTED):
+    """A Kilo login whose Z.AI plan is served under `zai-coding-plan/`, not the profile's prefix."""
+    provider = SimpleNamespace(
+        NAME="Kilo", DEFAULT_MODELS=dict(KILO_PROFILE), available_models=lambda workspace=None: listed
+    )
+    if lists_routes:
+        provider.auth_table = lambda: {"command": ["kilo"], "routes": []}
+    return provider
+
+
+def kilo_found(models):
+    return {
+        "tool": "kilocode",
+        "accounts": [],
+        "candidates": [
+            {"model": model, "tool": "kilocode", "account": "Z.AI Coding Plan", "billing": "subscription"}
+            for model in models
+        ],
+    }
+
+
+class RouteAdviceTest(unittest.TestCase):
+    """#1995: the check weighs the routes a new run takes, not a profile route it would never use."""
+
+    def advice(self, provider, listed=SELECTED, discover=None):
+        import autocode_route_discovery as discovery
+
+        stub = patch.object(
+            discovery, "discover", **({"return_value": kilo_found(listed)} if discover is None else discover)
+        )
+        with stub:
+            return mc.route_advice(provider, listed, None)
+
+    def test_selection_covers_a_seed_route_the_provider_does_not_offer(self):
+        result = self.advice(kilo_provider())
+        self.assertEqual("selection", result["source"])
+        self.assertEqual({}, result["missing"])
+        self.assertEqual((SEED_ONLY, "zai-coding-plan/glm-5.3"), result["replaced"]["requirements"])
+
+    def test_a_fully_offered_profile_is_weighed_without_listing_again(self):
+        offered = list(KILO_PROFILE.values())
+        result = self.advice(kilo_provider(), listed=offered, discover={"side_effect": AssertionError("listed twice")})
+        self.assertEqual("profile", result["source"])
+        self.assertEqual({}, result["missing"])
+
+    def test_a_provider_that_declares_no_listings_is_never_listed(self):
+        result = self.advice(
+            kilo_provider(lists_routes=False), discover={"side_effect": AssertionError("listed anyway")}
+        )
+        self.assertEqual("profile", result["source"])
+        self.assertIn("requirements", result["missing"])
+
+    def test_listings_that_cannot_be_read_keep_the_gap_and_say_why(self):
+        result = self.advice(
+            kilo_provider(), discover={"side_effect": RuntimeError("Cannot read the tool's model listing")}
+        )
+        self.assertEqual("profile", result["source"])
+        self.assertIn("requirements", result["missing"])
+        self.assertIn("Cannot read the tool's model listing", result["reason"])
+
+
+class ModelsCliTest(unittest.TestCase):
+    """`autocode models` says what a new run can use, in the words a person acts on (#1995)."""
+
+    def models(self, *argv, provider=None, discover=None):
+        provider = provider or kilo_provider()
+        out = io.StringIO()
+        import autocode_route_discovery as discovery
+
+        stub = patch.object(
+            discovery, "discover", **({"return_value": kilo_found(SELECTED)} if discover is None else discover)
+        )
+        with (
+            stub,
+            patch("autocode_providers.default_name", return_value="kilocode"),
+            patch("autocode_providers.resolve", return_value=provider),
+            redirect_stdout(out),
+        ):
+            code = mc.cli(list(argv))
+        return code, out.getvalue()
+
+    def test_a_replaced_seed_route_is_not_reported_as_unusable(self):
+        code, text = self.models()
+        self.assertEqual(0, code)
+        self.assertNotIn("Cannot use with Kilo", text)
+        self.assertIn("Every route a new run takes can be used:", text)
+        self.assertIn(f"Requirements {SEED_ONLY} -> zai-coding-plan/glm-5.3", text)
+
+    def test_a_gap_selection_cannot_cover_still_fails_with_a_suggestion(self):
+        code, text = self.models(discover={"side_effect": RuntimeError("no listings here")})
+        self.assertEqual(1, code)
+        self.assertIn("Cannot use with Kilo", text)
+
+    def test_the_profile_case_keeps_its_own_wording(self):
+        offered = list(KILO_PROFILE.values())
+        code, text = self.models(provider=kilo_provider(lists_routes=False, listed=offered))
+        self.assertEqual(0, code)
+        self.assertIn("Every default route can be used:", text)
+
+
+class ProjectEngineTests(unittest.TestCase):
+    """`autocode models` follows the project's engine when no --provider is given (#2369)."""
+
+    def project(self, engine: str) -> Path:
+        import tempfile
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        (root / ".autocode").mkdir()
+        (root / ".autocode" / "config.toml").write_text(f'engine = "{engine}"\n')
+        return root
+
+    def test_a_codex_project_is_told_its_routes_are_fixed_instead_of_opencode_not_on_path(self):
+        root = self.project("codex")
+        out = io.StringIO()
+        with patch("subprocess.run", side_effect=AssertionError("no tool was to be launched")):
+            with redirect_stdout(out):
+                code = mc.cli(["--workspace", str(root)])
+        self.assertEqual(0, code)
+        self.assertIn(f"this project's engine is codex (set in {root / '.autocode' / 'config.toml'})", out.getvalue())
+        self.assertIn("docs/models.md#default-models", out.getvalue())
+        self.assertIn("--provider opencode", out.getvalue())
+
+    def test_a_claude_project_lists_the_claude_provider(self):
+        import autocode_providers
+
+        root = self.project("claude")
+        resolved = []
+
+        def resolve(name):
+            resolved.append(name)
+            raise RuntimeError("stop here")
+
+        with patch.object(autocode_providers, "resolve", resolve):
+            with redirect_stdout(io.StringIO()):
+                mc.cli(["--workspace", str(root)])
+        self.assertEqual(["claude"], resolved)
+
+    def test_an_explicit_provider_wins_over_the_project_engine(self):
+        import autocode_providers
+
+        root = self.project("codex")
+        resolved = []
+
+        def resolve(name):
+            resolved.append(name)
+            raise RuntimeError("stop here")
+
+        with patch.object(autocode_providers, "resolve", resolve):
+            with redirect_stdout(io.StringIO()):
+                mc.cli(["--workspace", str(root), "--provider", "opencode"])
+        self.assertEqual(["opencode"], resolved)

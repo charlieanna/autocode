@@ -6,6 +6,96 @@ cycles, and three naming schemes describe the same roles. The goal right
 now is to make the existing workflow dependable and the code easier to change,
 not to add surface area. See `RELIABILITY.md` for product priorities.
 
+## Agent autonomy for authorized work
+
+**Owner decision, 2026-10-29:** agents working on requested repository fixes and
+their verification may confirm Requirements and approve implementation plans on
+the owner's behalf. Do not stop to request the owner's personal approval at each
+of these gates. Read the actual Requirements and exact plan, check that they fit
+the requested task, correct problems, then take the public confirmation or
+approval action. Bind approval to the exact plan token reviewed, and record it as
+an agent review under this delegation, not as a claim that the owner personally
+read or approved that revision. This delegation also applies when an existing
+gate describes the decision as user-only or person-only.
+
+Handle routine corrective feedback, retries and recovery decisions after
+classifying the failure. Keep attempts, usage and failure evidence. For these
+requested fixes and live verification, the operating agent may make bounded
+active-time extensions within any applicable spending cap and use the public CLI
+when the view lacks the corresponding operator control. Record the reason and
+the exact change; report the missing view action separately. This is operator
+authority, not permission to add private-state access or hidden actions to clients.
+
+Keep explicit spending caps and selected model routes unless the owner changes
+or delegates those choices. Ask only when required information or a material
+decision falls outside the authorized task; do not repeatedly ask about ordinary
+implementation and verification decisions already delegated here. Exact-plan
+binding, independent verification, evidence checks and the thin-client interface
+remain required.
+
+## What a person is asked
+
+**Owner decision, 2026-10-29:** a person using AutoCode is involved only in
+gathering requirements, reviewing and approving the plan, and clarifying genuine
+ambiguity in the requirements or the plan. AutoCode never asks a person about its
+own machinery: regression proofs and baselines, evidence gaps, retries, recovery,
+report repair, routing, stage scheduling, or any pause AutoCode can settle itself.
+
+- When AutoCode can decide, it decides deterministically and records the decision
+ and its reason in the run's evidence, where reviewers and the report show it.
+- When it cannot decide safely, it fixes or reports the gap in the core, the CLI or
+ the view. It does not hand the person a question about machinery, and a client
+ never shows a person an internal flag, token or command to type.
+- A run that today stops to ask a person about machinery is a defect. Fix it the
+ same way, in any issue, not only in new code. Do not add a new person question,
+ flag or confirmation for machinery to work around one.
+
+Spending caps, model routes the owner chose, publishing and merging remain the
+owner's, as above.
+
+## AutoCode delivers no untested code
+
+**Owner decision, 2026-10-29:** for the task a person gave it, AutoCode delivers
+no untested code. A line merely executed is not tested, so the rule is about
+behavior and evidence, not a 100% line count:
+
+- **Every changed behavior has a test that fails without it.** The regression
+ proof already requires this for the task: the new tests fail on base and pass on
+ the candidate.
+- **Every changed product line is executed by a test the proof runs, or carries a
+ recorded reason it is not** (for example, a defensive branch unreachable from
+ public input). AutoCode decides the reason itself; the Code Reviewer checks it.
+ Neither is a question for the person.
+- **The tests must notice a broken line.** The mutation check on changed lines
+ (`autocode_mutation_check`, `autocode_review_mutation`) shows that a test fails
+ when the line is broken, so a test that executes code without asserting
+ anything does not count.
+- **A line with neither a test nor a reason sends the Builder back**, with the
+ exact lines as feedback, within a bounded number of rounds. When those run out,
+ the Investigator takes it, never the person, and the report says why.
+- Where coverage cannot be measured (no coverage tool in the project, an
+ unmeasured file), AutoCode chooses the fallback deterministically and records
+ it in evidence. It never installs a tool into the project.
+- **A fake provider in a test is a Tester too.** The scripted Testers
+ (`tools/fake_codex.py`, `tools/live_fixture_provider.py`,
+ `tools/fixtures/multicomponent_fake.py`, the scenario harness fakes) must give
+ `changed_code_exceptions` for the lines they themselves write that have no
+ mutation site, bound to the exact gap, file bytes and line, and never for a
+ file they did not script (`goal_fixtures.FIXTURE_REASONS` is the pattern). A
+ fixture-driven test that stops at `PAUSED_BUILDER_CLASSIFICATION` with a
+ `reason_required` line is that gap, or a line the mutator cannot reach: fix
+ the fixture's reasons or the mutator, never the gate.
+
+The changed-code evidence gate (#2474) combines authenticated diff coverage
+(`tools/autocode_diff_coverage.py`, #701), behavioral mutation observations and
+exact per-line reasons checked by the existing independent Tester. Raw coverage
+and old advisory reports alone grant no completion authority. The core records
+its deterministic fallback and bounded Builder/Investigator repair history in
+the public verification view and final report. See
+[named test proof](docs/named-test-proof.md#mutation-check).
+The same rule holds for changes to this repository: a fix adds a test for the
+behavior it changes (see Testing).
+
 ## Layout
 
 | Path | What it is |
@@ -32,8 +122,18 @@ The owner expanded PR #1425 on 2026-10-16 to include sidebar chat, plan
 feedback and follow-ups, reusing Kilo UI components where practical.
 The owner also approved Connections setup: backend selection and delegated
 sign-in through the core connection interface, with credentials owned by the backend.
-Issue #1493 extends that approval to AutoCode-owned direct MiMo, Z.ai, OpenAI and Claude API setup and
-a first-party core runtime when no external coding-agent backend is installed.
+Issue #1493 extended that approval to AutoCode-owned direct MiMo, Z.ai, OpenAI and Claude API setup and
+a first-party core runtime when no external coding-agent backend is installed; that connection is
+retired (below).
+
+**Four backends, owner decision 2026-10-30 (#2049).** AutoCode offers exactly four
+backends: Claude Code (a Claude subscription) and Codex (a ChatGPT login) as engines,
+and OpenCode and Kilo for every other account and API key. A person connects accounts
+there. The AutoCode direct API-key
+connection (#1493) is retired: nothing offers it to a new user or chooses it automatically,
+a configured one keeps working, and it is deleted in the next release. The stages, the advice
+for each and their independence checks are the same whichever of the four tools runs them. Do not
+add a fifth backend or a new connection path without the owner's decision.
 The editor still launches only the core CLI and renders its named actions.
 It is a client of the
 [task-run interface](docs/task-run.md) and nothing else:
@@ -46,7 +146,8 @@ It is a client of the
 - it takes only the action the status view names (`view.next_command`, the
   optional `view.chat.input.next_command` message offer, or the optional
   `view.pause.next_command` boundary pause the owner approved on 2026-10-19
-  for #1598), so it can
+  for #1598, and a saved step's `compare`/`restore` or the running Builder's
+  display-only `code_checkpoints.working` diff, owner decision 2026-10-19), so it can
   do nothing the headless conformance client (#1012,
   `scenarios/harness/conformance.py`) cannot. Where the view names no action the
   client could take, that is a gap in the CLI or the view: report it, never work
@@ -54,15 +155,101 @@ It is a client of the
 - connection checks and sign-in take only the connection view's named
   `actions[].next_command` argument array (`docs/task-run.md#connections-for-clients`);
 - it never launches a model on its own, and binds an approval to the plan token
-  it displayed, so it cannot approve a plan nobody read.
+  it displayed. The owner or the agent acting under the delegation above must
+  review that exact plan before taking the approval action; the owner need not
+  personally approve each revision.
+
+**Stage choices, owner decision 2026-10-30.** At setup AutoCode asks the person which model
+and reasoning level each stage runs, says what each stage does and what kind of model and level
+suits it, and keeps the answer per backend (`autocode stages`, `tools/autocode_stage_choices.py`).
+The person may change it at any time; every new task reads it before it begins, and a running
+task keeps its own. This is a requirements-level choice the person makes once, not a question
+about machinery. The terminal chat and the VS Code client may read `autocode stages list --json`
+and take only its named `set` and `reset` argument arrays, filled from the view's own options,
+to show one dropdown per stage. Choosing models automatically by measured capability (#2049) is
+paused until the owner revisits it.
+
+**Review levels under the stage choices, owner decision 2026-11-05.** The person chooses each
+stage's model; the level they save for the Plan Reviewer, the Tester and the Completion Reviewer
+is a ceiling. On a small, clear task (Requirements judged it clear and the plan, or before one is
+sized the brief, is small) those reviews run one level below it, when the model offers that
+level; a review that runs again for the same task, a climbed route and `--plan-review-full` keep
+the ceiling (`tools/autocode_review_effort.py`). AutoCode decides this itself at each launch and
+records the decision and its reason as the stage's `effort_choice`; it is never a question for the
+person. A level typed as a flag stays exact, and every other stage runs at the saved level.
 
 **Terminal chat, approved 2026-10-19 (#1622), in `tools/autocode_chat_client.py`.**
 The same contract as the VS Code client, with the shared rules in
 `tools/autocode_client_actions.py`: it starts `autocode` as an argument array, reads
 only `--status`, `runs --json` and `modes list --json`, and takes only the actions
-the status view names.
+the status view names. Its full-screen form (`autocode_chat_tui.py`) adds a side
+panel, a run log and a `/` command menu (owner decision, 2026-10-19), drawn only
+from those status views; `/pause` is the view's own pause offer. Its `/diff` and
+`/undo` take a saved code step's named `compare` and `restore` actions
+(`view.code_checkpoints`, owner decision 2026-10-19), with `restore` confirmed by the
+person against the comparison it shows. Its `/runs`, `/open` and `/new` (owner decision
+2026-10-19, #1655) list the chats of this project and of every registered project
+(`runs --json` and `runs --all --json`, grouped by project), open one to carry on
+there, and start a new one, as the VS Code client's history and new chat do; the
+composer's input history is kept in the project's `.autocode`. Its `/mode`, `/engine`
+and `/connect` (owner decision 2026-10-19) read `modes list --json` and
+`connections list --json` and take only a connection's named `actions[].next_command`;
+an interactive `login` or `setup` runs on the terminal while the full-screen chat
+steps aside. A choice for new chats is kept in the project's
+`.autocode/chat-settings.json`. Its live agent log (`/live`, owner decision 2026-10-21) draws
+only from the status view's `chat.log`, which, unlike `chat.activity`, carries the running agents'
+reasoning and messages as bounded, redacted display text.
+
+**Asynchronous TUI lifecycle direction approved 2026-10-23 (#1879, PR #1985).**
+The owner approved opt-in durable execution on supported persistent Linux under
+the [task-run lifecycle direction](docs/task-run.md#asynchronous-viewer-direction-1879-implementation-pending).
+The core owns launch, ownership and reconciliation; viewers consume its public
+capabilities, observations, attention and named actions. In the opt-in mode,
+viewer/SSH exit leaves the worker running and Ctrl-C requests only a boundary
+pause. This authorizes the dependent implementation within that recorded scope,
+including active switching and durable attention, without repeating the same
+policy approval. The terminal's F8 or `/attention` consumes only public
+status/run-inventory attention and its exact `acknowledge.next_command` array;
+acknowledgement records local read state and grants no task authority.
+Existing defaults and saved routes, efforts, usage, limits and
+approvals remain unchanged. This records direction, not completed runtime/SSH
+qualification or authority to administer a host or replay an uncertain call.
+
+**Channel bridge (GitHub first) approved 2026-10-24 (#2035, under roadmap
+#2022).** The owner approved a channel-bridge client — flat modules
+`tools/autocode_bridge_*.py`, the `autocode bridge run|check|status` subcommand
+— that runs on the same persistent Linux host as the core, takes labeled
+GitHub issues as requirements, starts `durable_local` runs, relays the human
+gates (questions, plan approval, pauses, attention) to the issue, and takes an
+allowlisted actor's reply as the exact action the fresh status view names
+(`docs/channels.md`). Its rules: control tokens never leave the host; free text
+never approves, and an approval binds to the plan token the issue was shown;
+person-only stops act only on an explicit allowlisted reply; refusals are
+relayed and never auto-retried; it may do nothing the headless conformance
+client cannot, and any gap is reported against the CLI or the view. Slack and
+Jira adapters follow on the same core, each on the owner's recorded decision.
+
+**Change sets in clients approved 2026-10-25 (#2066, step 7).** The terminal chat, the VS Code
+client and the channel bridge may read `autocode changeset status --run-dir RUN --json` for a run
+whose status view lists `scope.linked`, and take only the two argument arrays it names: the set
+approval (`approval.next_command`), bound to the `set_token` of the plans the person was shown,
+and the joint check (`verification.next_command`)
+([change sets in clients](docs/task-run.md#change-sets-in-clients)). They show the linked runs, and
+group a change set's chats by the `changeset` of each `runs --json` row. Linking, the check
+command, waivers, reopening, the merge order and pull-request text stay the person's commands.
 
 A further new client, or growth beyond that contract, needs the owner's decision again.
+
+**Automatic multi-repository TUI delivery approved 2026-10-26 (#2155).** The owner
+requested implementation from one TUI bug report: discover authorized repositories,
+coordinate their fixes, prove the joint regression, and publish linked PRs automatically.
+The TUI may read and take the core's `coordinate` status/named actions, show exact
+coordinated plans for approval, and register a person-selected local checkout with
+`/repos PATH`. Repository selection, task coordination, joint proof and publication
+belong to core modules over TaskRun. Model text never authorizes a host path or remote.
+Required approvals, genuine ambiguity/access questions and per-run gates remain;
+automatic merging is not authorized. This supersedes the manual link/check-command
+UX as the intended bug-fix flow, while preserving the #2066 remote-catalog ownership.
 
 Historical audit records (`audits/`), `learn/` and two top-level result reports
 were archived at tag `archive/pre-restructure-2026-09-26`
@@ -108,6 +295,18 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    cycles.
 6. **The status view is a contract.** Add fields to `autocode_run_view.view`;
    never rename or remove one.
+7. **An identity that digests where a run happened must say how replay re-derives
+   it.** Replay (`docs/replay.md`) runs a saved run's recorded model answers in new
+   directories. A field whose value digests the workspace, run directory or
+   execution context (a changed-line `gap_id`, a capture nonce, the regression proof's
+   freshly named directory) is therefore different in the replay, and a recorded answer that names the old
+   value is rightly refused as stale. Such a field is declared in
+   `autocode_replay_bindings`: what it stably identifies (for a gap, its exact file,
+   bytes and line; for a proof citation, "the run's current proof") is recorded with the
+   answer, and `autocode_replay_recording.rebind` re-derives the current value from that
+   identity alone. Never widen a gate to accept
+   the recorded value, and never derive the new value from model text. A new such
+   identity without its binding breaks `tests.test_saved_run_replay_cli` on master.
 
 ## Names
 
@@ -121,7 +320,8 @@ AutoCode, AutoReview, AutoResolver) stay behind the scenes.
 | In code | Job on screen (`autocode_roles`) | Unit |
 | --- | --- | --- |
 | `recognize_workflow` | Job recognizer: which of the five workflows (`autocode_workflows.py`) | AutoPlanner |
-| `requirements_gather`, `astra_discovery`, `glm_revise` | Requirements | AutoPlanner |
+| `requirements_gather` | Requirements | AutoPlanner |
+| `astra_discovery`, `glm_revise` | Planner | AutoPlanner |
 | `astra_plan` | Planner | AutoCode build unit |
 | `astra_challenge`, `astra_finalize` | Plan Reviewer | AutoPlanner |
 | `orchestrator` | Orchestrator: parallel milestone scheduling (no model) | AutoCode build unit |
@@ -179,6 +379,52 @@ formatting and evidence updates do not require rerunning already passing
 behavior checks. Once focused checks pass, proceed to the pull-request update;
 do not add unrelated verification work or wait for unrelated CI jobs. Report
 any pending CI checks accurately.
+
+### Before you push
+
+These are the breaks that keep reaching CI (#2168, #2169). Each check is cheap;
+run the ones your change touches.
+
+- **A new public CLI option or subcommand** needs its entry in `docs/cli.md`:
+  a main-run option in an option table, a subcommand's options in its row under
+  "Subcommand options". Run `tests.test_cli_documentation`.
+- **A new status-view field** (anything `autocode_run_view.view` always returns,
+  including a new key in a nested object such as `scope`) needs its declaration
+  and `required` entry in `docs/schemas/status-view.schema.json` and its name in
+  the field inventory in `tests/test_taskrun.py`. Run `tests.test_json_contract`
+  and `tests.test_taskrun`, and search `tests/` for exact-dict assertions on the
+  object you extended (`grep -rn '"spans_repositories"' tests/` style).
+- **Lint and format cost seconds and fail whole CI rounds.** Run
+  `.venv/bin/ruff check tools/ tests/ scenarios/` and
+  `.venv/bin/ruff format --check tools/ tests/ scenarios/` before pushing. A pull
+  request whose only failure is one unwrapped line has spent a full CI round on
+  nothing.
+- **A terminal-screen test** (`tests/terminal_screen.py`) must `wait_for` a
+  predicate covering everything it then asserts. tmux shows blank and
+  half-drawn frames between a key or resize and curses' redraw; waiting for one
+  string and asserting another is a flake.
+- **A test that runs `python3`, `pytest` or another tool by name** cannot rely on
+  an activated venv. CI calls `.venv/bin/python` without activating it, so put
+  `Path(sys.executable).parent` on the fixture's `PATH` or call `sys.executable`.
+- **A module that skips or diverges on macOS is unverified locally.** Several gate
+  modules skip with "supervised provider requires supported Linux", and others
+  resolve `/var` to `/private/var` there. Run them in a supported Linux checkout
+  or cite the existing Ubuntu CI evidence for the revision; never conclude from a
+  macOS result alone.
+- **A failure already on master** is fixed in its own small pull request, not
+  folded into a feature branch. Two feature branches fixing the same master
+  failure conflict with each other as soon as one merges.
+- **A red test in your `--changed` run is not automatically yours.** Run that
+  module against `origin/master` before touching it; if it fails there too it is
+  pre-existing, and belongs in its own small pull request as above. Checking the
+  base first turns a debugging detour into a report.
+- **Merge or rebase on current `origin/master` before pushing**, and again when
+  another pull request touching the same files merges. A pull request with
+  merge conflicts gets no CI run at all. `tools/ci_test_selection.py` is a common
+  conflict point: keep both sides' entries.
+- When the change touches any of the above, run
+  `$PY tools/run_suite.py --changed` once before pushing: it is the selection
+  CI runs, and catching a contract break locally costs minutes, not a CI round.
 
 The commands below are available checks, not a checklist to run for every fix.
 
@@ -269,10 +515,14 @@ focused fakes or existing conformance evidence cannot cover it before starting.
 Documentation, CI and test-only changes do not require live runs.
 
 - **Keep it bounded and relevant.** Choose one scenario or task that reaches
-  the changed behavior, with explicit time and spend limits. A full catalog,
+  the changed behavior, with explicit time limits. A full catalog,
   repeated model variants or reliability sweep needs its own demonstrated
   reason or explicit user request. Reuse valid evidence from the same runtime
   change; do not repeat a passing run for documentation or formatting updates.
+- **Testing runs without cost caps.** Use `--max-cost-usd 0` for direct AutoCode
+  test runs and benchmarks, including authorized live verification. Scenario
+  runs use their uncapped default. Cost-limit regression fixtures retain the
+  limits they exercise. Record observed spend and any accounting gaps.
 - **Keep the requested routing.** Preserve the user's provider and model
   choices for each role. A substitution for one role does not change others.
   For a provider-specific risk, exercise that provider rather than switching

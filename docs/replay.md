@@ -39,7 +39,10 @@ private project data.
 
 Every recorded provider dispatch must match the current stage, occurrence,
 model route, session continuation and source. Plan approvals and answers also
-must match the current public request. Replay displays the new plan and uses
+must match the current public request, including a plan's scope exclusions and
+Git delivery terms. Older recordings that omitted those fields cannot authorize
+new nonempty exclusions or a commit obligation; replay refuses that mismatch.
+Replay displays the new plan and uses
 fresh tokens from that run. It never invents an answer or adopts an old token
 after a mismatch. A project's `require-approver` does not apply: no person approves
 in a replay ([Required approver](execution.md#required-approver)).
@@ -52,6 +55,25 @@ can still be recovered from a saved source capture, a Git revision or a matching
 current file. The final tree cannot substitute for a missing intermediate tree.
 A recording that ended before a trustworthy provider exit cannot be emitted as
 a completed attempt.
+
+A recorded answer may name an identity that digests where the original run
+happened, such as the independent Tester's changed-line `gap_id`s (each one
+digests the proof's source revision and execution context). The recording keeps
+what each one stably identifies (the gap's exact file, bytes and line), and
+replay re-derives the current value from that identity. A Tester that names a gap
+by its short handle (`L12`) is bound the same way: replay writes the current full
+`gap_id` of that exact line in its place. A citation of the proof
+file itself binds to the replay's own proof, whatever its directory is named. A
+gap whose file, bytes or line differ in the replay is not rebound, and a replay whose Tester runs
+without a current changed-line proof refuses rather than guess.
+Planning references (`retain_contract`, `revise_contract` and a criteria delta's
+`retain_from`) likewise bind only when they match the original dispatch's exact
+contract revision and hash. Replay derives their new value from the current
+runner schema and verifies its contract hash. Stale references remain stale;
+prose and unrelated fields are never rewritten.
+The archived check commands compare without the interpreter's location: `/usr/bin/python3 -m
+unittest discover -v` on the recording host is the same obligation as the replay host's own
+`python3`.
 
 Replay preserves the Plan Reviewer's archived effective reasoning effort instead
 of reducing it again for a small task. Review allowances still apply, and each

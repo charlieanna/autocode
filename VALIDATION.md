@@ -950,8 +950,8 @@ tested; inherited POSIX locking/process inspection requires macOS/Linux or WSL.
 
 ## Retained compatibility surface
 
-The `autocode-orchestrator` CLI entry point and `tools/autocode_orchestrator.py`
-are kept as a thin alias over `autopilot` (`from .autopilot import *`). Nothing in
+The `tools/autocode_orchestrator.py` module (its `autocode-orchestrator` script is no longer installed)
+is kept as a thin alias over `autopilot` (`from .autopilot import *`). Nothing in
 this repository invokes that command; it is retained only so external scripts and
 documented invocations keep working. The saved stage name `orchestrator` is separate
 and remains the live milestone scheduler — it is not this alias. Dropping the CLI

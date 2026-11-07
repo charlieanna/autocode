@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import patch
 
+import autocode_changed_code_measurement as measurement
 import autocode_command_receipt as receipts
 import autocode_command_supervision as commands
 import autocode_supervision as supervision
@@ -79,6 +80,7 @@ class CommandSupervisionTests(unittest.TestCase):
         self.assertTrue(schedule.intact(result, root=self.root))
         self.assertEqual("failing", verify.suite_health(result))
         self.assertFalse(schedule.reusable(result, root=self.root))
+        self.assertTrue(measurement.known_capture(result, self.root))
         commands.reconcile(result["supervision"])
         admission = json.loads((Path(result["supervision"]["receipt"]).parent / "admission.json").read_text())
         self.assertEqual(command, admission["command"])
@@ -161,6 +163,7 @@ class CommandSupervisionTests(unittest.TestCase):
         self.assertFalse(receipts.completed(result))
         self.assertFalse(schedule.intact(result, root=self.root))
         self.assertFalse(schedule.reusable(result, root=self.root))
+        self.assertTrue(measurement.known_capture(result, self.root))
         commands.reconcile(result["supervision"])
 
     def test_failed_before_exec_checkpoint_never_runs_command_and_allows_clean_retry(self):

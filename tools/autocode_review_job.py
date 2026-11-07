@@ -214,6 +214,8 @@ def prove(value: dict, delivered: list[str], run_tests) -> dict:
             base,
             inputs=comparison.get("inputs"),
             reason=comparison.get("reason", "No captured explicit-patch baseline is available."),
+            finding=f,
+            changed_locations=comparison.get("changed_locations"),
         )
         for f in findings
     }
@@ -229,7 +231,15 @@ def owns(state: RunState) -> bool:
     return workflows.kind(state) == "review"
 
 
-def apply(state: RunState, value: dict, record: dict, workspace, run_tests=None, run_mutation_check=None) -> None:
+def apply(
+    state: RunState,
+    value: dict,
+    record: dict,
+    workspace,
+    run_tests=None,
+    run_mutation_check=None,
+    snapshot=None,
+) -> None:
     """Enforce read-only-ness, prove blocking findings, write the findings file, complete the run.
 
     ``run_tests(tests, patch)`` supplies runner-owned review proof (the unit passes
@@ -315,6 +325,10 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_tests=None,
         "proof_command": proof["command"],
         **({"mutation_check": mutations} if mutations is not None else {}),
     }
+    # Bind after the core has written its canonical report: the stage's earlier
+    # snapshot cannot include that write. Legacy saved reviews remain unbound.
+    if snapshot is not None:
+        state["review"]["source_revision"] = snapshot(workspace)["revision"]
     state.update(
         {
             "status": "TASK_COMPLETE",

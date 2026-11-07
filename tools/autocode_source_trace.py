@@ -46,15 +46,19 @@ from pathlib import Path
 try:
     from . import autocode_brief_acceptance as acceptance
     from . import autocode_brief_literals as brief_literals
+    from . import autocode_control_replies as control_replies
     from . import autocode_prompts as prompts
     from . import autocode_requirement_cues as cues
+    from . import autocode_source_metadata as source_metadata
     from . import autocode_util as util
     from .autocode_requirement_coverage import requirement_coverage_text
 except ImportError:
     import autocode_brief_acceptance as acceptance
     import autocode_brief_literals as brief_literals
+    import autocode_control_replies as control_replies
     import autocode_prompts as prompts
     import autocode_requirement_cues as cues
+    import autocode_source_metadata as source_metadata
     import autocode_util as util
     from autocode_requirement_coverage import requirement_coverage_text
 
@@ -67,13 +71,49 @@ REVIEW_KEYS = {"stage", "events", "events_sha256", "output", "output_sha256", "t
 # Dotted runs are one token: an IP (127.0.0.1) or version is a single stated
 # value, while a range's double dot (1..100) still separates its two numbers.
 _NUMBER = re.compile(r"\d+(?:\.\d+)*")
+# A standard's designation names the standard, not a value the request states: "ISO 8601 weeks"
+# is satisfied by criteria about ISO weeks without repeating 8601 (#1689). Version-like suffixes
+# stay part of the name (ISO/IEC 27001:2022, RFC 9110, HTTP/2, UTF-8, SHA-256, PEP 8).
+_STANDARD = re.compile(
+    r"\b(?:ISO(?:/IEC)?|IEC|RFC|IEEE|ECMA(?:-)?|ANSI|PEP|UTF|SHA|HTTP|TLS|IPv)[-/ ]?\d+(?:[-:.]\d+)*(?!\w)"
+)
+# An issue or pull-request reference names the report, not a value the request states:
+# a criterion about the ragged-row defect satisfies "Fix issue #474" without repeating
+# 474 (#1874). A value stated beside the reference ("process exactly 7 rows") still survives.
+_REFERENCE = re.compile(r"(?:(?<!\w)#\d+|\b(?:issue|pull request|pr|gh)[- ]?#?\d+)(?!\w)", re.I)
 _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
 
 
 def _number_in(number, text):
     # Not inside a longer number or a decimal fragment; a range dot (1..100) or a
     # sentence-final period still counts as the stated number.
-    return re.search(r"(?<!\d)(?<!\d\.)" + re.escape(number) + r"(?!(?:\d|\.\d))", text) is not None
+    if re.search(r"(?<!\d)(?<!\d\.)" + re.escape(number) + r"(?!(?:\d|\.\d))", text):
+        return True
+    # Prose may spell out the zero baseline of a defect. Exact output literals
+    # are still checked separately; nonzero words and decimal prose are not 0.
+    return number == "0" and re.search(r"(?<![\w-])zero(?![\w-]|\s+point\b)", text, re.I) is not None
+
+
+# A money amount the source writes with a dollar sign: $50, $50.00, $4.99.
+_DOLLARS = re.compile(r"\$(\d+)(?:\.(\d{2}))?(?!\d|\.\d)")
+
+
+def _cents(sentence):
+    """The source's dollar amounts and their values in cents, when the sentence itself spells one in cents.
+
+    A brief such as "an order of exactly $50.00 (shipping_fee(5000)) is still charged the $4.99 fee" tells
+    the planner the code counts cents. Criteria that then say ``shipping_fee(5000) == 0`` and ``499`` keep
+    the amounts the source states, in the code's own unit (#2780). Without such a pairing in the sentence,
+    "$50" must survive as 50: a stray 5000 elsewhere is not the same amount.
+    """
+    amounts = {}
+    for match in _DOLLARS.finditer(sentence):
+        stated = match[1] + ("." + match[2] if match[2] else "")
+        amounts.setdefault(stated, str(int(match[1]) * 100 + int(match[2] or 0)))
+    outside = _DOLLARS.sub(" ", sentence)
+    if not any(_number_in(cents, outside) for cents in amounts.values()):
+        return {}
+    return amounts
 
 
 def any_citations(body):
@@ -88,6 +128,13 @@ def reviewer_evidence(record):
     events = Path(record.get("events") or "")
     output = Path(record.get("output") or "")
     return not events.is_symlink() and events.is_file() and not output.is_symlink() and output.is_file()
+
+
+def quoted(quote, text) -> bool:
+    """Whether ``quote`` appears in ``text`` word for word; runs of whitespace match each other (#1777).
+
+    A hard-wrapped brief puts line breaks inside its sentences, and a model quoting the sentence writes a space."""
+    return " ".join(str(quote).split()) in " ".join(str(text).split())
 
 
 def check_citations(body, records):
@@ -107,9 +154,10 @@ def check_citations(body, records):
                 raise ValueError(f"Criterion {row.get('id')} sources hold only source_id and quote")
             source = by_id.get(citation.get("source_id"))
             quote = str(citation.get("quote", "")).strip()
-            if source is None or not quote or quote not in source["text"]:
+            if source is None or not quote or not quoted(quote, source["text"]):
+                hint = " (no such sentence id)" if SENTENCE_ID.match(quote) else ""
                 raise ValueError(
-                    f"Criterion {row.get('id')} cites {citation.get('source_id')} without quoting it verbatim"
+                    f"Criterion {row.get('id')} cites {citation.get('source_id')} without quoting it verbatim{hint}"
                 )
             key = (citation["source_id"], quote)
             if key in seen:
@@ -127,12 +175,17 @@ def _covered(sentence, quotes, *, spans=False):
     """
     normalized = requirement_coverage_text(sentence)
     bare = normalized.removesuffix(".")
+    # A short sentence such as "B." must not match the B inside "Builders".
+    # Keep punctuation-ended quotes usable, but never cut through a word.
+    start = r"(?<!\w)" if re.match(r"\w", bare) else ""
+    end = r"(?!\w)" if re.search(r"\w$", bare) else ""
+    pattern = start + re.escape(bare) + end
     for raw in quotes:
         quote = requirement_coverage_text(str(raw))
         if not quote:
             continue
         clipped = quote.removesuffix(".")
-        if bare in clipped or bare == clipped or normalized in quote:
+        if re.search(pattern, clipped):
             return True
         if spans and len(clipped) >= 12 and (clipped in bare or quote in normalized):
             return True
@@ -149,7 +202,7 @@ def _normalize_entries(value, label, records, *, negation=False):
             raise ValueError(f"source_trace {label} entries hold only source_id, quote and reason")
         source = by_id.get(entry.get("source_id"))
         quote = str(entry.get("quote", "")).strip()
-        if source is None or not quote or quote not in source["text"]:
+        if source is None or not quote or not quoted(quote, source["text"]):
             raise ValueError(f"source_trace {label} cites {entry.get('source_id')} without quoting it verbatim")
         if not str(entry.get("reason", "")).strip():
             raise ValueError(f"source_trace {label} entry for {entry['source_id']} needs a reason")
@@ -163,9 +216,17 @@ def _normalize_entries(value, label, records, *, negation=False):
     return normalized
 
 
-def _citing(criteria, sentence):
-    """The criteria whose quotes cover ``sentence``."""
-    return [row for row in criteria if _covered(sentence, [citation["quote"] for citation in row.get("sources") or []])]
+def _citing(criteria, sentence, source_id, *, spans=False):
+    """The criteria whose citations of this source cover ``sentence``."""
+    return [
+        row
+        for row in criteria
+        if _covered(
+            sentence,
+            [citation["quote"] for citation in row.get("sources") or [] if citation["source_id"] == source_id],
+            spans=spans,
+        )
+    ]
 
 
 def _corpus(body, citing):
@@ -212,16 +273,36 @@ def _inactive_literals(body, records, source_id):
 def _survival_errors(body, records, waivers):
     errors = []
     criteria = body.get("acceptance_criteria") or []
+    source_ids = [record["id"] for record in records]
     for record in records:
+        protected_locations = source_metadata.output_locations(record["text"])
+        ticket_title_key = source_metadata.ticket_title_key(record["text"])
+        ticket_reference_keys = source_metadata.ticket_reference_keys(record["text"])
         for sentence in cues.sentences(record["text"]):
-            citing = _citing(criteria, sentence)
+            citing = _citing(criteria, sentence, record["id"])
             if not citing:
                 continue
             corpus = _corpus(body, citing)
-            numbers = _NUMBER.findall(sentence)
-            lost = [number for number in dict.fromkeys(numbers) if not _number_in(number, corpus)]
+            value_text = source_metadata.value_text(
+                sentence,
+                source_ids,
+                protected_locations=protected_locations,
+                ticket_title_key=ticket_title_key,
+                ticket_reference_keys=ticket_reference_keys,
+            )
+            numbers = _NUMBER.findall(_REFERENCE.sub(" ", _STANDARD.sub(" ", value_text)))
+            cents = _cents(value_text)
+            lost = [
+                number
+                for number in dict.fromkeys(numbers)
+                if not _number_in(number, corpus) and not (number in cents and _number_in(cents[number], corpus))
+            ]
             if lost:
-                errors.append(f"Criteria citing {record['id']} changed a number the source states: " + ", ".join(lost))
+                errors.append(
+                    f"Criteria citing {record['id']} changed a number the source states: "
+                    + ", ".join(lost)
+                    + " (state each as the source writes it in the criterion text, beside any other spelling)"
+                )
             bound = set(_bound_literals(body, citing)) | _inactive_literals(body, records, record["id"])
             # The quotes themselves are not survival: a citation names the
             # obligation; the criterion must still carry it.
@@ -229,7 +310,9 @@ def _survival_errors(body, records, waivers):
             pseudo = {"acceptance_criteria": stripped, "corpus": corpus}
             lost_literals = [
                 literal
-                for literal in brief_literals.missing(brief_literals.literals([sentence]), pseudo)
+                for literal in brief_literals.missing(
+                    brief_literals.literals([sentence], protected_locations=protected_locations), pseudo
+                )
                 if literal not in bound
             ]
             if lost_literals:
@@ -248,26 +331,56 @@ def _survival_errors(body, records, waivers):
     return errors
 
 
-def _coverage_errors(body, records, out_of_scope):
+def _coverage_errors(body, records, out_of_scope, *, coverage_records=None):
     criteria = body.get("acceptance_criteria") or []
-    quotes = [citation["quote"] for row in criteria for citation in row.get("sources") or []]
-    excluded = [entry["quote"] for entry in out_of_scope]
     errors = []
-    for record in records:
+    for record in records if coverage_records is None else coverage_records:
+        quotes = [
+            citation["quote"]
+            for row in criteria
+            for citation in row.get("sources") or []
+            if citation["source_id"] == record["id"]
+        ]
+        excluded = [entry["quote"] for entry in out_of_scope if entry["source_id"] == record["id"]]
         for sentence in cues.sentences(record["text"]):
             covered = _covered(sentence, quotes, spans=True)
             excluded_here = _covered(sentence, excluded)
             if covered and excluded_here:
-                errors.append(f"{record['id']} sentence is both covered and out of scope: {sentence[:80]!r}")
+                citing = _citing(criteria, sentence, record["id"], spans=True)
+                reasons = [
+                    entry["reason"]
+                    for entry in out_of_scope
+                    if entry["source_id"] == record["id"] and _covered(sentence, [entry["quote"]])
+                ]
+                criterion_ids = ", ".join(str(row["id"]) for row in citing)
+                reason_text = "; ".join(dict.fromkeys(reasons))
+                errors.append(
+                    f"{record['id']} sentence is both covered and out of scope "
+                    f"(criterion(s) {criterion_ids}; reason(s) {reason_text}): {sentence[:80]!r}"
+                )
             elif not covered and not excluded_here:
                 errors.append(f"{record['id']} sentence is neither cited nor out of scope: {sentence[:80]!r}")
+    # Exclusions stay bound to the full authenticated inventory, even when a
+    # new workflow turn scopes the obligations being checked to later sources.
+    by_id = {row["id"]: row for row in records}
     for entry in out_of_scope:
-        if not any(
-            _covered(sentence, [entry["quote"]])
-            for sentence in cues.sentences(next(row["text"] for row in records if row["id"] == entry["source_id"]))
-        ):
+        source = by_id.get(entry["source_id"])
+        if source is None:
+            errors.append(f"out_of_scope cites unknown source {entry['source_id']}")
+        elif not any(_covered(sentence, [entry["quote"]]) for sentence in cues.sentences(source["text"])):
             errors.append(f"out_of_scope quote in {entry['source_id']} covers no source sentence")
     return errors
+
+
+def quotable(records):
+    """The sources a criterion must quote: all but replies that only steer a runner-written question.
+
+    A ``plan`` reply to the Requirements review, or a choice on a rewording question, states no requirement
+    (autocode_control_replies). Requiring a quote of one cost live Planners reasoning, and a draft that rightly left
+    it uncited failed the Plan Reviewer's seal (#1630). It stays a valid source to cite or exclude, so saved
+    contracts that cite it still verify.
+    """
+    return [row for row in records if not control_replies.control_record(row)]
 
 
 def _turn_scoped(state: RunState, records):
@@ -275,13 +388,104 @@ def _turn_scoped(state: RunState, records):
     (requirement_cues.new_workflow_turn); same-kind revisions keep every source."""
     turn = cues.new_workflow_turn(state)
     if not turn:
-        return records
+        return quotable(records)
     marker = "feedback:" + turn["event_id"]
     ids = [row["id"] for row in records]
-    return records[ids.index(marker) :] if marker in ids else records
+    return quotable(records[ids.index(marker) :] if marker in ids else records)
 
 
-def check_ready(body, records, wrapper):
+SENTENCE_ID = re.compile(r"^(?P<source>.+)#(?P<number>[1-9][0-9]*)$")
+
+
+def sentence_rows(state: RunState, records, requirement_rows=(), criteria=None):
+    """Every sentence a criterion set must cover, numbered per source, as ``source_sentences`` shows them.
+
+    ``id`` is ``<source id>#<n>`` over the source's own sentence list (the list the coverage check walks), and
+    ``requirement_ids`` names the requirement rows whose ``source_quote`` supports the sentence, so a Planner
+    maps rows to sentences by id instead of by comparing text (#1630). When ``criteria`` is supplied,
+    ``criterion_ids`` names every criterion whose citation covers the sentence. The text is in source_inventory too."""
+    rows = []
+    for record in _turn_scoped(state, records):
+        for number, sentence in enumerate(cues.sentences(record["text"]), 1):
+            row = {
+                "id": f"{record['id']}#{number}",
+                "source_id": record["id"],
+                "text": sentence,
+                "requirement_ids": [
+                    requirement["requirement_id"]
+                    for requirement in requirement_rows
+                    if requirement.get("source_quote") and _covered(sentence, [requirement["source_quote"]], spans=True)
+                ],
+            }
+            if criteria is not None:
+                row["criterion_ids"] = [
+                    criterion["id"]
+                    for criterion in _citing(criteria, sentence, record["id"], spans=True)
+                    if criterion.get("id")
+                ]
+            rows.append(row)
+    return rows
+
+
+def resolve_sentence_ids(contract, records):
+    """Replace each citation whose quote is a sentence id by that sentence's verbatim text, in place.
+
+    Everything after this (citation checks, coverage, survival, the seal, the saved contract) sees verbatim quotes
+    only. An id that names no sentence is left as written, so the citation check refuses it."""
+    by_id = {row["id"]: row for row in records}
+    for row in (contract or {}).get("acceptance_criteria") or []:
+        for citation in row.get("sources") or []:
+            if not isinstance(citation, dict) or not isinstance(citation.get("quote"), str):
+                continue
+            match = SENTENCE_ID.match(citation["quote"].strip())
+            source = by_id.get(citation.get("source_id"))
+            if match is None or source is None or match["source"] != citation["source_id"]:
+                continue
+            sentences = cues.sentences(source["text"])
+            if int(match["number"]) <= len(sentences):
+                citation["quote"] = sentences[int(match["number"]) - 1]
+
+
+def uncited_sentences(state: RunState, body, records):
+    """The source sentences no criterion of ``body`` cites yet, as ``[{"source_id", "sentence"}]``.
+
+    The same sentence test the seal runs (``_coverage_errors``), asked of a draft with no out_of_scope. Only the
+    Plan Reviewer can excuse a sentence, so a first draft's list is information, not a refusal (#1630)."""
+    criteria = body.get("acceptance_criteria") or []
+    if not any(row.get("sources") for row in criteria):
+        return []  # a contract that cites nothing predates the trace, as in check_ready
+    rows = []
+    for record in _turn_scoped(state, records):
+        quotes = [
+            citation["quote"]
+            for row in criteria
+            for citation in row.get("sources") or []
+            if isinstance(citation, dict) and citation.get("source_id") == record["id"]
+        ]
+        rows += [
+            {"source_id": record["id"], "sentence": sentence}
+            for sentence in cues.sentences(record["text"])
+            if not _covered(sentence, quotes, spans=True)
+        ]
+    return rows
+
+
+def unexcused_repeats(state: RunState, body, records, previous, out_of_scope):
+    """Sentences ``body`` leaves uncited that ``previous`` (an earlier draft's list) also left and that the
+    reviewer's ``out_of_scope`` entries do not excuse."""
+    excused = [entry for entry in out_of_scope or [] if isinstance(entry, dict)]
+    return [
+        row
+        for row in uncited_sentences(state, body, records)
+        if row in previous
+        and not any(
+            entry.get("source_id") == row["source_id"] and _covered(row["sentence"], [str(entry.get("quote", ""))])
+            for entry in excused
+        )
+    ]
+
+
+def check_ready(body, records, wrapper, *, coverage_records=None):
     """The approval/completion gate for a body carrying the source-trace seal.
 
     A contract whose criteria cite nothing predates the trace (or a report sealed
@@ -294,8 +498,10 @@ def check_ready(body, records, wrapper):
     uncited = [row.get("id", "?") for row in criteria if not row.get("sources")]
     if uncited:
         raise ValueError("Every criterion must cite its source; uncited: " + ", ".join(uncited))
-    errors = _coverage_errors(body, records, wrapper["out_of_scope"])
-    errors += _survival_errors(body, records, wrapper["negation_waivers"])
+    errors = _coverage_errors(body, records, wrapper["out_of_scope"], coverage_records=coverage_records)
+    errors += _survival_errors(
+        body, records if coverage_records is None else coverage_records, wrapper["negation_waivers"]
+    )
     if errors:
         raise ValueError("The contract no longer traces to the original request: " + "; ".join(errors))
 
@@ -338,7 +544,7 @@ def verify(state: RunState, body, records, *, ready=False):
     ):
         raise ValueError("Source-trace Plan Reviewer provenance is missing or changed")
     if ready:
-        check_ready(body, _turn_scoped(state, records), wrapper)
+        check_ready(body, records, wrapper, coverage_records=_turn_scoped(state, records))
 
 
 # A report without source_trace seals the strictest judgment: nothing is out of
@@ -378,7 +584,7 @@ def reviewed(state: RunState, body, trace, record, records):
     # Seal-time coverage: incomplete citations repair before human approval.
     # Pending planner drafts keep the old seal until the next Plan Reviewer pass.
     if any_citations(result):
-        check_ready(result, _turn_scoped(state, records), result[KEY])
+        check_ready(result, records, result[KEY], coverage_records=_turn_scoped(state, records))
     return result
 
 
@@ -408,6 +614,6 @@ def rule(records):
     return (
         prompts.get("fragments/autoplanner/source-citation-rule.md")
         + "\n"
-        + "\n".join(f"  [{row['id']}] kind={row['kind']}" for row in records)
+        + "\n".join(f"  [{row['id']}] kind={row['kind']}" for row in quotable(records))
         + "\n"
     )

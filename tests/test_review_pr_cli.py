@@ -241,10 +241,15 @@ class ReviewPullRequestCLI(unittest.TestCase):
         checks = scenario.oracle()(
             self.oracle_base,
             scenario,
-            {"status": view["status"], "view": view, "stages": stages, "answers": [], "cli_calls": ["start", "status"]},
+            # review-pr pins its read-only workflow explicitly: the ordinary
+            # chat's Requirements-first sequencing does not apply. Keep the
+            # independent code-review oracle and assert this entry point's
+            # exact sequencing below instead.
+            None,
         )
         self.assertTrue(all(row.ok for row in checks), [(row.name, row.ok, row.detail) for row in checks])
         self.assertEqual(["review_change"], stages)
+        self.assertEqual("review", view["workflow"])
         self.assertTrue(view["done"])
         self.assertIsNone(view["needs"])
         self.assertEqual("recorded", result["evidence_report"]["availability"])

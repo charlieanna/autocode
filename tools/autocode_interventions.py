@@ -16,9 +16,11 @@ from typing import Any
 
 try:
     from . import autocode_goals as goals
+    from . import autocode_message_context as message_context
     from . import autocode_util as util
 except ImportError:
     import autocode_goals as goals
+    import autocode_message_context as message_context
     import autocode_util as util
 
 
@@ -26,6 +28,12 @@ INBOX_VERSION = 1
 LOCK_TIMEOUT_SECONDS = 1.0
 INBOX_NAME = "interventions.json"
 LOCK_NAME = "interventions.lock"
+PENDING_ADMISSION_REASON = "Queued intervention must be applied before this action; explicitly continue."
+
+
+def pending_admission_pause(status, reason) -> bool:
+    """Recognize only our queued-inbox boundary, never an unreadable inbox or other hold."""
+    return status == "PAUSED_INTERVENTION_PENDING" and reason == PENDING_ADMISSION_REASON
 
 
 class InterventionError(RuntimeError):
@@ -94,7 +102,7 @@ def _read_inbox(inbox: Path) -> dict[str, Any]:
             not isinstance(request, dict)
             or not isinstance(request.get("id"), str)
             or not request["id"]
-            or request.get("kind") not in {"feedback", "pause", "stop"}
+            or request.get("kind") not in {"feedback", "message", "pause", "stop"}
             or not isinstance(request.get("text"), str)
             or not isinstance(request.get("order"), int)
             or isinstance(request["order"], bool)
@@ -137,12 +145,12 @@ def _locked_inbox(lock: Path) -> Any:
         handle.close()
 
 
-def _payload(request_id: str, kind: str, text: str) -> dict[str, str]:
+def _payload(request_id: str, kind: str, text: str) -> dict[str, Any]:
     if not isinstance(request_id, str) or not request_id:
         raise InterventionError("invalid_request_id", "Request ID must be a nonempty string")
-    if kind not in {"feedback", "pause", "stop"}:
-        raise InterventionError("invalid_kind", "Intervention kind must be feedback, pause or stop")
-    if not isinstance(text, str) or (kind == "feedback" and not text):
+    if kind not in {"feedback", "message", "pause", "stop"}:
+        raise InterventionError("invalid_kind", "Intervention kind must be feedback, message, pause or stop")
+    if not isinstance(text, str) or (kind in {"feedback", "message"} and not text.strip()):
         raise InterventionError("invalid_text", "Feedback text must be a nonempty string")
     if kind == "pause" and text:
         raise InterventionError("invalid_text", "Pause requests do not accept feedback text")
@@ -156,16 +164,24 @@ def _original_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in receipt.items() if key not in {"applied_at", "resumed_at"}}
 
 
-def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: str) -> dict[str, Any]:
+def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: str, context=None) -> dict[str, Any]:
     """Persist one request, or return the original receipt for an identical retry."""
     workspace, run_dir, state = _target(workspace, run_dir)
     payload = _payload(request_id, kind, text)
+    try:
+        context = message_context.checked(context)
+    except ValueError as error:
+        raise InterventionError("invalid_context", str(error)) from error
+    if context is not None:
+        if kind != "message":
+            raise InterventionError("invalid_context", "Only a conversation message accepts task context")
+        payload["context"] = context
     inbox, lock = _paths(run_dir)
     with _locked_inbox(lock):
         document = _read_inbox(inbox)
         existing = next((item for item in document["requests"] if item.get("id") == request_id), None)
         if existing is not None:
-            if {key: existing.get(key) for key in payload} != payload:
+            if {key: existing.get(key) for key in payload} != payload or existing.get("context") != context:
                 raise InterventionError("request_conflict", "Request ID is already used by a different payload")
             return {
                 "version": INBOX_VERSION,
@@ -187,7 +203,7 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
             None,
         )
         if applied is not None:
-            if {key: applied.get(key) for key in payload} != payload:
+            if {key: applied.get(key) for key in payload} != payload or applied.get("context") != context:
                 raise InterventionError("request_conflict", "Request ID is already used by a different payload")
             return {
                 "version": INBOX_VERSION,
@@ -197,6 +213,21 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
                 "consumer": "already_applied",
                 "receipt": _original_receipt(applied),
             }
+        if (
+            context is not None
+            and (current_state.get("intervention_capability") or {}).get("supports_message_context") is not True
+        ):
+            raise InterventionError("context_unavailable", "This run cannot accept task conversation context")
+        if kind == "message" and (
+            (
+                not (current_state.get("settings") or {}).get("spec_first")
+                and (context or {}).get("kind") != "coordinated_plan"
+            )
+            or (current_state.get("intervention_capability") or {}).get("supports_messages") is not True
+            or current_state.get("status") == "TASK_COMPLETE"
+            or any(item.get("kind") == "stop" for item in current_state.get("applied_interventions", []))
+        ):
+            raise InterventionError("message_unavailable", "This run cannot accept a live conversation message")
         contract = current_state.get("goal_contract")
         try:
             token = goals.token(contract) if isinstance(contract, dict) else None
@@ -211,6 +242,7 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
         )
         receipt = {
             **payload,
+            **({"message_id": "run-message-" + request_id} if kind == "message" else {}),
             "order": order,
             "submitted_at": util.now(),
             "observed_goal_token": token,
@@ -269,7 +301,7 @@ def admission(run_dir: Path):
             if _read_inbox(inbox)["requests"]:
                 raise util.Paused(
                     "PAUSED_INTERVENTION_PENDING",
-                    "Queued intervention must be applied before this action; explicitly continue.",
+                    PENDING_ADMISSION_REASON,
                 )
             yield
     except InterventionError as error:
@@ -282,6 +314,7 @@ def consume(
     *,
     write_state: Any,
     apply_feedback: Any,
+    apply_message: Any = None,
     before_commit: Any = None,
     lock_held: bool = False,
 ) -> list[dict[str, Any]]:
@@ -303,6 +336,12 @@ def consume(
                 applied_receipt = {**receipt, "applied_at": util.now()}
                 if receipt["kind"] == "feedback":
                     apply_feedback(receipt, applied_receipt)
+                elif receipt["kind"] == "message":
+                    if apply_message is None:
+                        raise InterventionError(
+                            "unsupported_message", "This consumer cannot apply conversation messages"
+                        )
+                    apply_message(receipt, applied_receipt)
                 applied.append(applied_receipt)
             if before_commit is not None:
                 before_commit(new)
@@ -330,21 +369,47 @@ def consume(
 def cli(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Submit or inspect pending Autocode interventions")
     commands = parser.add_subparsers(dest="operation", required=True)
-    submit_parser = commands.add_parser("submit")
-    submit_parser.add_argument("--workspace", required=True, type=Path)
-    submit_parser.add_argument("--run-dir", required=True, type=Path)
-    submit_parser.add_argument("--request-id", required=True)
-    submit_parser.add_argument("--kind", required=True, choices=("feedback", "pause", "stop"))
-    submit_parser.add_argument("--text", default="")
-    submit_parser.add_argument("--json", action="store_true")
-    inspect_parser = commands.add_parser("inspect")
-    inspect_parser.add_argument("--workspace", required=True, type=Path)
-    inspect_parser.add_argument("--run-dir", required=True, type=Path)
-    inspect_parser.add_argument("--json", action="store_true")
+    submit_parser = commands.add_parser("submit", help="Queue a feedback, message, pause or stop request for a run")
+    submit_parser.add_argument("--workspace", required=True, type=Path, help="Project directory")
+    submit_parser.add_argument("--run-dir", required=True, type=Path, help="The saved run")
+    submit_parser.add_argument(
+        "--request-id", required=True, help="Stable ID of this request, so a repeat is recognized"
+    )
+    submit_parser.add_argument(
+        "--kind", required=True, choices=("feedback", "message", "pause", "stop"), help="What is requested"
+    )
+    submit_parser.add_argument("--text", default="", help="The feedback text")
+    submit_parser.add_argument(
+        "--context-file", type=Path, help="Bounded public participant evidence for a task conversation"
+    )
+    submit_parser.add_argument("--json", action="store_true", help="Print the receipt as JSON")
+    inspect_parser = commands.add_parser("inspect", help="List the pending interventions of a run")
+    inspect_parser.add_argument("--workspace", required=True, type=Path, help="Project directory")
+    inspect_parser.add_argument("--run-dir", required=True, type=Path, help="The saved run")
+    inspect_parser.add_argument("--json", action="store_true", help="Print the listing as JSON")
     args = parser.parse_args(argv)
     try:
         if args.operation == "submit":
-            result = submit(args.workspace, args.run_dir, request_id=args.request_id, kind=args.kind, text=args.text)
+            context = None
+            if args.context_file:
+                try:
+                    with args.context_file.open("rb") as source:
+                        data = source.read(message_context.MAX_BYTES + 1)
+                    if len(data) > message_context.MAX_BYTES:
+                        raise ValueError("Context file exceeds the public evidence size")
+                    context = json.loads(data)
+                    if context is None:
+                        raise ValueError("Context file must contain a task context")
+                except (OSError, ValueError) as error:
+                    raise InterventionError("invalid_context", str(error)) from error
+            result = submit(
+                args.workspace,
+                args.run_dir,
+                request_id=args.request_id,
+                kind=args.kind,
+                text=args.text,
+                context=context,
+            )
         else:
             result = inspect(args.workspace, args.run_dir)
     except InterventionError as error:

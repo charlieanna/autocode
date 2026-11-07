@@ -3,8 +3,10 @@
 import copy
 import json
 import unittest
+from pathlib import Path
 
 import autocode_goal_lifecycle as lifecycle
+import autocode_plan_retention as retention
 import autocode_report_repair_context as context
 import autocode_roles as roles
 from goal_fixtures import approve_fixture
@@ -13,6 +15,187 @@ from . import test_report_repair as repair_fixtures
 
 
 class ClarificationContextTests(unittest.TestCase):
+    def test_author_repair_without_a_pinned_schema_keeps_legacy_references(self):
+        clarification = {"retained_contract": "r1:" + "a" * 64, "retained_criteria": [{"id": "C1"}]}
+        instruction, references = context.criterion_retention(clarification, "glm_revise")
+        self.assertEqual(retention.RULE, instruction)
+        self.assertEqual(clarification, references)
+
+    def test_review_history_is_lossless_without_duplicating_large_evidence(self):
+        original = {
+            "checks": [{"command": r"python -c 'print(\"\\u00e9\")'", "exit_code": 0}],
+            "changed_code_exceptions": [{"gap_id": "L1", "reason": "exact reason " * 10000}],
+            "verdict": "FAIL",
+        }
+        latest = copy.deepcopy(original)
+        latest["checks"][0]["command"] = "changed by a failed repair"
+        latest["verdict"] = "PASS"
+        source = {"path": "original.json", "sha256": "a" * 64, "format": "json", "content": original}
+        for stage in ("sol", "astra_review", "astra_checkpoint"):
+            with self.subTest(stage=stage):
+                instruction, compact = context.historical_author_report(stage, source, {**source, "content": latest})
+                self.assertNotIn("content", list(compact))
+                self.assertIn("immutable execution-history baseline", instruction)
+                self.assertIn("escape sequences", instruction)
+                restored = copy.deepcopy(latest)
+                for change in compact["content_delta"]["replace"]:
+                    parent = restored
+                    for part in change["path"][:-1]:
+                        parent = parent[part]
+                    parent[change["path"][-1]] = change["value"]
+                self.assertEqual(original, restored)
+                self.assertEqual("a" * 64, compact["sha256"])
+                self.assertLess(len(json.dumps(compact)), 1000)
+                self.assertEqual("PASS", latest["verdict"])
+
+    def test_batch_scope_is_copied_and_omitted_from_serial_and_unrelated_repairs(self):
+        task = {"id": "batch-task", "milestone_id": "B", "milestone_ids": ["B", "C"], "acceptance_criteria": ["C2"]}
+        state = {"current_task": task}
+        supplied = context.batch_validation_context(state, "sol")
+        supplied["milestone_ids"].append("A")
+        supplied["acceptance_criteria"].clear()
+        self.assertEqual(["B", "C"], task["milestone_ids"])
+        self.assertEqual(["C2"], task["acceptance_criteria"])
+        for stage in ("terra", "requirements_gather", "astra_discovery", "investigate_stuck"):
+            with self.subTest(stage=stage):
+                self.assertEqual({}, context.batch_validation_context(state, stage))
+        for serial in ({}, {"current_task": None}, {"current_task": {"id": "single", "milestone_id": "B"}}):
+            with self.subTest(state=serial):
+                self.assertEqual({}, context.batch_validation_context(serial, "sol"))
+
+    def test_plan_reviewer_repair_includes_source_trace_review_guidance(self):
+        instruction = context.baseline_instruction("astra_challenge")
+
+        self.assertIn("review_source_sentences", instruction)
+        self.assertIn("criterion_ids", instruction)
+
+    def test_requirements_repair_sources_map_saved_feedback_to_previous_requirements(self):
+        feedback = {
+            "id": "feedback-1",
+            "actor": "user_cli",
+            "text": "Zero totals no longer matter. Fix checkout total.",
+        }
+        state = {
+            "requirements_handoff": {
+                "report": {
+                    "requirements": [
+                        {
+                            "id": "R2",
+                            "text": "Preserve existing behavior for a zero total and malformed receipts.",
+                            "source_quote": "Preserve existing behavior for a zero total and malformed receipts.",
+                        }
+                    ]
+                }
+            },
+            "brief_feedback": [feedback],
+            "user_events": [feedback],
+        }
+
+        result = context.requirements_sources(state, "requirements_gather")
+
+        self.assertEqual(
+            ["R2"],
+            result["requirements_correction_sources"][0]["previous_requirement_ids"],
+        )
+
+    def test_protected_list_inventory_is_literal_read_only_and_not_an_authority_decision(self):
+        protected = {
+            "important_failure_cases": ["Keep zero", "Keep negatives"],
+            "constraints": ["Local only"],
+            "permission_boundaries": ["a.py"],
+        }
+        content = {
+            "contract": {
+                "important_failure_cases": ["Keep zero", "Keep negative values"],
+                "constraints": ["Local only"],
+                "permission_boundaries": ["b.py"],
+            },
+            "contract_changes": [
+                {
+                    "item": "Keep negatives",
+                    "change": "reworded",
+                    "basis": "user_answer",
+                    "answer_id": "Q1",
+                    "replacement": "Keep negative values",
+                }
+            ],
+        }
+        source = {"format": "json", "truncated": False, "content": content}
+        before = copy.deepcopy((protected, source))
+        self.assertEqual(
+            [{"field": "important_failure_cases", "missing": ["Keep negatives"]}],
+            context.protected_list_differences(protected, source),
+        )
+        self.assertEqual(before, (protected, source), "Inventories neither edit receipts nor grant/refuse changes")
+        retained = copy.deepcopy(source)
+        retained["content"]["contract"]["important_failure_cases"].append("Keep negatives")
+        self.assertEqual([], context.protected_list_differences(protected, retained))
+        for unknown in (
+            {**source, "truncated": True},
+            {**source, "format": "text"},
+            {**source, "content": []},
+            {**source, "content": {"contract": {"retain_contract": "r1:hash"}}},
+            {**source, "content": {"contract": {"important_failure_cases": "invalid"}}},
+        ):
+            with self.subTest(source=unknown):
+                self.assertEqual([], context.protected_list_differences(protected, unknown))
+
+    def test_historical_overlay_keeps_all_old_values_available_without_read_tools(self):
+        original = {
+            "shared": "retained text " * 500,
+            "flags": [False, 1.0, None],
+            "old_only": {"value": 0},
+            "nested": {"list": [1, 2], "a/b~key": "héllo"},
+        }
+        latest = {
+            "shared": original["shared"],
+            "flags": [0, 1, {}],
+            "new_only": True,
+            "nested": {"list": [1], "a/b~key": "changed"},
+        }
+        source = {"format": "json", "truncated": False, "content": original}
+        before = copy.deepcopy((source, latest))
+        instruction, compact = context.historical_author_report("glm_revise", source, {**source, "content": latest})
+        self.assertIn("No file access is needed", instruction)
+        self.assertEqual("rejected_report.content", compact["content_base"])
+        restored = copy.deepcopy(latest)
+        for path in compact["content_delta"]["remove"]:
+            parent = restored
+            for part in path[:-1]:
+                parent = parent[part]
+            del parent[path[-1]]
+        for change in compact["content_delta"]["replace"]:
+            path = change["path"]
+            if not path:
+                restored = copy.deepcopy(change["value"])
+                continue
+            parent = restored
+            for part in path[:-1]:
+                parent = parent[part]
+            parent[path[-1]] = copy.deepcopy(change["value"])
+        self.assertEqual(json.dumps(original, sort_keys=True), json.dumps(restored, sort_keys=True))
+        self.assertEqual(before, (source, latest))
+
+    def test_historical_compaction_is_skipped_when_distinct_content_would_grow(self):
+        original = {"format": "json", "truncated": False, "content": {"summary": "a" * 1000}}
+        latest = {**original, "content": {"summary": "b" * 1000}}
+        self.assertEqual(("", original), context.historical_author_report("glm_revise", original, latest))
+
+    def test_historical_reference_compaction_preserves_other_repair_baselines(self):
+        original = {"format": "json", "truncated": False, "content": {"summary": "original"}}
+        latest = {"format": "json", "truncated": False, "content": {"summary": "latest"}}
+        for stage in ("terra", "sol", "astra_finalize", "requirements_gather"):
+            with self.subTest(stage=stage):
+                self.assertEqual(("", original), context.historical_author_report(stage, original, latest))
+        for source in (
+            {**original, "format": "text", "content": "incomplete JSON"},
+            {**original, "truncated": True},
+            {**original, "content": []},
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(("", source), context.historical_author_report("glm_revise", source, latest))
+                self.assertEqual(("", original), context.historical_author_report("glm_revise", original, source))
+
     def test_revision_and_finalization_repairs_get_only_the_current_planning_exchange(self):
         reports = {
             "astra_discovery": {"output": "current-discovery.json", "report": {"contract": {"scope": ["greet.py"]}}},
@@ -207,6 +390,321 @@ class ClarificationContextTests(unittest.TestCase):
 class DecisionRepairContextTests(unittest.TestCase):
     setUp = repair_fixtures.base.RetrofitTest.setUp
 
+    def test_later_repair_retains_the_original_rejection_beside_its_format_error(self):
+        self.state["next_stage"] = "sol"
+        original_error = "Missing changed-code decision L183 for parser.py:160"
+        original = {"verdict": "PASS", "changed_code_exceptions": []}
+        repair_fixtures.RepairTests.queue(
+            self, stage="sol", role="sol", report=json.dumps(original), error=ValueError(original_error)
+        )
+        with self.assertRaises(repair_fixtures.runner.ReportRepairQueued):
+            repair_fixtures.RepairTests.reject_repair(
+                self, 6, ValueError("Final message is not JSON"), report="I will repair the report"
+            )
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(original_error, data.get("original_error"))
+        self.assertEqual("Final message is not JSON", data["error"])
+        self.assertEqual(original, data["original_report"]["content"])
+        self.assertIn("earlier rejection is not evidence that a later draft still has that defect", request["prompt"])
+        self.assertTrue(request["report_only"])
+
+    def test_tester_repair_names_enclosing_proof_without_changing_rejected_judgments(self):
+        for stage, role in (("sol", "sol"), ("astra_checkpoint", "astra")):
+            with self.subTest(stage=stage):
+                self.setUp()
+                self.state["next_stage"] = stage
+                report = {
+                    "verdict": "FAIL",
+                    "changed_code_exceptions": [
+                        {
+                            "gap_id": "L14",
+                            "decision": "reject",
+                            "reason_kind": "equivalent_mutant",
+                            "reason": "Missing assertion for non-string id",
+                            "evidence_refs": ["mutation-check/mutant.log"],
+                        }
+                    ],
+                }
+                pending = repair_fixtures.RepairTests.queue(
+                    self,
+                    stage=stage,
+                    role=role,
+                    report=json.dumps(report),
+                    error=ValueError("Changed-code reason cites unauthenticated evidence: 'mutation-check/mutant.log'"),
+                )
+                source = pending["original"]["source_revision"]
+                proof_path = str(self.run / "regression/proof-04/verification.json")
+                self.state["regression_proof"] = {"path": proof_path, "source_revision": source, "verdict": "FAIL"}
+                before = copy.deepcopy(self.state["regression_proof"])
+                request = repair_fixtures.RepairTests.repair_request(self)
+                data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual(
+                    {"proof_reference": proof_path, "source_revision": source},
+                    data.get("changed_code_citation_context"),
+                )
+                self.assertEqual(report, data["rejected_report"]["content"])
+                self.assertEqual(before, self.state["regression_proof"])
+                self.assertIn("Preserve rejects, findings and missing evidence", request["prompt"])
+                self.assertIn("do not return a shell command", request["prompt"])
+                self.assertTrue(request["report_only"])
+
+    def test_citation_context_omits_stale_missing_or_non_tester_proofs(self):
+        pending = {"original": {"source_revision": "current"}}
+        proof = {"path": "/run/proof/verification.json", "source_revision": "current"}
+        for stage in ("terra", "astra_review", "glm_revise"):
+            self.assertEqual({}, context.changed_code_citation_context({"regression_proof": proof}, pending, stage))
+        for invalid in (
+            {},
+            {**proof, "source_revision": "old"},
+            {**proof, "source_revision": None},
+            {**proof, "path": None},
+            {**proof, "path": ""},
+            {**proof, "path": ["bad"]},
+        ):
+            self.assertEqual({}, context.changed_code_citation_context({"regression_proof": invalid}, pending, "sol"))
+
+    def test_combined_review_repair_receives_exact_batch_scope_without_reading_state(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["current_task"] = {
+            "id": "combined-task",
+            "milestone_id": "B",
+            "milestone_ids": ["B", "C"],
+            "acceptance_criteria": ["AC2", "AC3"],
+        }
+        expected = {
+            "task_id": self.state["current_task"]["id"],
+            "milestone_id": "B",
+            "milestone_ids": ["B", "C"],
+            "acceptance_criteria": ["AC2", "AC3"],
+        }
+        before = copy.deepcopy(self.state)
+        rejected = {"verdict": "PASS", "milestone_results": [{"milestone_id": "B", "status": "PASS"}]}
+        for stage in ("sol", "astra_checkpoint", "astra_review", "astra_plan", "astra_resolve"):
+            with self.subTest(stage=stage):
+                self.state = copy.deepcopy(before)
+                self.state["next_stage"] = stage
+                repair_fixtures.RepairTests.queue(
+                    self,
+                    stage=stage,
+                    role="sol" if stage == "sol" else "astra",
+                    report=json.dumps(rejected),
+                    error=ValueError("Combined validation must report every batch milestone exactly once"),
+                )
+                request = repair_fixtures.RepairTests.repair_request(self)
+                data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual(expected, data.get("batch_validation"))
+                self.assertEqual(rejected, data["rejected_report"]["content"])
+                self.assertIn("exactly the milestone_ids in batch_validation", request["prompt"])
+                self.assertIn("NOT_VERIFIED", request["prompt"])
+                self.assertIn("do not split or narrow the batch", request["prompt"])
+                self.assertTrue(request["report_only"])
+                self.assertEqual("read-only", request["sandbox"])
+                data["batch_validation"]["milestone_ids"].append("A")
+                self.assertEqual(["B", "C"], self.state["current_task"]["milestone_ids"])
+
+    def test_first_id_repair_also_names_independently_missing_protected_text(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["next_stage"] = "glm_revise"
+        exact = "Nonpositive size must still raise ValueError after the change"
+        self.state["goal_contract"]["body"]["important_failure_cases"] = [exact]
+        value = {
+            "contract": copy.deepcopy(self.state["goal_contract"]["body"]),
+            "requirement_trace": [{"requirement": "Keep invalid-size behavior"}],
+            "contract_changes": [],
+        }
+        value["contract"]["important_failure_cases"] = [
+            "Nonpositive size (0 and negative) must still raise ValueError after the change"
+        ]
+        before = copy.deepcopy(value)
+        repair_fixtures.RepairTests.queue(
+            self,
+            stage="glm_revise",
+            role="glm",
+            report=json.dumps(value),
+            error=ValueError("Planner report is missing requirement_trace[0].requirement_id"),
+        )
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertIn("requirement_id", data["error"])
+        self.assertEqual([{"field": "important_failure_cases", "missing": [exact]}], data["protected_list_differences"])
+        self.assertEqual(before, data["rejected_report"]["content"])
+        self.assertIn("retain the saved text verbatim", request["prompt"])
+        self.assertIn("grants no change authority", request["prompt"])
+        with self.assertRaisesRegex(ValueError, "drops or changes"):
+            runner.goals.revision_guard(self.state, value["contract"], [], "glm_revise")
+
+    def test_revision_repair_receives_current_review_even_when_execution_findings_are_empty(self):
+        concerns = [
+            {"id": "C4", "concern": "Cite the saved answer", "requested_change": "Retain the exact answer quote"},
+            {
+                "id": "C5",
+                "concern": "The copy requirement contradicts its exception",
+                "requested_change": "Clarify the exception",
+            },
+        ]
+        review = {"output": "current-review.json", "report": {"summary": "Second review", "concerns": concerns}}
+        self.state.update(
+            next_stage="glm_revise",
+            planning={
+                "reports": {
+                    "astra_discovery": {"report": {"contract": {"intended_outcome": "superseded-draft"}}},
+                    "astra_challenge": review,
+                }
+            },
+            planning_history=[{"reports": {"astra_challenge": {"report": {"concerns": [{"id": "OLD"}]}}}}],
+        )
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        repair_fixtures.RepairTests.queue(
+            self,
+            stage="glm_revise",
+            role="glm",
+            report=json.dumps({"responses": []}),
+            error=ValueError("Every plan-review concern needs exactly one response/decision using its ID"),
+        )
+        saved_planning = copy.deepcopy(self.state["planning"])
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+
+        self.assertEqual([], data["open_findings"])
+        self.assertEqual({"astra_challenge": review}, data["planning_exchange"])
+        self.assertNotIn("superseded-draft", request["prompt"])
+        self.assertNotIn('"OLD"', request["prompt"])
+        self.assertIn("open_findings is the execution findings ledger", request["prompt"])
+        self.assertIn("exactly one substantive response", request["prompt"])
+        self.assertEqual(saved_planning, self.state["planning"])
+
+    def test_author_repair_offers_delta_only_when_its_pinned_schema_allows_it(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        before = copy.deepcopy(self.state)
+        for stage in ("astra_discovery", "glm_revise"):
+            for legacy in (False, True):
+                with self.subTest(stage=stage, legacy=legacy):
+                    self.state = copy.deepcopy(before)
+                    self.state["next_stage"] = stage
+                    schema = copy.deepcopy(runner.planning.SCHEMAS[stage])
+                    if not legacy:
+                        schema = retention.model_schema(schema, self.state, stage)
+                    path = self.run / f"{stage}-{legacy}.schema.json"
+                    path.write_text(json.dumps(schema))
+                    original_bytes = path.read_bytes()
+                    repair_fixtures.RepairTests.queue(self, stage=stage, role="glm", schema=str(path))
+                    request = repair_fixtures.RepairTests.repair_request(self)
+                    data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+                    self.assertEqual(retention.token(self.state), data["retained_contract"])
+                    self.assertEqual(not legacy, retention.DELTA_RULE in request["prompt"])
+                    if stage == "glm_revise" and not legacy:
+                        self.assertNotIn("retained_criteria", data)
+                        self.assertNotIn(retention.RULE, request["prompt"])
+                    self.assertEqual(original_bytes, path.read_bytes())
+
+    def test_criterion_author_repairs_receive_exact_current_retention_references(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        before = copy.deepcopy(self.state)
+        for stage in sorted(retention.AUTHORS - retention.FINAL):
+            with self.subTest(stage=stage):
+                self.state = copy.deepcopy(before)
+                self.state["next_stage"] = stage
+                expected = retention.inventory(self.state)
+                repair_fixtures.RepairTests.queue(
+                    self, stage=stage, role="glm", error=ValueError("Retained criterion reference is stale")
+                )
+                request = repair_fixtures.RepairTests.repair_request(self)
+                data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertIn("retained_criteria", data)
+                self.assertEqual(expected, data["retained_criteria"])
+                self.assertIn(retention.RULE, request["prompt"])
+                expanded = retention.expand(
+                    self.state, stage, {"contract": {"acceptance_criteria": data["retained_criteria"]}}
+                )
+                self.assertEqual(
+                    before["goal_contract"]["body"]["acceptance_criteria"],
+                    expanded["contract"]["acceptance_criteria"],
+                )
+
+    def test_unrelated_repair_does_not_receive_criterion_retention_references(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        repair_fixtures.RepairTests.queue(self, stage="terra", role="terra")
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertNotIn("retained_criteria", data)
+        self.assertNotIn(retention.RULE, request["prompt"])
+
+    def test_author_without_a_current_contract_gets_no_retention_rule_or_inventory(self):
+        self.state.pop("goal_contract", None)
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["next_stage"] = "glm_revise"
+        repair_fixtures.RepairTests.queue(self, stage="glm_revise", role="glm")
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertNotIn("retained_criteria", data)
+        self.assertNotIn(retention.RULE, request["prompt"])
+
+    def test_final_review_keeps_its_existing_contract_reference_context(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["next_stage"] = "astra_finalize"
+        repair_fixtures.RepairTests.queue(self, stage="astra_finalize", role="astra")
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertNotIn("retained_criteria", data)
+        self.assertEqual(retention.token(self.state), data["clarification_context"]["retained_contract"])
+        self.assertEqual(retention.inventory(self.state), data["clarification_context"]["retained_criteria"])
+
+    def test_superseded_author_draft_is_referenced_without_doubling_the_complete_latest_draft(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["next_stage"] = "glm_revise"
+        original = {"summary": "retained " + "x" * 120000}
+        latest = {**original, "repair_fault": True}
+        pending = repair_fixtures.RepairTests.queue(self, stage="glm_revise", role="glm", report=json.dumps(original))
+        original_source = runner.repair_report_source(pending["original"])
+        with self.assertRaises(runner.ReportRepairQueued):
+            repair_fixtures.RepairTests.reject_repair(
+                self, 6, ValueError("Missing criterion citation"), report=json.dumps(latest)
+            )
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(latest, data["rejected_report"]["content"])
+        self.assertNotIn("content", list(data["original_report"]))
+        self.assertEqual({"remove": [["repair_fault"]], "replace": []}, data["original_report"]["content_delta"])
+        for key in ("path", "sha256", "bytes", "format", "truncated"):
+            self.assertEqual(original_source[key], data["original_report"][key])
+        self.assertEqual(original, json.loads(Path(data["original_report"]["path"]).read_text()))
+        self.assertLess(len(request["prompt"].encode()), 262144)
+
+    def test_large_tester_repair_retains_both_reports_and_offers_bounded_edits(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["next_stage"] = "sol"
+        original = {"summary": "x" * 120000, "checks": [{"command": r"echo \\u00e9"}]}
+        latest = {**original, "repair_fault": True}
+        schema = self.run / "review.schema.json"
+        schema.write_text(json.dumps({"type": "object", "properties": {"summary": {"type": "string"}}}))
+        repair_fixtures.RepairTests.queue(
+            self, stage="sol", role="sol", report=json.dumps(original), schema=str(schema)
+        )
+        with self.assertRaises(runner.ReportRepairQueued):
+            repair_fixtures.RepairTests.reject_repair(self, 6, ValueError("Invalid receipt"), report=json.dumps(latest))
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(latest, data["rejected_report"]["content"])
+        self.assertEqual({"remove": [["repair_fault"]], "replace": []}, data["original_report"]["content_delta"])
+        self.assertEqual(original, json.loads(Path(data["original_report"]["path"]).read_text()))
+        self.assertLess(len(request["prompt"].encode()), 180000)
+        self.assertIn("BOUNDED REPORT EDITS", request["prompt"])
+        self.assertIn("repair_report", json.loads(Path(request["schema"]).read_text())["properties"])
+
     def test_discovery_repair_controller_supplies_the_approved_protected_contract(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
@@ -259,13 +757,11 @@ class DecisionRepairContextTests(unittest.TestCase):
                 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
                 self.assertEqual(report, data["rejected_report"]["content"])
                 self.assertIn("Task must belong to an approved milestone", data["error"])
-                self.assertEqual(
-                    ["M1"],
-                    [
-                        row["id"]
-                        for row in runner.support.read(data["state_file"])["goal_contract"]["body"]["milestones"]
-                    ],
-                )
+                # A Kilo report-only repair has no tools, so the approved milestones arrive inline.
+                self.assertEqual(self.state["goal_contract"]["body"]["milestones"], data["approved_milestones"])
+                self.assertEqual(["M1"], [row["id"] for row in data["approved_milestones"]])
+                self.assertNotIn("through state_file", prompt)
+                self.assertIn("approved_milestones in CURRENT HANDOFF DATA", prompt)
                 self.assertEqual("read-only", request["sandbox"])
                 self.assertFalse(request["allow_write"])
                 self.assertTrue(request["report_only"])
@@ -284,6 +780,12 @@ class DecisionRepairContextTests(unittest.TestCase):
                 ):
                     self.assertIn(instruction, prompt)
                 self.assertIn("decision.next_task", prompt)
+
+    def test_unapproved_contract_offers_no_milestones(self):
+        self.state["goal_contract"] = {"approval_status": "draft", "body": {"milestones": [{"id": "M1"}]}}
+        self.assertEqual([], context.approved_milestones(self.state))
+        self.state["goal_contract"]["approval_status"] = "approved"
+        self.assertEqual([{"id": "M1"}], context.approved_milestones(self.state))
 
     def test_missing_requirements_and_unknown_ids_are_not_repaired_by_guessing(self):
         runner = repair_fixtures.runner
@@ -338,9 +840,16 @@ class DecisionRepairContextTests(unittest.TestCase):
                 if stage == "requirements_gather":
                     self.assertTrue(instruction.startswith(expected))
                     self.assertIn("requirements_correction_sources", instruction)
+                    self.assertIn(
+                        "previous_requirement_ids are candidate links based on shared wording, not authority",
+                        instruction,
+                    )
                     self.assertIn("ignored_requirements", instruction)
                 else:
-                    self.assertEqual(expected, instruction)
+                    self.assertTrue(instruction.startswith(expected))
+                    self.assertIn("regression_reference names the saved repository comparison commit", instruction)
+                    self.assertIn("does not reset this reference", instruction)
+                    self.assertNotIn("immutable execution-history baseline", instruction)
 
     def test_other_roles_keep_the_execution_history_baseline(self):
         expected = (

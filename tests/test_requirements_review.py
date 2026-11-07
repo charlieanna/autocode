@@ -6,11 +6,14 @@ provider; the public status view and the provider's stage sequence are the oracl
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_requirements_review as review
 import autocode_taskrun as taskrun
@@ -19,6 +22,7 @@ SCENARIOS = Path(__file__).resolve().parents[1] / "scenarios"
 if str(SCENARIOS) not in sys.path:
     sys.path.insert(0, str(SCENARIOS))
 from harness import catalog
+from harness import clarifying_requirements_provider as clarifying
 from harness.driver import fake_setup
 from harness.project import materialize, without_maintenance
 
@@ -26,6 +30,75 @@ JOINT = ("--joint-planning", "--no-adaptive-planning")
 
 
 class SettingTests(unittest.TestCase):
+    def catalog_bug(self, *, external=True):
+        report = {
+            "job": "bugfix",
+            "intended_outcome": "Show the operation and mapped result for new history entries",
+            "required_behaviors": ["Preserve stored history"],
+            "acceptance_tests": ["A new entry shows its operation and mapped result"],
+            "open_questions": [],
+            "workspace_scope": {
+                "spans_repositories": external,
+                "external_parts": [{"target": "history", "work": "Check displayed values"}] if external else [],
+            },
+        }
+        return {"settings": {"spec_first": True}, "requirements_handoff": {"report": report}, "next_stage": review.NEXT}
+
+    def test_catalog_bug_confirms_understanding_before_scope_routing_or_planning(self):
+        for external in (False, True):
+            with (
+                self.subTest(external=external),
+                patch("autocode_catalog_context.context", return_value={"repositories": [{"name": "history"}]}),
+            ):
+                current = self.catalog_bug(external=external)
+                original = json.loads(json.dumps(current))
+                question = review.review_question(current)
+                self.assertEqual([question], review.questions(current))
+                self.assertEqual(original, current)
+                self.assertTrue(review.accepts(current, {"scope": "clarification", "questions": [question]}))
+                current["answers"] = {question["id"]: {"text": "plan"}}
+                remaining = review.questions(current)
+                self.assertEqual(bool(external), bool(remaining))
+                if external:
+                    self.assertTrue(remaining[0]["id"].startswith("workspace-scope-"))
+
+    def test_catalog_bug_correction_returns_to_requirements_before_any_scope_routing(self):
+        with patch("autocode_catalog_context.context", return_value={"repositories": [{"name": "history"}]}):
+            current = self.catalog_bug()
+            question = review.review_question(current)
+            current["answers"] = {question["id"]: {"text": "Also cover the Japanese registries"}}
+            review.after_answers(current)
+            self.assertEqual(review.STAGE, current["next_stage"])
+            self.assertEqual([], review.questions(current))
+
+    def test_confirmation_publishes_remaining_scope_before_the_standard_planner(self):
+        from unittest.mock import Mock
+
+        with patch("autocode_catalog_context.context", return_value={"repositories": [{"name": "history"}]}):
+            current = self.catalog_bug()
+            current["settings"]["implementation_flow"] = "standard"
+            current["workflow"] = {"kind": "bugfix"}
+            question = review.review_question(current)
+            current["answers"] = {question["id"]: {"text": "plan"}}
+            queued = Mock()
+            review.after_answers(current, queue=queued)
+            queued.assert_called_once()
+            self.assertEqual("clarification", queued.call_args.args[1])
+            self.assertTrue(queued.call_args.kwargs["questions"][0]["id"].startswith("workspace-scope-"))
+
+    def test_confirmed_members_and_joint_tasks_do_not_repeat_the_source_confirmation(self):
+        for role in ("member", "joint"):
+            with (
+                self.subTest(role=role),
+                patch("autocode_catalog_context.context", return_value={"repositories": [{"name": "history"}]}),
+                patch(
+                    "autocode_coordination_context.context", return_value={"role": role} if role == "member" else None
+                ),
+                patch("autocode_coordination_context.joint_planning", return_value=role == "joint"),
+            ):
+                current = self.catalog_bug(external=False)
+                self.assertEqual([], review.questions(current))
+
     def test_off_unless_asked_and_refused_where_requirements_gather_does_not_run(self):
         self.assertFalse(review.new_run_setting(None, True, False))
         self.assertFalse(review.new_run_setting(False, True, False))
@@ -52,11 +125,116 @@ class SettingTests(unittest.TestCase):
         first = review.review_question(state)
         self.assertTrue(first["id"].startswith(review.PREFIX))
         self.assertEqual("plan", first["proposed_default"])
-        for text in ("Greet by name", "prints Hello, NAME", "greet.py Ada prints Hello, Ada", "Left out:"):
+        for text in (
+            "Greet by name",
+            "prints Hello, NAME",
+            "greet.py Ada prints Hello, Ada",
+            "Other source statements:",
+        ):
             self.assertIn(text, first["question"])
         state["requirements_history"] = [{"report": report}]
         self.assertNotEqual(first["id"], review.review_question(state)["id"])
         self.assertEqual([], review.questions({**state, "settings": {}}))
+
+    def test_other_source_statements_show_their_saved_treatment_without_claiming_scope_exclusion(self):
+        report = {
+            "intended_outcome": "Fix page counting",
+            "constraints": ["Small fix only; retain existing tests"],
+            "ignored_statements": [
+                "This is a small fix; don't turn it into a project.",
+                "This authorizes investigation/planning only, not an implementation plan.",
+                "Do not add colour output.",
+            ],
+            "summary": "The small-fix and approval statements remain constraints; colour output is excluded.",
+        }
+        state = {"settings": {"spec_first": True}, "requirements_handoff": {"report": report}}
+        before = json.loads(json.dumps(report))
+        question = review.review_question(state)
+        self.assertNotIn("Left out:", question["question"])
+        self.assertIn("Other source statements:", question["question"])
+        self.assertIn("Notes: " + report["summary"], question["question"])
+        for statement in report["ignored_statements"]:
+            self.assertIn(statement, question["question"])
+        self.assertIn(report["constraints"][0], question["question"])
+        self.assertEqual(before, report, "the confirmation must not rewrite the saved handoff")
+        self.assertFalse(question["delegable"])
+        self.assertEqual("plan", question["proposed_default"])
+
+    def test_legacy_source_statements_remain_visible_without_an_invented_explanation(self):
+        report = {"intended_outcome": "Greet", "ignored_statements": ["Required examples:"]}
+        state = {"requirements_handoff": {"report": report}}
+        question = review.review_question(state)["question"]
+        self.assertIn("Other source statements:", question)
+        self.assertIn("Required examples:", question)
+        self.assertNotIn("Left out:", question)
+        self.assertNotIn("Notes:", question)
+        report.update(ignored_statements=[], summary="No other statements need explanation")
+        question = review.review_question(state)["question"]
+        self.assertNotIn("Other source statements:", question)
+        self.assertNotIn("Notes:", question)
+
+    def test_a_questions_only_handoff_waits_on_the_default_flow_and_requirements_runs_again(self):
+        question = {
+            "id": "Q1",
+            "question": "Library, command line, or both?",
+            "why": "The request does not say how the greeting is invoked.",
+            "options": [],
+            "proposed_default": "",
+            "kind": "decision",
+            "category": "requested_outcome",
+            "delegable": False,
+        }
+        report = {
+            "intended_outcome": "Greet by name",
+            "required_behaviors": [],
+            "acceptance_tests": [],
+            "open_questions": [question],
+        }
+        state = {"settings": {}, "requirements_handoff": {"report": report}, "next_stage": review.NEXT}
+        self.assertEqual([question], review.questions(state), "the handoff's own question, no review question")
+        self.assertTrue(review.accepts(state, {"scope": "clarification", "questions": [question]}))
+        state["answers"] = {"Q1": {"text": "Both"}}
+        self.assertEqual([], review.questions(state))
+        review.after_answers(state)
+        self.assertEqual(review.STAGE, state["next_stage"], "the answer is requirements input, not planning input")
+        # A complete handoff with an open question still goes to the Planner, whose draft carries the question.
+        complete = {**report, "required_behaviors": ["prints Hello, NAME"], "acceptance_tests": ["greet.py Ada"]}
+        pending = {"settings": {}, "requirements_handoff": {"report": complete}, "next_stage": review.NEXT}
+        self.assertEqual([], review.questions(pending))
+        review.after_answers(pending)
+        self.assertEqual(review.NEXT, pending["next_stage"])
+
+    def test_requirements_clarification_precedes_scope_routing_without_deciding_scope(self):
+        question = {"id": "example", "question": "Which action has the incorrect result?"}
+        for spec_first, complete in ((False, False), (True, False), (True, True)):
+            with self.subTest(spec_first=spec_first, complete=complete):
+                report = {
+                    "open_questions": [question],
+                    "required_behaviors": ["Correct the result"] if complete else [],
+                    "acceptance_tests": ["Result is mapped"] if complete else [],
+                    "workspace_scope": {
+                        "spans_repositories": True,
+                        "external_parts": [
+                            {"target": "history", "work": "Correct history", "source_quote": "Correct history"}
+                        ],
+                    },
+                }
+                state = {
+                    "settings": {"spec_first": spec_first},
+                    "requirements_handoff": {"report": report},
+                    "next_stage": review.NEXT,
+                }
+                scope_before = review.scope_question.view(state)
+                self.assertEqual([question], review.questions(state))
+                self.assertTrue(review.accepts(state, {"scope": "clarification", "questions": [question]}))
+                state["answers"] = {"example": {"text": "Domain info"}}
+                self.assertTrue(review.questions(state)[0]["id"].startswith("workspace-scope-"))
+                review.after_answers(state)
+                self.assertEqual(review.STAGE, state["next_stage"])
+                self.assertEqual(scope_before, review.scope_question.view(state))
+                state["goal_contract"] = {"revision": 1}
+                state["answers"] = {}
+                self.assertTrue(review.questions(state)[0]["id"].startswith("workspace-scope-"))
 
 
 class RequirementsReviewCliTests(unittest.TestCase):
@@ -98,12 +276,70 @@ class RequirementsReviewCliTests(unittest.TestCase):
         run, view = self.start(*JOINT)
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
 
+    def test_authenticated_joint_build_reaches_plan_without_a_requirements_confirmation(self):
+        from unittest.mock import patch
+
+        import autocode_coordination_store as coordination
+
+        environment = {"AUTOCODE_HOME": str(self.root / "registry")}
+        with patch.dict(os.environ, environment):
+            anchor = str(self.root / "intake/.autocode/runs/fix")
+            project = without_maintenance(materialize(self.scenario.seed, coordination.root(anchor) / "joint-1"))
+            run_dir = project / ".autocode/runs/joint-regression"
+            coordination.save(
+                {
+                    "version": 1,
+                    "anchor": anchor,
+                    "members": [],
+                    "joint": {"workspace": str(project), "run_dir": str(run_dir), "started": False},
+                    "pending": {"operation": "joint_plan_start"},
+                }
+            )
+        flags, provider_env = fake_setup(self.scenario, self.root, self.scenario.dir / "reference")
+        environment = {**provider_env, **environment, "PYTHONDONTWRITEBYTECODE": "1"}
+        environment["PATH"] = os.pathsep.join([str(Path(sys.executable).parent), environment["PATH"]])
+        run = taskrun.TaskRun.start(
+            project,
+            self.scenario.brief,
+            options=(*flags, *JOINT, "--spec-first", "--workflow", "build"),
+            env=environment,
+            timeout=180,
+            cwd=self.root,
+            run_dir=run_dir,
+        )
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
+        self.assertIn("requirements_gather", self.stages(run))
+        self.assertIn("astra_discovery", self.stages(run))
+        self.assertFalse(view.get("approved_contract"))
+        self.assertFalse(any(path.name.startswith("builder-") for path in run.run_dir.glob("iterations/*/*")))
+
+    def test_without_the_setting_a_handoff_that_only_asks_waits_for_the_answer_then_plans(self):
+        # Live (program plan, "build an adaptive learning engine", 2026-10-20): three good questions with empty
+        # acceptance tests were refused as invalid output on the default flow until a person resumed the run.
+        self.scenario = dataclasses.replace(self.scenario, fake_fault="clarifying_requirements")
+        run, view = self.start(*JOINT)
+        need = view.get("needs") or {}
+        self.assertEqual("answer", need.get("kind"), {key: view.get(key) for key in ("status", "next_stage", "needs")})
+        self.assertEqual([clarifying.QUESTION_ID], [row["id"] for row in need["questions"]])
+        self.assertEqual("Requirements", view["progress"]["stage"])
+        self.assertEqual("Waiting for you", view["progress"]["headline"])
+        self.assertNotIn("astra_discovery", self.stages(run))
+        run.answer(clarifying.QUESTION_ID, "Both", resolver_token=need["resolver_token"])
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
+        stages = self.stages(run)
+        self.assertEqual(2, stages.count("requirements_gather"), stages)
+        self.assertIn("astra_discovery", stages)
+
     def test_plan_releases_the_planner_after_the_user_sees_the_requirements(self):
         run, view = self.start(*JOINT, "--spec-first")
         need, question = self.review_need(view)
         self.assertIn("Here’s what I understand", need["questions"][-1]["question"])
         self.assertNotIn("astra_discovery", self.stages(run))
         view = run.answer(question, "plan", resolver_token=need["resolver_token"])
+        self.assertEqual("continue", view["needs"]["kind"])
+        self.assertIn("--no-chat", view["next_command"], "the client must be able to advance the approved brief")
         view = run.advance_until_input()
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
         stages = self.stages(run)

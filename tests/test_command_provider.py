@@ -310,6 +310,20 @@ class CommandProviderTests(unittest.TestCase):
         self.assertIn("leave repository source unchanged", delivery)
         self.assertNotIn("return the report, the runner saves it", prompt)
 
+    def test_report_file_delivery_keeps_its_mechanics_out_of_the_persons_reply(self):
+        # #2558: a read-only Requirements stage told the person "This session's
+        # read-only sandbox blocked saving the required handoff file."
+        write_config(self.home, "quiet", 'name = "quiet"\ncommand = ["tool"]\n' + ROLES)
+        provider = command.load("quiet")
+        prompt = provider.prompt_for_schema(
+            "Task\nCURRENT HANDOFF DATA\n{}", {"type": "object"}, Path("/run/requirements-gather-01.jsonl")
+        )
+        delivery = prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0].rsplit("\nFINAL REPORT DELIVERY\n", 1)[1]
+        self.assertIn(
+            "Never mention this report file, its delivery, the sandbox or a refused write in assistant_reply",
+            delivery,
+        )
+
     def test_native_codex_persistence_does_not_request_reporting_scratch(self):
         write_config(
             self.home,
@@ -369,6 +383,18 @@ class CommandProviderTests(unittest.TestCase):
                 "{report}",
                 "-",
             ],
+            "output_last_message_attached": [
+                "codex",
+                "exec",
+                "-C",
+                "{workspace}",
+                "--model",
+                "{model}",
+                "--output-schema",
+                "{schema}",
+                "--output-last-message={report}",
+                "-",
+            ],
         }
         for name, argv in shapes.items():
             with self.subTest(name=name):
@@ -396,6 +422,15 @@ class CommandProviderTests(unittest.TestCase):
         )
         self.assertFalse(command.codex_sandbox.persists_final_message(["tool"]))
         self.assertFalse(command.codex_sandbox.persists_final_message(["sh", "-c", 'codex exec -o "$6"', "x"]))
+
+    def test_persists_final_message_detects_attached_report_flags(self):
+        self.assertTrue(
+            command.codex_sandbox.persists_final_message(["codex", "exec", "--output-last-message={report}"])
+        )
+        self.assertTrue(command.codex_sandbox.persists_final_message(["codex", "exec", "-o={report}"]))
+        self.assertFalse(
+            command.codex_sandbox.persists_final_message(["codex", "exec", "--output-last-message=elsewhere.json"])
+        )
 
     def test_event_output_resumes_sessions_and_reads_kilo_events(self):
         write_config(
@@ -864,6 +899,31 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             transport_drift=lambda current, saved: current != saved,
             available_models=lambda workspace: ["anthropic/fixture-claude"],
         )
+        # The built-in claude provider: identity version 2 (a launch policy, no config file).
+        self.claude_identity = {
+            "engine": "claude",
+            "identity_version": 2,
+            "adapter": "claude-cli-1",
+            "launch_policy_sha256": "c" * 64,
+            "executable": "/fixture/claude",
+            "version": "2.1.0 (Claude Code)",
+            "project_settings_sha256": None,
+            "environment_sha256": {},
+        }
+        self.claude = SimpleNamespace(
+            NAME="claude",
+            CONFIGURED=True,
+            SUPPORTS_SESSIONS=True,
+            DEFAULT_MODELS={role: "sonnet" for role in self.open.DEFAULT_MODELS},
+            DEFAULT_REASONING_EFFORTS=dict(self.open.DEFAULT_REASONING_EFFORTS),
+            LISTED_MODELS=("haiku", "sonnet", "opus"),
+            BUILDER_RETRY=None,
+            local_settings=mock.Mock(return_value=self.claude_identity),
+            check_models=mock.Mock(),
+            check_subscription_routes=mock.Mock(),
+            transport_drift=lambda current, saved: current != saved,
+            available_models=lambda workspace: ["haiku", "sonnet", "opus"],
+        )
         self.addCleanup(mock.patch.stopall)
         mock.patch.object(self.cli, "opencode", self.open).start()
         mock.patch.object(self.cli.processes, "interrupts_held", side_effect=nullcontext).start()
@@ -877,7 +937,20 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             return self.open
         if name == "kilocode":
             return self.external
+        if name == "claude":
+            return self.claude
         raise RuntimeError(f"no provider config for '{name}'")
+
+    def claude_args(self, *extras):
+        """A new run on Claude Code (--engine claude is provider claude on the facade engine)."""
+        # The CLI resolves the claude facade as the run's tool before it configures (select_provider).
+        mock.patch.object(self.cli, "opencode", self.claude).start()
+        base = self.args()
+        base[base.index("--engine") + 1] = "claude"
+        del base[base.index("--provider") : base.index("--provider") + 2]
+        for role in ("requirements", "glm", "plan-reviewer", "resolver"):
+            base[base.index(f"--{role}-model") + 1] = "sonnet"
+        return [*base, *extras]
 
     def args(self):
         return [
@@ -919,6 +992,34 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         ):
             return self.cli.main()
 
+    def test_saved_resolver_override_changes_only_its_model_and_effort(self):
+        import copy
+
+        self.assertEqual(0, self.cli_configure(self.args()))
+        prior = copy.deepcopy(self.observed[-1])
+        self.assertEqual(
+            0,
+            self.cli_configure(
+                [
+                    "--workspace",
+                    str(self.workspace),
+                    "--resolver-model",
+                    "zai-coding-plan/glm-5.3",
+                    "--resolver-reasoning-effort",
+                    "medium",
+                    "--no-chat",
+                ],
+                saved=prior,
+            ),
+        )
+        selected = self.observed[-1]
+        self.assertEqual("zai-coding-plan/glm-5.3", selected["roles"]["resolver"]["model"])
+        self.assertEqual("medium", selected["roles"]["resolver"]["reasoning_effort"])
+        for role in prior["roles"]:
+            if role != "resolver":
+                self.assertEqual(prior["roles"][role], selected["roles"][role])
+        self.assertEqual(prior["limits"], selected["limits"])
+
     def test_public_cli_changes_only_the_explicit_claude_role(self):
         import copy
 
@@ -938,6 +1039,124 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         self.assertIs(self.external, self.transport.adapter(current, "sol", self.open, self.workspace))
         for role in ("requirements", "glm", "plan_reviewer", "resolver", "terra"):
             self.assertIs(self.open, self.transport.adapter(current, role, self.open, self.workspace))
+
+    def test_a_new_run_takes_the_stage_choices_saved_for_its_backend(self):
+        # Owner decision 2026-10-30: what `autocode stages` saved reaches every new task before it
+        # configures; a typed flag wins, another backend's choices are not read, a saved run keeps its own.
+        import contextlib
+        import io
+
+        import autocode_stage_choices as stage_choices
+
+        def started(base, args, parser, **kwargs):
+            state = {"workspace": str(self.workspace), "task": "A discuss task", "iteration": 1}
+            if self.observed:
+                state["settings"] = self.observed[-1]
+            self.invocation.select_provider(base, args, parser, state, self.workspace)
+            self.observed.append(base.configure(args, state))
+            return 0
+
+        base = self.claude_args()
+        del base[base.index("--reasoning-effort") : base.index("--reasoning-effort") + 2]
+        with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
+            stage_choices.save(
+                {
+                    "claude": {"terra": {"model": "opus", "effort": "low"}, "glm": {"model": "haiku", "effort": "max"}},
+                    "opencode": {"sol": {"model": "zai-coding-plan/glm-5.3", "effort": "low"}},
+                }
+            )
+            for flags, builder, said in (
+                (base, ("opus", "low"), True),
+                ([*base, "--terra-model", "haiku"], ("haiku", "high"), False),
+            ):
+                self.observed.clear()
+                notices = io.StringIO()
+                with (
+                    self.subTest(flags=flags[-2:]),
+                    mock.patch.object(self.invocation, "resolve_and_run", side_effect=started),
+                    mock.patch.object(self.cli.sys, "argv", ["autocode", *flags]),
+                    contextlib.redirect_stderr(notices),
+                ):
+                    self.assertEqual(0, self.cli.main())
+                roles = self.observed[-1]["roles"]
+                self.assertEqual(builder, (roles["terra"]["model"], roles["terra"]["reasoning_effort"]))
+                self.assertEqual("sonnet", roles["glm"]["model"], "the typed --glm-model wins")
+                self.assertEqual("sonnet", roles["sol"]["model"], "OpenCode's choices are not Claude Code's")
+                self.assertEqual(said, "Stage choices from" in notices.getvalue())
+                if said:  # the saved level is the person's stage choice, a ceiling for reviews (2026-11-05)
+                    self.assertEqual("stage_choice", self.observed[-1]["effort_origins"]["terra"])
+            # Resuming the saved run (settings present) takes no choice, even one saved since.
+            stage_choices.save({"claude": {"terra": {"model": "sonnet", "effort": "max"}}})
+            with (
+                mock.patch.object(self.invocation, "resolve_and_run", side_effect=started),
+                mock.patch.object(self.cli.sys, "argv", ["autocode", *base]),
+            ):
+                self.observed[:] = [self.observed[-1]]
+                self.assertEqual(0, self.cli.main())
+            self.assertEqual("haiku", self.observed[-1]["roles"]["terra"]["model"])
+
+    def test_a_run_on_claude_code_binds_one_role_to_another_connected_tool(self):
+        # #2049: the base tool is any provider on the facade engine, not only OpenCode.
+        flags = self.claude_args("--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude")
+        self.assertEqual(0, self.cli_configure(flags))
+        current = self.observed[-1]
+        self.assertEqual(("opencode", "claude"), (current["engine"], current["provider"]))
+        self.assertEqual("kilocode", current["roles"]["sol"]["provider"])
+        self.assertEqual("anthropic/fixture-claude", current["roles"]["sol"]["model"])
+        self.assertEqual(self.external_identity, current["transport_identities"]["role:sol"]["identity"])
+        self.assertIs(self.external, self.transport.adapter(current, "sol", self.claude, self.workspace))
+        for role in ("requirements", "glm", "plan_reviewer", "resolver", "terra"):
+            self.assertEqual("sonnet", current["roles"][role]["model"], role)
+            self.assertIs(self.claude, self.transport.adapter(current, role, self.claude, self.workspace))
+        # Each tool checked only its own role.
+        self.external.check_models.assert_called_once()
+        self.assertEqual({"sol"}, set(self.external.check_models.call_args.args[0]))
+        for call in self.claude.check_models.call_args_list:
+            self.assertNotIn("sol", call.args[0])
+
+    def test_a_role_bound_to_the_run_s_own_tool_or_another_engine_is_refused(self):
+        for flags, reason in (
+            (self.claude_args("--role-transport", "sol=claude", "--sol-model", "opus"), "run's own tool"),
+            (
+                [*self.args(), "--role-transport", "sol=opencode", "--sol-model", "openai/check"],
+                "run's own tool",
+            ),
+        ):
+            with self.subTest(flags=flags), self.assertRaisesRegex(ValueError, reason):
+                self.cli_configure(flags)
+        # Codex is an engine with its own transport, not a facade provider.
+        codex = {"engine": "codex", "provider": None, "roles": {"sol": {"model": "gpt-5"}}}
+        with self.assertRaisesRegex(ValueError, "OpenCode facade engine"):
+            self.transport.configure(
+                codex, SimpleNamespace(role_transport=["sol=kilocode"], sol_model="anthropic/fixture-claude"), None
+            )
+        self.assertNotIn("transport_identities", codex)
+
+    def test_valid_identity_accepts_each_facade_s_own_shape_and_nothing_else(self):
+        valid = self.transport.valid_identity
+        direct = {
+            "engine": "autocode",
+            "identity_version": 1,
+            "executable": "/fixture/python",
+            "version": "direct-1",
+            "config_sha256": "d" * 64,
+            "runtime_sha256": "e" * 64,
+        }
+        self.assertTrue(valid(self.external_identity, "kilocode"))
+        self.assertTrue(valid(self.claude_identity, "claude"))
+        self.assertTrue(valid(direct, "autocode"))
+        for name, identity, provider in (
+            ("other provider", self.claude_identity, "kilocode"),
+            ("v2 without its policy", {**self.claude_identity, "launch_policy_sha256": None}, "claude"),
+            ("v2 claiming v1", {**self.claude_identity, "identity_version": 1}, "claude"),
+            ("v1 with a config hash only", {**self.external_identity, "config_path": ""}, "kilocode"),
+            ("unknown version", {**direct, "identity_version": 3}, "autocode"),
+            ("no executable", {**direct, "executable": ""}, "autocode"),
+            ("short hash", {**direct, "config_sha256": "d" * 63}, "autocode"),
+            ("not a dict", "autocode", "autocode"),
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(valid(identity, provider))
 
     def test_public_cli_refuses_a_saved_role_transport_change(self):
         self.cli_configure(

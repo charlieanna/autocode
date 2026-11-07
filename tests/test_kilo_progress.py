@@ -36,7 +36,13 @@ class KiloProgressTests(unittest.TestCase):
             "UNCHANGED_SENTINEL": "retained",
         }
         original = copy.deepcopy(inherited)
-        with patch.object(self.provider, "_preflight_environment", return_value=inherited.copy()):
+        with (
+            patch.object(self.provider, "_preflight_environment", return_value=inherited.copy()),
+            patch.object(self.provider, "validate_effort"),
+            patch.object(
+                kilocode.kilocode_policy, "restrict", side_effect=lambda argv, child, *args, **kwargs: (argv, child)
+            ),
+        ):
             result = self.provider.launch(
                 role,
                 self.root,
@@ -51,7 +57,7 @@ class KiloProgressTests(unittest.TestCase):
         self.assertEqual(original, inherited, "The caller environment must remain unchanged")
         return result
 
-    def test_ordinary_roles_register_the_real_activity_hook_without_changing_launch_authority(self):
+    def test_ordinary_roles_register_the_real_activity_hook_at_the_policy_boundary(self):
         config = {
             "plugin": ["file:///existing.mjs"],
             "permission": {"read": "deny", "bash": "deny"},
@@ -61,7 +67,8 @@ class KiloProgressTests(unittest.TestCase):
         for role in ("glm", "astra", "plan_reviewer", "terra", "sol", "completion"):
             with self.subTest(role=role):
                 argv, env, saved = self.launch(role, configuration=config)
-                expected = {**config, "plugin": ["file:///existing.mjs", ACTIVITY]}
+                # The launch adds its activity hook and turns Kilo's own compaction off (#1942); nothing else moves.
+                expected = {**config, "plugin": ["file:///existing.mjs", ACTIVITY], "compaction": {"auto": False}}
                 self.assertEqual(expected, json.loads(env["KILO_CONFIG_CONTENT"]))
                 self.assertEqual("retained", env["UNCHANGED_SENTINEL"])
                 self.assertEqual(

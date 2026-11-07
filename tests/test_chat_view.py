@@ -6,6 +6,7 @@ import shlex
 import unittest
 from pathlib import Path
 
+import autocode_chat_history as chat_history
 import autocode_chat_view as chat
 import autocode_requirements_review as requirements_review
 import autocode_run_view as run_view
@@ -14,6 +15,63 @@ import goal_fixtures
 
 
 class ChatViewTests(unittest.TestCase):
+    def test_idle_unapproved_planning_handoff_offers_feedback_only_when_ready(self):
+        state = {
+            "status": "RUNNING",
+            "phase": "PLANNING",
+            "next_stage": "astra_challenge",
+            "goal_contract": {"approval_status": "draft"},
+        }
+        public = {"status": "RUNNING", "needs": {"kind": "continue"}, "controller": {"kind": "ready"}}
+        result = chat.project(state, public, workspace="/ws", run_dir="/run")
+        self.assertEqual("feedback", result["input"]["kind"])
+        self.assertEqual(["--feedback", "MESSAGE"], shlex.split(result["input"]["next_command"])[-2:])
+        for change in ({"controller": {"kind": "running"}}, {"controller": {}}, {"needs": {"kind": "resume"}}):
+            with self.subTest(change=change):
+                self.assertIsNone(chat.project(state, {**public, **change}, workspace="/ws", run_dir="/run")["input"])
+
+    def test_semantic_stops_offer_only_the_permitted_named_feedback_action(self):
+        for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
+            with self.subTest(status=status):
+                state = {"status": status, "task": "Fix the total"}
+                before = copy.deepcopy(state)
+                result = self.project(state, "resume")
+                self.assertEqual("feedback", result["input"]["kind"])
+                self.assertEqual(
+                    [
+                        "autocode",
+                        "--workspace",
+                        "/a project",
+                        "--run-dir",
+                        "/a project/.autocode/run",
+                        "--feedback",
+                        "MESSAGE",
+                    ],
+                    shlex.split(result["input"]["next_command"]),
+                )
+                self.assertEqual(before, state)
+
+    def test_semantic_feedback_does_not_bypass_operational_or_human_gates(self):
+        import autocode_goals as goals
+
+        for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
+            for extra in (
+                {"user_request": {"kind": "human_review"}},
+                {"user_request": {"kind": "blocker"}},
+                {
+                    goals.RESOLVER_PROPOSAL_KEY: {
+                        "scope": "operational_exhaustion",
+                        "origin": {"pause_status": "PAUSED_COST_LIMIT"},
+                    }
+                },
+            ):
+                with self.subTest(status=status, extra=extra):
+                    self.assertIsNone(self.project({"status": status, **extra}, "resume")["input"])
+            self.assertIsNone(self.project({"status": status}, "continue")["input"])
+            for scope in ("blocker", "operational_exhaustion"):
+                public = {"status": status, "needs": {"kind": "resume", "resolver_scope": scope}}
+                self.assertIsNone(chat.project({"status": status}, public, workspace="/ws", run_dir="/run")["input"])
+
     def test_spend_confirmation_is_offered_at_the_bound_prepare_plan_answer(self):
         state = {
             "status": "WAITING_FOR_USER",
@@ -35,6 +93,24 @@ class ChatViewTests(unittest.TestCase):
         public["needs"]["questions"] = [{"id": "clarify", "question": "What should we build?"}]
         self.assertIsNone(chat.project(state, public)["review"])
 
+    def test_new_bugfix_confirmation_describes_planning_and_keeps_legacy_offers(self):
+        for standard in (False, True):
+            with self.subTest(standard=standard):
+                state = {
+                    "status": "WAITING_FOR_USER",
+                    "settings": {"spec_first": True},
+                    "requirements_handoff": {"report": {"job": "bugfix", "intended_outcome": "Fix history"}},
+                }
+                if standard:
+                    state["settings"]["implementation_flow"] = "standard"
+                question = requirements_review.review_question(state)
+                public = {"status": state["status"], "needs": {"kind": "answer", "questions": [question]}}
+                offer = chat.project(state, public)["review"]
+                expected = "build" if standard else "bugfix"
+                self.assertEqual(chat.APPROVAL_OFFERS[expected][0], offer["label"])
+                self.assertEqual(chat.APPROVAL_OFFERS[expected][1], offer["spend_confirmation"]["title"])
+                self.assertEqual("plan", offer["answer"])
+
     def test_connection_stop_explains_the_user_action_without_dashboard_jargon(self):
         state = {"status": "PAUSED_TRANSPORT_CHANGED", "task": "Make it friendlier"}
         result = self.project(state, need="resume")
@@ -49,6 +125,12 @@ class ChatViewTests(unittest.TestCase):
                 self.assertNotIn("Paused", text)
                 self.assertNotIn("no task list", text)
 
+    def test_a_failed_step_names_no_control_only_one_client_has(self):
+        # The terminal chat has no "Run details" button; every client shows the run's details its own way.
+        text = chat.notice({"status": "PAUSED_JOB_FAILURE"})
+        self.assertEqual("I couldn’t finish this step. The run’s details say what needs attention.", text)
+        self.assertNotIn("Run details", text)
+
     def test_a_pause_someone_asked_for_is_not_reported_as_a_failure(self):
         for status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
             with self.subTest(status=status):
@@ -56,6 +138,37 @@ class ChatViewTests(unittest.TestCase):
                 self.assertIn("Paused as you asked", text)
                 self.assertNotIn("couldn’t finish", text)
         self.assertIn("couldn’t finish", chat.notice({"status": "PAUSED_JOB_FAILURE"}))
+        applying = chat.notice({"status": "PAUSED_INTERVENTION_PENDING"})
+        self.assertIn("Paused to apply your request", applying)
+        self.assertNotIn("couldn’t finish", applying)
+
+    def test_applied_feedback_does_not_claim_the_person_requested_a_pause(self):
+        for stage in ("Requirements discovery", "Planner revision"):
+            public = {
+                "status": "PAUSED_INTERVENTION",
+                "needs": {"kind": "resume", "reason": f"Queued feedback was applied; explicitly continue to {stage}."},
+            }
+            before = copy.deepcopy(public)
+            self.assertEqual("Feedback applied. Your work is saved; continue to update the plan.", chat.notice(public))
+            self.assertEqual(before, public)
+        # A real pause request and a different pending action retain their own explanations.
+        for status, reason in (
+            ("PAUSED_INTERVENTION", "Queued pause was applied; explicitly resume when ready."),
+            ("PAUSED_REQUESTED", "Queued feedback was applied; explicitly continue to Planner revision."),
+        ):
+            self.assertIn("Paused as you asked", chat.notice({"status": status, "needs": {"reason": reason}}))
+
+    def test_a_run_autocode_ended_itself_says_why_and_asks_nothing(self):
+        # #2485: AutoCode's own end is not "paused as you asked", and names no flag, token or packet.
+        ended = {"status": "PAUSED_INTERVENTION", "recovery": {"outcome": {"reason": "the sol check kept failing: x."}}}
+        text = chat.notice(ended)
+        self.assertEqual(
+            "I couldn’t finish this task: the sol check kept failing: x. Your work so far is saved; new work is a new task.",
+            text,
+        )
+        self.assertIn(
+            "Paused as you asked", chat.notice({"status": "PAUSED_INTERVENTION", "recovery": {"outcome": None}})
+        )
 
     def test_running_notice_gates_on_live_supervision_only(self):
         self.assertEqual(
@@ -98,6 +211,59 @@ class ChatViewTests(unittest.TestCase):
         state["status"] = "RUNNING"
         self.assertIsNone(self.project(state, "continue")["input"])
 
+    def test_invalid_planning_reports_offer_correction_without_retry_or_approval(self):
+        import autocode_roles as roles
+
+        for stage in (*roles.ALL_PLANNING_STAGES, "write_acceptance_tests"):
+            with self.subTest(stage=stage):
+                state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": stage, "task": "Fix it"}
+                before = copy.deepcopy(state)
+                result = self.project(state, "resume")
+                self.assertEqual("feedback", result["input"]["kind"])
+                self.assertEqual(
+                    [
+                        "autocode",
+                        "--workspace",
+                        "/a project",
+                        "--run-dir",
+                        "/a project/.autocode/run",
+                        "--feedback",
+                        "MESSAGE",
+                    ],
+                    shlex.split(result["input"]["next_command"]),
+                )
+                self.assertEqual(before, state)
+
+    def test_invalid_execution_reports_and_person_only_holds_offer_no_correction(self):
+        for stage in (None, "unknown", "terra", "sol", "astra_review", "investigate_bug"):
+            with self.subTest(stage=stage):
+                state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": stage}
+                self.assertIsNone(self.project(state, "resume")["input"])
+        for stage in ("astra_finalize", "write_acceptance_tests"):
+            for request in ({"kind": "human_review"}, {"kind": "blocker"}):
+                state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": stage, "user_request": request}
+                self.assertIsNone(self.project(state, "resume")["input"])
+
+    def test_invalid_planning_report_does_not_release_held_operational_authority(self):
+        import autocode_goals as goals
+
+        state = {
+            "status": "PAUSED_INVALID_OUTPUT",
+            "next_stage": "astra_finalize",
+            goals.RESOLVER_PROPOSAL_KEY: {
+                "scope": "operational_exhaustion",
+                "origin": {"pause_status": "PAUSED_TIME_LIMIT"},
+            },
+        }
+        self.assertIsNone(self.project(state, "resume")["input"])
+        state["next_stage"] = "write_acceptance_tests"
+        self.assertIsNone(self.project(state, "resume")["input"])
+
+    def test_a_retained_invalid_report_does_not_offer_feedback_while_running(self):
+        state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "astra_finalize"}
+        public = {"status": "RUNNING", "needs": {"kind": "continue"}}
+        self.assertIsNone(chat.project(state, public, workspace="/ws", run_dir="/run")["input"])
+
     def test_operational_pause_and_human_review_cannot_be_bypassed_with_feedback(self):
         for request in (
             {"kind": "human_review"},
@@ -109,6 +275,22 @@ class ChatViewTests(unittest.TestCase):
                 "needs": {"kind": "answer", "resolver_scope": "operational_exhaustion"},
             }
             self.assertIsNone(chat.project(state, public, workspace="/ws", run_dir="/run")["input"])
+
+    def test_the_testers_pause_offers_plan_feedback_unless_it_is_operational(self):
+        state = {"status": "PAUSED_ACCEPTANCE_TESTS", "task": "Fix it"}
+        public = {"status": state["status"], "needs": {"kind": "resume"}}
+        result = chat.project(state, public, workspace="/ws", run_dir="/run")
+        self.assertEqual("feedback", result["input"]["kind"])
+        self.assertEqual(
+            ["autocode", "--workspace", "/ws", "--run-dir", "/run", "--feedback", "MESSAGE"],
+            shlex.split(result["input"]["next_command"]),
+        )
+        held = {**state, "status": "WAITING_FOR_USER", "user_request": {"kind": "blocker"}}
+        public = {"status": held["status"], "needs": {"kind": "answer", "resolver_scope": "operational_exhaustion"}}
+        self.assertIsNone(chat.project(held, public, workspace="/ws", run_dir="/run")["input"])
+        other = {"status": "PAUSED_REPEATED_FAILURE"}
+        public = {"status": other["status"], "needs": {"kind": "resume"}}
+        self.assertIsNone(chat.project(other, public, workspace="/ws", run_dir="/run")["input"])
 
     def test_pending_operational_request_offers_bound_reply_only(self):
         state = {"status": "WAITING_FOR_USER", "user_request": {"kind": "blocker"}}
@@ -208,7 +390,7 @@ class ChatViewTests(unittest.TestCase):
                 if scope == "operational_exhaustion":
                     self.assertIn(public["recovery"]["what_happened"], text)
                     self.assertNotIn("HTTP 401", text)
-                    self.assertIn("Run details", text)
+                    self.assertIn("details say what needs attention", text)
                     self.assertIn("does not authorize a retry", text)
                     self.assertNotIn("--abandon-stage", text)
                 else:
@@ -241,7 +423,7 @@ class ChatViewTests(unittest.TestCase):
                 result = chat.project(state, public, workspace="/ws", run_dir="/run")
                 text = result["messages"][0]["text"]
                 self.assertIn("couldn’t finish", text)
-                self.assertIn("Run details", text)
+                self.assertIn("details say what needs attention", text)
                 self.assertIn("Reply with what changed", text)
                 self.assertIn("does not authorize a retry", text)
                 for raw in ("requirements_gather", "assistant_reply", "output probe", "Cross-model"):
@@ -275,7 +457,7 @@ class ChatViewTests(unittest.TestCase):
         view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
         text = view["chat"]["messages"][0]["text"]
         self.assertIn("The same step repeatedly failed.", text)
-        self.assertIn("Run details", text)
+        self.assertIn("details say what needs attention", text)
         for raw in ("requirements_gather", "assistant_reply", "output probe"):
             self.assertNotIn(raw, text)
         self.assertEqual(cause, view["recovery"]["saved_reason"])
@@ -317,9 +499,116 @@ class ChatViewTests(unittest.TestCase):
             with self.subTest(need=open_need):
                 public = {"status": state["status"], "needs": open_need}
                 result = chat.project(state, public, workspace="/ws", run_dir="/run")
-                self.assertEqual(["requirements-question"], [row["id"] for row in result["messages"]])
+                [message] = result["messages"]
+                self.assertTrue(message["id"].startswith("requirements-question-"))
                 self.assertEqual(question, result["messages"][0]["text"])
                 self.assertIsNone(result["input"])
+
+    def test_each_requirements_question_is_its_own_message(self):
+        # A client shows a message id once, so a shared id hid every question after the first (#1792).
+        def ids(question_id, text):
+            need = {"kind": "answer", "questions": [{"id": question_id, "question": text, "options": []}]}
+            state = {
+                "status": "WAITING_FOR_USER",
+                "settings": {"spec_first": True},
+                "next_stage": "requirements_gather",
+            }
+            result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
+            return [row["id"] for row in result["messages"] if row["id"].startswith(chat.REQUIREMENTS_QUESTION)]
+
+        first, again = ids("Q1", "Who is it for?"), ids("Q1", "Who is it for?")
+        second = ids("Q2", "What should happen with no name?")
+        self.assertEqual(first, again, "the same question keeps its id across reads")
+        self.assertEqual(1, len(first))
+        self.assertNotEqual(first, second)
+
+    def test_automatic_repository_routing_is_not_presented_as_a_requirements_question(self):
+        for coordinated in ("anchor", "member", "manual"):
+            with self.subTest(coordinated=coordinated):
+                state = {
+                    "status": "WAITING_FOR_USER",
+                    "settings": {"spec_first": True, "coordination_member": coordinated == "member"},
+                    "next_stage": "astra_discovery",
+                    "requirements_handoff": {
+                        "report": {
+                            "assistant_reply": "I understand the history should identify the operation.",
+                            "workspace_scope": {
+                                "spans_repositories": True,
+                                "external_parts": [
+                                    {
+                                        "target": "history",
+                                        "work": "Preserve the operation",
+                                        "source_quote": "Fix history",
+                                    }
+                                ],
+                            },
+                        }
+                    },
+                }
+                scope = requirements_review.scope_question.question(state)
+                self.assertIsNotNone(scope)
+                public = {"status": state["status"], "needs": {"kind": "answer", "questions": [scope]}}
+                if coordinated == "anchor":
+                    public["coordination"] = {"version": 1, "status_command": ["named-coordinator-status"]}
+                before = copy.deepcopy((state, public))
+                result = chat.project(state, public, workspace="/ws", run_dir="/run")
+                asked = [row for row in result["messages"] if row["id"].startswith(chat.REQUIREMENTS_QUESTION)]
+                self.assertEqual([scope["question"]] if coordinated == "manual" else [], [row["text"] for row in asked])
+                self.assertIn(
+                    state["requirements_handoff"]["report"]["assistant_reply"],
+                    [row["text"] for row in result["messages"]],
+                )
+                self.assertEqual(before, (state, public), "rendering must not answer or remove the scope gate")
+                genuine = {"id": "Q1", "question": "Which operation is missing?", "options": []}
+                public["needs"]["questions"] = [genuine]
+                result = chat.project(state, public, workspace="/ws", run_dir="/run")
+                self.assertIn(genuine["question"], [row["text"] for row in result["messages"]])
+
+    def test_a_report_repair_note_never_displaces_the_question_the_person_must_answer(self):
+        # The Requirements stage's own prose is not always a question: after a report repair
+        # it describes the repair, and a client asks whatever this message carries.
+        note = "Repaired the rejected requirements report by adding the missing acceptance_tests field."
+        question = "Should non-ASCII letters count as alphanumeric?"
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "next_stage": "requirements_gather",
+            "requirements_handoff": {"report": {"assistant_reply": note}},
+        }
+        need = {"kind": "answer", "questions": [{"id": "Q1", "question": question, "options": []}]}
+        result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
+        asked = [row for row in result["messages"] if row["id"].startswith(chat.REQUIREMENTS_QUESTION)]
+        self.assertEqual([question], [row["text"] for row in asked])
+        # The stage's own words are kept beside the question, never in place of it.
+        said = [row for row in result["messages"] if row["id"].startswith(chat.REQUIREMENTS_SAY)]
+        self.assertEqual([note], [row["text"] for row in said])
+
+    def test_the_stage_prose_is_not_repeated_when_it_already_is_the_question(self):
+        question = "Should non-ASCII letters count as alphanumeric?"
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "next_stage": "requirements_gather",
+            "requirements_handoff": {"report": {"assistant_reply": question}},
+        }
+        need = {"kind": "answer", "questions": [{"id": "Q1", "question": question, "options": []}]}
+        result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
+        self.assertEqual([question], [row["text"] for row in result["messages"]])
+
+    def test_a_greeting_with_the_complete_question_is_one_question_message(self):
+        question = "Should I investigate the history entry or fix the display?"
+        spoken = f"Hi! {question}"
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "next_stage": "requirements_gather",
+            "requirements_handoff": {"report": {"assistant_reply": spoken}},
+        }
+        need = {"kind": "answer", "questions": [{"id": "Q1", "question": question, "options": []}]}
+        result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
+        self.assertEqual([spoken], [row["text"] for row in result["messages"]])
+        self.assertTrue(result["messages"][0]["id"].startswith(chat.REQUIREMENTS_QUESTION))
+        self.assertEqual("feedback", result["input"]["kind"])
 
     def test_history_preserves_original_request_answers_feedback_and_followups(self):
         state = {
@@ -472,6 +761,81 @@ class ChatViewTests(unittest.TestCase):
         rows = self.project(state, "continue")["messages"]
         self.assertEqual(["Explain it", "It uses a queue.", "Add a test"], [row["text"] for row in rows])
 
+    def test_a_completed_task_worktree_run_says_where_its_work_is(self):
+        """The completion message names the branch and the merge and clean-up commands (#2344)."""
+        state = {
+            "status": "TASK_COMPLETE",
+            "task": "Add a goodbye script",
+            "task_branch": "autocode/add-a-goodbye-script-4e8c",
+            "project_workspace": "/a project",
+            "workspace": "/a project/.autocode/worktrees/add-a-goodbye-script-4e8c",
+            "final_decision": {"report": {"summary": "The script prints goodbye."}},
+        }
+        text = self.project(state, "done", True)["messages"][-1]["text"]
+        self.assertTrue(
+            text.startswith("The script prints goodbye.\n\nDelivered on branch autocode/add-a-goodbye"), text
+        )
+        self.assertIn(
+            "autocode merge --workspace '/a project' '/a project/.autocode/worktrees/add-a-goodbye-script-4e8c'", text
+        )
+        self.assertIn("autocode clean-worktrees --workspace '/a project' --yes", text)
+        in_place = {"status": "TASK_COMPLETE", "task": "Add it", "workspace": "/a project"}
+        self.assertEqual(
+            "The requested task is complete.", self.project(in_place, "done", True)["messages"][-1]["text"]
+        )
+
+    def test_a_bootstrapped_project_is_named_in_the_conversation_once(self):
+        state = {
+            "status": "RUNNING",
+            "task": "Build wordcount.py",
+            "workspace_bootstrap": {
+                "selected": "/tmp/notes",
+                "project": "/tmp/notes/autocode-projects/build-wordcount-py-47003121",
+            },
+        }
+        rows = self.project(state, "continue")["messages"]
+        self.assertEqual(["user", "assistant"], [row["role"] for row in rows])
+        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, rows[1]["id"])
+        self.assertIn("/tmp/notes is not a Git repository", rows[1]["text"])
+        self.assertIn("autocode-projects/build-wordcount-py-47003121", rows[1]["text"])
+        # One disclosure for the whole run: a later turn does not repeat it.
+        state["user_events"] = [{"kind": "brief_feedback", "id": "f1", "text": "Add a test"}]
+        later = self.project(state, "continue")["messages"]
+        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, later[1]["id"])
+        self.assertEqual(1, sum(row["id"] == chat_history.BOOTSTRAP_NOTICE for row in later))
+        self.assertIn("Add a test", [row["text"] for row in later][-1])
+
+    def test_an_empty_folder_that_became_the_project_says_so_and_a_repository_says_nothing(self):
+        state = {
+            "status": "RUNNING",
+            "task": "Build it",
+            "workspace_bootstrap": {"selected": "/tmp/empty", "project": "/tmp/empty"},
+        }
+        rows = self.project(state, "continue")["messages"]
+        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, rows[1]["id"])
+        self.assertIn("was not a Git repository", rows[1]["text"])
+        self.assertIn("/tmp/empty", rows[1]["text"])
+        del state["workspace_bootstrap"]
+        self.assertEqual(["Build it"], [row["text"] for row in self.project(state, "continue")["messages"]])
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClarificationResolverOfferTests(unittest.TestCase):
+    def test_a_clarification_with_a_question_takes_the_answer_path_not_the_bound_reply(self):
+        # The needs table names --answer for a clarification that carries questions
+        # (pause_command); the bound provide_information reply belongs to the
+        # blocker/operational stops. A clarification must not hijack the answer flow.
+        state = {"status": "WAITING_FOR_USER"}
+        need = {
+            "kind": "answer",
+            "resolver_scope": "clarification",
+            "resolver_request_id": "req-7",
+            "resolver_token": "current-token",
+            "questions": [{"id": "q1", "question": "Which language?", "options": ["Python", "Rust"]}],
+        }
+        public = {"status": state["status"], "needs": need}
+        result = chat.project(state, public, workspace="/ws", run_dir="/run")
+        self.assertNotEqual("resolver_response", (result["input"] or {}).get("kind"))

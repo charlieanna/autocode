@@ -13,8 +13,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_planning_recovery_policy as planning_recovery_policy
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_prompts as prompts
 
 
@@ -24,7 +26,6 @@ import os
 import subprocess
 import sys
 import time
-import uuid
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, cast
@@ -33,56 +34,60 @@ try:
     from . import autocode_action_resolver as action_resolver
     from . import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     from . import autocode_interaction_timing as interaction_timing
-    from . import autocode_provider_env as provider_env
     from . import autocode_route_advisory as route_advisory
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
     import autocode_action_resolver as action_resolver
     import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     import autocode_interaction_timing as interaction_timing
-    import autocode_provider_env as provider_env
     import autocode_route_advisory as route_advisory
     from autocode_model_inventory import InvocationInventory  # noqa: F401 - compatibility API supplied to invocation helpers
 
 # isort: off
 # fmt: off
 try:
-    from . import autocode_native_image as native_image, autocode_native_invocation as native_invocation
+    from . import autocode_native_image as native_image, autocode_native_invocation as native_invocation, autocode_report_repair_route as repair_route
 except ImportError:
     import autocode_native_image as native_image
     import autocode_native_invocation as native_invocation
+    import autocode_report_repair_route as repair_route
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs  # noqa: F401 - compatibility API
-    from . import autocode_classification_recovery as classification_recovery
+    from . import autocode_classification_recovery as classification_recovery  # noqa: F401 - compatibility API
     from . import autocode_network_retry as network_retry
+    from . import autocode_investigation_progress as investigation_progress
     from . import autocode_launch_inputs as launch_inputs, autocode_parent_boundary as parent_boundary  # noqa: F401 - compatibility API
-    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, autocode_preflight_attempts as preflight_attempts, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
-    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
+    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_check_refs as check_refs, autocode_planning_metadata as planning_metadata, autocode_preflight_attempts as preflight_attempts, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
+    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_report_edits as report_edits, autocode_provider_report_schema as provider_report_schema, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
-    from . import autocode_run_status as run_status, autocode_report_repair_queue as report_repair_queue
+    from . import autocode_run_status as run_status, autocode_report_repair_queue as report_repair_queue, autocode_rejection_route as rejection_route, autocode_review_effort as review_effort, autocode_route_fit as route_fit, autocode_report_identity as report_identity
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
     from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy, autocode_approval_provenance as approval_provenance  # noqa: F401 - compatibility API
 except ImportError:
-    import autocode_classification_recovery as classification_recovery
+    import autocode_classification_recovery as classification_recovery  # noqa: F401 - compatibility API
     import autocode_network_retry as network_retry
     import autocode_launch_inputs as launch_inputs  # noqa: F401 - compatibility API
     import autocode_parent_boundary as parent_boundary  # noqa: F401 - compatibility API
     import autocode_source_scope as source_scope
-    import autocode_source_diff as source_diff
+    import autocode_source_diff as source_diff  # noqa: F401 - compatibility API
     import autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
     import autocode_verbose as verbose
     import autocode_status
     import autocode_artifacts as artifacts
     import autocode_report_repair_context as report_repair_context
+    import autocode_report_edits as report_edits
+    import autocode_provider_report_schema as provider_report_schema
     import autocode_receipt_repair_context as receipt_repair_context
     import autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     import autocode_regression as regression
     import autocode_format_correction as format_correction
-    import autocode_cmd_only_report as cmd_only
+    import autocode_cmd_only_report as cmd_only  # noqa: F401 - report loader compatibility API
+    import autocode_check_refs as check_refs  # noqa: F401 - report loader compatibility API
     import autocode_support as support
     import autocode_completion as completion_gate
     import autocode_jobs as jobs
+    import autocode_investigation_progress as investigation_progress
     import autocode_agent_env as agent_env
     import autocode_worktrees as worktrees  # noqa: F401 - compatibility API
     import autocode_util as util
@@ -101,6 +106,10 @@ except ImportError:
     import autocode_stop as stop_policy
     import autocode_run_status as run_status
     import autocode_report_repair_queue as report_repair_queue
+    import autocode_rejection_route as rejection_route
+    import autocode_review_effort as review_effort
+    import autocode_route_fit as route_fit
+    import autocode_report_identity as report_identity  # noqa: F401 - report loader compatibility API
     import autocode_status as status_records
     import autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     import autocode_supervision as supervision
@@ -115,9 +124,9 @@ except ImportError:
     import autocode_rework_policy as rework_policy  # noqa: F401 - compatibility API
     import autocode_escalation as escalation
     import autocode_failures as failures
-    import autocode_planning_metadata as planning_metadata
+    import autocode_planning_metadata as planning_metadata  # noqa: F401 - report loader compatibility API
     import autocode_pause_command as pause_command
-    import autocode_resolver_recovery as resolver_recovery
+    import autocode_resolver_recovery as resolver_recovery  # noqa: F401 - compatibility API
     import autocode_visual_runtime as visual_runtime
     import autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
     import autocode_run_view as run_view  # noqa: F401 - compatibility API
@@ -131,6 +140,7 @@ except ImportError:
 
 try:
     from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_auth as provider_auth, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    from . import autocode_stage_stops as stage_stops
     from . import autocode_workspaces as task_workspaces, autocode_figma as figma  # noqa: F401 - compatibility API
     from . import autopilot  # noqa: F401 - compatibility API
     from . import autocode_workflow as workflow  # noqa: F401 - compatibility API
@@ -139,6 +149,7 @@ try:
     from . import autocode_resolver_runtime as resolver_runtime  # noqa: F401 - compatibility API
     from . import autocode_resolver_human as resolver_human  # noqa: F401 - compatibility API
     from . import autocode_reviewer_fallback as reviewer_fallback  # noqa: F401 - compatibility API
+    from . import autocode_role_launch as role_launch
     from . import autocode_planning_artifacts as planning_artifacts  # noqa: F401 - compatibility API
     from . import autocode_pause_command as pause_command  # noqa: F401 - compatibility API supplied to invocation helpers
     from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants  # noqa: F401 - compatibility API
@@ -149,11 +160,12 @@ try:
     from . import autocode_route_ladder as route_ladder
     from . import autocode_configure, autocode_joint_transport as joint_transport, autocode_role_transport as role_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup  # noqa: F401 - compatibility API
     from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap  # noqa: F401 - compatibility API
-    from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,  # noqa: F401 - compatibility API
+    from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage, set_aside_at_completion_gate,  # noqa: F401 - compatibility API
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
-    from .autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
+    from .autocode_report_source import (
+        load_stage_report as read_stage_report, REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)  # noqa: F401 - compatibility API
     from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
     from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
@@ -161,8 +173,8 @@ try:
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
-        prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
-        recover_legacy_report_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
+        prepare_exhausted_execution_report_retry, prepare_timeout_archived_completion, prepare_planning_retry, reconcile_rate_limited_stage,
+        recover_legacy_report_repair, restart_unlaunchable_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
     from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT  # noqa: F401 - compatibility API
     from . import autocode_idle_policy as idle_policy  # noqa: F401 - compatibility API
 except ImportError:
@@ -170,6 +182,7 @@ except ImportError:
     import autocode_job_failure as job_failure
     import autocode_provider_auth as provider_auth  # noqa: F401 - compatibility API
     import autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    import autocode_stage_stops as stage_stops
     import autocode_workspaces as task_workspaces  # noqa: F401 - compatibility API
     import autocode_figma as figma  # noqa: F401 - compatibility API
     import autopilot  # noqa: F401 - compatibility API
@@ -179,6 +192,7 @@ except ImportError:
     import autocode_resolver_runtime as resolver_runtime  # noqa: F401 - compatibility API
     import autocode_resolver_human as resolver_human  # noqa: F401 - compatibility API
     import autocode_reviewer_fallback as reviewer_fallback  # noqa: F401 - compatibility API
+    import autocode_role_launch as role_launch
     import autocode_planning_artifacts as planning_artifacts  # noqa: F401 - compatibility API
     import autocode_budget_recovery as budget_recovery
     import autocode_recovery_limits as recovery_limits
@@ -197,11 +211,12 @@ except ImportError:
     import autocode_run_setup as run_setup  # noqa: F401 - compatibility API
     import autocode_output_policy as output_policy
     import autocode_output_cap as output_cap  # noqa: F401 - compatibility API
-    from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,  # noqa: F401 - compatibility API
+    from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage, set_aside_at_completion_gate,  # noqa: F401 - compatibility API
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
-    from autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
+    from autocode_report_source import (
+        load_stage_report as read_stage_report, REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)  # noqa: F401 - compatibility API
     from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
     from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
@@ -209,8 +224,8 @@ except ImportError:
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
-        prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
-        recover_legacy_report_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
+        prepare_exhausted_execution_report_retry, prepare_timeout_archived_completion, prepare_planning_retry, reconcile_rate_limited_stage,
+        recover_legacy_report_repair, restart_unlaunchable_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
     from autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT  # noqa: F401 - compatibility API
     import autocode_idle_policy as idle_policy  # noqa: F401 - compatibility API
 # fmt: on
@@ -314,113 +329,29 @@ slug = util.slug
 
 
 def load_stage_report(record, workspace=None, evidence_record=None, state: RunState | None = None):
-    """Validate provider output, retaining raw bytes before hydrating review IDs."""
-    readonly_events.assert_unchanged_review(record, workspace=workspace)
-    if evidence_record:
-        readonly_events.assert_unchanged_review(evidence_record, workspace=workspace)
-    rework_policy.verify_existing(record)
-    value = completed_provider_report(
-        record,
-        opencode_report=role_transport.report_reader(state, record, opencode, workspace),
-        read_object=util.read_object,
-        persist=write_json,
-    )
-    reported = copy.deepcopy(cmd_only.refuse(value, record.get("schema")))  # never a report, never run (#512)
-    value = (
-        planning.fill_trace_id(state, str(record.get("stage", "")).removesuffix("_report_repair"), value)
-        if state
-        else value
-    )
-    value = default_missing_provenance(
-        normalize_plan_challenge_blocking(planning_metadata.normalize_planning_metadata(value, state, record), record),
-        record,
-    )
-    evidence_record = evidence_record or record
-    validation = value.get("validation", value)
-    checks = validation.get("checks") if isinstance(validation, dict) else None
-    if isinstance(checks, list) and (
-        (record.get("stage") == "sol" and workspace is not None)
-        or any(isinstance(check, dict) and check.get("exit_code") is None for check in checks)
-    ):
-        if workspace is None:
-            raise ValueError("Cannot derive check metadata without the validation workspace")
-        support.verify_checks(checks, workspace, evidence_record["events"], **check_evidence_options(evidence_record))
-    schema = support.review_validation_schema(read_json(Path(record["schema"])), state, record, value)
-    value = support.normalize_absent_authority(value, schema, record)
-    # finding_dispositions may be present in reports validated against schemas
-    # saved before the field was introduced. Strip it before validation rather
-    # than rejecting a correct report.
-    if "finding_dispositions" not in schema.get("properties", {}) and "finding_dispositions" in value:
-        stripped = {k: v for k, v in value.items() if k != "finding_dispositions"}
-        support.validate_schema(stripped, schema)
-    else:
-        support.validate_schema(value, schema)
-    value = support.hydrate_review_report(value, state, record)
-    if value != reported:
-        original = Path(record["output"]).with_suffix(".reported.json")
-        if original.exists():
-            if read_json(original) != reported:
-                raise ValueError("Preserved raw report differs; reconcile before normalization")
-        else:
-            write_json(original, reported)
-        record["reported_output"] = str(original)
-        record["derived_check_metadata"] = [
-            {
-                "check_index": index,
-                "field": "exit_code",
-                "value": check["exit_code"],
-                "evidence_ref": check["evidence_ref"],
-                "events": evidence_record["events"],
-            }
-            for index, check in enumerate(checks or [])
-            if (reported.get("validation", reported)["checks"][index]).get("exit_code") is None
-        ]
-    if (record.get("engine") == "opencode" and record.get("output_mode") != "report_file") or value != reported:
-        write_json(Path(record["output"]), value)
-    return rework_policy.capture(record, value) if workspace is not None else value
+    return read_stage_report(sys.modules[__name__], record, workspace, evidence_record, state)
 
 
 ReportRepairQueued = report_repair_queue.ReportRepairQueued  # a finished request needs report-only repair
 
 
 def reset_report_repair_for_resume(state: RunState):
-    """Clear the bounded report-repair attempt count for an explicit resume.
-
-    Mirrors resolver_runtime.reset_for_resume: the count is a current-cycle
-    allowance an operator can renew after fixing the underlying cause, not a
-    lifetime cap, but clearing it is recorded rather than silent, and the
-    erased attempts fold into a lifetime total this function never resets.
-    """
-    pending = state.get("pending_report_repair")
-    if not isinstance(pending, dict):
-        return
-    prior = pending.get("attempts", 0)
-    pending["attempts"] = 0
-    if not prior:
-        return
-    state["report_repair_lifetime_attempts"] = state.get("report_repair_lifetime_attempts", 0) + prior
-    state.setdefault("user_events", []).append(
-        {
-            "kind": "report_repair_resume_epoch",
-            "actor": "user_cli",
-            "at": now(),
-            "cleared_attempts": prior,
-            "lifetime_attempts": state["report_repair_lifetime_attempts"],
-        }
-    )
+    report_repair_queue.reset_for_resume(state, now=now)
 
 
 REPAIR_HANDOFF_BYTES = 256 * 1024
 
 
 def reject_completed_stage(state: RunState, run_dir, record, error):
-    result_application.raise_if_uncertain(error)
+    set_aside_at_completion_gate(state, run_dir, record, error, persist=write_json)  # a gate pause re-raises here
+    result_application.raise_if_not_rejected(error)
     account_stage(state, record)
     error = stray_writes.undo(state, record, error)  # a read-only stage's writes are put back first
     failure = failures.record(state, record, error, now())
     originals = archive_rejected_stage(state, run_dir, record, error)
-    if report_repair_queue.queue(state, record, error, completed=lambda: stage_completed(state, record)):
-        run_status.running(state, "REPORT_REPAIR")
+    asked = rejection_route.reroute(state, record, error, resolver_human.queue)
+    if asked or report_repair_queue.queue(state, record, error, completed=lambda: stage_completed(state, record)):
+        run_status.running(state, "REPORT_REPAIR") if not asked else None  # asked: autocode_rejection_route took it
         write_json(run_dir / "state.json", state)
         for artifact in originals:
             artifact.unlink(missing_ok=True)
@@ -438,6 +369,9 @@ def reject_completed_stage(state: RunState, run_dir, record, error):
     for artifact in originals:
         artifact.unlink(missing_ok=True)
     raise support.Paused(status, message)
+
+
+_changed_code_proof = role_launch.changed_code_proof
 
 
 def run_role(
@@ -516,12 +450,16 @@ def run_role(
     route = fallback_route or state["settings"]["roles"][route_role]
     if fallback_route:
         model = route["model"]
-    effort = route.get("reasoning_effort")
+    effort, effort_choice = review_effort.launch(state, original_stage, route_role, report_only, route)  # #1710
+    effort = route_fit.launch(state["settings"], route_role, effort, original_stage, model=route.get("model"))  # #2057
     limits = state["settings"].get("limits", {})
-    stage_timeout = limits.get("stage_timeout_seconds")
+    stage_timeout = job_failure.launch_deadline(state, stage, limits.get("stage_timeout_seconds"), report_only)
     idle_timeout = limits.get("idle_timeout_seconds", 300)
     idle_limit, idle_origin = idle_policy.effective(
-        idle_timeout, state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"), model
+        idle_timeout,
+        state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"),
+        model,
+        stage=original_stage,
     )
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
     native_before = (
@@ -552,18 +490,12 @@ def run_role(
         if native is not None and original_stage == "sol" and visual_runtime.requested(state)
         else None
     )
-    native_environment = None
-    native_capture = None
+    native_environment = native_capture = None
     if native is not None:
-        native_environment = agent_env.scrubbed(os.environ)
-        native_environment.update(output_policy.environment(state["settings"], workspace, events))
-        if getattr(adapter, "OUTPUT", "opencode_events") == "report_file":
-            native_capture = {
-                "attempt": str(output),
-                "nonce": uuid.uuid4().hex,
-                "source_revision": cast(dict[str, Any], native_before)["revision"],
-            }
-            native_environment["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(native_capture)
+        native_environment, native_capture = role_launch.native_environment(
+            state, workspace, events, adapter, output, native_before
+        )
+    snapshot_env = readonly_events.launch_excludes(workspace, engine, adapter, native_environment, dry_run=dry_run)
     command, child_environment, overrides, worker_context = provider_launch.prepare(
         engine=engine,
         adapter=adapter,
@@ -586,18 +518,15 @@ def run_role(
         enforce_tool_boundary=not dry_run,
         source_paths=source_scope.paths(state),
         settings=state["settings"],  # the launcher applies the saved #413 opt-out
-        replay_context={
-            "stage": stage,
-            "iteration": iteration,
-            "turn": len(state.get("turns") or []) + 1,
-            "milestone_id": (state.get("current_task") or {}).get("milestone_id"),
-            "task_id": (state.get("current_task") or {}).get("id"),
-            "contract_hash": (state.get("goal_contract") or {}).get("hash"),
-            "criteria_revision": state.get("criteria_revision"),
-            "report_only": report_only,
-            "original_stage": original_stage if report_only else None,
-            "consumed": sum(isinstance(row.get("replay"), dict) for row in state.get("stages", [])),
-        }
+        planning_report_recovery=report_only or planning_recovery_policy.active(state, original_stage),
+        replay_context=role_launch.replay_context(
+            state,
+            stage=stage,
+            iteration=iteration,
+            report_only=report_only,
+            original_stage=original_stage,
+            changed_code_proof=_changed_code_proof(state),
+        )
         if state["settings"].get("replay_recording")
         else None,
         tool_commands=(
@@ -637,18 +566,7 @@ def run_role(
         task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=save)
     visual_context = worker_context.get("visual_runtime") if image_preparation is not None else None
     if original_stage == "sol" and visual_runtime.requested(state) and not report_only and image_preparation is None:
-        if engine != "opencode" or configured_tool:
-            raise support.Paused(
-                "PAUSED_VISUAL_EVIDENCE", "Verified visual delivery requires the supported native OpenCode route"
-            )
-        saved_transport = (
-            state["settings"]
-            .get("transport_identities", {})
-            .get("opencode", state["settings"].get("transport_identity"))
-        )
-        if saved_transport is None or adapter.transport_drift(adapter.local_settings(workspace), saved_transport):
-            raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Visual transport changed since its approved profile")
-        visual_context, command, child_environment, prompt = visual_runtime.prepare(
+        visual_context, command, child_environment, prompt = role_launch.prepare_visual(
             state,
             original_stage,
             workspace,
@@ -657,14 +575,13 @@ def run_role(
             command,
             child_environment,
             prompt,
-            launch_authority=visual_profile.authority(state, worker_context, workspace, run_dir),
-            current_snapshot=source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
+            engine=engine,
+            configured_tool=configured_tool,
+            adapter=adapter,
+            worker_context=worker_context,
+            child_options=child_options,
+            save=save,
         )
-        worker_context["visual_runtime"] = visual_context
-        child_options["env"] = child_environment
-        worker_context.update(command=command, environment=child_environment)
-        if visual_context and visual_context.get("status") == "READY" and engine == "opencode" and not configured_tool:
-            save(base.with_suffix(".opencode.json"), json.loads(child_environment["OPENCODE_CONFIG_CONTENT"]))
     if report_only and len(prompt.encode("utf-8")) > REPAIR_HANDOFF_BYTES:
         raise support.Paused(
             "PAUSED_REPORT_REPAIR_INPUT",
@@ -701,7 +618,7 @@ def run_role(
     if route_role != role:
         record["route_role"] = route_role
     record["engine"] = engine
-    record["reasoning_effort"] = effort
+    record.update(reasoning_effort=effort, **({"effort_choice": effort_choice} if effort_choice else {}))
     record["launch_route"] = {key: route.get(key) for key in ("engine", "provider", "model", "reasoning_effort")}
     record["output_mode"] = getattr(adapter, "OUTPUT", "opencode_events") if engine == "opencode" else "codex_events"
     if report_only:
@@ -736,8 +653,9 @@ def run_role(
         ExitStack() as provider_guard,
     ):
         try:
-            if engine == "opencode" and not configured_tool:
-                readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
+            readonly_events.prepare_opencode_snapshots(
+                workspace, record=record, env=child_options["env"], excludes=snapshot_env
+            )
             before = native_before or source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
             job_source.prepare_capture_context(
                 record, before, output, child_options, native_context=native_capture, protected=native is not None
@@ -748,75 +666,26 @@ def run_role(
             record["context"] = state.pop("pending_context_metrics", {})
             job_source.capture(workspace, base, record, before)
             with interventions.admission(run_dir):
-                native_prepared = (
-                    native.prepare_writer_launch(
-                        state,
-                        before,
-                        record,
-                        worker_context,
-                        command,
-                        child_options["env"],
-                        native_isolation,
-                        report_only=report_only,
-                    )
-                    if native is not None
-                    else None
+                native_prepared = role_launch.admit_launch(
+                    state,
+                    record,
+                    before,
+                    workspace,
+                    run_dir,
+                    native=native,
+                    native_isolation=native_isolation,
+                    worker_context=worker_context,
+                    command=command,
+                    environment=child_options["env"],
+                    child_environment=child_environment,
+                    visual_context=visual_context,
+                    original_stage=original_stage,
+                    report_only=report_only,
+                    joint_stage=joint_stage,
+                    fallback_route=fallback_route,
+                    retry_authorization=retry_authorization,
+                    controller=sys.modules[__name__],
                 )
-                provider_launch.verify_containment(
-                    worker_context,
-                    **(
-                        {
-                            "state": state,
-                            "native_role_isolation": native_isolation,
-                            "command": command,
-                            "environment": child_options["env"],
-                        }
-                        if native is not None
-                        else {}
-                    ),
-                )
-                if native is not None and native_prepared is None:
-                    native_prepared = native.context.factory.prepare_launch(
-                        state,
-                        before,
-                        record,
-                        boundary=worker_context["tool_containment"],
-                        command=command,
-                        environment=child_options["env"],
-                        native_role_isolation=native_isolation,
-                    )
-                if original_stage == "sol" and visual_runtime.requested(state):
-                    visual_runtime.verify_reference(state)
-                if visual_context and visual_context.get("status") == "READY":
-                    visual_runtime.verify_prelaunch(
-                        visual_context,
-                        state,
-                        run_dir=run_dir,
-                        current_snapshot=before,
-                        command=command,
-                        env=child_environment,
-                        **({"scope_authority": native.context.factory.scope_authority} if native is not None else {}),
-                    )
-                resolver_recovery.admit_dispatch(
-                    state, record, workspace, run_dir, retry_authorization=retry_authorization
-                )
-                if joint_stage and not report_only:
-                    planning.charge(state, original_stage, record=record, workspace=workspace)
-                    if fallback_route:
-                        admitted = reviewer_fallback.admit(state, run_dir, workspace, original_stage)
-                        if admitted != fallback_route:
-                            raise support.Paused(
-                                "PAUSED_REVIEWER_FALLBACK", "Reviewer fallback changed before provider admission"
-                            )
-                        record["reviewer_fallback_grant"] = next(
-                            grant["id"]
-                            for grant in state["planning"]["reviewer_route_fallbacks"]
-                            if grant.get("consumed") and grant["binding"]["selected_route"] == admitted
-                        )
-                resolver_runtime.charge_diagnostic_dispatch(sys.modules[__name__], state, run_dir, workspace, record)
-                progressive_state.admit_attempt(state, record, before)
-                job_failure.admit(state, record, workspace)
-                classification_recovery.admit(state, record, workspace)
                 state["active_stage"] = record
                 save(run_dir / "state.json", state)
                 child_stdin = (
@@ -868,17 +737,16 @@ def run_role(
                 job_source.discard_unadmitted(state, record)  # admission lost: no request or provider was started
             raise
         except processes.ProcessError as error:
+            if native is None and isinstance(error, supervision.LaunchRefused):  # nothing ran (#2296)
+                job_source.discard_refused(state, record, run_dir / "state.json")
             raise support.Paused("PAUSED_PROCESS_CLEANUP", str(error)) from error
         except KeyboardInterrupt as error:  # the stage's one interrupt; the launch stopped what it started
             if native is None:
                 job_source.discard_unadmitted(state, record)
             if state.get("active_stage") is not record:
                 raise  # before admission finished, nothing of this stage was saved
-            raise support.Paused(
-                "PAUSED_INTERRUPTED",
-                f"Provider launch interrupted by {str(error) or 'a signal'}; "
-                "inspect saved artifacts before reconciliation",
-            ) from error
+            why = f"Provider launch interrupted by {str(error) or 'a signal'}; inspect saved artifacts "
+            raise support.Paused("PAUSED_INTERRUPTED", why + "before reconciliation") from error
         except BaseException:
             if native is None:
                 job_source.discard_unadmitted(state, record)
@@ -895,33 +763,27 @@ def run_role(
                 reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
                 idle_origin=idle_origin,
                 idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT,
+                progress=(
+                    investigation_progress.Budget(
+                        limits.get("investigation_exploration_budget", investigation_progress.DEFAULT_BUDGET)
+                    )
+                    if stage == "investigate_bug" and not report_only
+                    else None
+                ),
             )
-            activity_label, last_activity_print = None, 0
-
-            def activity_checkpoint(snapshot):
-                nonlocal activity_label, last_activity_print
-                record["activity"] = {
-                    **snapshot,
-                    "observed_at": now(),
-                    "elapsed_seconds": round(time.monotonic() - started, 1),
-                    "stage_limit_seconds": stage_timeout,
-                }
-                save(run_dir / "state.json", state)
-                label = (snapshot.get("activity"), snapshot.get("detail"))
-                current = time.monotonic()
-                if label != activity_label or current - last_activity_print >= 60:
-                    stop = snapshot.get("timeout_reason") or (
-                        snapshot.get("detail") if snapshot.get("activity") == "stalled" else None
-                    )
-                    print(
-                        f"{autocode_status.role_name(stage, state)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
-                        f"elapsed={record['activity']['elapsed_seconds']:g}s; "
-                        f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_limit or 'off'}; "
-                        f"tool={snapshot.get('tool_elapsed_seconds', 0) or 0:g}s/{tool_timeout or 'off'}; "
-                        f"stage_limit={stage_timeout or 'off'}" + (f"; {stop}" if stop else ""),
-                        flush=True,
-                    )
-                    activity_label, last_activity_print = label, current
+            activity_checkpoint = role_launch.activity_reporter(
+                state,
+                record,
+                stage=stage,
+                model=model,
+                idle_limit=idle_limit,
+                tool_timeout=tool_timeout,
+                stage_timeout=stage_timeout,
+                started=started,
+                state_path=run_dir / "state.json",
+                save=save,
+                clock=now,
+            )
 
             def checkpoint(owned):
                 record["processes"] = owned
@@ -1000,57 +862,25 @@ def run_role(
     if not cleanup_error and exit_code is not None:
         job_source.stopped(workspace, base, record)
     save(run_dir / "state.json", state)
-    if cleanup_error:
-        raise support.Paused("PAUSED_PROCESS_CLEANUP", cleanup_error)
-    if interrupted:
-        raise support.Paused(
-            "PAUSED_INTERRUPTED", "Provider stage interrupted; inspect saved artifacts before reconciliation"
-        )
-    if timed_out:
-        raise support.Paused(
-            "PAUSED_PROVIDER_TIMEOUT", f"{role}: {record['timeout_reason']}; partial work and logs retained at {events}"
-        )
-    if exit_code != 0:
-        refused = refusal_reason(state, record)
-        hint = (
-            provider_env.authentication_hint(adapter.raw_events(events), record["withheld_env"])
-            if engine == "opencode" and configured_tool
-            else ""
-        )
-        raise support.Paused(
-            support.failure_status(events, record=record),
-            provider_auth.exit_message(role, exit_code, events, refused=refused or "", hint=hint or ""),
-        )
-    if supports_sessions:
-        thread = format_correction.event_thread_id(events)
-        if not thread or (session and thread != session):
-            raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Provider returned a missing or unexpected session ID")
-        if not session and not report_only:
-            state["sessions"][route_role] = thread
-            record["thread_id"] = thread
-        if not any(e.get("type") == "turn.completed" for e in support.events(events)):
-            refused_at_clean_exit(state, record, role, events)
-            raise support.Paused(
-                output_cap.STATUS
-                if support.failure_status(events, record=record) == output_cap.STATUS
-                else "PAUSED_UNCERTAIN_STAGE",
-                output_cap.explain(support.terminal_failure_reason(events), record.get("output_token_cap"))
-                or "Process exited without turn.completed",
-            )
-    elif not output.is_file():
-        refused_at_clean_exit(state, record, role, events)
-        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
-    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-    save(base.with_suffix(".after.json"), after)
-    record["after_ref"] = str(base.with_suffix(".after.json"))
-    record["source_revision"] = after["revision"]
-    record["changed_files"] = support.changed_paths(before, after)
-    diff_path = base.with_suffix(".diff")
-    source_diff.write(workspace, diff_path, after)
-    record["diff_ref"] = str(diff_path)
-    summary_path = base.with_suffix(".tools.json")
-    support.summarize_events(events, summary_path)
-    record["tool_evidence"] = str(summary_path)
+    role_launch.raise_for_exit(
+        state,
+        record,
+        role=role,
+        events=events,
+        output=output,
+        exit_code=exit_code,
+        cleanup_error=cleanup_error,
+        interrupted=interrupted,
+        timed_out=timed_out,
+        engine=engine,
+        configured_tool=configured_tool,
+        adapter=adapter,
+        supports_sessions=supports_sessions,
+        session=session,
+        report_only=report_only,
+        route_role=route_role,
+    )
+    after = role_launch.record_after(state, record, workspace, base, before, events, save=save)
     if not allow_write and before["revision"] != after["revision"]:
         raise support.Paused(
             "PAUSED_STALE_VALIDATION", "Repository changed during read-only review; preserve result and revalidate"
@@ -1156,7 +986,19 @@ def accept_repaired_report(state: RunState, run_dir, workspace, value, repair_re
 
 
 def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
-    """Launch the bounded report-only repair; native planning keeps its own writer and launch owner."""
+    """Launch the bounded report-only repair; native planning keeps its own writer and launch owner.
+
+    A repair that cannot launch from its saved inputs (too large, or no usable report) starts a fresh
+    attempt of its stage instead of asking a person to resume (``restart_unlaunchable_repair``)."""
+    try:
+        _execute_report_repair(state, run_dir, workspace, native=native)
+    except support.Paused as error:
+        if native is None and restart_unlaunchable_repair(state, run_dir, workspace, error):
+            raise ReportRepairQueued() from error
+        raise
+
+
+def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
     runtime = native_invocation.runner_view(sys.modules[__name__], native) if native else sys.modules[__name__]
     pending = state["pending_report_repair"]
     original = pending["original"]
@@ -1217,23 +1059,28 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending["pins"].items())
     ):
         raise support.Paused("PAUSED_STALE_VALIDATION", "Saved report-repair inputs changed; do not retry")
+    repair_route.restore(state, original)
     resolver_runtime.boundary(runtime, state, run_dir, workspace)
     if native is None and format_correction.execute(runtime, state, run_dir, workspace):
         return
-    original_source = repair_report_source(original)
-    rejected_source = (
-        repair_report_source(pending["latest_rejected"]) if pending.get("latest_rejected") else original_source
-    )
+    original_source, rejected_source = report_repair_context.sources(pending, repair_report_source)
     for source in (original_source, rejected_source):
         pending["pins"].setdefault(source["path"], source["sha256"])
-    clarification, protected_contract = report_repair_context.repair_payloads(state, original["stage"])
-    receipt_instruction, receipt_handoff = receipt_repair_context.prompt_parts(pending)
+    repair_schema = support.read(Path(original["schema"]))
+    context_instruction, context_handoff = report_repair_context.prompt_parts(
+        state,
+        pending,
+        original_source,
+        rejected_source,
+        receipt_repair_context.prompt_parts(pending),
+        schema=repair_schema,
+    )
     prompt = (
         prompts.get("fragments/autocode/execute-report-repair-15.md")
         + repair_report_instruction(pending)
         + prompts.get("fragments/autocode/execute-report-repair-14.md")
         + report_repair_context.baseline_instruction(original["stage"])
-        + planning.repair_rules(original["stage"], support.read(Path(original["schema"])))
+        + planning.repair_rules(original["stage"], repair_schema)
         + prompts.get("fragments/autocode/execute-report-repair-13.md")
         + stuck_repair_context.evidence_instruction(original["stage"])
         + prompts.get("fragments/autocode/execute-report-repair-12.md")
@@ -1246,7 +1093,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
             else ""
         )
         + jobs.repair_rules(original["stage"])
-        + receipt_instruction
+        + context_instruction
         + "CURRENT HANDOFF DATA\n"
         + json.dumps(
             {
@@ -1258,9 +1105,9 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                     "error",
                     original.get("rejection_reason", "Legacy report validation failed without a recorded error"),
                 ),
-                **receipt_handoff,
+                **context_handoff["header"],
                 "rejected_report": rejected_source,
-                "original_report": original_source if pending.get("latest_rejected") else None,
+                "original_report": context_handoff["original_report"],
                 "original": {
                     key: original[key]
                     for key in (
@@ -1290,13 +1137,13 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                 if original["stage"] == "requirements_gather"
                 else None,
                 **report_repair_context.requirements_sources(state, original["stage"]),
-                **({"clarification_context": clarification} if original["stage"] == "astra_finalize" else {}),
+                **context_handoff["clarification"],
                 "investigation_context": stuck_repair_context.context(
                     state, original["stage"], run_dir / "state.json", workspace, (original_source, rejected_source)
                 ),
-                "protected_contract": protected_contract,
+                "protected_contract": context_handoff["protected_contract"],
                 "requirement_trace_rows": planning.trace_rows(state, original["stage"]) or None,
-                "source_inventory": planning.repair_source_inventory(state, original["stage"]),
+                **planning.repair_citation_context(state, original["stage"], workspace, repair_schema),
                 "report_identity": {
                     "contract_hash": (state.get("goal_contract") or {}).get("hash"),
                     "contract_revision": (state.get("goal_contract") or {}).get("revision"),
@@ -1334,6 +1181,11 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
     runtime.write_json(run_dir / "state.json", state)
     role = original["role"]
     route_role = planning.route_for(state, original["stage"], role)
+    schema = provider_report_schema.for_route(
+        report_edits.prepare(Path(original["schema"]), rejected_source, original["stage"]),
+        state["settings"],
+        route_role,
+    )
     try:
         value, record = runtime.run_role(
             role=role,
@@ -1342,7 +1194,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
             workspace=workspace,
             run_dir=run_dir,
             state=state,
-            schema=Path(original["schema"]),
+            schema=schema,
             model=state["settings"]["roles"][route_role]["model"],
             allow_write=False,
             dry_run=False,
@@ -1390,26 +1242,18 @@ MAX_AUTOMATIC_RECOVERIES = recovery_accounting.MAX_AUTOMATIC_RECOVERIES
 
 
 def timeout_recovery_guard(state: RunState):
+    investigation = state.get("stuck_investigation") or {}
+    if (
+        state.get("next_stage") == "investigate_stuck"
+        and investigation.get("status") == "PAUSED_TIMEOUT_RECOVERY"
+        and not investigation.get("in_force")
+    ):
+        # The Investigator queued to diagnose this very exhaustion runs under its own bounded budget;
+        # only a retry it grants (autocode_stuck_job.grant_one_attempt) lets the stuck stage run again.
+        return
     reason = recovery_limits.stop_reason(state, recovery_count(state), MAX_AUTOMATIC_RECOVERIES)
     if reason:
         raise support.Paused(*reason)
-
-
-def grant_recovery_allowance(state: RunState, run_dir, amount, *, previous_settings=None):
-    result = recovery_grants.grant(
-        state,
-        run_dir,
-        amount,
-        previous_settings=previous_settings,
-        current_request=resolver_human.current,
-        count=recovery_count(state),
-        supersede=resolver_human.supersede_operational,
-        persist=write_json,
-        maximum=MAX_AUTOMATIC_RECOVERIES,
-    )
-    if run_dir is not None:
-        route_advisory.report_changes(previous_settings, state.get("settings"))
-    return result
 
 
 def repeated_failure_resume_guard(state: RunState, workspace, *, authorization=None):
@@ -1426,25 +1270,6 @@ def repeated_failure_resume_guard(state: RunState, workspace, *, authorization=N
         current_revision=lambda: source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"],
         paused=support.Paused,
     )
-
-
-def refusal_reason(state: RunState, record):
-    """Whose response the provider's content filter refused, and on which model; None for any other stop."""
-    if not record.get("events"):
-        return None
-    return provider_refusal.explain(
-        support.events(record["events"]),
-        job=autocode_status.role_name(record.get("original_stage") or record.get("stage"), state),
-        model=(record.get("launch_route") or {}).get("model"),
-    )
-
-
-def refused_at_clean_exit(state: RunState, record, role, events):
-    """A content-filter refusal names the stop even when the provider exited 0 (#464); any other stop stays uncertain."""
-    if refused := refusal_reason(state, record):
-        raise support.Paused(
-            provider_refusal.STATUS, f"{refused}. {role} exited 0; reconcile {events}, no automatic replay"
-        )
 
 
 def reconcile_active(state: RunState, run_dir, workspace):
@@ -1497,7 +1322,7 @@ def reconcile_active(state: RunState, run_dir, workspace):
     )
     unexpected_session = support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
     if not stage_completed(state, record) or (supports_sessions and record.get("exit_code") not in (None, 0)):
-        reason = refusal_reason(state, record)
+        reason = stage_stops.refusal_reason(state, record)
         # As in run_role, a timeout names the stop before the response is read (and recovers on its own),
         # whatever session it came from. A refusal in a response from a session the run did not expect, or
         # naming none, is typed only for a provider that exited with an error; after a clean, unsaved or
@@ -1511,8 +1336,10 @@ def reconcile_active(state: RunState, run_dir, workspace):
         exit_code = record.get("exit_code")
         if reason and unexpected and not (type(exit_code) is int and exit_code > 0):
             raise unexpected_session
-        reason = reason or output_cap.explain(
-            support.terminal_failure_reason(record["events"]), record.get("output_token_cap")
+        reason = (
+            reason
+            or stage_stops.context_window_reason(state, record)
+            or output_cap.explain(support.terminal_failure_reason(record["events"]), record.get("output_token_cap"))
         )
         raise support.Paused(
             support.failure_status(record["events"], record=record),
@@ -1778,7 +1605,7 @@ def commit_boundary_candidate(
 
 def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None) -> bool:
     """Collect discovery answers and goal approval in a single terminal conversation."""
-    speaker = "AutoResolver"
+    speaker = "Resolver"  # the job's screen name (autocode_roles)
     save = persist or write_json
     if native is not None and (state.get("user_request") or {}).get("kind") == "human_review":
         raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Native image/human artifact review requires later scopes")
@@ -1814,8 +1641,8 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
         )
         return True
 
-    def show_handoff():
-        rendered = lifecycle.present(state, run_dir)
+    def show_handoff(details=True):
+        rendered = lifecycle.present(state, run_dir, details=details)
         if run_dir is not None:
             save(run_dir / "state.json", state)
         print(rendered)
@@ -1829,7 +1656,7 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
     while state["status"] == "WAITING_FOR_USER":
         published = resolver_human.current(state)
         if not published:
-            print("AutoResolver must evaluate this request before collecting an answer.")
+            print("The Resolver is still deciding whether this needs you; it asks once it does.")
             return False
         if published["scope"] in ("operational_exhaustion", "blocker"):
             show_question()
@@ -1907,11 +1734,11 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
         published = resolver_human.current(state)
         if not published or published["scope"] != "goal_approval":
             return False
-        print("\nAutoResolver: proposed plan ready for your decision:\n")
-        show_handoff()
+        print(f"\n{speaker}: proposed plan ready for your decision:\n")
+        show_handoff(details=False)  # the decision first; /details shows the full brief (#2535)
         while True:
             try:
-                reply = input("Approve this brief? [y/N], or type planning feedback: ").strip()
+                reply = input("Approve this brief? [y/N], /details, or type planning feedback: ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nChat paused; the brief remains available for approval.")
                 return False
@@ -1929,8 +1756,8 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
                 return False
             if reply.startswith("/feedback "):
                 reply = reply[len("/feedback ") :].strip()
-            elif reply.startswith("/"):
-                print("Use /approve, /feedback TEXT or /pause, or type your feedback.")
+            elif reply.startswith("/"):  # /details: the full brief, then the question again
+                show_handoff() if reply.lower() == "/details" else print("Use /approve, /details, /feedback, /pause.")
                 continue
             if reply:
                 action(lambda candidate: goals.feedback(candidate, reply))

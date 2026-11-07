@@ -324,7 +324,9 @@ def conversation_checks(run):
     checks += named(
         "build_turn",
         [
-            *run_checks(build, workflow="build", no_requirements=True, plan_approved=True, max_questions=0),
+            *run_checks(
+                build, workflow="build", after_requirements="check_design", plan_approved=True, max_questions=0
+            ),
             changed_only(build, "app/", "tests/"),
         ],
     )

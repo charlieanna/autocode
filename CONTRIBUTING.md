@@ -88,7 +88,7 @@ that do not launch those providers.
 git clone https://github.com/charlieanna/autocode.git
 cd autocode
 python3 -m venv .venv
-.venv/bin/pip install -e .          # installs the one runtime dependency, psutil
+.venv/bin/pip install -e '.[test]'  # psutil plus the pytest collector exercised by tests
 .venv/bin/autocode --help
 ```
 

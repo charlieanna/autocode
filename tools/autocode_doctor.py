@@ -34,11 +34,20 @@ stages other than planning get on this machine, by the check run setup makes
 macOS Seatbelt or Linux bubblewrap and its version, then OpenCode exactly 1.18.33. Without
 both, such a run is refused at setup unless it is started with --allow-uncontained-tools, so
 the check warns; it never fails doctor. ``opencode --version`` runs once per doctor.
+
+The ``session`` check fails when this host refuses every supervised stage, by the check each Linux
+stage launch makes (autocode_session_boundary), after CLI startup attempts its capability drop.
+If CAP_SYS_ADMIN or CAP_SYS_PTRACE remains available, it names the ordinary-user or manual-drop fallback.
+
+The ``path`` check (#1761) warns, without failing doctor, when ``autocode`` is not on PATH, so
+a new shell would answer ``command not found``, and names the virtual environment's ``bin``
+directory to add or the ``pipx`` install that puts it there.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -46,16 +55,24 @@ import shlex
 import shutil
 import subprocess
 import sys
+import sysconfig
+import tomllib
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 try:
+    from . import autocode_capability_startup as capability_startup
+    from . import autocode_connected_engine as connected_engine
     from . import autocode_install_drift
+    from . import autocode_session_boundary as session_boundary
     from . import autocode_storage_budget as storage_budget
     from . import autocode_tool_containment as tool_containment
     from . import autocode_util as util
 except ImportError:  # direct-script mode has no package parent
+    import autocode_capability_startup as capability_startup
+    import autocode_connected_engine as connected_engine
     import autocode_install_drift
+    import autocode_session_boundary as session_boundary
     import autocode_storage_budget as storage_budget
     import autocode_tool_containment as tool_containment
     import autocode_util as util
@@ -69,6 +86,14 @@ except ImportError:
     from providers import opencode as opencode_provider
 
 OK, MISSING, WARN = "ok", "missing", "warn"
+
+# How a person stops typing --engine on every task: the project's settings file, or, for Claude Code, the
+# user's default provider (docs/cli.md, Project settings; docs/providers.md).
+PROJECT_ENGINE = ', or once with engine = "codex" in the project\'s .autocode/config.toml'
+CLAUDE_DEFAULT = (
+    ', or once with engine = "claude" in the project\'s .autocode/config.toml '
+    '(or default_provider = "claude" in ~/.config/autocode/config.toml for every project)'
+)
 ENGINES = ("opencode", "codex", "claude")
 
 
@@ -154,7 +179,8 @@ def conformance_check(engine: str, version: str) -> Check:
             f"conformance:{engine}",
             WARN,
             f"{engine} {version} is untested against the offline conformance suite",
-            "run tools/provider_conformance.py --fake and add a row to tools/provider-matrix.json",
+            "the tested versions are listed in docs/providers.md#conformance-matrix; a maintainer adds this one with "
+            "tools/provider_conformance.py --fake",
         )
     return Check(
         f"conformance:{engine}",
@@ -193,7 +219,6 @@ def engine_checks(which=shutil.which, runner=run, opencode_version=None) -> list
                 "npm install -g opencode-ai@1, then log in (docs/install.md)",
             )
         )
-        checks.append(conformance_check("opencode", "not-installed"))
     if which("codex"):
         login = runner(["codex", "login", "status"])
         checks.append(
@@ -201,6 +226,7 @@ def engine_checks(which=shutil.which, runner=run, opencode_version=None) -> list
             if login.returncode == 0
             else Check("engine:codex", MISSING, "Codex found but not logged in", "run `codex login`")
         )
+        checks.append(codex_billing_check())
     else:
         checks.append(
             Check(
@@ -211,6 +237,42 @@ def engine_checks(which=shutil.which, runner=run, opencode_version=None) -> list
             )
         )
     return checks
+
+
+def codex_billing_check(*, environ=None, config_path=None) -> Check:
+    """The billing-route gate a Codex joint-planning run applies before any launch (#2055): ambient
+    API-key or endpoint overrides, or another provider named in Codex's own config, pause with
+    PAUSED_BILLING_ROUTE. Doctor names the exact command instead of letting the run discover it."""
+    environ = os.environ if environ is None else environ
+    if config_path is None:
+        config_path = Path(environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml"
+    ambient = [name for name in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL") if name in environ]
+    overrides = []
+    if config_path.is_file():
+        try:
+            config = tomllib.loads(config_path.read_text())
+        except (OSError, tomllib.TOMLDecodeError):
+            config = {}
+        if config.get("model_provider") not in (None, "openai"):
+            overrides.append(f"model_provider = {config['model_provider']!r}")
+        if config.get("openai_base_url"):
+            overrides.append(f"openai_base_url = {config['openai_base_url']!r}")
+    if not ambient and not overrides:
+        return Check("billing:codex", OK, "no API-key or endpoint override would reach a Codex run")
+    gaps, fixes = [], []
+    if ambient:
+        gaps.append("this shell exports " + ", ".join(ambient))
+        fixes.append("unset " + " ".join(ambient) + " (also remove them from the shell profile that sets them)")
+    if overrides:
+        gaps.append(f"{config_path} sets " + " and ".join(overrides))
+        fixes.append(f"remove those lines from {config_path}")
+    return Check(
+        "billing:codex",
+        MISSING,
+        "; ".join(gaps) + "; a Codex joint-planning run pauses (PAUSED_BILLING_ROUTE) rather than bill another route",
+        "; ".join(fixes)
+        + "; to run on API keys instead, add them in OpenCode (`opencode auth login`) or Kilo (`kilo auth login`)",
+    )
 
 
 def default_provider() -> str:
@@ -244,9 +306,9 @@ LOGINS = {
 
 
 def route_check(name: str, workspace: Path | None, resolve=autocode_providers.resolve) -> Check:
-    """Every role's default model must be in the provider's model list: the check a new run makes
-    before its first model call (model_catalogue.choose). A list that cannot be read only warns,
-    since a run then starts anyway."""
+    """Every route a new run takes must be in the provider's model list: the profile's own defaults,
+    or the routes automatic selection replaces them with (model_catalogue.route_advice). A list that
+    cannot be read only warns, since a run then starts anyway."""
     try:
         provider = resolve(name)
         available = provider.available_models(workspace)
@@ -259,9 +321,24 @@ def route_check(name: str, workspace: Path | None, resolve=autocode_providers.re
         )
     if available is None:
         return Check("routes", OK, f"provider {name} does not list its models; its routes are not checked")
-    missing = model_catalogue.advise(model_catalogue.default_roles(provider), available)["missing"]
+    routes = model_catalogue.route_advice(provider, available, workspace)
+    missing = routes["missing"]
     if not missing:
-        return Check("routes", OK, f"{name} offers every role's default model")
+        if routes["source"] != "selection":
+            return Check("routes", OK, f"{name} offers every role's default model")
+        moved = "; ".join(
+            f"{model_catalogue.ROLES[role][0]}: {seed} -> {taken}" for role, (seed, taken) in routes["replaced"].items()
+        )
+        return Check(
+            "routes",
+            OK,
+            f"{name} offers every route a new run takes"
+            + (
+                f"; automatic selection replaces the profile's fallback for {moved}"
+                if moved
+                else "; the profile's own routes are only that fallback"
+            ),
+        )
     by_model: dict[str, list[str]] = {}
     for role, model in missing.items():
         by_model.setdefault(model, []).append(model_catalogue.ROLES[role][0])
@@ -270,10 +347,13 @@ def route_check(name: str, workspace: Path | None, resolve=autocode_providers.re
         for prefix, login in LOGINS.items()
         if name == "opencode" and any(model.startswith(prefix) for model in by_model)
     ]
+    gap = f"{name} does not offer: " + "; ".join(f"{model} ({', '.join(labels)})" for model, labels in by_model.items())
+    if routes["reason"]:
+        gap += f", and automatic selection cannot cover it ({routes['reason']})"
     return Check(
         "routes",
         MISSING,
-        f"{name} does not offer: " + "; ".join(f"{model} ({', '.join(labels)})" for model, labels in by_model.items()),
+        gap,
         "; ".join([*fixes, "`autocode models` lists what your plans offer and suggests replacements"]),
     )
 
@@ -331,14 +411,21 @@ def containment_check(status: dict) -> Check:
 
 
 def engine_verdict(
-    checks: list[Check], wanted: str | None = None, provider: str = "opencode", origin: str | None = None
+    checks: list[Check],
+    wanted: str | None = None,
+    provider: str = "opencode",
+    origin: str | None = None,
+    claude_on_path: bool = False,
 ) -> Check:
     """Codex must be ready for ``--engine codex``. Otherwise the OpenCode engine runs ``provider``
-    (default_provider()), which must answer and must not be missing a default route."""
+    (default_provider()), which must answer and must not be missing a default route. When that is not
+    ready, the verdict names the other engines this host already has: a ready Codex, and a ``claude``
+    on PATH (``claude_on_path``; its login is checked by ``doctor --engine claude``), so a person with
+    only Claude Code installed is not sent to install OpenCode first."""
     status = {c.name: c.status for c in checks}
     if wanted == "codex":
         ok = status.get("engine:codex") == OK
-        what = f"engine codex (set in {origin})" if origin else "--engine codex"
+        what = f"engine codex ({_where(origin)})" if origin else "--engine codex"
         return Check(
             "engine",
             OK if ok else MISSING,
@@ -347,7 +434,7 @@ def engine_verdict(
         )
     tool = "engine:opencode" if provider == "opencode" else f"provider:{provider}"
     what = ("OpenCode" if provider == "opencode" else f"provider {provider}") + (
-        " (what --engine opencode runs)" if wanted else " (the default for a new run)"
+        f" ({origin})" if origin else " (what --engine opencode runs)" if wanted else " (the default for a new run)"
     )
     if status.get(tool) == OK and status.get("routes") != MISSING:
         return Check("engine", OK, f"{what} is ready")
@@ -361,8 +448,18 @@ def engine_verdict(
         fix += "; AUTOCODE_PROVIDER or default_provider in ~/.config/autocode/config.toml selects it"
     codex_ready = status.get("engine:codex") == OK
     if codex_ready and provider != "codex":
-        fix += "; or pass --engine codex (the single-login route) to doctor and to every task"
-    return Check("engine", MISSING, f"{what} is not ready" + ("; Codex is ready" if codex_ready else ""), fix)
+        fix += "; or pass --engine codex (the single-login route) to doctor and to every task" + PROJECT_ENGINE
+    if claude_on_path and provider != "claude":
+        fix += "; or pass --engine claude (Claude Code is on PATH) to doctor and to every task" + CLAUDE_DEFAULT
+    found = [
+        name for name, ready in (("Codex is ready", codex_ready), ("Claude Code is on PATH", claude_on_path)) if ready
+    ]
+    return Check("engine", MISSING, "; ".join([f"{what} is not ready", *found]), fix)
+
+
+# What AutoCode writes into the project itself and leaves for the person to commit or ignore: its
+# generated .gitignore un-ignores the learned record on purpose, so it is not the person's change (#2350).
+OWN_RECORDS = frozenset({".autocode/project.json"})
 
 
 def workspace_check(workspace: Path, runner=run) -> list[Check]:
@@ -388,9 +485,13 @@ def workspace_check(workspace: Path, runner=run) -> list[Check]:
             )
         ]
     checks = [Check("workspace", OK, f"Git repository at {top.stdout.strip()}")]
-    dirty = runner(["git", "status", "--porcelain"], cwd=workspace).stdout.strip()
+    dirty = [
+        line
+        for line in runner(["git", "status", "--porcelain", "--untracked-files=all"], cwd=workspace).stdout.splitlines()
+        if line.strip() and line[3:].strip().strip('"') not in OWN_RECORDS
+    ]
     if dirty:
-        count = len(dirty.splitlines())
+        count = len(dirty)
         checks.append(
             Check(
                 "workspace:clean",
@@ -402,13 +503,45 @@ def workspace_check(workspace: Path, runner=run) -> list[Check]:
     return checks
 
 
+def connected_choice(workspace: Path, engine, which, runner, resolve) -> dict | None:
+    """What autocode_connected_engine.choose picks for a new run here, with doctor's injected commands,
+    or None: an engine is already named, the user's config names a provider, or nothing applies."""
+    if engine is not None:
+        return None
+    try:
+        if autocode_providers.default_choice()[1] != "built-in default":
+            return None
+    except (OSError, ValueError):
+        return None  # the engine verdict reports the unreadable setting
+    return connected_engine.choose(
+        which=which, runner=runner, workspace=workspace if workspace.is_dir() else None, resolve=resolve
+    )
+
+
+def connected_origin(connected: dict) -> str:
+    return f"chosen from your connected accounts: {connected['label']} is connected and OpenCode is not installed"
+
+
+def _where(origin: str) -> str:
+    # An origin is a file the engine was set in, or the connected-account choice above.
+    return origin if origin.startswith("chosen from") else f"set in {origin}"
+
+
 def opencode_checks(
-    checks: list[Check], workspace: Path, wanted: str | None, resolve, which=shutil.which, runner=run
+    checks: list[Check],
+    workspace: Path,
+    wanted: str | None,
+    resolve,
+    which=shutil.which,
+    runner=run,
+    provider: str | None = None,
+    origin: str | None = None,
 ) -> Check:
     """The OpenCode engine's provider, as the runner picks it, and its default routes: appended to
-    ``checks``; returns the verdict."""
+    ``checks``; returns the verdict. ``provider`` names one chosen from the connected accounts
+    (``origin`` says so) instead of the configured default."""
     try:
-        provider = default_provider()
+        provider = provider or default_provider()
     except (OSError, ValueError) as error:  # no run can start either
         return Check(
             "engine",
@@ -423,7 +556,7 @@ def opencode_checks(
     tool = "engine:opencode" if provider == "opencode" else f"provider:{provider}"
     if any(c.name == tool and c.status == OK for c in checks):
         checks.append(route_check(provider, workspace if workspace.is_dir() else None, resolve))
-    return engine_verdict(checks, wanted, provider)
+    return engine_verdict(checks, wanted, provider, origin=origin, claude_on_path=bool(which("claude")))
 
 
 def claude_checks(
@@ -485,13 +618,46 @@ def claude_checks(
     status = {c.name: c.status for c in checks}
     ok = status.get("engine:claude") == OK and status.get("routes") != MISSING
     if origin:
-        what = f"engine claude (set in {origin})"
+        what = f"engine claude ({_where(origin)})"
     else:
         what = "--engine claude" if wanted == "claude" else "provider claude (the default for a new run)"
     fix = "" if ok else "fix engine:claude above"
     if not ok and status.get("engine:codex") == OK:
-        fix += "; or pass --engine codex (the single-login route) to doctor and to every task"
+        fix += "; or pass --engine codex (the single-login route) to doctor and to every task" + PROJECT_ENGINE
     return Check("engine", OK if ok else MISSING, f"{what} is {'ready' if ok else 'not ready'}", fix)
+
+
+# What a root shell in a container or VM should do instead: the bounding-set drop docs/testing.md documents.
+UNPRIVILEGED = "setpriv --bounding-set=-sys_admin,-sys_ptrace"
+
+
+def session_check(require=session_boundary.require_supported) -> Check:
+    """Whether this host admits supervised stages at all, by the check every Linux stage launch makes.
+
+    The CLI first attempts to drop CAP_SYS_ADMIN and CAP_SYS_PTRACE. If either remains available,
+    every stage is still refused with PAUSED_PROCESS_CLEANUP. Report observed admission, never a
+    prediction that a drop might succeed. macOS runs under portable supervision and passes."""
+    try:
+        require()
+    except session_boundary.PortableHost:
+        return Check("session", OK, "macOS: stages run under portable supervision")
+    except session_boundary.UnsupportedBoundary as error:
+        fix = "run AutoCode on a supported Linux x86_64 or aarch64 host (docs/install.md)"
+        if "CAP_SYS" in str(error):
+            fix = (
+                "run AutoCode as an ordinary user rather than root, or drop the two capabilities for it: "
+                f"{UNPRIVILEGED} autocode ..."
+            )
+        return Check(
+            "session",
+            MISSING,
+            f"{error}: every stage, the offline demo included, is refused before it starts (PAUSED_PROCESS_CLEANUP)",
+            fix,
+        )
+    detail = "stages can run under supervised session ownership"
+    if capability_startup.DROPPED:
+        detail += "; automatically dropped CAP_SYS_PTRACE and CAP_SYS_ADMIN at CLI startup"
+    return Check("session", OK, detail)
 
 
 def shared_host_check(passwd_lines=None, uid=None) -> Check:
@@ -534,9 +700,53 @@ def shared_host_check(passwd_lines=None, uid=None) -> Check:
     )
 
 
-def runner_check(commit_source=None) -> Check:
-    """#980: report the autocode code that would execute runs from this machine."""
+def path_check(which=shutil.which, scripts: str | None = None, environ=None) -> Check:
+    """#1761: whether typing ``autocode`` in a new shell finds this install. A virtual environment's
+    ``bin`` is on PATH only while it is activated, so ``.venv/bin/autocode doctor`` and a later shell
+    can disagree; name the directory to put on PATH, or the pipx install that does it once."""
+    environ = os.environ if environ is None else environ
+    scripts = scripts if scripts is not None else sysconfig.get_path("scripts")
+    found = which("autocode")
+    if found is None:
+        installed = Path(scripts) / "autocode"
+        pipx = "pipx install autocode-supervisor puts it on PATH once"
+        fix = pipx
+        if installed.exists():
+            activate = shlex.join(["source", str(Path(scripts) / "activate")])
+            fix = f'{activate} in each new shell, or add export PATH="{scripts}:$PATH" to your shell profile; or {pipx}'
+        return Check("path", WARN, "autocode is not on PATH: a new shell answers `command not found`", fix)
+    venv = environ.get("VIRTUAL_ENV")
+    if venv and Path(found).resolve().parent == (Path(venv) / "bin").resolve():
+        return Check(
+            "path",
+            OK,
+            f"{found}, through the activated virtual environment {venv}; a new shell finds it only after "
+            f"{shlex.join(['source', str(Path(venv) / 'bin' / 'activate')])} (pipx install autocode-supervisor puts "
+            "it on PATH for good)",
+        )
+    return Check("path", OK, found)
+
+
+def installed_release():
+    """The installed autocode-supervisor version, or None when this code is not an installed distribution."""
+    try:
+        return importlib.metadata.version("autocode-supervisor")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def runner_check(commit_source=None, release=installed_release) -> Check:
+    """#980: report the autocode code that would execute runs from this machine.
+
+    A released install has no source commit by design; it is not told to run from a checkout instead."""
     identity = util.runner_identity(commit_source)
+    if identity["commit"] is None and (version := release()):
+        return Check(
+            "runner",
+            OK,
+            f"installed release autocode-supervisor {version} at {identity['path']} (no source commit; run "
+            "states record this path)",
+        )
     if identity["commit"] is None:
         return Check(
             "runner",
@@ -597,7 +807,7 @@ def install_drift_check(checkout=None, installed=None, workspace: Path | None = 
     installed = Path(installed).resolve()
     if installed == reference.resolve():
         return workspace_check or Check(
-            "install-drift", OK, f"{installed} is the linked/editable copy of the executing tree"
+            "install-drift", OK, f"{installed} is the copy executing now; no second installed copy to drift from"
         )
 
     def digest(path):
@@ -701,10 +911,21 @@ def all_checks(
     origin = None
     if engine is None:
         engine, origin = project_engine(workspace)
+    # Still nothing, and no OpenCode to default to: the run takes the backend this machine has
+    # connected (autocode_connected_engine, #2049), so doctor checks that one and says so.
+    connected = connected_choice(workspace, engine, which, runner, resolve)
+    if connected:
+        engine, origin = connected["id"], connected_origin(connected)
+    if found is not None:
+        found["connected"] = connected
     if engine == "codex":
         verdict = engine_verdict(checks, engine, origin=origin)
     elif engine == "claude":
         verdict = claude_checks(checks, workspace, engine, which, runner, resolve, origin)
+    elif connected:
+        verdict = opencode_checks(
+            checks, workspace, None, resolve, which=which, runner=runner, provider=engine, origin=origin
+        )
     else:
         verdict = opencode_checks(checks, workspace, None if origin else engine, resolve, which=which, runner=runner)
     containment = containment_status(opencode_version) if builtin_opencode(engine) else None
@@ -719,13 +940,43 @@ def all_checks(
         *([containment_check(containment)] if containment else []),
         *workspace_check(workspace, runner),
         *local_compose_checks(which, runner),
+        session_check(),
         shared_host_check(),
+        path_check(which),
         runner_check(),
         install_drift_check(workspace=workspace),
         storage_check(workspace),
         project_settings(workspace)[0],
+        user_settings_check(),
         project_memory_check(workspace),
     ]
+
+
+def user_settings_check() -> Check:
+    """The user's ~/.config/autocode/config.toml: the keys it sets, or a warning for each key the file does
+    not take (#2400). `engine = "codex"` there was silently ignored, while doctor's own fix line names the
+    project's .autocode/config.toml for it; a run reads only autocode_providers.USER_KEYS from the user file."""
+    try:
+        from . import autocode_project_config as project_config
+    except ImportError:
+        import autocode_project_config as project_config
+    path = autocode_providers.user_config_path()
+    if not path.is_file():
+        return Check("user settings", OK, f"none ({path} does not exist)")
+    try:
+        table = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
+        return Check("user settings", MISSING, f"{path} cannot be read as TOML: {error}", "correct the file")
+    known = ", ".join(autocode_providers.USER_KEYS)
+    unknown = [str(key) for key in table if key not in autocode_providers.USER_KEYS]
+    if not unknown:
+        return Check("user settings", OK, f"{path}: {', '.join(str(key) for key in table) or 'no keys'}")
+    project_keys = [key for key in unknown if key in project_config.KEYS or key in project_config.FILE_ONLY]
+    detail = f"{path} sets {', '.join(repr(key) for key in unknown)}, which a run never reads from the user file"
+    fix = f"the user file takes only {known}"
+    if project_keys:
+        fix += f"; {', '.join(project_keys)} belong{'s' if len(project_keys) == 1 else ''} in the project's .autocode/config.toml"
+    return Check("user settings", WARN, detail, fix)
 
 
 def project_memory_snapshot(workspace):
@@ -766,7 +1017,7 @@ def project_engine(workspace: Path) -> tuple[str | None, str | None]:
     return (value, str(source)) if value in ENGINES else (None, None)
 
 
-def project_settings(workspace: Path) -> tuple[Check, list[dict]]:
+def project_settings(workspace: Path, connected: dict | None = None) -> tuple[Check, list[dict]]:
     """Where a new run in ``workspace`` takes each setting from, when no flag gives it (#707): the
     project's files (autocode_project_config), the user's provider choice, or the built-in default.
     A project file a run would refuse is missing; the rows then hold only the provider."""
@@ -802,9 +1053,16 @@ def project_settings(workspace: Path) -> tuple[Check, list[dict]]:
         return check, rows
     try:
         name, source = autocode_providers.default_choice()
-        rows.append({"key": "provider", "value": name, "source": source})
     except (OSError, ValueError):
-        pass  # the provider check reports it
+        return check, rows  # the provider check reports it
+    if connected and source == "built-in default":
+        # The run's own choice from the connected accounts (autocode_connected_engine), shown as a run makes it.
+        source = "connected accounts"
+        for row in rows:
+            if row["key"] == "engine" and row["value"] is None:
+                row.update(value="codex" if connected["engine"] == "codex" else connected["id"], source=source)
+        name = connected["provider"] or "opencode"
+    rows.append({"key": "provider", "value": name, "source": source})
     return check, rows
 
 
@@ -851,7 +1109,7 @@ def cli(argv: list[str] | None = None) -> int:
     found: dict = {}
     checks = all_checks(args.workspace.resolve(), args.engine, found=found)
     ok = passed(checks)
-    settings = project_settings(args.workspace.resolve())[1]
+    settings = project_settings(args.workspace.resolve(), found.get("connected"))[1]
     memory = project_memory_snapshot(args.workspace.resolve())
     if args.json:
         print(

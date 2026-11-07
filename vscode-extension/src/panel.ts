@@ -8,16 +8,17 @@
 
 import * as vscode from "vscode";
 import { ClientGap, integerValue, leavesForPerson, requiresConfirmation, type OpenDecision } from "./core/next-command";
-import type { AcceptanceCriterion, IntegerCommandInput, Question, StatusView } from "./core/view";
+import type { AcceptanceCriterion, ChangesetSummary, DisplayedPlan, IntegerCommandInput, Question, StatusView } from "./core/view";
 import { approvalToken, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
 import { telemetry, type Telemetry } from "./core/telemetry";
+import { finishSummary, runTotal, stageLines, stages, struggling, totalText, type FinishSummary, type StageRow } from "./core/meter";
 
 export interface Decision {
   questionId: string;
-  kind: "answer" | "model" | "integer";
+  kind: "answer" | "model" | "effort" | "integer";
   input?: IntegerCommandInput;
   text: string;
   options: string[];
@@ -25,6 +26,23 @@ export interface Decision {
 }
 
 export const NUMERIC_RECOVERY_EFFECT = "This changes only the total active time. Other saved limits and model routes stay the same. It does not approve a plan.";
+
+/** The button that takes a bound's separately named raise (#2044). */
+export const RAISE_LABEL = "Raise limit and continue";
+
+/**
+ * How a confirmation names each bound a person may raise: the question for a typed total, and what
+ * taking it changes. Keyed by the core's row id (autocode_command_inputs); the rows themselves are
+ * validated against the core's table in core/next-command.ts.
+ */
+const BOUND_WORDING: Record<string, [(total: string) => string, string]> = {
+  max_seconds: [(total) => `Set total active time to ${total} seconds and continue?`, "the total active time"],
+  max_cost_usd: [(total) => `Set the cost cap to $${total} and continue?`, "the cost cap"],
+  max_iterations: [(total) => `Set total iterations to ${total} and continue?`, "the iteration ceiling"],
+  max_milestone_seconds: [(total) => `Set the milestone's active time to ${total} seconds and continue?`, "the milestone's active time"],
+  max_milestone_replans: [(total) => `Allow ${total} milestone replans and continue?`, "the milestone replan limit"],
+  no_progress_limit: [(total) => `Allow ${total} unchanged implementation batches and continue?`, "the unchanged-batch limit"],
+};
 
 export interface PanelState {
   numericActionLabel?: string;
@@ -71,14 +89,73 @@ export interface PanelState {
   /** Chat only: the latest status read failed, so this state is an older read and its actions stay disabled (#1593). */
   unreadable?: boolean;
   /** Saved code changes and the actions the view named for them (#1532). */
+  workingDiff: { label: string } | null;
   checkpoints: { id: string; label: string; at: string | null; files: number; available: boolean; reason: string | null; verdict: string | null; actions: { id: string; label: string }[] }[];
   checkpointsBlocked: string | null;
   /** The plan the current token asks to approve, only when the view shows it. */
-  plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; delivery: string | null } | null;
+  plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
   token: string | null;
   /** False when the action would be an approval of a plan this client never displayed. */
   canApprove: boolean;
+  /** This run's change set (`changeset status --json`, #2066), or null when it is in none. */
+  changeset?: ChangesetState | null;
+  /** The raise the view names apart from next_command for the bound holding the run (#2044), or null. */
+  boundRaise: IntegerCommandInput | null;
+  /** Each stage's outcome, time, cost, attempts, model and tokens, from the view's own records. */
+  meter?: MeterState;
+  /** A finished run's closing card, or null while it runs. */
+  finish?: FinishSummary | null;
+}
+
+/** The stage rows, the struggling warning and the run's cost line the chat shows. */
+export interface MeterState {
+  stages: (StageRow & { head: string; detail: string })[];
+  struggling: string;
+  total: string;
+}
+
+/** The meter for one status view: display only, every figure the core's own. */
+export function meterOf(view: StatusView, now = Date.now()): MeterState {
+  return {
+    stages: stages(view, now).map((row) => ({ ...row, ...stageLines(row) })),
+    struggling: view.done ? "" : struggling(view, now),
+    total: totalText(runTotal(view)),
+  };
+}
+
+/** A change set as the panel shows it: every run, and the one action `changeset status` names now. */
+export interface ChangesetState {
+  id: string;
+  runs: { target: string; role: string; status: string; needs: string | null }[];
+  /** Each run's plan, shown only while the set approval is offered: that approval approves them. */
+  plans: { target: string; plan: NonNullable<PanelState["plan"]> }[];
+  offer: { key: "approval" | "verification"; label: string; effect: string } | null;
+  /** The set token the shown plans make; the webview echoes it back so a stale click approves nothing. */
+  token: string | null;
+  note: string | null;
+}
+
+/** The panel's change-set card for a `changeset status --json` summary. */
+export function changesetState(summary: ChangesetSummary): ChangesetState {
+  const { approval, verification } = summary;
+  const approving = Boolean(approval.next_command?.length);
+  let note: string | null = null;
+  if (verification.done) note = "Checked together: done. Merge order: " + verification.merge_order.join(", then ");
+  else if (!approving && approval.waiting_on.length && verification.waiting_on.length) note = "A set approval waits for a complete plan from: " + approval.waiting_on.join(", ");
+  else if (verification.result?.current && !verification.result.passed) note = "The integration check failed. Reopen the run that diverged (autocode changeset reopen) or waive it with a reason (autocode changeset waive).";
+  return {
+    id: summary.changeset,
+    runs: summary.runs.map((row) => ({ target: row.target, role: row.role, status: row.status, needs: row.needs ?? null })),
+    plans: approving ? summary.runs.map((row) => ({ target: row.target, plan: planOf(row.plan ?? {}) })) : [],
+    offer: approving
+      ? { key: "approval", label: `Approve all ${summary.runs.length} plans`, effect: "Approves every plan shown here together, the source run first. A plan revised in any run withdraws this approval." }
+      : verification.next_command?.length
+        ? { key: "verification", label: "Run the set's check", effect: `Runs ${(verification.check?.command ?? []).join(" ")} in ${verification.check?.in ?? "the named run"}'s workspace, with no shell.` }
+        : null,
+    token: approving ? approval.set_token : null,
+    note,
+  };
 }
 
 export class RunPanel {
@@ -174,12 +251,67 @@ export class RunPanel {
     if (!this.panel.visible) return;
     let view: StatusView;
     try {
-      view = await this.controller.status(this.run);
+      view = await this.controller.pollStatus(this.run);
     } catch (error) {
       this.post({ ...emptyState(this.run), gap: messageOf(error) });
       return;
     }
-    this.post(stateFor(view, this.run, this.controller, this.taking));
+    this.post({ ...stateFor(view, this.run, this.controller, this.taking), changeset: await this.changesetCard(view) });
+  }
+
+  /** The change-set card, or null when the run is in none; a failed read is shown, never guessed at. */
+  private async changesetCard(view: StatusView): Promise<ChangesetState | null> {
+    try {
+      const summary = await this.controller.changeset(view, this.run);
+      return summary ? changesetState(summary) : null;
+    } catch (error) {
+      return { id: "", runs: [], plans: [], offer: null, token: null, note: `The change set could not be read: ${messageOf(error)}` };
+    }
+  }
+
+  /** The change set's named action, confirmed first, bound to the set token the card showed. */
+  private async takeChangeset(key: "approval" | "verification", token: string | null): Promise<void> {
+    if (this.taking) return;
+    this.taking = true;
+    try {
+      const view = await this.controller.status(this.run);
+      const question = key === "approval" ? "Approve every plan of the change set together?" : "Run the change set's integration check now?";
+      const button = key === "approval" ? "Approve all" : "Run the check";
+      if ((await vscode.window.showWarningMessage(question, { modal: true }, button)) !== button) return;
+      await this.controller.takeChangeset(view, this.run, key, token);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
+    } finally {
+      this.taking = false;
+      await this.update();
+      try {
+        await this.onAction?.();
+      } catch {
+        // Ignored
+      }
+    }
+  }
+
+  /** The bound's separately named raise with the typed number, confirmed against the offer shown (#2044). */
+  private async raise(value: string, decisionContext: string | undefined): Promise<void> {
+    if (this.taking) return;
+    this.taking = true;
+    try {
+      const view = await this.controller.status(this.run);
+      if (!(await confirmRaise(stateFor(view, this.run, this.controller, true), decisionContext, value))) return;
+      this.post(stateFor(view, this.run, this.controller, true));
+      await this.controller.raise(view, this.run, value);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
+    } finally {
+      this.taking = false;
+      await this.update();
+      try {
+        await this.onAction?.();
+      } catch {
+        // Ignored
+      }
+    }
   }
 
   private post(state: PanelState): void {
@@ -192,7 +324,13 @@ export class RunPanel {
     answers?: Record<string, string>;
     token?: string | null;
     decisionContext?: string;
+    key?: string;
+    value?: string;
   }): Promise<void> {
+    if (message.type === "changeset" && (message.key === "approval" || message.key === "verification")) {
+      await this.takeChangeset(message.key, message.token ?? null);
+      return;
+    }
     if (message.type === "chat") {
       await vscode.commands.executeCommand("autocode.openRun", this.run);
       return;
@@ -203,6 +341,10 @@ export class RunPanel {
     }
     if (message.type === "refresh") {
       await this.update();
+      return;
+    }
+    if (message.type === "raise") {
+      await this.raise(message.value ?? "", message.decisionContext);
       return;
     }
     if (message.type !== "take") return;
@@ -291,6 +433,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       gap = error instanceof ClientGap ? error.message : messageOf(error);
     }
   }
+  const boundRaise = view.done || stopped ? null : controller.boundRaise(view, run);
   const requirements = progress?.requirements;
   const working = taking || isWorking(view);
   return {
@@ -358,6 +501,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       need?.route,
       decisions,
       view.next_command ?? "",
+      boundRaise,
     ]),
     gap,
     actionLabel,
@@ -383,21 +527,29 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       actions: (row.actions ?? []).map((action) => ({ id: action.id, label: action.label })),
     })),
     checkpointsBlocked: view.code_checkpoints?.blocked_reason ?? null,
+    workingDiff: view.code_checkpoints?.working?.next_command ? { label: view.code_checkpoints.working.label ?? "Show changes so far" } : null,
     plan,
     token: approvalToken(view),
     canApprove: need?.kind !== "approve_plan" || plan !== null,
+    boundRaise,
+    meter: meterOf(view),
+    finish: finishSummary(view),
   };
 }
 
 /** The plan the token asks to approve, only when the view still shows that plan. */
 function planShape(view: StatusView): PanelState["plan"] {
   const plan = planForApproval(view);
-  if (!plan) return null;
+  return plan ? planOf(plan) : null;
+}
+
+function planOf(plan: DisplayedPlan): NonNullable<PanelState["plan"]> {
   return {
     revision: plan.revision ?? null,
     criteria: plan.acceptance_criteria ?? [],
     constraints: plan.constraints ?? [],
     boundaries: plan.permission_boundaries ?? [],
+    exclusions: plan.scope_exclusions ?? [],
     delivery: plan.git_delivery ? "Create one local atomic commit: " + plan.git_delivery.message : null,
   };
 }
@@ -412,6 +564,12 @@ function describe(
     text: open.input.label, options: [], suggested: null,
   };
   const question: Question | undefined = need?.questions?.find((row) => row.id === open.questionId);
+  if (open.kind === "effort") return {
+    questionId: open.questionId, kind: "effort",
+    text: question?.question ?? `Choose an effort for ${need?.effort?.job ?? open.questionId}`,
+    options: [...(need?.effort?.question_id === open.questionId ? need.effort.declared ?? [] : [])],
+    suggested: null,
+  };
   const route = need?.route;
   const asksModel = open.kind === "model";
   return {
@@ -445,23 +603,51 @@ export function numericConfirmation(state: PanelState, answers: Record<string, s
   if (input.id === "planning_review_call_limit") {
     return `Set the total plan-review allowance to ${total} calls?`;
   }
-  return `Set total active time to ${total} seconds and continue?`;
+  return boundQuestion(input, total);
+}
+
+/** The confirmation for a bound's separate raise with the typed number; a number out of bounds is a gap. */
+export function raiseConfirmation(input: IntegerCommandInput, text: string): string {
+  return boundQuestion(input, integerValue(text, input));
+}
+
+function boundQuestion(input: IntegerCommandInput, total: string): string {
+  const wording = BOUND_WORDING[input.id];
+  return wording ? wording[0](total) : `Set ${input.label} to ${total} and continue?`;
 }
 
 export function numericActionLabel(state: Pick<PanelState, "decisions">): string {
   const input = state.decisions.find((row) => row.kind === "integer")?.input;
   if (input?.id === "grant_recovery") return "Grant and continue";
-  return input?.id === "planning_review_call_limit"
-    ? "Set review allowance"
-    : "Set total and continue";
+  if (input?.id === "planning_review_call_limit") return "Set review allowance";
+  return input?.id === "max_seconds" || !input ? "Set total and continue" : RAISE_LABEL;
 }
 
 export function numericRecoveryEffect(state: PanelState): string {
   const input = state.decisions.find((row) => row.kind === "integer")?.input;
   if (input?.id === "grant_recovery") return "This replenishes spent recovery slots under the existing fixed allowance. Recovery history is retained; excess is not banked. Other saved limits and model routes stay the same. It does not approve a plan.";
-  return input?.id === "planning_review_call_limit"
-    ? "This changes only the plan-review allowance. Used calls stay counted. Inspect the next action after saving; continuing can require a separate Resume. Other saved limits and model routes stay the same. It does not approve a plan."
-    : NUMERIC_RECOVERY_EFFECT;
+  if (input?.id === "planning_review_call_limit") return "This changes only the plan-review allowance. Used calls stay counted. Inspect the next action after saving; continuing can require a separate Resume. Other saved limits and model routes stay the same. It does not approve a plan.";
+  return input ? boundEffect(input) : NUMERIC_RECOVERY_EFFECT;
+}
+
+/**
+ * Ask the person to confirm a typed raise of the bound the view names now; false when declined.
+ * An offer that changed since it was shown, or a number out of its bounds, is refused before asking.
+ */
+export async function confirmRaise(state: PanelState, decisionContext: string | undefined, value: string): Promise<boolean> {
+  const input = state.boundRaise;
+  if (!input || decisionContext !== state.decisionContext) {
+    throw new ClientGap("The requested action changed; review it before continuing");
+  }
+  const title = raiseConfirmation(input, value);
+  return (await vscode.window.showWarningMessage(title, { modal: true, detail: boundEffect(input) }, RAISE_LABEL)) === RAISE_LABEL;
+}
+
+/** What raising a bound changes, and what it leaves alone. */
+export function boundEffect(input: IntegerCommandInput): string {
+  if (input.id === "max_seconds") return NUMERIC_RECOVERY_EFFECT;
+  const noun = BOUND_WORDING[input.id]?.[1] ?? input.label;
+  return `This changes only ${noun}, then resumes the run. Other saved limits and model routes stay the same. It does not approve a plan.`;
 }
 
 function safeCommandText(view: StatusView, run: RunRef, controller: RunController): string {
@@ -509,8 +695,10 @@ function emptyState(run: RunRef): PanelState {
     working: false,
     pauseOffer: null,
     checkpoints: [],
+    workingDiff: null,
     checkpointsBlocked: null,
     plan: null,
+    boundRaise: null,
     token: null,
     canApprove: true,
   } satisfies Omit<PanelState, "gap">;
@@ -534,6 +722,61 @@ function trim(text: string, max: number): string {
  * (24×24, stroke currentColor). The webview CSP loads no fonts or images, so
  * inline markup is the only icon path; codicon names exist only in host UI.
  */
+/** The chat's stage rows, cost line, welcome and closing card. Colors come from the VS Code theme. */
+const METER_STYLES = `
+  .chat-toolbar { flex-wrap: nowrap; }
+  .chat-toolbar button.icon { flex: none; }
+  #run-cost { flex: 1 1 auto; align-self: center; font-size: .75rem; opacity: .85; white-space: nowrap;
+              overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #run-cost .session { opacity: .75; }
+  #stages { flex-shrink: 0; margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
+            padding: 4px 8px; font-size: .75rem; }
+  #stages[hidden] { display: none; }
+  #stages-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .stages-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .7rem; }
+  button.link { background: none; border: none; padding: 0; color: var(--vscode-textLink-foreground); font-size: .72rem; }
+  button.link[hidden] { display: none; }
+  .stage { display: grid; grid-template-columns: 1.4ch 1fr; column-gap: 4px; padding: 2px 0; }
+  .stage .mark { grid-row: span 2; }
+  .stage .detail { opacity: .7; overflow-wrap: anywhere; }
+  .stage.done .mark { color: var(--vscode-charts-green, #3a7d3a); }
+  .stage.working .mark { color: var(--vscode-charts-blue, #1a6fb0); }
+  .stage.retrying .mark, .stage.retrying .head { color: var(--vscode-editorWarning-foreground, #cc8800); }
+  .stage.failed .mark, .stage.failed .head { color: var(--vscode-errorForeground, #a1260d); }
+  .struggling { border-left: 3px solid var(--vscode-editorWarning-foreground, #cc8800); padding: 3px 8px; margin: 4px 0;
+                color: var(--vscode-editorWarning-foreground, #cc8800); font-size: .85rem; }
+  .chat-tab .dot.needs { color: var(--vscode-editorWarning-foreground, #cc8800); }
+  .chat-tab .dot.finished { color: var(--vscode-charts-green, #3a7d3a); }
+  .welcome { padding: 4px 2px; font-size: .88rem; }
+  .welcome p { margin: 4px 0 10px; opacity: .85; }
+  .welcome .kinds { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin: 6px 0 12px; font-size: .82rem; }
+  .welcome .kinds b { font-weight: 600; }
+  .welcome .try { opacity: .75; font-size: .8rem; margin-bottom: 4px; }
+  .welcome button.example { display: block; width: 100%; text-align: left; margin: 4px 0; background: var(--vscode-input-background);
+                            color: var(--vscode-foreground); border: 1px solid var(--vscode-panel-border); border-radius: 4px; }
+  .welcome button.example:hover { border-color: var(--vscode-focusBorder); }
+  .finish .result { font-weight: 600; margin-bottom: 6px; }
+  .finish .facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; font-size: .84rem; margin-bottom: 8px; }
+  .finish .facts span:nth-child(odd) { opacity: .7; }
+  .finish .files { overflow-wrap: anywhere; }
+`;
+
+/** What a new chat can ask for: AutoCode's five workflows, in a person's words. */
+export const WELCOME_KINDS: [string, string][] = [
+  ["Build", "a feature or change, planned and checked before it is called done"],
+  ["Fix", "a bug: find the cause, prove it with a test, then fix it"],
+  ["Review", "a change or a branch for problems"],
+  ["Design", "something before building it"],
+  ["Discuss", "a question about this code, without changing it"],
+];
+
+/** Example requests the welcome offers; clicking one only fills the message box. */
+export const WELCOME_EXAMPLES = [
+  "Fix the failing test in tests/test_api.py",
+  "Add a --json option to the export command",
+  "Why does sign-in time out on slow networks?",
+];
+
 const ICONS = {
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>`,
   clock: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25" /><path d="M12 7.5V12l3 2" /></svg>`,
@@ -577,6 +820,13 @@ export function panelHtml(chat = false): string {
   .decision { margin: 10px 0; }
   .decision .q { font-size: .86rem; }
   .why { font-size: .76rem; opacity: .75; }
+  .activity { margin: 6px 0; font-family: var(--vscode-editor-font-family, monospace); font-size: .82rem; }
+  .activity-row { display: flex; gap: 6px; opacity: .85; }
+  .activity-row.running { opacity: 1; }
+  .activity-row.failed { color: var(--vscode-errorForeground); }
+  .activity-row.thinking { opacity: .7; font-style: italic; }
+  .activity-mark { width: 1ch; flex: none; }
+  .live-log .agent { flex: none; opacity: .75; }
   pre { white-space: pre-wrap; word-break: break-all; font-size: .76rem; background: var(--vscode-textCodeBlock-background);
         padding: 8px; border-radius: 4px; }
   .gap, .notice { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cc8800);
@@ -587,12 +837,14 @@ export function panelHtml(chat = false): string {
   .muted { opacity: .65; }
   ${chat ? chatStyles : ""}
   ${chat ? "#composer .chip[hidden] { display: none; }" : ""}
+  ${chat ? METER_STYLES : ""}
 </style>
 </head>
 <body>
-${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools">${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
+<section id="stages" aria-label="Stages" hidden><div id="stages-head"><span class="stages-title">Stages</span><button type="button" id="stages-more" class="link" hidden></button></div><div id="stage-rows"></div></section>
 <section id="telemetry" aria-label="Models and usage">
 <details id="usage-details"><summary id="telemetry-summary"><span class="telemetry-heading">Models &amp; usage</span>
 <span id="model-summary">Model not reported</span><span id="usage-summary">Tokens not reported · Cost not reported</span></summary>
@@ -608,6 +860,12 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 const chatMode = ${chat};
+const RAISE_LABEL = ${JSON.stringify(RAISE_LABEL)};
+const WELCOME_KINDS = ${JSON.stringify(WELCOME_KINDS)};
+const WELCOME_EXAMPLES = ${JSON.stringify(WELCOME_EXAMPLES)};
+const STAGE_ROWS = 4;
+const STAGE_MARKS = { done: '✓', working: '●', retrying: '↻', failed: '✗' };
+let stagesExpanded = false;
 const initialWebviewState = vscode.getState?.() || {};
 let chatEnvelope = null;
 const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
@@ -615,6 +873,10 @@ let current = null;
 let answers = Object.create(null);
 let renderedState = '';
 let checkpointCompare = Object.create(null);
+let workingCompare = null;
+const ACTIVITY_MARKS = { command: '$', edit: '±', tool: '·', thinking: '∴', message: '»' };
+// The live agent log kept by entry id across reads (the terminal chat's LiveLog).
+const liveLog = new Map();
 let checkpointResult = null;
 const tabScroll = Object.create(null);
 
@@ -640,9 +902,178 @@ function stateRow(item) {
 }
 
 function renderChatProgress(container, state) {
+  if (state.meter && state.meter.struggling) {
+    const warn = el('div', 'struggling', '⚠ ' + state.meter.struggling);
+    warn.id = 'struggling';
+    warn.setAttribute('role', 'status');
+    container.appendChild(warn);
+  }
   const lines = state.chat && Array.isArray(state.chat.progress)
     ? state.chat.progress.filter((line) => typeof line === 'string' && line) : [];
   (lines.length ? lines : ['Thinking…']).forEach((line) => container.appendChild(el('div', 'line', line)));
+  // Live agent log (chat.log): what each running agent thinks, says and does. Kept by id
+  // across reads like the terminal chat's LiveLog, since the view holds only the newest.
+  const logRows = state.chat && Array.isArray(state.chat.log) ? state.chat.log : [];
+  for (const row of logRows) {
+    if (!row || typeof row.id !== 'string' || typeof row.text !== 'string' || typeof row.agent !== 'string') continue;
+    if (!(row.kind in ACTIVITY_MARKS)) continue;
+    liveLog.set(row.id, { agent: row.agent, kind: row.kind, text: row.text, status: row.status || '' });
+  }
+  while (liveLog.size > 500) liveLog.delete(liveLog.keys().next().value);
+  const live = [...liveLog.values()].slice(-8);
+  if (live.length) {
+    // Supersedes the bare activity list: the log already carries those tool marks.
+    const list = el('div', 'activity live-log');
+    list.setAttribute('aria-label', 'Agent log');
+    live.forEach((row) => {
+      const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
+      const line = el('div', 'activity-row ' + (row.status || '') + (row.kind === 'thinking' ? ' thinking' : ''));
+      line.appendChild(el('span', 'activity-mark', mark));
+      line.appendChild(el('span', 'agent', row.agent));
+      line.appendChild(el('span', null, row.text));
+      list.appendChild(line);
+    });
+    container.appendChild(list);
+    return;
+  }
+  // What the running step does now: core-written display text, never proof that it worked.
+  const events = state.chat && Array.isArray(state.chat.activity)
+    ? state.chat.activity.filter((row) => row && typeof row.text === 'string' && row.text).slice(-6) : [];
+  if (events.length) {
+    const list = el('div', 'activity');
+    list.setAttribute('aria-label', 'What AutoCode is doing');
+    events.forEach((row) => {
+      const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
+      const line = el('div', 'activity-row ' + (row.status || ''));
+      line.appendChild(el('span', 'activity-mark', mark));
+      line.appendChild(el('span', null, row.text));
+      list.appendChild(line);
+    });
+    container.appendChild(list);
+  }
+  if (state.workingDiff) {
+    const show = el('button', 'secondary', state.workingDiff.label);
+    show.id = 'working-diff';
+    show.disabled = Boolean(state.unreadable);
+    show.addEventListener('click', () => vscode.postMessage({ type: 'working_diff',
+      runKey: state.workspace + '\\n' + state.runDir }));
+    container.appendChild(show);
+  }
+  if (!state.workingDiff) return;  // a diff of a step that has ended would be stale
+  if (workingCompare && workingCompare.error) {
+    container.appendChild(el('div', 'why', workingCompare.error));
+  } else if (workingCompare) {
+    const comparison = workingCompare.comparison || {};
+    const files = (comparison.changed_files || []).length;
+    const since = comparison.since === 'start' ? 'the run started' : 'the last saved step';
+    container.appendChild(el('div', 'why', files + ' file(s) changed since ' + since + (comparison.truncated ? ' · diff truncated' : '')));
+    const patch = el('pre');
+    patch.textContent = comparison.patch || 'The Builder has not changed any files yet.';
+    container.appendChild(patch);
+  }
+}
+
+/** A finished run's closing card: the result, what it checked and changed, and what it took. */
+function renderFinish(state) {
+  const finish = state.finish;
+  const card = el('div', 'decision-card finish');
+  card.id = 'finish-summary';
+  card.appendChild(el('div', 'speaker', 'AutoCode · finished'));
+  const body = el('div', 'message-content');
+  body.appendChild(el('div', 'result', '✓ ' + finish.headline));
+  const facts = el('div', 'facts');
+  const fact = (label, value, cls) => { facts.appendChild(el('span', null, label)); facts.appendChild(el('span', cls || null, value)); };
+  if (finish.requirements) fact('Requirements', finish.requirements.checked + ' of ' + finish.requirements.total + ' checked');
+  if (finish.files.length) {
+    const shown = finish.files.slice(0, 6).join(', ') + (finish.files.length > 6 ? ' and ' + (finish.files.length - 6) + ' more' : '');
+    fact('Changed', finish.files.length + (finish.files.length === 1 ? ' file: ' : ' files: ') + shown, 'files');
+  }
+  if (finish.seconds !== null) fact('Stage time', formatDuration(finish.seconds));
+  if (state.meter && state.meter.total) fact('Cost', state.meter.total);
+  if (facts.childNodes.length) body.appendChild(facts);
+  const actions = el('div', 'actions');
+  if (state.checkpoints && state.checkpoints.length) {
+    const show = el('button', null, 'Show changes');
+    show.id = 'finish-show-changes';
+    show.addEventListener('click', () => {
+      const target = document.getElementById('saved-changes');
+      if (target && target.scrollIntoView) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+    actions.appendChild(show);
+  }
+  const details = el('button', 'secondary', 'Run details');
+  details.id = 'finish-details';
+  details.addEventListener('click', () => vscode.postMessage({ type: 'details' }));
+  actions.appendChild(details);
+  body.appendChild(actions);
+  card.appendChild(body);
+  app.appendChild(card);
+}
+
+function formatDuration(seconds) {
+  const whole = Math.floor(seconds);
+  if (whole < 60) return whole + 's';
+  if (whole < 3600) return Math.floor(whole / 60) + 'm' + String(whole % 60).padStart(2, '0') + 's';
+  return Math.floor(whole / 3600) + 'h' + String(Math.floor((whole % 3600) / 60)).padStart(2, '0') + 'm';
+}
+
+/** A new chat's welcome: what AutoCode can do, and example requests that only fill the message box. */
+function renderWelcome() {
+  const box = el('div', 'welcome');
+  box.id = 'welcome';
+  box.appendChild(el('p', null, 'AutoCode plans the work with you, builds it, and checks it independently before it calls it done.'));
+  const kinds = el('div', 'kinds');
+  WELCOME_KINDS.forEach(([name, what]) => { kinds.appendChild(el('b', null, name)); kinds.appendChild(el('span', null, what)); });
+  box.appendChild(kinds);
+  box.appendChild(el('div', 'try', 'Try asking:'));
+  WELCOME_EXAMPLES.forEach((example) => {
+    const button = el('button', 'example', example);
+    button.type = 'button';
+    button.addEventListener('click', () => {
+      const field = document.getElementById('message');
+      field.value = example;
+      field.focus();
+      saveDraft(); updateComposer(); chatBehavior.resize();
+    });
+    box.appendChild(button);
+  });
+  app.appendChild(box);
+}
+
+/** The cost line in the toolbar and the stage rows above the usage section. */
+function renderMeter(data) {
+  const meter = data.state && data.state.meter;
+  const cost = document.getElementById('run-cost');
+  const costKey = JSON.stringify([meter && meter.total, data.session]);
+  if (cost && cost.dataset.content !== costKey) {
+    cost.dataset.content = costKey;
+    cost.textContent = '';
+    if (meter && meter.total) cost.appendChild(el('span', null, meter.total));
+    if (data.session) cost.appendChild(el('span', 'session', (meter && meter.total ? ' · ' : '') + 'all chats ' + data.session));
+    cost.title = [meter && meter.total ? 'This run: ' + meter.total : '', data.session ? 'All open chats: ' + data.session : '']
+      .filter(Boolean).join(' · ');
+  }
+  const section = document.getElementById('stages');
+  if (!section) return;
+  const rows = meter ? meter.stages : [];
+  section.hidden = !rows.length;
+  const key = JSON.stringify([rows, stagesExpanded]);
+  if (section.dataset.content === key) return;
+  section.dataset.content = key;
+  const host = document.getElementById('stage-rows');
+  host.textContent = '';
+  const shown = stagesExpanded ? rows : rows.slice(-STAGE_ROWS);
+  const more = document.getElementById('stages-more');
+  more.hidden = rows.length <= STAGE_ROWS;
+  more.textContent = stagesExpanded ? 'Show fewer' : (rows.length - STAGE_ROWS) + ' earlier';
+  shown.forEach((row) => {
+    const item = el('div', 'stage ' + row.state);
+    item.dataset.stage = row.stage;
+    item.appendChild(el('span', 'mark', STAGE_MARKS[row.state] || '·'));
+    item.appendChild(el('span', 'head', row.head));
+    if (row.detail) item.appendChild(el('span', 'detail', row.detail));
+    host.appendChild(item);
+  });
 }
 
 function renderStopped(stopped) {
@@ -662,7 +1093,9 @@ function render(state) {
     state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
     state.actionLabel, state.actionEffect, state.stopped, state.unreadable,
-    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.review, state.chat.input && state.chat.input.kind],
+    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.review, state.chat.input && state.chat.input.kind],
+    state.workingDiff, state.boundRaise, state.done, state.finish,
+    state.meter && state.meter.struggling, state.checkpoints,
   ] : state;
   const serialized = JSON.stringify(chatSlice);
   if (serialized === renderedState) return;
@@ -695,6 +1128,7 @@ function render(state) {
 
     if (state.chat && state.chat.input && state.chat.input.kind === 'resolver_response') {
       cardContent.appendChild(el('div', 'notice', 'Reply with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
+      if (state.boundRaise) renderBoundRaise(cardContent, state);
       app.appendChild(card);
       return;
     }
@@ -760,6 +1194,10 @@ function render(state) {
         cardContent.appendChild(el('h2', null, 'What it may do'));
         state.plan.boundaries.forEach((text) => cardContent.appendChild(el('div', 'row', text)));
       }
+      if (state.plan.exclusions.length) {
+        cardContent.appendChild(el('h2', null, 'Not covered'));
+        state.plan.exclusions.forEach((text) => cardContent.appendChild(el('div', 'row', text)));
+      }
     }
 
     if (state.gap) {
@@ -810,6 +1248,7 @@ function render(state) {
         });
         cardContent.appendChild(form);
       }
+      if (state.boundRaise) renderBoundRaise(cardContent, state);
 
       var approving = state.needKind === 'approve_plan';
       var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve and build'
@@ -834,9 +1273,15 @@ function render(state) {
 
     if (cardContent.childNodes.length > 0) app.appendChild(card);
     if (strip.childNodes.length > 0) app.appendChild(strip);
+    if (state.done && state.finish) renderFinish(state);
     if (chatMode && state.checkpoints && state.checkpoints.length) {
-      app.appendChild(el('h2', null, 'Saved code changes'));
+      const savedHeading = el('h2', null, 'Saved code changes');
+      savedHeading.id = 'saved-changes';
+      app.appendChild(savedHeading);
       if (state.checkpointsBlocked) app.appendChild(el('div', 'why', state.checkpointsBlocked));
+      if (state.taking && state.checkpoints.some((cp) => cp.available && cp.actions.length)) {
+        app.appendChild(el('div', 'why', 'Saved-code actions are available after the current AutoCode action finishes.'));
+      }
       state.checkpoints.forEach((cp) => {
         const box = el('div', 'decision');
         const title = cp.label + (cp.verdict ? ' · ' + cp.verdict : '');
@@ -847,7 +1292,7 @@ function render(state) {
             const button = el('button', action.id === 'restore' ? null : 'secondary', action.label);
             button.dataset.checkpointAction = action.id;
             button.dataset.checkpointId = cp.id;
-            button.disabled = Boolean(state.unreadable);
+            button.disabled = Boolean(state.taking || state.unreadable);
             button.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint', action: action.id,
               checkpoint: cp.id, runKey: state.workspace + '\\n' + state.runDir }));
             box.appendChild(button);
@@ -968,7 +1413,13 @@ function render(state) {
       app.appendChild(el('h2', null, 'What it may do'));
       state.plan.boundaries.forEach((text) => app.appendChild(el('div', 'row', text)));
     }
+    if (state.plan.exclusions.length) {
+      app.appendChild(el('h2', null, 'Not covered'));
+      state.plan.exclusions.forEach((text) => app.appendChild(el('div', 'row', text)));
+    }
   }
+
+  if (state.changeset) renderChangeset(state.changeset, state);
 
   if (!state.done && !state.stopped) {
     app.appendChild(el('h2', null, 'Waiting for'));
@@ -982,6 +1433,7 @@ function render(state) {
     chat.id = 'open-recovery-conversation';
     chat.addEventListener('click', () => vscode.postMessage({ type: 'chat' }));
     app.appendChild(chat);
+    if (state.boundRaise) renderBoundRaise(app, state);
   } else if (state.gap) {
     app.appendChild(el('h2', null, 'No action the client can take'));
     const box = el('div', 'gap');
@@ -1044,6 +1496,7 @@ function render(state) {
     actions.appendChild(again);
     app.appendChild(actions);
     updateActionButton();
+    if (state.boundRaise) renderBoundRaise(app, state);
 
     if (!state.canApprove && state.needKind === 'approve_plan') {
       const notice = el('div', 'notice');
@@ -1073,6 +1526,36 @@ function render(state) {
   }
 }
 
+function renderChangeset(set, state) {
+  app.appendChild(el('h2', null, set.id ? 'Change set ' + set.id : 'Change set'));
+  set.runs.forEach((row) => app.appendChild(el('div', 'row',
+    row.target + ' (' + (row.role === 'source' ? 'source run' : 'linked run') + '): ' + row.status + (row.needs ? ', needs ' + row.needs : ''))));
+  set.plans.forEach((entry) => {
+    app.appendChild(el('div', 'why', entry.target + ': plan revision ' + (entry.plan.revision === null ? '?' : entry.plan.revision)));
+    entry.plan.criteria.forEach((criterion) => {
+      app.appendChild(el('div', 'row', criterion.id + ': ' + criterion.criterion));
+      app.appendChild(el('pre', null, criterion.verification_method));
+      if (criterion.human_review) app.appendChild(el('div', 'why', 'You check this one yourself'));
+    });
+    for (const [title, rows] of [['Constraints', entry.plan.constraints], ['What it may do', entry.plan.boundaries], ['Not covered', entry.plan.exclusions]]) {
+      if (rows.length) {
+        app.appendChild(el('h3', null, title));
+        rows.forEach((text) => app.appendChild(el('div', 'row', text)));
+      }
+    }
+    if (entry.plan.delivery) app.appendChild(el('div', 'row', entry.plan.delivery));
+  });
+  if (set.note) app.appendChild(el('div', 'notice', set.note));
+  if (set.offer) {
+    app.appendChild(el('div', 'why', set.offer.effect));
+    const take = el('button', null, set.offer.label);
+    take.id = 'changeset-action';
+    take.disabled = state.taking || Boolean(state.unreadable);
+    take.addEventListener('click', () => vscode.postMessage({ type: 'changeset', key: set.offer.key, token: set.token }));
+    app.appendChild(take);
+  }
+}
+
 function updateActionButton() {
   const take = document.getElementById('take-action');
   if (!take || !current) return;
@@ -1085,12 +1568,60 @@ function updateActionButton() {
   take.disabled = current.taking || current.working || Boolean(current.unreadable) || missing || !current.canApprove;
 }
 
+// The raise the view names apart from next_command for the bound holding the run (#2044): its own
+// number and button, so a typed limit goes only into that command.
+function renderBoundRaise(container, state) {
+  const input = state.boundRaise;
+  const name = 'raise:' + input.id;
+  const box = el('div', 'decision');
+  box.id = 'bound-raise';
+  box.appendChild(el('div', 'q', 'Or raise the limit instead: ' + input.label));
+  box.appendChild(el('div', 'why', numericHelp(input)));
+  const field = document.createElement('input');
+  field.type = 'text'; field.inputMode = 'numeric'; field.pattern = '[0-9]*';
+  field.setAttribute('aria-label', input.label);
+  field.dataset.question = name;
+  if (answers[name]) field.value = answers[name];
+  const save = () => { answers[name] = field.value; updateRaiseButton(); };
+  field.addEventListener('change', save);
+  field.addEventListener('input', save);
+  box.appendChild(field);
+  const raise = el('button', null, (state.taking || state.working) ? 'Working…' : RAISE_LABEL);
+  raise.id = 'raise-bound';
+  raise.addEventListener('click', () => vscode.postMessage({ type: 'raise', value: answers[name] || '',
+    runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+  box.appendChild(raise);
+  container.appendChild(box);
+  updateRaiseButton(raise);
+}
+
+// The chat card is built before it joins the document, so the first update is given its button.
+function updateRaiseButton(button) {
+  const raise = button || document.getElementById('raise-bound');
+  if (!raise || !current || !current.boundRaise) return;
+  const input = current.boundRaise;
+  const value = answers['raise:' + input.id] || '';
+  const number = /^[0-9]+$/.test(value) ? Number(value) : NaN;
+  const valid = Number.isSafeInteger(number) && number >= input.minimum && number <= input.maximum;
+  raise.disabled = current.taking || current.working || Boolean(current.unreadable) || !valid;
+}
+
 function numericHelp(input) {
   if (input.id === 'grant_recovery') return 'Automatic recovery allowance: ' + input.current
     + '. Counted recoveries used: ' + input.used + '. Enter 1 to ' + input.maximum
     + ' additional recoveries. A grant replenishes spent slots; history is kept.';
   if (input.id === 'planning_review_call_limit') return 'Saved allowance: ' + input.current
     + ' calls. Plan-review calls used: ' + input.used + '. Enter a total of at least ' + input.minimum + ' calls.';
+  if (input.id === 'max_cost_usd') return 'Saved cost cap: $' + input.current + '. Known spend: $' + input.used
+    + '. Enter a whole-dollar cap of at least $' + input.minimum + '.';
+  if (input.id === 'max_iterations') return 'Saved ceiling: ' + input.current + ' iterations. Current iteration: '
+    + input.used + '. Enter a total of at least ' + input.minimum + ' iterations.';
+  if (input.id === 'max_milestone_seconds') return 'Saved milestone time: ' + input.current + ' seconds. Counted: '
+    + input.used + ' seconds. Enter at least ' + input.minimum + ' seconds.';
+  if (input.id === 'max_milestone_replans') return 'Replans allowed: ' + input.current + '. Replans used: '
+    + input.used + '. Enter at least ' + input.minimum + '.';
+  if (input.id === 'no_progress_limit') return 'Unchanged batches allowed: ' + input.current + '. Counted: '
+    + input.used + '. Enter at least ' + input.minimum + '.';
   return 'Saved total: ' + input.current + ' seconds. Active time used: ' + input.elapsed
     + ' seconds. Enter a total of at least ' + input.minimum + ' seconds.';
 }
@@ -1124,6 +1655,11 @@ window.addEventListener('message', (event) => {
   }
   if (data && data.type === 'checkpoint_compare') {
     checkpointCompare[data.checkpoint] = data.error ? { error: data.error } : { comparison: data.comparison };
+    renderedState = '';
+    if (current) render(current);
+  }
+  if (data && data.type === 'working_diff' && chatEnvelope && data.runKey === chatEnvelope.runKey) {
+    workingCompare = data.error ? { error: data.error } : { comparison: data.comparison };
     renderedState = '';
     if (current) render(current);
   }
@@ -1165,7 +1701,9 @@ function updateComposer() {
     : unreadable ? 'Waiting for the status to read again. You can keep a draft here.'
     : pausing ? 'AutoCode pauses once this step is saved. You can keep a draft here.'
     : input ? label
-    : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.' : 'Use the action above, or start a new chat.';
+    : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.'
+    : (chatEnvelope.state && chatEnvelope.state.done) ? 'This run is finished. Start a new chat with +.'
+    : 'Use the action above, or start a new chat.';
   document.getElementById('chat-error').textContent = chatEnvelope.error || '';
 }
 
@@ -1184,7 +1722,18 @@ function renderTabs(data) {
     item.setAttribute('aria-selected', tab.key === data.activeKey ? 'true' : 'false');
     const name = el('span', 'name', tab.name);
     item.appendChild(name);
-    if (tab.busy) item.appendChild(el('span', 'dot', '•'));
+    if (tab.needs) {
+      const dot = el('span', 'dot needs', '●');
+      dot.title = 'Waiting for you';
+      dot.setAttribute('aria-label', 'Waiting for you');
+      item.appendChild(dot);
+    } else if (tab.busy) item.appendChild(el('span', 'dot', '•'));
+    else if (tab.finished) {
+      const dot = el('span', 'dot finished', '✓');
+      dot.title = 'Finished';
+      dot.setAttribute('aria-label', 'Finished');
+      item.appendChild(dot);
+    }
     if (rows.length > 1) {
       const close = el('span', 'close', '×');
       close.title = 'Close chat';
@@ -1222,7 +1771,8 @@ function renderChat(data) {
     const saved = vscode.getState() || {};
     document.getElementById('message').value = (saved.drafts || {})[data.runKey] || '';
     current = null; renderedState = ''; answers = Object.create(null);
-    checkpointCompare = Object.create(null); checkpointResult = null;
+    checkpointCompare = Object.create(null); checkpointResult = null; workingCompare = null;
+    liveLog.clear();
   }
   chatEnvelope = data;
   const messages = document.getElementById('messages');
@@ -1232,22 +1782,50 @@ function renderChat(data) {
   // A start that never reached a run leaves no transcript. The thread must still
   // hold what happened: the greeting, the request, and why it did not start.
   if (!data.state && data.error) rows.push({ role: 'notice', text: data.error });
-  const serialized = JSON.stringify(rows);
-  if (messages.dataset.content !== serialized) {
-    messages.dataset.content = serialized; messages.textContent = '';
+  // A streaming reply is provisional display content (task-run.md): shown as still
+  // written, never as a finished AutoCode message. Its extract updates in place so a
+  // growing reply does not rebuild the whole thread (#1528 parity with the TUI).
+  const finishedKey = JSON.stringify(rows.filter((row) => !row.streaming));
+  const liveRows = rows.filter((row) => row.streaming);
+  const liveKey = JSON.stringify(liveRows.map((row) => [row.id, row.text]));
+  const priorLive = messages.dataset.live ?? '';
+  const priorFinished = messages.dataset.finished ?? '';
+  if (priorFinished !== finishedKey || (liveKey && !priorLive) || (!liveKey && priorLive)) {
+    messages.dataset.finished = finishedKey;
+    messages.dataset.live = liveKey;
+    messages.dataset.content = finishedKey + liveKey;
+    messages.textContent = '';
     rows.forEach((row) => {
       const notice = row.role === 'notice';
-      const item = el('div', 'message ' + (notice ? 'notice' : row.role === 'user' ? 'user' : 'assistant'));
-      item.appendChild(el('div', 'speaker', notice ? 'Notice' : row.role === 'user' ? 'You' : 'AutoCode'));
+      const streaming = Boolean(row.streaming);
+      const item = el('div', 'message ' + (notice ? 'notice' : row.role === 'user' ? 'user' : streaming ? 'assistant streaming' : 'assistant'));
+      if (streaming) item.dataset.live = row.id;
+      const speaker = notice ? 'Notice' : row.role === 'user' ? 'You' : streaming ? 'AutoCode · writing…' : 'AutoCode';
+      item.appendChild(el('div', 'speaker', speaker));
       const body = el('div', 'message-content');
-      const formatted = data.state && data.state.formattedMessages && data.state.formattedMessages[row.id];
+      // Provisional text is shown plain while it grows, as the terminal chat does.
+      const formatted = !streaming && data.state && data.state.formattedMessages && data.state.formattedMessages[row.id];
       if (row.role === 'assistant' && formatted) appendFormatted(body, formatted);
       else body.textContent = row.text;
       item.appendChild(body); messages.appendChild(item);
     });
+  } else if (liveKey !== priorLive) {
+    // Only the growing extract changed: rewrite that body, leave the rest of the thread alone.
+    messages.dataset.live = liveKey;
+    messages.dataset.content = finishedKey + liveKey;
+    for (const row of liveRows) {
+      // String concat, not a template literal: this script is itself inside one.
+      const item = messages.querySelector('[data-live="' + row.id + '"]');
+      const body = item && item.querySelector('.message-content');
+      if (body) body.textContent = row.text;
+    }
   }
+  updateLatestCue(data.state);
+  const welcoming = !data.state && !data.busy && !data.selectedRun && !data.pendingBrief && !data.error;
   if (data.state) render(data.state);
-  else {
+  else if (welcoming && document.getElementById('welcome')) {
+    // Already showing: rebuilding on every read would drop a click on an example mid-press.
+  } else {
     app.textContent = '';
     renderedState = '';
     if (data.busy) {
@@ -1256,10 +1834,14 @@ function renderChat(data) {
       card.appendChild(el('div', 'speaker', 'AutoCode'));
       card.appendChild(el('div', 'message-content', data.waitingForStart ? 'Waiting to start. Complete setup to continue.' : 'Thinking…'));
       app.appendChild(card);
+    } else if (welcoming) {
+      app.classList.remove('muted');
+      renderWelcome();
     } else {
       app.classList.add('muted');
     }
   }
+  renderMeter(data);
   renderTelemetry(data.state && data.state.telemetry);
   updateComposer();
   chatBehavior.resize();
@@ -1274,6 +1856,16 @@ function renderChat(data) {
       thread.scrollTop = remembered;
     }
   }
+}
+
+/** A reader scrolled up keeps their place; the Latest button names the step running now (#1711). */
+function updateLatestCue(state) {
+  const latest = document.getElementById('latest');
+  if (!latest) return;
+  const running = state && !state.done && state.needKind === 'continue' && state.working && state.chat
+    && Array.isArray(state.chat.progress) ? state.chat.progress.find((line) => typeof line === 'string' && line) : '';
+  const text = running ? '↓ Now: ' + running : '↓ Latest messages';
+  if (latest.textContent !== text) latest.textContent = text;
 }
 
 function renderTelemetry(info) {
@@ -1362,6 +1954,10 @@ if (chatMode) {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); document.getElementById('composer').requestSubmit(); }
   });
   document.getElementById('new-chat').addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+  document.getElementById('stages-more').addEventListener('click', () => {
+    stagesExpanded = !stagesExpanded;
+    if (chatEnvelope) renderMeter(chatEnvelope);
+  });
   document.getElementById('pause-run').addEventListener('click', () => {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'pause', runKey: chatEnvelope.runKey });
   });

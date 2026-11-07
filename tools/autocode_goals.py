@@ -6,6 +6,7 @@ try:
     from . import autocode_plan_chat as plan_chat
     from . import autocode_prompts as prompts
     from . import autocode_roles as roles
+    from . import autocode_run_messages as run_messages
     from .autocode_role_schema import STRING, STRINGS, obj
     from .autocode_role_schema import USER_REQUEST as USER_REQUEST
     from .autocode_role_schema import role_schema as role_schema
@@ -13,6 +14,7 @@ except ImportError:
     import autocode_plan_chat as plan_chat
     import autocode_prompts as prompts
     import autocode_roles as roles
+    import autocode_run_messages as run_messages
     from autocode_role_schema import STRING, STRINGS, obj
     from autocode_role_schema import USER_REQUEST as USER_REQUEST
     from autocode_role_schema import role_schema as role_schema
@@ -35,47 +37,59 @@ try:
     from . import autocode_answer_options as answer_options
     from . import autocode_brief_literals as brief_literals
     from . import autocode_bug_questions as bug_questions
+    from . import autocode_changeset_barrier as changeset_barrier
     from . import autocode_component_plan as component_plan
     from . import autocode_finding_cause as finding_cause
     from . import autocode_human_review_artifact as human_review_artifact
     from . import autocode_human_review_flow as human_review_flow
     from . import autocode_operational_change as operational_change
+    from . import autocode_planning_feedback as planning_feedback
+    from . import autocode_requirement_quotes as requirement_quotes
+    from . import autocode_requirement_retention as requirement_retention
     from . import autocode_run_status as run_status
+    from . import autocode_scope_question as scope_question
     from . import autocode_source_log as source_log
     from . import autocode_util as s
     from . import autocode_workflows as workflows
     from .autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
-    from .autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
+    from .autocode_contract_revision import feedback_interpretation_context as feedback_interpretation_context
+    from .autocode_contract_revision import protected_contract_snapshot as protected_contract_snapshot
     from .autocode_contract_revision import revision_guard as revision_guard
     from .autocode_contract_revision import saved_user_basis as _saved_user_basis
     from .autocode_git_delivery_policy import SCHEMA as GIT_DELIVERY
     from .autocode_requirement_coverage import missing_sentences
     from .autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
-    from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
-    from .autocode_trace_coverage import coverage_errors
+    from .autocode_requirement_cues import cue_sentences, earlier_job_handoff, scan_texts, source_texts
+    from .autocode_trace_coverage import coverage_errors, recorded_conflict_sets, unrecorded_conflict_error
 except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_answer_options as answer_options
     import autocode_brief_literals as brief_literals
     import autocode_bug_questions as bug_questions
+    import autocode_changeset_barrier as changeset_barrier
     import autocode_component_plan as component_plan
     import autocode_finding_cause as finding_cause
     import autocode_human_review_artifact as human_review_artifact
     import autocode_human_review_flow as human_review_flow
     import autocode_operational_change as operational_change
+    import autocode_planning_feedback as planning_feedback
+    import autocode_requirement_quotes as requirement_quotes
+    import autocode_requirement_retention as requirement_retention
     import autocode_run_status as run_status
+    import autocode_scope_question as scope_question
     import autocode_source_log as source_log
     import autocode_util as s
     import autocode_workflows as workflows  # noqa: F401 - goal compatibility API
     from autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
-    from autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
+    from autocode_contract_revision import feedback_interpretation_context as feedback_interpretation_context
+    from autocode_contract_revision import protected_contract_snapshot as protected_contract_snapshot
     from autocode_contract_revision import revision_guard as revision_guard
     from autocode_contract_revision import saved_user_basis as _saved_user_basis
     from autocode_git_delivery_policy import SCHEMA as GIT_DELIVERY
     from autocode_requirement_coverage import missing_sentences
     from autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
-    from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
-    from autocode_trace_coverage import coverage_errors
+    from autocode_requirement_cues import cue_sentences, earlier_job_handoff, scan_texts, source_texts
+    from autocode_trace_coverage import coverage_errors, recorded_conflict_sets, unrecorded_conflict_error
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
 # autocode_resolver_human owns those records and re-exports these as PRIVATE and PUBLIC; they are
@@ -165,6 +179,9 @@ BODY_SCHEMA = obj(
 LEGACY_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
 # Optional per-criterion verbatim source trace (#595; autocode_source_trace). Kept out of LEGACY_BODY_SCHEMA.
 CRITERION["properties"]["sources"] = {"type": "array", "items": obj({"source_id": STRING, "quote": STRING})}
+# Optional: what happens today, which the criterion replaces (#2133; autocode_current_behavior). Not in LEGACY_BODY_SCHEMA.
+CRITERION["properties"]["current_behavior"] = STRING
+CRITERION["properties"]["supersedes"] = {"type": "array", "items": obj({"file": STRING, "test": STRING})}  # 2748
 REQUIREMENTS_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
 MILESTONE = obj({"id": STRING, "objective": STRING, "acceptance_criteria": STRINGS})
 MILESTONE["properties"]["depends_on"] = STRINGS
@@ -269,13 +286,6 @@ def validate_requirements_body(state: RunState, body):
             raise ValueError(f"Requirements are missing {key}")
 
 
-def protected_contract_snapshot(state: RunState):
-    body = (state.get("goal_contract") or {}).get("body") or {}
-    return {
-        key: copy.deepcopy(body.get(key)) for key in (*_PROTECTED_LISTS, "acceptance_criteria", "permission_boundaries")
-    }
-
-
 def _cites_saved_user_event(state: RunState, evidence):
     """Accept a saved event ID alone or as a whole token in an explanation."""
     ids = {key for key in state.get("answers", {}) if _saved_user_basis(state, "user_answer", key)}
@@ -371,23 +381,35 @@ def check_requirement_handoff(state: RunState, report):
     requirements = report.get("requirements", [])
     if not isinstance(requirements, list):
         raise ValueError("requirements must be an array")
-    seen, quotes, quote_by_id = set(), [], {}
+    previous_handoff = (state.get("requirements_handoff") or {}).get("report") or {}
+    previous_requirements = [] if earlier_job_handoff(state, report) else previous_handoff.get("requirements") or []
+    previous_by_id = {row["id"]: row for row in previous_requirements}
+    ignored_requirements = report.get("ignored_requirements", [])
+    replacements = {
+        row.get("requirement_id")
+        for row in (ignored_requirements if isinstance(ignored_requirements, list) else [])
+        if isinstance(row, dict)
+    }
+    seen, quotes, quote_by_id, unsupported = set(), [], {}, []
     for row in requirements:
         if not isinstance(row, dict) or not str(row.get("id", "")).strip() or not str(row.get("text", "")).strip():
             raise ValueError("Each requirement needs an id, text and source_quote")
         if row["id"] in seen:
             raise ValueError(f"Duplicate requirement id {row['id']}")
         seen.add(row["id"])
-        quote = str(row.get("source_quote", "")).strip()
-        if not quote or not any(quote in text for text in sources):
-            raise ValueError(
-                f"Requirement {row['id']} source_quote is not in the task or a saved user event. "
-                "If this text came from the current Builder task or approved contract, "
-                "keep that existing obligation there instead of adding a new requirement; "
-                "cite only verbatim task/user-event text for genuinely new requirements"
-            )
+        quote = requirement_quotes.ground(row.get("source_quote", ""), sources)
+        if quote is None:
+            unsupported.append(row)
+            continue
+        quote = requirement_retention.retained_quote(
+            row, quote, previous_by_id.get(row["id"]), sources, replacement=row["id"] in replacements
+        )
+        row["source_quote"] = quote  # the source's own text, even where the report copied the checklist's
         quotes.append(quote)
         quote_by_id[row["id"]] = quote
+    if unsupported:
+        inherited = bool(state.get("current_task") or state.get("goal_contract"))
+        raise ValueError(requirement_quotes.unsupported(unsupported, sources, inherited=inherited))
     ignored = report.get("ignored_statements", [])
     if not isinstance(ignored, list):
         raise ValueError("ignored_statements must be an array")
@@ -407,49 +429,21 @@ def check_requirement_handoff(state: RunState, report):
             raise ValueError("A proposed reframe needs an explicit user acceptance question")
     validate_assumptions(report.get("proposed_assumptions", []), seen)
     check_delegable(report.get("open_questions", []))
-    # A refreshed handoff (one that follows an earlier requirements_gather report)
-    # must retain every previous requirement verbatim, or move it to
-    # ignored_requirements with a reason citing a saved user event. A vanished
-    # requirement with no citation, or a citation the runner cannot resolve, is
-    # rejected: only a saved user answer or feedback event authorizes dropping a
-    # requirement, never the agent's own say-so. At the point this function runs
-    # (from apply_planning, before the new report is installed) state's saved
-    # requirements_handoff is still the previous one.
-    previous_handoff = (state.get("requirements_handoff") or {}).get("report") or {}
-    previous_requirements = previous_handoff.get("requirements") or []
-    if previous_requirements:
-        ignored_requirements = report.get("ignored_requirements", [])
-        if not isinstance(ignored_requirements, list):
-            raise ValueError("ignored_requirements must be an array")
-        ignored_by_id = {}
-        for omission in ignored_requirements:
-            rid = omission.get("requirement_id")
-            if rid in ignored_by_id:
-                raise ValueError(f"Duplicate ignored_requirements entry for {rid}")
-            ignored_by_id[rid] = omission
-        for previous_row in previous_requirements:
-            rid = previous_row["id"]
-            previous_quote = str(previous_row.get("source_quote", "")).strip()
-            if previous_quote and quote_by_id.get(rid) == previous_quote:
-                continue
-            omission = ignored_by_id.get(rid)
-            if not omission:
-                raise ValueError(
-                    f"Refreshed handoff dropped requirement {rid} without a user-backed omission "
-                    "in ignored_requirements"
-                )
-            if not str(omission.get("reason", "")).strip():
-                raise ValueError(f"Omission of requirement {rid} needs a reason")
-            if not _saved_user_basis(state, omission.get("basis"), omission.get("event_id")):
-                raise ValueError(
-                    f"Omission of requirement {rid} needs a saved user answer or feedback event, "
-                    "not an agent-authored reason"
-                )
+    requirement_retention.check(
+        previous_requirements,
+        report,
+        quote_by_id,
+        lambda basis, event_id: _saved_user_basis(state, basis, event_id),
+        requirement_retention.correction_sources(state, previous_requirements),
+    )
 
 
 def check_requirement_trace(state: RunState, report, contract, *, coverage=True):
     if coverage:
         brief_literals.check(scan_texts(state), contract)
+        # the plan lists what the person left out of this run (#2066); the report's own
+        # declared corrections count here because this check runs before they install (#2467)
+        scope_question.check(state, contract, changes=report.get("contract_changes") or [])
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
     requirements = (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
     if not requirements:
@@ -459,7 +453,7 @@ def check_requirement_trace(state: RunState, report, contract, *, coverage=True)
         raise ValueError("Planner report needs requirement_trace")
     by_id = {}
     for row in trace:
-        if not isinstance(row, dict) or row.get("disposition") not in ("covered", "excluded", "superseded"):
+        if not isinstance(row, dict) or row.get("disposition") not in ("covered", "proxied", "excluded", "superseded"):
             raise ValueError("requirement_trace entries need requirement_id, disposition and evidence")
         rid = row.get("requirement_id")
         if rid in by_id or rid not in {r["id"] for r in requirements}:
@@ -480,18 +474,7 @@ def check_requirement_trace(state: RunState, report, contract, *, coverage=True)
     if errors:
         raise ValueError("; ".join(errors))
     conflicts = handoff.get("conflicts") or []
-    conflict_sets = {frozenset(row.get("requirement_ids") or []) for row in conflicts}
-    # A refreshed handoff may no longer call a settled pair a conflict. Preserve
-    # its explicit resolution only while the same IDs still cite the same user
-    # text; recycled IDs must not inherit an unrelated historical decision.
-    current_quotes = {row["id"]: str(row.get("source_quote") or "").strip() for row in requirements}
-    for previous in state.get("requirements_history", []):
-        prior = previous.get("report") or {}
-        prior_quotes = {row["id"]: str(row.get("source_quote") or "").strip() for row in prior.get("requirements", [])}
-        for conflict in prior.get("conflicts", []):
-            ids = conflict.get("requirement_ids") or []
-            if ids and all(prior_quotes.get(rid) and prior_quotes[rid] == current_quotes.get(rid) for rid in ids):
-                conflict_sets.add(frozenset(ids))
+    conflict_sets = recorded_conflict_sets(conflicts, requirements, state.get("requirements_history", []))
     resolved = set()
     resolutions = report.get("conflict_resolutions", [])
     if not isinstance(resolutions, list):
@@ -504,7 +487,7 @@ def check_requirement_trace(state: RunState, report, contract, *, coverage=True)
             raise ValueError("Conflict resolution needs nonempty requirement_ids")
         key = frozenset(ids)
         if len(key) != len(ids) or key not in conflict_sets or not key.issubset(by_id):
-            raise ValueError("Conflict resolution must name exactly one recorded requirement conflict")
+            raise ValueError(unrecorded_conflict_error(ids, conflict_sets))
         if key in resolved:
             raise ValueError("Duplicate requirement conflict resolution")
         basis, answer_id = resolution.get("basis"), resolution.get("answer_id")
@@ -708,25 +691,30 @@ def initial_decision(body):
     }
 
 
-def feedback(state: RunState, text, *, interpret=True):
-    """A free-form brief correction is input to the Plan Reviewer, never authorization to build."""
+def feedback(state: RunState, text, *, interpret=True, semantic_hold=False):
+    """A free-form brief correction is input to the Plan Reviewer, never authorization to build.
+
+    ``semantic_hold`` is the shared pause-authority predicate for an answered semantic blocker
+    (autocode_pause_authority.answered_blocker_decision), passed by the action layer because this
+    module importing the authority would join an import cycle; it admits the correction the
+    checkpoint catalog alone does not know (#2434).
+    """
     if state.get("status") == "PAUSED_COMPONENT_PLAN":
         need = component_plan.recovery(
             state.get("task", ""), (state.get("settings") or {}).get("regression", {}).get("test_root")
         )
         if need.get("new_run_required"):
             raise ValueError(need["recovery_hint"])
-    no_contract_v2 = not state.get("goal_contract") and roles.planning_flow(state) == "v2"
     if (
-        state["status"]
-        not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", "PAUSED_PLANNING_BUDGET", "PAUSED_COMPONENT_PLAN")
-        and not no_contract_v2
-    ) or not text.strip():
+        not (semantic_hold or planning_feedback.admitted(state) or run_messages.correction_admitted(state, text))
+        or not text.strip()
+    ):
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")
     if cast(dict, state.get("user_request", {})).get("kind") == "human_review":
         raise ValueError("Record the artifact review with --approve-review or --reject-review, not brief feedback")
     if interpret and plan_chat.begin(state, text):
         return
+    run_messages.archive_completion(state)
     contract = state.get("goal_contract")
     event = {
         "kind": "brief_feedback",
@@ -769,8 +757,14 @@ def feedback(state: RunState, text, *, interpret=True):
 
 
 def apply_intervention_feedback(state: RunState, receipt, applied_receipt):
-    """Save runner-applied feedback without treating it as a checkpoint approval."""
+    """Save queued feedback; exact reviewed-plan corrections retain the stable requirements."""
     contract = state.get("goal_contract")
+    # Queue delivery must not turn feedback on the same reviewed plan into a new
+    # Requirements episode. Stale receipts and execution-time input keep the full
+    # pipeline; the existing adaptive policy admits only reviewed-plan checkpoints.
+    marker = (
+        adaptive.feedback_marker(state) if contract and receipt.get("observed_goal_token") == token(contract) else {}
+    )
     event = {
         "kind": "brief_feedback",
         "id": "intervention-" + receipt["id"],
@@ -784,6 +778,7 @@ def apply_intervention_feedback(state: RunState, receipt, applied_receipt):
             "stages": len(state.get("stages", [])),
         },
         "starts_episode": True,
+        **marker,
     }
     source_log.save_feedback(state, event)
     start_clarification_episode(state, event["id"])
@@ -809,13 +804,13 @@ def apply_intervention_feedback(state: RunState, receipt, applied_receipt):
     run_status.pause(
         state,
         "PAUSED_INTERVENTION",
-        "Queued feedback was applied; explicitly continue to Requirements discovery.",
-        next_stage=first_stage,
+        adaptive.feedback_pause_reason(event),
+        next_stage=adaptive.feedback_stage(event, first_stage),
         pending_questions=[],
     )
 
 
-def answer(state: RunState, question_id, text, *, delegated=False):
+def answer(state: RunState, question_id, text, *, delegated=False, source=None, round=None):
     if (state.get("user_request") or {}).get("kind") == "blocker" or (state.get(RESOLVER_REQUEST_KEY) or {}).get(
         "scope"
     ) in ("blocker", "operational_exhaustion"):
@@ -823,9 +818,16 @@ def answer(state: RunState, question_id, text, *, delegated=False):
             "Operational questions require the exact AutoResolver response path, not a requirements answer"
         )
     matches = [q for q in state.get("pending_questions", []) if q["id"] == question_id]
-    if len(matches) != 1 or question_id in state.get("answers", {}) or not text.strip():
-        raise ValueError("Answer must address one unresolved question with nonempty text")
+    # Three different mistakes got one sentence; name the open ids so the person need not look back (#2313).
+    open_ids = ", ".join(q["id"] for q in state.get("pending_questions", []) if q["id"] not in state.get("answers", {}))
+    if question_id in state.get("answers", {}):
+        raise ValueError(f"{question_id} is already answered; open: {open_ids or 'none'}")
+    if len(matches) != 1:
+        raise ValueError(f"No open question {question_id}; open: {open_ids or 'none'}")
+    if not text.strip():
+        raise ValueError(f"{question_id} needs text: --answer {question_id}=TEXT")
     q = matches[0]
+    scope_question.check_answer(state, q)
     text = text if delegated else answer_options.offered(q, text)
     if delegated and not q["proposed_default"].strip():
         raise ValueError("This question has no proposed default to delegate")
@@ -841,6 +843,7 @@ def answer(state: RunState, question_id, text, *, delegated=False):
         "text": q["proposed_default"] if delegated else text,
         "contract_token": token(contract) if contract else state.get("requirements_artifact_token", ""),
     }
+    event.update({"source": source, "round": round} if source else {})  # --skip-requirements (#1731)
     if not delegated:
         # New user intent; delegation only accepts an already-proposed default.
         event["starts_episode"] = True
@@ -921,6 +924,14 @@ def resolve_obligation(state: RunState, obligation_id, resolved_by):
     return None
 
 
+def delegable(state: RunState) -> list:
+    """Pending questions a default may answer: delegable, with a default, inferable category, no rejected assumption."""
+    obligations = {ob["id"] for ob in open_obligations(state)}
+    ok = lambda q: q.get("delegable", False) and q.get("category", "requested_outcome") not in NON_INFERABLE_CATEGORIES
+    return [q for q in state.get("pending_questions", []) if q.get("proposed_default", "").strip() and ok(q)
+            and q["id"] not in obligations]  # fmt: skip
+
+
 def delegate_all(state: RunState, selected):
     """Bulk-delegate every currently pending question to its proposed default.
     Conservative by construction: a question with no default, or not explicitly
@@ -931,15 +942,7 @@ def delegate_all(state: RunState, selected):
     pending = state.get("pending_questions", [])
     if not pending:
         raise ValueError("No pending questions to delegate")
-    obligations = {ob["id"] for ob in open_obligations(state)}
-    blocked = [
-        q["id"]
-        for q in pending
-        if not q.get("proposed_default", "").strip()
-        or not q.get("delegable", False)
-        or q.get("category", "requested_outcome") in NON_INFERABLE_CATEGORIES
-        or q["id"] in obligations
-    ]
+    blocked = [q["id"] for q in pending if q not in delegable(state)]
     if blocked:
         raise ValueError(
             "These questions cannot be bulk-delegated (no proposed default, not marked delegable, "
@@ -1053,7 +1056,7 @@ def resolve_permission(state: RunState, question_id, text):
     answer_options.offered(q, text)
     event = operational_change.answer_event(state, request, q, text, token(state["goal_contract"]), s.now())
     state.setdefault("user_events", []).append(event)
-    finding_cause.resolve_named(state, (q.get("payload") or {}).get("finding_ids") or [], event)
+    finding_cause.resolve_answer(state, request, q, state.get(RESOLVER_REQUEST_KEY), event)
     state.setdefault("answers", {})[question_id] = event
     state["pending_questions"] = [row for row in state["pending_questions"] if row["id"] != question_id]
     state.pop("user_request", None)
@@ -1063,6 +1066,8 @@ def resolve_permission(state: RunState, question_id, text):
 
 
 def execution_guard(state: RunState, value=None):
+    changeset_barrier.execution_guard(state)
+    scope_question.execution_guard(state)
     if not approved(state):
         raise s.Paused("PAUSED_GOAL_UNAPPROVED", "Current goal revision has no valid explicit approval")
     contract = cast(dict, state["goal_contract"])
@@ -1164,8 +1169,7 @@ def render_completion(state: RunState):
     return "\n".join(lines)
 
 
-def review_token(state: RunState):
-    return human_review_artifact.token(state)
+review_token = human_review_artifact.token
 
 
 def missing_human_reviews(state: RunState):
@@ -1350,9 +1354,7 @@ def human_only_pending_validation(state: RunState, validation, criterion):
     )
 
 
-def flow_awaits_only(flow, human):
-    """Compatibility wrapper for the pure technical-flow readiness check."""
-    return human_review_flow.flow_awaits_only(flow, human)
+flow_awaits_only = human_review_flow.flow_awaits_only
 
 
 def approve_review(state: RunState, criterion, selected, current):

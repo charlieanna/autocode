@@ -123,6 +123,33 @@ class FailureRetryTests(unittest.TestCase):
         self.assertEqual(before, state)
         self.assertIn(record["failure_key"], state["failure_history"])
 
+    def test_a_spent_repair_is_reconciled_before_the_unchanged_failure_hold(self):
+        # Live #1899: the hold told the operator to authorize an inspected retry while the spent repair
+        # it left pending made that exact retry inadmissible, so no command could advance the run.
+        record = self.seed()
+        self.state["settings"]["report_repair"] = {"max_attempts": 2}
+        repair = {"attempts": 2, "original": record, "latest_rejected": True}
+        self.state["pending_report_repair"] = repair
+        support.atomic_json(self.run / "state.json", self.state)
+        with self.assertRaises(support.Paused):
+            runner.prepare_exhausted_execution_report_retry(self.state, self.run, self.root)
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertIs(repair, self.state["report_repair_archive"][-1]["repair"])
+        # The retry the hold names is now the command the gate admits.
+        self.assertIsNotNone(runner.authorize_failure_retry(self.state, self.run, self.root))
+
+    def test_a_repair_still_queued_is_dispatched_instead_of_held(self):
+        # A plain resume with a repair left to run dispatches that report-only repair, not another
+        # attempt at the failed work, so the unchanged-failure hold must not pre-empt it (#1899).
+        record = self.seed()
+        self.state["settings"]["report_repair"] = {"max_attempts": 2}
+        self.state["pending_report_repair"] = {"attempts": 1, "original": record}
+        self.assertIsNone(runner.repeated_failure_resume_guard(self.state, self.root))
+        # A spent repair is not a queued one: with nothing left to dispatch the hold still applies.
+        self.state["pending_report_repair"]["attempts"] = 2
+        with self.assertRaises(support.Paused):
+            runner.repeated_failure_resume_guard(self.state, self.root)
+
 
 class FailureRetryCLITests(unittest.TestCase):
     setUp = test_subprocess.SubprocessFlow.setUp
@@ -151,10 +178,12 @@ class FailureRetryCLITests(unittest.TestCase):
             state["stages"].append(record)
         support.atomic_json(run / "state.json", state)
         history = copy.deepcopy(state["failure_history"])
-        count = len(state["stages"])
+        # The runner's own proof rows (runner_owned) are not launches: a refused resume may still prove.
+        model_stages = lambda rows: [r for r in rows if not r.get("runner_owned")]  # noqa: E731
+        count = len(model_stages(state["stages"]))
         args = ["--run-dir", str(run), "--no-chat", "--resume-paused"]
         self.launch(args, 2)
-        self.assertEqual(count, len([r for r in self.saved()[1]["stages"] if not r.get("runner_owned")]))
+        self.assertEqual(count, len(model_stages(self.saved()[1]["stages"])))
         self.assertEqual(history, self.saved()[1]["failure_history"])
         # Corrupt only the fixture's validation report, never the artifact: a
         # writing Builder changes the source and therefore the failure identity.
@@ -177,8 +206,8 @@ class FailureRetryCLITests(unittest.TestCase):
             ],
         )
         self.assertEqual(4, retried["failure_history"][record["failure_key"]]["count"])
-        self.assertEqual(["sol"], [row["stage"] for row in retried["stages"][count:] if not row.get("runner_owned")])
-        count = len(retried["stages"])
+        self.assertEqual(["sol"], [row["stage"] for row in model_stages(retried["stages"])[count:]])
+        count = len(model_stages(retried["stages"]))
         self.launch(args, 2)
-        self.assertEqual(count, len(self.saved()[1]["stages"]))
+        self.assertEqual(count, len(model_stages(self.saved()[1]["stages"])))
         self.assertEqual(retried["failure_history"], self.saved()[1]["failure_history"])

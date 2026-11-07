@@ -17,6 +17,13 @@ DOCS = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 
 
 class ProjectConfigTests(unittest.TestCase):
+    def test_review_routing_in_project_settings_is_overridden_only_by_an_explicit_flag(self):
+        self.write('review-routing = "combined"\n')
+        args, _ = self.parse("Build it")
+        self.assertEqual("combined", args.review_routing)
+        args, _ = self.parse("Build it", "--review-routing", "separate")
+        self.assertEqual("separate", args.review_routing)
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -105,6 +112,11 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertEqual(("codex", None), (args.engine, args.provider))
         stderr = self.refused("Build it", "--engine", "claude", "--provider", "kilocode")
         self.assertIn("engine claude runs the built-in claude provider; it cannot run --provider kilocode", stderr)
+        # #2330: codex is an engine; the old refusal asked for ~/.config/autocode/providers/codex.toml.
+        self.write("")
+        stderr = self.refused("Build it", "--provider", "codex")
+        self.assertIn("codex is an engine, not a provider config: run with --engine codex", stderr)
+        self.assertNotIn("codex.toml", stderr)
 
     def test_a_saved_run_never_reads_the_file(self):
         self.write('engine = "codex"\nmax-seconds = 5\n')
@@ -120,7 +132,10 @@ class ProjectConfigTests(unittest.TestCase):
             'provider = "mine"\n': "provider cannot be set by a project",
             'sol-provider = "mine"\n': "sol-provider cannot be set by a project",
             'task-preflight = "pre.json"\n': "task-preflight cannot be set by a project",
-            'colour = "blue"\n': "unknown setting 'colour'",
+            'colour = "blue"\n': "unknown setting 'colour'; a project file sets only engine",
+            "max_cost_usd = 5\n": "unknown setting 'max_cost_usd'; did you mean 'max-cost-usd'? a project file sets only",
+            'test_command = "pytest"\n': "unknown setting 'test_command'; did you mean 'test-command'?",
+            "max-cost = 5\n": "unknown setting 'max-cost'; did you mean 'max-cost-usd'?",
             "max-seconds = 'soon'\n": "max-seconds = 'soon' is not valid for --max-seconds",
             'sol-reasoning-effort = "extreme"\n': "sol-reasoning-effort must be one of low, medium, high",
             'unlimited-iterations = "yes"\n': "unlimited-iterations must be true or false",

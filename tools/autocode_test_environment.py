@@ -8,10 +8,14 @@ Python uses it to find that environment's site-packages.
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 try:
@@ -75,3 +79,55 @@ def python_for_test_command(project, command):
     if candidate.is_file() and os.access(candidate, os.X_OK):
         return str(candidate)
     return None
+
+
+def _owned_private_dir(path: Path) -> bool:
+    """True when path is a real directory owned by the current POSIX user with mode 0700."""
+    try:
+        path.mkdir(mode=0o700, exist_ok=True)
+        info = os.lstat(path)
+        if not stat.S_ISDIR(info.st_mode):
+            return False
+        if hasattr(os, "getuid") and info.st_uid != os.getuid():
+            return False
+        if (info.st_mode & 0o777) != 0o700:
+            path.chmod(0o700)
+        return True
+    except OSError:
+        return False
+
+
+def ensure_python_shim(python_path: str, *, root: str | Path | None = None) -> str | None:
+    """A private user-owned directory on PATH providing only a 'python' symlink to python_path."""
+    if not python_path:
+        return None
+    target = str(python_path)
+    uid = os.getuid() if hasattr(os, "getuid") else "user"
+    base = Path(root) if root is not None else Path(tempfile.gettempdir()) / f"autocode-python-shims-{uid}"
+    try:
+        if not _owned_private_dir(base):
+            return None
+        digest = hashlib.sha256(target.encode("utf-8")).hexdigest()[:16]
+        shim_dir = base / digest
+        if not _owned_private_dir(shim_dir):
+            return None
+        shim = shim_dir / "python"
+        if not (
+            shim.is_symlink()
+            and (not hasattr(os, "getuid") or os.lstat(shim).st_uid == os.getuid())
+            and os.readlink(shim) == target
+        ):
+            tmp = shim_dir / f".tmp_python_{os.getpid()}"
+            with contextlib.suppress(OSError):
+                tmp.unlink()
+            tmp.symlink_to(target)
+            tmp.replace(shim)
+        if (
+            shim.is_symlink()
+            and (not hasattr(os, "getuid") or os.lstat(shim).st_uid == os.getuid())
+            and os.readlink(shim) == target
+        ):
+            return str(shim_dir)
+        return None
+    except OSError:
+        return None

@@ -5,6 +5,7 @@ the runner's proof then requires that test to pass with the change and not witho
 See autocode_test_cases and docs/workflow.md.
 """
 
+import copy
 import json
 import sys
 import tempfile
@@ -58,6 +59,201 @@ def feature_state(project, criteria, milestones=1):
             }
         },
     }
+
+
+class ProbeRowTests(unittest.TestCase):
+    """A probe is run by the runner, so a citation in that field is refused before the shell sees it (#1769)."""
+
+    ROW = {
+        "claim": "The report prints one row per project.",
+        "example": "Given two projects, when the report runs, then two rows print.",
+        "source": "report.py",
+    }
+
+    def runner(self, exit_code=0):
+        calls = []
+
+        def run(command):
+            calls.append(command)
+            return {"exit_code": exit_code, "tail": "" if not exit_code else "boom"}
+
+        return calls, run
+
+    def rows(self, probe):
+        return [dict(self.ROW, probe=probe)]
+
+    def test_a_command_probe_is_run_and_its_receipt_shown(self):
+        command = 'python3 -c "from report import rows; assert rows"'
+        calls, run = self.runner()
+        self.assertEqual(
+            [{"claim": self.ROW["claim"], "probe": command, "exit_code": 0, "tail": ""}],
+            test_cases.run_probes(self.rows(command), run),
+        )
+        self.assertEqual([command], calls)
+
+    def test_a_probe_that_does_not_exit_zero_names_its_row(self):
+        _, run = self.runner(exit_code=1)
+        with self.assertRaisesRegex(ValueError, "probes did not exit 0") as raised:
+            test_cases.run_probes(self.rows("python3 -c 'assert False'"), run)
+        # A probe that ran a test only the stage's own scratch workspace had: the repair is told how to fix it.
+        self.assertIn("must write that test itself", str(raised.exception))
+
+    def test_a_reference_in_the_probe_field_is_refused_without_running_it(self):
+        # Live run 2026-10-21: an Analyst repair answered the schema's bare `probe` string with its own
+        # event ID, the shell failed it with exit 127 and the whole report was rejected over that.
+        for reference in ("event:prt_15d4fe55f001J4zgq8FQBqVKqD", "tool:call_7"):
+            with self.subTest(reference=reference):
+                calls, run = self.runner()
+                with self.assertRaisesRegex(ValueError, "is a reference, not a command"):
+                    test_cases.run_probes(self.rows(reference), run)
+                self.assertEqual([], calls)
+
+    def test_a_command_naming_a_colon_still_runs(self):
+        calls, run = self.runner()
+        test_cases.run_probes(self.rows('python3 -c "import sys; print(sys.version)"'), run)
+        self.assertEqual(1, len(calls))
+
+    def test_a_claim_shown_by_its_source_alone_probes_nothing(self):
+        calls, run = self.runner()
+        self.assertEqual([], test_cases.run_probes(self.rows(""), run))
+        self.assertEqual([], calls)
+
+
+class CounterexampleProbeTests(unittest.TestCase):
+    """Where a job asks for it, a probe must also fail on a deliberately constructed counterexample (#1769)."""
+
+    EDIT = {"file": "report.py", "find": "rows = 2", "replace": "rows = 1"}
+
+    def rows(self, probe="python3 -c 'from report import rows; assert rows == 2'", counterexample=EDIT):
+        return [dict(ProbeRowTests.ROW, probe=probe, counterexample=counterexample)]
+
+    def run_with(self, on_code=0, on_counterexample=1):
+        calls = []
+
+        def run(command):
+            calls.append(("code", command))
+            return {"exit_code": on_code, "tail": ""}
+
+        def against(command, counterexample):
+            calls.append(("counterexample", command, counterexample["file"]))
+            return on_counterexample if isinstance(on_counterexample, dict) else {"exit_code": on_counterexample}
+
+        return calls, run, against
+
+    def test_a_probe_that_fails_on_its_counterexample_is_shown_with_both_exit_codes(self):
+        calls, run, against = self.run_with()
+        shown = test_cases.run_probes(self.rows(), run, run_counterexample=against)
+        self.assertEqual(0, shown[0]["exit_code"])
+        self.assertEqual({"file": "report.py", "exit_code": 1, "tail": ""}, shown[0]["counterexample"])
+        self.assertEqual(["code", "counterexample"], [call[0] for call in calls])
+
+    def test_a_probe_that_passes_on_its_counterexample_too_is_refused(self):
+        # The issue's row: `python3 -c 'assert 2 + 2 == 4'` exits 0 whatever the repository holds.
+        _, run, against = self.run_with(on_counterexample=0)
+        with self.assertRaisesRegex(ValueError, "did not fail on their counterexample.*report.py changed: exit 0"):
+            test_cases.run_probes(self.rows("python3 -c 'assert 2 + 2 == 4'"), run, run_counterexample=against)
+
+    def test_a_counterexample_run_that_did_not_complete_shows_nothing(self):
+        for receipt in (
+            {"error": "the counterexample's find text occurs 0 times"},
+            {"exit_code": None, "timed_out": True},
+        ):
+            with self.subTest(receipt=receipt):
+                _, run, against = self.run_with(on_counterexample=receipt)
+                with self.assertRaisesRegex(ValueError, "did not fail on their counterexample"):
+                    test_cases.run_probes(self.rows(), run, run_counterexample=against)
+
+    def test_a_probe_without_a_counterexample_is_refused_before_anything_runs(self):
+        for counterexample in (None, {}, {"file": "report.py", "find": "", "replace": "x"}):
+            with self.subTest(counterexample=counterexample):
+                calls, run, against = self.run_with()
+                with self.assertRaisesRegex(ValueError, "needs a counterexample"):
+                    test_cases.run_probes(self.rows(counterexample=counterexample), run, run_counterexample=against)
+                self.assertEqual([], calls)
+
+    def test_a_probe_that_fails_on_the_code_never_reaches_its_counterexample(self):
+        calls, run, against = self.run_with(on_code=1)
+        with self.assertRaisesRegex(ValueError, "probes did not exit 0"):
+            test_cases.run_probes(self.rows(), run, run_counterexample=against)
+        self.assertEqual(["code"], [call[0] for call in calls])
+
+    def test_source_only_rows_need_no_counterexample(self):
+        calls, run, against = self.run_with()
+        self.assertEqual([], test_cases.run_probes(self.rows("", counterexample=None), run, run_counterexample=against))
+        self.assertEqual([], calls)
+
+    def test_the_edit_replaces_its_one_occurrence(self):
+        self.assertEqual("rows = 1\n", test_cases.apply_counterexample("rows = 2\n", self.EDIT))
+        for text in ("", "rows = 2\nrows = 2\n"):
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, "must be copied exactly"):
+                test_cases.apply_counterexample(text, self.EDIT)
+
+
+class CurrentDiagnosisTests(unittest.TestCase):
+    def state(self):
+        return {
+            "investigation": {
+                "outcome": "reproduced",
+                "output": "old-bug.json",
+                "test_cases": [{"id": "T1", "given": "old bug", "when": "pop", "then": "correct order"}],
+            },
+            "stages": [{"stage": "investigate_bug", "output": "old-bug.json"}],
+            "turns": [{"stage_index": 1}],
+            "goal_contract": {"body": {"task_kind": "build", "acceptance_criteria": [EXAMPLE]}},
+        }
+
+    def test_feature_followup_proves_its_contract_instead_of_the_finished_bug(self):
+        state = self.state()
+        before = copy.deepcopy(state)
+        self.assertEqual([], test_cases.diagnosis_cases(state))
+        self.assertEqual(["C2"], [row["id"] for row in test_cases.proof_cases(state, all_due=True)])
+        self.assertNotIn("old bug", test_cases.builder_note(state))
+        self.assertEqual(before, state, "historical evidence and the current contract stay intact")
+
+    def test_a_second_feature_turn_does_not_reactivate_the_old_bug(self):
+        state = self.state()
+        state["stages"].append({"stage": "terra", "output": "feature.json"})
+        state["turns"].append({"stage_index": 2})
+        self.assertEqual([], test_cases.diagnosis_cases(state))
+
+    def test_a_fresh_investigator_or_its_repair_is_current_before_and_after_save(self):
+        for stage in ("investigate_bug", "investigate_bug_report_repair"):
+            for active in (True, False):
+                with self.subTest(stage=stage, active=active):
+                    state = self.state()
+                    state["investigation"]["output"] = "new-bug.json"
+                    row = {"stage": stage, "output": "new-bug.json"}
+                    if stage.endswith("_report_repair"):
+                        row["original_stage"] = "investigate_bug"
+                    if active:
+                        state["active_stage"] = row
+                    else:
+                        state["stages"].append(row)
+                    self.assertEqual(state["investigation"]["test_cases"], test_cases.diagnosis_cases(state))
+
+    def test_unbound_rejected_and_historical_outputs_do_not_become_current(self):
+        for change in ("missing-output", "wrong-stage", "rejected", "reused-output", "invalid-boundary"):
+            with self.subTest(change=change):
+                state = self.state()
+                state["investigation"]["output"] = "new-bug.json"
+                row = {"stage": "investigate_bug", "output": "new-bug.json"}
+                if change == "missing-output":
+                    state["investigation"].pop("output")
+                if change == "wrong-stage":
+                    row["stage"] = "investigate_stuck"
+                if change == "rejected":
+                    row["rejected"] = True
+                if change == "reused-output":
+                    state["investigation"]["output"] = row["output"] = "old-bug.json"
+                if change == "invalid-boundary":
+                    state["turns"][-1]["stage_index"] = True
+                state["active_stage"] = row
+                self.assertEqual([], test_cases.diagnosis_cases(state))
+
+    def test_single_turn_legacy_diagnoses_still_supply_their_cases(self):
+        state = self.state()
+        state.pop("turns")
+        self.assertEqual(state["investigation"]["test_cases"], test_cases.diagnosis_cases(state))
 
 
 class ContractCasesTests(unittest.TestCase):
@@ -417,6 +613,37 @@ class DiagnosedMilestoneScopeTests(unittest.TestCase):
     def test_an_unknown_milestone_keeps_every_case_due(self):
         self.assertEqual(["T1", "T2", "T3"], self.ids(self.planned("unknown")))
 
+    def test_checkpoint_rejection_names_only_currently_due_cases(self):
+        state = self.planned()
+        state["regression_proof"] = {
+            "verdict": "PASS",
+            "case_scope": ["T1"],
+            "case_tests": {"T1": "test_t1_subtracts"},
+        }
+
+        self.assertIn("T2, T3", regression.rejection(state))
+        self.assertNotIn("T2", regression.rejection(state, all_due=False))
+
+    def test_a_passing_proof_with_no_failed_case_names_the_evidence_the_gate_lacks(self):
+        # 2026-10-30 live run: a PASS, current, intact proof was reported as "no proof exists for the
+        # current source", because only the independent changed-line acceptance was missing.
+        state = self.planned()
+        state["regression_proof"] = {
+            "verdict": "PASS",
+            "source_revision": "candidate-revision",
+            "case_scope": ["T1", "T2", "T3"],
+            "case_tests": {"T1": "test_t1_subtracts", "T2": "test_t2_multiplies", "T3": "test_t3_adds"},
+        }
+        self.assertEqual(regression.CHANGED_CODE_REASON, regression.rejection(state, all_due=True))
+        self.assertNotIn("no proof exists", regression.rejection(state, all_due=True))
+
+    def test_an_absent_or_failing_proof_still_says_the_source_is_unproven(self):
+        self.assertIn("no proof exists for the current source", regression.rejection({"goal_contract": {}}))
+        failing = self.planned()
+        failing["regression_proof"] = {"verdict": "FAIL", "failures": ["test_t1_subtracts failed"]}
+        self.assertIn("test_t1_subtracts failed", regression.rejection(failing))
+        self.assertNotEqual(regression.CHANGED_CODE_REASON, regression.rejection(failing))
+
     def test_native_go_test_names_bind_without_prefix_collisions(self):
         state = self.planned()
         for row, name in zip(
@@ -455,6 +682,7 @@ class DiagnosedMilestoneScopeTests(unittest.TestCase):
         self.assertFalse(regression.complete(state, proof["source_revision"], all_due=True))
         self.assertEqual(["T1"], regression.handoff(state)["case_scope"])
         self.assertIn("T2, T3", regression.rejection(state))
+        self.assertNotIn("T2, T3", regression.rejection(state, all_due=False))
         state["current_task"] = {"milestone_id": "M2"}
         state["milestone_progress"] = {"M1": {"id": "M1", "accepted": True, "contract_hash": "h"}}
         proof = regression.prove(state, project.root, project.root / ".autocode" / "runs" / "m2")
@@ -1050,7 +1278,16 @@ class PromptTests(unittest.TestCase):
         state.pop("investigation")
         with patch.object(test_cases, "contract_cases", return_value=[{"id": "C2", "text": "x"}]):
             prompt = common.execution_request(state, "terra", state_path, schemas).prompt
-        self.assertIn("TESTS NAMED IN THE PLAN", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
+        instruction = " ".join(prompt.split("\nCURRENT HANDOFF DATA\n")[0].split())
+        self.assertIn("TESTS NAMED IN THE PLAN", instruction)
+        self.assertIn("The runner checks fail-first tests and base guards in a separate checkout", instruction)
+        self.assertIn(
+            "If the approved plan requires your own fail-first run, write and run the new tests first", instruction
+        )
+        self.assertIn("keep the fix applied after you make it", instruction)
+        self.assertIn("Use the existing fail-first receipt for guards it already ran", instruction)
+        self.assertIn("Reuse a passing candidate check when its command and inputs are unchanged", instruction)
+        self.assertIn("Rerun after a relevant change, failure, or required repetition", instruction)
 
 
 if __name__ == "__main__":

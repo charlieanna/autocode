@@ -30,6 +30,7 @@ from collections import defaultdict
 from pathlib import Path
 
 try:
+    from . import autocode_model_identity as model_identity
     from .autocode_usage import REFERENCE_PRICES
     from .token_cost import (  # noqa: F401
         count_text,
@@ -41,6 +42,7 @@ try:
         token_count,
     )
 except ImportError:
+    import autocode_model_identity as model_identity
     from autocode_usage import REFERENCE_PRICES
     from token_cost import (  # noqa: F401
         count_text,
@@ -72,17 +74,6 @@ INDEPENDENCE_PAIRS = (
     ("terra", "sol", "Builder/Validator"),
     ("terra", "completion", "Builder/Completion Owner"),
 )
-
-
-def _family(model: str) -> str:
-    if not model:
-        return ""
-    name = model.rsplit("/", 1)[-1].lower()
-    if model.startswith("zai-coding-plan/") or name.startswith("glm-"):
-        return "glm"
-    if model.startswith("xiaomi-token-plan-sgp/") or name.startswith("mimo-"):
-        return "mimo"
-    return model
 
 
 def load_state(run_dir: Path) -> RunState:
@@ -241,9 +232,9 @@ def ladder_alignment(pinned: dict) -> dict:
     for producer, verifier, label in INDEPENDENCE_PAIRS:
         pm, _ = model_effort(producer)
         vm, _ = model_effort(verifier)
-        if pm and vm and (pm == vm or (_family(pm) in ("glm", "mimo") and _family(pm) == _family(vm))):
+        if model_identity.shared_family(pm, vm):
             independence_ok = False
-            mismatches.append(f"independence {label}: both {_family(pm)} ({pm} / {vm})")
+            mismatches.append(f"independence {label}: both {model_identity.family(pm)} ({pm} / {vm})")
     return {
         "aligned": aligned,
         "mismatches": mismatches,

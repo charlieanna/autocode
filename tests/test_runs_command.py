@@ -6,6 +6,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -65,6 +66,34 @@ class FleetRowsTests(unittest.TestCase):
             runs.counts(runs.rows(self.root)),
         )
 
+    def test_a_run_saved_for_the_person_to_continue_needs_them(self):
+        """#2332: a ready controller receipt means nothing runs the RUNNING checkpoint until the named
+        command is run; the row sat under "working"."""
+        import autocode_controller_owner as owners
+        import autocode_util as util
+
+        run_dir = self.root / ".autocode" / "runs" / "working"
+        state = json.loads((run_dir / "state.json").read_text())
+
+        def persist(path, saved):
+            util.atomic_json(path, saved)
+            owners.checkpoint(path, saved)
+
+        with util.run_lock(run_dir), owners.Owner(state, run_dir, persist) as owner:
+            owner.result(0, ready=True)
+        row = next(item for item in runs.rows(self.root) if item["name"] == "working")
+        self.assertEqual((runs.NEEDS, True, "RUNNING"), (row["bucket"], row["ready_to_continue"], row["status"]))
+        self.assertTrue(row["next_command"])
+        rendered = runs.render(runs.rows(self.root), str(self.root))
+        self.assertIn(
+            "Ready to continue", rendered.split("  working (", 1)[0] if "  working (" in rendered else rendered
+        )
+        self.assertEqual(2, runs.counts(runs.rows(self.root))[runs.NEEDS])
+        # The checkpoint moved on: the receipt no longer vouches for it.
+        (run_dir / "state.json").write_text(json.dumps({**state, "iteration": 2}))
+        row = next(item for item in runs.rows(self.root) if item["name"] == "working")
+        self.assertEqual((runs.WORKING, False), (row["bucket"], row["ready_to_continue"]))
+
     def test_a_run_that_cannot_be_read_is_shown_with_its_reason(self):
         broken = next(item for item in runs.rows(self.root) if item["name"] == "broken")
         self.assertEqual("checkpoint_malformed", broken["availability"])
@@ -85,11 +114,59 @@ class FleetRowsTests(unittest.TestCase):
         self.assertIn("--status", row["next_command"])
         self.assertIn("001/terra-01", row["reason"])
 
+    def test_the_all_projects_table_names_each_runs_workspace(self):
+        """`runs --all` lists every registered project; a run's name alone does not say whose it is (#2379)."""
+        entries = runs.rows(self.root)
+        text = runs.render(entries, "all registered projects", now=time.time(), name_workspace=True)
+        self.assertIn(f"in {self.root}", text)
+        self.assertNotIn(f"in {self.root}", runs.render(entries, str(self.root), now=time.time()))
+
     def test_the_table_groups_rows_and_prints_the_action_under_each(self):
         text = runs.render(runs.rows(self.root), str(self.root), now=time.time())
         self.assertIn(f"{runs.NEEDS} (1)", text)
         self.assertIn("-> autocode --run-dir", text)
         self.assertIn("working (1)", text)
+
+
+class IssueWorktreeRunsTests(unittest.TestCase):
+    """Chat everywhere (#1731): a project's chat lists the runs of its autocode-issue worktrees too."""
+
+    def test_an_issue_worktrees_run_is_one_of_the_projects_runs_in_its_own_workspace(self):
+        root = project(local={"status": "RUNNING"})
+        worktree = root / runs.ISSUE_WORKTREES / "acme-widgets-7"
+        run_dir = worktree / ".autocode" / "runs" / "issue-run"
+        run_dir.mkdir(parents=True)
+        (worktree / ".git").write_text("gitdir: elsewhere\n")
+        saved = {"version": 3, "workspace": str(worktree), "task": "Resolve GitHub issue", "status": "RUNNING"}
+        (run_dir / "state.json").write_text(json.dumps(saved))
+        listed = {Path(row["run_dir"]).name: Path(row["workspace"]) for row in runs.rows(root)}
+        self.assertEqual({"local": root, "issue-run": worktree}, listed)
+
+    def test_a_task_worktrees_run_is_one_of_the_projects_runs(self):
+        """A task started without --in-place runs in .autocode/worktrees/<lane>; --status and resume find it,
+        so `autocode runs` must not answer "No runs found" for it."""
+        root = project(local={"status": "RUNNING"}).resolve()
+        lane = root / ".autocode" / "worktrees" / "add-a-hello-script-0123456789"
+        run_dir = lane / ".autocode" / "runs" / "lane-run"
+        run_dir.mkdir(parents=True)
+        (lane / ".git").write_text("gitdir: elsewhere\n")
+        (lane / ".autocode" / "task-workspace.json").write_text(
+            json.dumps({"workspace": str(lane), "project_workspace": str(root)})
+        )
+        saved = {"version": 3, "workspace": str(lane), "task": "Add a hello script", "status": "WAITING_FOR_USER"}
+        (run_dir / "state.json").write_text(json.dumps(saved))
+        listed = {Path(row["run_dir"]).name: Path(row["workspace"]) for row in runs.rows(root)}
+        self.assertEqual({"local": root, "lane-run": lane}, listed)
+        # Another project's lane, or one whose metadata names a different project, is not this project's run.
+        (lane / ".autocode" / "task-workspace.json").write_text(
+            json.dumps({"workspace": str(lane), "project_workspace": str(root / "elsewhere")})
+        )
+        self.assertEqual({"local"}, {Path(row["run_dir"]).name for row in runs.rows(root)})
+
+    def test_the_issue_store_is_the_one_autocode_issue_writes(self):
+        import autocode_issue
+
+        self.assertEqual(autocode_issue.STORE, runs.ISSUE_WORKTREES)
 
 
 class StatusViewProjectionTests(unittest.TestCase):
@@ -133,6 +210,20 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(2, document["counts"]["total"])
         self.assertEqual(["waiting", "finished"], [item["name"] for item in document["runs"]])
 
+    def test_each_row_is_titled_with_the_first_line_of_its_task(self):
+        root = project(
+            short={"task": "\n  Fix the typo in README\nMore detail"},
+            long={"task": "x" * 200},
+            blank={"task": "  "},
+            heading={"task": "# Hierarchical planning\nThe body"},
+        )
+        titles = {row["name"]: row["title"] for row in runs.rows(root)}
+        self.assertEqual("Fix the typo in README", titles["short"])
+        self.assertEqual(runs.TITLE_LIMIT, len(titles["long"]))
+        self.assertTrue(titles["long"].endswith("…"))
+        self.assertIsNone(titles["blank"])
+        self.assertEqual("Hierarchical planning", titles["heading"], "a Markdown heading's marks are not the title")
+
     def test_needs_shows_only_the_runs_waiting_on_a_person(self):
         code, out, _ = capture(["--workspace", str(self.root), "--needs"])
         self.assertEqual(0, code)
@@ -149,6 +240,45 @@ class CommandLineTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as stopped:
             capture(["--all", "--workspace", "/tmp"])
         self.assertEqual(2, stopped.exception.code)
+
+    def test_empty_json_inventory_is_a_successful_read_not_a_prose_error(self):
+        with tempfile.TemporaryDirectory() as empty:
+            code, out, err = capture(["--workspace", empty, "--json"])
+        self.assertEqual(0, code)
+        self.assertEqual([], json.loads(out)["runs"])
+        self.assertEqual(0, json.loads(out)["counts"]["total"])
+        self.assertEqual("", err)
+
+        with (
+            tempfile.TemporaryDirectory() as registry_home,
+            mock.patch.dict(os.environ, {"AUTOCODE_HOME": registry_home}),
+        ):
+            code, out, err = capture(["--all", "--json"])
+            self.assertEqual(0, code)
+            self.assertEqual([], json.loads(out)["runs"])
+            self.assertEqual("", err)
+            self.assertEqual(
+                [], list(Path(registry_home).iterdir()), "inventory does not create a run or registry entry"
+            )
+
+    def test_a_registered_run_whose_directory_is_gone_names_the_forget_command(self):
+        """#2321: the row said only "Run state.json is unavailable", and nothing named a way out."""
+        with (
+            tempfile.TemporaryDirectory() as registry_home,
+            mock.patch.dict(os.environ, {"AUTOCODE_HOME": registry_home}),
+        ):
+            run = self.root / ".autocode" / "runs" / "finished"
+            registry.register_run(self.root, run, json.loads((run / "state.json").read_text()))
+            shutil.rmtree(run)
+            code, out, _ = capture(["--all", "--json"])
+            self.assertEqual(0, code)
+            (row,) = json.loads(out)["runs"]
+            self.assertEqual(runs.UNREADABLE, row["bucket"])
+            self.assertIn("run directory no longer exists", row["reason"])
+            self.assertIn(f"autocode registry forget-deleted --workspace {self.root} --run-dir {run}", row["reason"])
+            self.assertNotIn("next_command", row)
+            code, _, _ = capture(["--all"])
+            self.assertEqual(0, code)
 
     def test_the_root_command_dispatches_runs(self):
         """`autocode runs` reaches the command through the CLI's own dispatch table."""

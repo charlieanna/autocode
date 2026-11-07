@@ -4,7 +4,7 @@ category = "bugfix"
 # different points (or not at all, or not half up). The fix touches every
 # billing module, needs one money rule, and leaves an accounting choice open
 # (tax per line or per invoice), so it must take the planned path: diagnosis,
-# Planner, Plan Reviewer, the user's approval, no requirements gathering.
+# Planner, Plan Reviewer, the user's approval, Requirements only once, first.
 # Deriving the charge from the invoice alone leaves refunds drifting; rounding
 # everything with float round() breaks half up. Both fail hidden tests.
 

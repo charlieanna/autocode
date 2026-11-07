@@ -5,9 +5,11 @@ The runtime lives in tools/ and is imported by its top-level module names
 test module loads. Run the gate with ``python3 tools/run_suite.py``.
 """
 
+import atexit
 import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +44,29 @@ for _key, _value in GIT_TEST_CONFIG.items():
         os.environ[f"GIT_CONFIG_VALUE_{_count}"] = _value
         _count += 1
 os.environ["GIT_CONFIG_COUNT"] = str(_count)
+
+# A new run takes its provider and the person's settings from AUTOCODE_PROVIDER
+# and $XDG_CONFIG_HOME/autocode (default ~/.config): config.toml, providers/ and
+# direct/. A developer's own choice there (default_provider = "kilocode") changed
+# what 55 test modules, and the autocode processes they start, did on that
+# machine only (#1933, #1938). Every test, and every process it starts with this
+# environment, reads an empty config home instead; a test that needs a user
+# config writes one under its own XDG_CONFIG_HOME. As with Git above, a
+# subprocess given an environment built from scratch needs its own. A process a
+# test starts may import this package too (a fixture provider does): it inherits
+# the marker and keeps the XDG_CONFIG_HOME that test chose for it.
+USER_CONFIG_MARKER = "AUTOCODE_TEST_USER_CONFIG_HOME"
+if USER_CONFIG_MARKER not in os.environ:
+    _config_home = tempfile.mkdtemp(prefix="autocode-test-config-")
+    os.environ[USER_CONFIG_MARKER] = os.environ["XDG_CONFIG_HOME"] = _config_home
+    os.environ.pop("AUTOCODE_PROVIDER", None)
+
+    def _remove_user_config_home(path=_config_home, owner=os.getpid()):
+        if os.getpid() == owner:  # not a forked test process exiting
+            shutil.rmtree(path, ignore_errors=True)
+
+    atexit.register(_remove_user_config_home)
+
 
 # A handful of tests execute a real shell to prove POSIX quoting semantics
 # (Codex/OpenCode wrap recorded commands as `<login-shell> -lc '...'`, and

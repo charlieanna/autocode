@@ -11,6 +11,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_run_view as run_view
 import autocode_util as util
 from goal_fixtures import approve_fixture, assert_operational_wait, body, envelope
 
@@ -34,6 +35,37 @@ def forbid_identity_source_reads():
             for name in ("file_hash", "snapshot"):
                 guards.enter_context(patch.object(module, name, side_effect=AssertionError("identity must be pure")))
         yield
+
+
+def assert_ended_without_progress(test, state, action):
+    """The run ended itself with a recorded outcome at a no-progress hold (#2485): a finished,
+    failed outcome with its reason and evidence, and no retry, flag or token for a person."""
+    test.assertEqual("PAUSED_INTERVENTION", state["status"])
+    (receipt,) = [row for row in state["applied_interventions"] if row["kind"] == "stop"]
+    test.assertEqual("autocode", receipt["actor"])
+    outcome = receipt["outcome"]
+    test.assertEqual(("could_not_finish", action), (outcome["result"], outcome["evidence"]["action"]))
+    test.assertTrue(outcome["evidence"]["incident_id"])
+    test.assertTrue(outcome["evidence"]["packet"]["path"])
+    test.assertTrue(state["stop_reason"].startswith("AutoCode could not finish this task: "), state["stop_reason"])
+    for machinery in ("--retry-failed-stage", "--resolver-token", "--resume-paused", "Exact packet"):
+        test.assertNotIn(machinery, state["stop_reason"])
+    view = run_view.view(state)
+    recovery = view["recovery"]
+    test.assertEqual(("stopped", "AutoCode could not finish this task"), (recovery["category"], recovery["title"]))
+    test.assertEqual(outcome, recovery["outcome"])
+    # Nothing the view offers asks a person to type a flag, a token or a response: the run is over.
+    offered = json.dumps({"needs": view["needs"], "next_command": view["next_command"], "chat": view.get("chat")})
+    for machinery in (
+        "resolver_token",
+        "--retry-failed-stage",
+        "--resolver-response",
+        "retry_action",
+        "command_inputs",
+    ):
+        test.assertNotIn(machinery, offered, offered)
+    test.assertEqual("autocode", view["pause_category"])
+    return outcome
 
 
 class ResolverRuntimeTests(unittest.TestCase):
@@ -1098,6 +1130,31 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.state["stages"].append({**second, "rejected": True, "finished_at": "2026-10-06T02:20:00+00:00"})
         with self.assertRaisesRegex(support.Paused, "No causal progress"):
             builder("third.json")
+        # Both grants are spent, so the stage loop's recoverer takes AutoCode's own one scoped retry
+        # (#2485): it records the grant, admission spends it on one attempt, and when that attempt is
+        # rejected too the same hold comes back and the recoverer ends the run with the outcome
+        # recorded. No person is asked for a flag, a token or a packet at any point.
+        held = support.Paused("PAUSED_NO_PROGRESS", "No causal progress")
+        self.assertTrue(runner.resolver_recovery.recover_no_progress(runner, self.state, self.run, self.root, held))
+        (grant,) = [row for row in self.state["failure_retry_authorizations"] if row.get("actor") == "autocode"]
+        self.assertEqual("terra", grant["stage"])
+        fourth = builder("fourth.json")
+        self.assertEqual(
+            ("automatic", "explicit_retry"),
+            (fourth["recovery_novelty"]["grant_kind"], fourth["recovery_novelty"]["reason"]),
+        )
+        self.state["stages"].append({**fourth, "rejected": True, "finished_at": "2026-10-06T02:25:00+00:00"})
+        with self.assertRaisesRegex(support.Paused, "No causal progress"):
+            builder("fifth.json")
+        with self.assertRaisesRegex(support.Paused, "AutoCode could not finish this task") as ended:
+            runner.resolver_recovery.recover_no_progress(runner, self.state, self.run, self.root, held)
+        self.assertEqual("PAUSED_INTERVENTION", ended.exception.status)
+        assert_ended_without_progress(self, self.state, "repair")
+        # The ended run is saved as such, and a resume launches nothing and keeps it.
+        with self.provider() as launches:
+            self.assertEqual(2, self.cli())
+        self.assertEqual([], launches)
+        assert_ended_without_progress(self, support.read(self.run / "state.json"), "repair")
 
     def test_shared_dispatch_real_timeout_recovery_reload_and_replacement_cap(self):
         # Automatic timeout recovery's relaunch is admitted (#422) and still charged.
@@ -1215,15 +1272,21 @@ class OperationalDiagnosisTests(unittest.TestCase):
             self.assertEqual("PAUSED_INVALID_OUTPUT", self.state["status"])
             self.assertNotIn("active_stage", self.state)
             self.assertEqual(1, self.state["resolver"]["diagnostic_calls"])
+            # The resume takes AutoCode's own one scoped retry of the diagnosis (#2485), never a
+            # request for a person to retry it; this retry's report is rejected the same way.
             self.assertEqual(2, self.cli())
             self.state = support.read(self.run / "state.json")
-            self.assertEqual(1, self.state["resolver"]["diagnostic_calls"])
-            public = assert_operational_wait(self, self.state, "PAUSED_NO_PROGRESS")
-            self.assertEqual(2, self.cli())
-            self.state = support.read(self.run / "state.json")
-            # ... and a further bare resume retains that same request without a new launch.
-            self.assertEqual(public, assert_operational_wait(self, self.state, "PAUSED_NO_PROGRESS"))
-        self.assertEqual(1, len(launches))
+            self.assertEqual(2, self.state["resolver"]["diagnostic_calls"])
+            self.assertEqual("PAUSED_INVALID_OUTPUT", self.state["status"])
+            # That retry spent the run's diagnostic budget (2/2), so the next resume stops at that
+            # budget, never at a no-progress retry, and a further resume launches nothing.
+            for _ in range(2):
+                self.assertEqual(2, self.cli())
+                self.state = support.read(self.run / "state.json")
+                self.assertIn("Operational diagnostic budget exhausted for this run (2/2)", self.state["stop_reason"])
+                self.assertNotIn("No causal progress", self.state["stop_reason"])
+                self.assertEqual(2, self.state["resolver"]["diagnostic_calls"])
+        self.assertEqual(2, len(launches))
 
     def test_cli_rejected_diagnosis_climbs_the_resolver_route_one_astra_rung(self):
         """A Resolver report rejected on the real dispatch path climbs the Resolver's own route
@@ -1252,19 +1315,11 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.assertEqual(("gpt-6-astra", "xhigh"), (resolver["model"], resolver["reasoning_effort"]))
         self.assertNotIn("resolver", saved["sessions"])
         # The climb is not a changed setting for the recovery packet bound before it: resuming
-        # holds on the packet's causal-progress check with a request the operator can answer,
-        # never a stale handoff, and the authorized retry launches the climbed Resolver on
-        # XHigh in a fresh session.
-        self.state = saved
-        with self.provider() as held:
-            self.assertEqual(2, self.cli())
-        self.assertEqual([], held)
-        saved = support.read(self.run / "state.json")
-        self.assertEqual("WAITING_FOR_USER", saved["status"])
-        self.assertIn("No causal progress", saved["stop_reason"])
+        # is never a stale handoff, and AutoCode's own one scoped retry (#2485) launches the
+        # climbed Resolver on XHigh in a fresh session, with no retry asked of a person.
         self.state = saved
         with self.provider() as retried:
-            self.cli("--retry-failed-stage")
+            self.cli()
         self.assertEqual(
             [("astra_diagnose", "gpt-6-astra", "xhigh", None)],
             [

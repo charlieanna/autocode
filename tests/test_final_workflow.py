@@ -61,7 +61,9 @@ class FinalWorkflowTests(unittest.TestCase):
             "role": "terra",
             "stage": "terra",
             "after_ref": "saved-after",
-            "changed_files": ["greet.py"],
+            # This domain fixture changes no product file. Public subprocess
+            # cases below exercise real Builder deltas and runner proof.
+            "changed_files": [],
         }
         runner.apply_result(self.state, "terra", value or self.implementation(), record, self.root, self.run)
 

@@ -46,7 +46,9 @@ try:
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
     from . import autocode_job_route as job_route
+    from . import autocode_keep_awake as keep_awake
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_limit_events as limit_events
     from . import autocode_milestones as milestones
     from . import autocode_package_scope as package_scope
     from . import autocode_package_writes as package_writes
@@ -75,6 +77,7 @@ try:
     from . import autocode_task_preflight as task_preflight
     from . import autocode_test_root as test_roots
     from . import autocode_verify as verify
+    from . import autocode_worker_binding as worker_binding
     from . import autocode_worker_quota as worker_quota
     from . import autocode_workflows as workflows
     from . import autocode_workspaces as task_workspaces
@@ -90,7 +93,9 @@ except ImportError:
     import autocode_goals as goals
     import autocode_interventions as interventions
     import autocode_job_route as job_route
+    import autocode_keep_awake as keep_awake
     import autocode_launch_inputs as launch_inputs
+    import autocode_limit_events as limit_events
     import autocode_milestones as milestones
     import autocode_package_scope as package_scope
     import autocode_package_writes as package_writes
@@ -119,10 +124,16 @@ except ImportError:
     import autocode_task_preflight as task_preflight
     import autocode_test_root as test_roots
     import autocode_verify as verify
+    import autocode_worker_binding as worker_binding
     import autocode_worker_quota as worker_quota
     import autocode_workflows as workflows
     import autocode_workspaces as task_workspaces
     import model_catalogue
+
+try:
+    from providers import env_prep
+except ImportError:
+    from .providers import env_prep
 
 # Recovery actions that answer or act on the published operational request themselves; a settings change
 # that comes with one leaves that request for the action to check.
@@ -281,6 +292,13 @@ def resolve(runner, args, parser):
         if not (workspace / ".git").exists():
             parser.error(f"workspace is not a Git repository: {workspace}")
         state_path = run_dir / "state.json"
+        if not state_path.is_file():
+            # Not ``[Errno 2] No such file or directory: '.../state.json'``: say what a run directory is.
+            what = "is not a directory" if not run_dir.is_dir() else "has no state.json"
+            parser.error(
+                f"--run-dir {run_dir} {what}. A saved run is PROJECT/.autocode/runs/RUN; "
+                "`autocode runs` lists this project's runs with their directories"
+            )
         state = runner.read_json(state_path)
         try:
             lifecycle.require_supported_checkpoint(state)
@@ -325,8 +343,12 @@ def resolve(runner, args, parser):
             args.in_place = created = True
             print(f"Created task project: {workspace}", flush=True)
         if not args.in_place and not args.dry_run and not args.status and not args.explain:
+            repeated = run_finder.same_task(workspace, task)
+            if repeated:  # a recalled start command most often means "continue", not "start another" (#2340)
+                print(run_finder.repeated_task_note(repeated), file=sys.stderr, flush=True)
             isolated = task_workspaces.create(workspace, task)
             workspace, fresh = Path(isolated["workspace"]), True
+            args._fresh_task_worktree = isolated  # removed again if the launch stops before its first save
             print(
                 f"Task worktree: {workspace}\nBranch: {isolated['branch']}\nStarting from committed HEAD; the original checkout is unchanged.",
                 flush=True,
@@ -347,6 +369,7 @@ def resolve(runner, args, parser):
                 )
             except (OSError, ValueError) as error:
                 parser.error(f"Invalid fresh run destination: {error}")
+        args._fresh_run_dir = run_dir  # removed again, if still unsaved, when the launch stops before its first save
         state_path = run_dir / "state.json"
         state = {
             "version": 2,
@@ -364,6 +387,15 @@ def resolve(runner, args, parser):
             "next_stage": "astra_plan",
             "acceptance_criteria": [],
         }
+        try:
+            from . import autocode_related_profile as related_profile
+        except ImportError:
+            import autocode_related_profile as related_profile
+        related_profile.install(state, args)
+        if created:
+            # The selected folder held no repository, so the work happens in a project AutoCode
+            # created. A launch line on stdout never reaches a chat client (#1908).
+            state["workspace_bootstrap"] = {"selected": str(selected), "project": str(workspace)}
         task_input.assign(state, task)
         source_log.seed(state)
         project_memory_lifecycle.install(state, getattr(args, "_project_memory_input", None))
@@ -472,6 +504,13 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             recovery_view.require_token(state, getattr(args, "expected_recovery_token", None))
         except ValueError as error:
             parser.error(str(error))
+        if getattr(args, "reconcile_only", None) is not None:
+            try:
+                from . import autocode_checkpoint_reconciliation as reconciliation
+            except ImportError:
+                import autocode_checkpoint_reconciliation as reconciliation
+            reconciliation.require_binding(state, args.reconcile_only)
+            return state  # Metadata-only control keeps configuration, migrations and allowances untouched.
         recovery = state.get("recovery_context") or {}
         archived = (state.get("stages") or [{}])[-1]
         if (
@@ -494,8 +533,9 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     # The stop an explicit resume finds holding the run, for the build loop to record who resumed it (#722).
     args._resumed_pause = resumed_pause(state) if args.resume_paused else None
     recovering_report = getattr(args, "recover_job_report", None) is not None
+    changing_job_caps = getattr(args, "_job_cap_change", False)
     try:
-        settings = runner.configure(args, copy.deepcopy(state) if recovering_report else state)
+        settings = runner.configure(args, copy.deepcopy(state) if recovering_report or changing_job_caps else state)
     except ValueError as error:
         raise SettingRefused(
             runner.status_command.rejection_message(runner, state, workspace, run_dir, error)
@@ -504,6 +544,10 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
         if settings != state.get("settings"):
             parser.error("Provider configuration or limits changed; report recovery requires unchanged saved settings")
         return state  # Standalone adoption must not save configuration, migrations or other actions first.
+    if changing_job_caps:
+        # The recovery action validates the exact stop before committing these settings.
+        args._job_cap_settings = settings
+        return state
     # Before any stage: refuse a run whose built-in OpenCode stages cannot be kernel-contained, or save
     # the explicit --allow-uncontained-tools opt-out (#413). That refusal is a refused setting too, with
     # its own text (#714).
@@ -612,6 +656,31 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
         )
         # A stopped job's model answer changes only that model; nothing else is saved with it (#463).
         refusal = refusal or job_route.settings_refusal(args, state, settings)
+        # A held Resolver route changes only beside an explicitly scoped retry.
+        # Validate against this locked invocation's old settings before saving
+        # any selected settings, so a rejected retry cannot strand the packet.
+        if (
+            not refusal
+            and state.get("next_stage") == "astra_resolve"
+            and resolver_recovery.recovery_limits.held_request(state, "astra_resolve").get("novelty_hold")
+            and (args.resolver_model or args.resolver_reasoning_effort)
+        ):
+            if not (args.resume_paused and args.retry_failed_stage):
+                refusal = (
+                    "A held Resolver model change requires --resume-paused --retry-failed-stage; nothing was saved"
+                )
+            else:
+                try:
+                    resolver_recovery.authorize_retry(
+                        runner,
+                        {**state, "settings": settings},
+                        run_dir,
+                        workspace,
+                        previous_settings=state["settings"],
+                        preview=True,
+                    )
+                except ValueError as error:
+                    refusal = str(error) + "; nothing was saved"
         # Check a parallel retry before saving the settings beside it. The actual retry repeats
         # these checks. A collected refusal (Paused, #541) still asks its question there; only a
         # stop carrying its member payload proceeds there. Other stops reject before settings
@@ -724,6 +793,15 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             cross_check=runner.dispatch.enforce_cross_model_verification,
             configured_tool=getattr(runner.opencode, "CONFIGURED", False),
         )
+        # A limit a person's flag changed is a recorded configuration change, as `autocode events` says (#2412).
+        # A grant re-validates the published request against the frontier as it was issued, and that
+        # request's binding digests user_events (#2479): with --grant-recovery the events this change
+        # appends are held back and travel with the grant's own single save once it is accepted; a
+        # refused grant persists neither the corrected limits nor their events.
+        if args.grant_recovery is None:
+            limit_events.record(state, previous_settings, settings, at=runner.now())
+        else:
+            args._grant_limit_events = limit_events.planned(state, previous_settings, settings, at=runner.now())
         state["settings"] = settings
         # A recovery novelty hold's stop states the cost cap; the settings saved here may change it (#611).
         resolver_recovery.restate_hold(state)
@@ -782,6 +860,8 @@ def run_locked(
         return owner.result(code, ready=ready) if owner is not None else code
 
     with ExitStack() as ownership:
+        ownership.enter_context(env_prep.reuse_checks(run_dir))  # a chat turn reuses this run's tool checks
+        keep_awake.hold()  # a sleeping Mac cannot supervise a stage (#1717)
         if runner.stop_policy.applied_stop(state):
             return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
         if native is None:
@@ -798,10 +878,12 @@ def run_locked(
             if native is not None:
                 native.require_supported_action(args, state)
             owner = ownership.enter_context(controller_owner.Owner(state, run_dir, runner.write_json))
+            worker_binding.bind(args, state, run_dir, workspace, owner, runner.write_json)
             code = runner.run_actions.handle(runner, args, parser, state, state_path, run_dir, workspace)
             if code is not None:
                 runner.json_output.action(runner, args, state, workspace, run_dir, code)
-                return owned_result(code, ready=code in (0, 2) and state.get("status") == "RUNNING")
+                if not worker_binding.continue_after_action(args, state, code):
+                    return owned_result(code, ready=code in (0, 2) and state.get("status") == "RUNNING")
             code = runner.build_loop.run(
                 runner,
                 args,
@@ -812,7 +894,11 @@ def run_locked(
                 **({"checkout_owned": True} if checkout_owned else {}),
             )
             if code is not None:
-                return owned_result(code, ready=code == 0 and bool(getattr(args, "unit", None)))
+                return owned_result(
+                    code,
+                    ready=(code == 0 and bool(getattr(args, "unit", None)))
+                    or (code == 2 and bool(getattr(args, "_ready_message_boundary", False))),
+                )
         except runner.util.JSONCommitUncertain as error:
             if owner is not None:
                 owner.hold_persistence()

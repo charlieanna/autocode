@@ -13,8 +13,18 @@ import unittest
 from pathlib import Path
 
 import inprocess_cli
+from blackbox_build_provider import HELLO_SOURCE, HELLO_TESTS
 
 from tests import test_build_blackbox as build_fixture
+
+INTEGRATION_TESTS = """import subprocess, sys, unittest
+from pathlib import Path
+class IntegrationTests(unittest.TestCase):
+    def test_cli_and_sibling_are_delivered_together(self):
+        result = subprocess.run([sys.executable, 'main.py'], capture_output=True, text=True)
+        self.assertEqual((0, 'hello\\n'), (result.returncode, result.stdout))
+        self.assertEqual('preserved sibling\\n', Path('sibling.txt').read_text())
+"""
 
 
 class FailureRoutingCLI(unittest.TestCase):
@@ -110,7 +120,10 @@ class FailureRoutingCLI(unittest.TestCase):
             check
             or "import subprocess,sys; assert subprocess.check_output([sys.executable,'main.py'],text=True) == 'hello\\n'"
         )
-        spec = build_fixture.plan([([], objective, [deliverable])], {"M1": {deliverable: payload}}, {"M1": check}, goal)
+        files = {deliverable: payload}
+        if deliverable == "main.py" and payload == HELLO_SOURCE:
+            files["test_main.py"] = HELLO_TESTS
+        spec = build_fixture.plan([([], objective, list(files))], {"M1": files}, {"M1": check}, goal)
         spec["complete_product"] = complete
         if criterion is not None:
             spec["contract"]["acceptance_criteria"][0]["criterion"] = criterion
@@ -170,22 +183,24 @@ class FailureRoutingCLI(unittest.TestCase):
                 check=True,
                 capture_output=True,
             )
+        source = "print(" + repr(output) + ")\n"
+        cli = {"main.py": source, "test_main.py": HELLO_TESTS} if source == HELLO_SOURCE else {"main.py": source}
         spec = build_fixture.plan(
             [
-                ([], "CLI prints " + output, ["main.py"]),
+                ([], "CLI prints " + output, list(cli)),
                 ([], "Keep the independent sibling delivery", ["sibling.txt"]),
-                (["M1", "M2"], "Integrate the hello CLI and sibling", ["done.py"]),
+                (["M1", "M2"], "Integrate the hello CLI and sibling", ["test_integration.py"]),
             ],
             {
-                "M1": {"main.py": "print(" + repr(output) + ")\n"},
+                "M1": cli,
                 "M2": {"sibling.txt": "preserved sibling\n"},
-                "M3": {"done.py": "from pathlib import Path\nprint(Path('sibling.txt').read_text().strip())\n"},
+                "M3": {"test_integration.py": INTEGRATION_TESTS},
             },
             {
                 "M1": "import subprocess,sys; assert subprocess.check_output([sys.executable,'main.py'],text=True)=="
                 + repr(output + "\n"),
                 "M2": "from pathlib import Path; assert Path('sibling.txt').read_text()=='preserved sibling\\n'",
-                "M3": "import subprocess,sys; assert subprocess.check_output([sys.executable,'main.py'],text=True)=='hello\\n'; assert subprocess.check_output([sys.executable,'done.py'],text=True)=='preserved sibling\\n'",
+                "M3": "import unittest; result = unittest.main(module='test_integration', argv=['x'], exit=False).result; assert result.wasSuccessful() and result.testsRun == 1",
             },
             "Deliver a hello CLI and its independent sibling",
         )
@@ -616,20 +631,22 @@ class FailureRoutingCLI(unittest.TestCase):
         self.env["BUILD_AUDIT_FAULT"] = "validation_fails"
         self.drive("--max-iterations", "6", codes=(2,))
         status = self.status()
-        builders = self.trace("terra")
-        self.assertEqual(["gpt-6-luna", "gpt-6-luna"], [row["model"] for row in builders])
-        self.assertEqual("RESOLVER_PENDING", status["status"])
-        self.assertIn("No causal progress for the same incident", status["view"]["stop_reason"])
-        before = self.call_order()
-        self.drive("--resume-paused", codes=(2,))
-        self.assertEqual(before, self.call_order(), "An unchanged incident cannot mint an automatic retry")
-        # Existing scoped operational admission authorizes diagnosis first, then
-        # the retained correction. Neither flag increases the Builder lane cap.
-        self.drive("--resume-paused", "--retry-failed-stage", codes=(2,))
-        self.assertEqual(2, len(self.trace("terra")), self.call_order("terra"))
-        self.drive("--resume-paused", "--retry-failed-stage", codes=(2,))
-        status = self.status()
-        self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-5.4"], [row["model"] for row in self.trace("terra")])
+        # At the no-progress hold AutoCode takes the one scoped retry of each action itself (#2485):
+        # diagnosis first, then the retained correction, with no retry asked of a person. Neither
+        # increases the Builder lane cap.
+        self.assertEqual(
+            ["gpt-6-luna", "gpt-6-luna", "gpt-5.4"],
+            [row["model"] for row in self.trace("terra")],
+            status["view"]["stop_reason"],
+        )
+        self.assertNotIn("No causal progress", status["view"]["stop_reason"])
+        # What the view shows a person names no retry flag; the evidence ledger still records the hold
+        # AutoCode settled, with the stop text it had.
+        shown = {
+            key: status["view"].get(key)
+            for key in ("needs", "next_command", "stop_reason", "explanation", "recovery", "chat")
+        }
+        self.assertNotIn("--retry-failed-stage", json.dumps(shown))
         self.assertEqual(3, status["milestone_checkpoint"]["limits"]["stalled_reviews"])
         self.assertTrue(status["milestone_checkpoint"]["current"]["needs_replan"])
         self.assertEqual(3, status["milestone_checkpoint"]["current"]["reviews_without_progress"])

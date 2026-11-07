@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import autocode_replay_cli as cli
+import autocode_replay_view as replay_view
 from autocode_replay_recording import Recording, RecordingError
 from autocode_taskrun import TaskRun
 
@@ -230,6 +231,61 @@ class ReplayApprovalTest(unittest.TestCase):
         with self.assertRaisesRegex(RecordingError, "operator request differs"):
             cli._action(task, self.action(), self.pending("old-before-display"), tape())
         task.approve_plan.assert_not_called()
+
+    def test_exported_approval_retains_scope_exclusions_and_commit_delivery(self):
+        event = {"kind": "goal_approval", "token": "recorded-token", "at": "2026-10-26"}
+        terms = {
+            "scope_exclusions": ["Not covered: changes in billing-api: accept the new payload"],
+            "git_delivery": {"kind": "atomic_commit", "message": "Fix client payload"},
+        }
+        body = {**self.action()["match"]["plan"], **terms}
+        projection = replay_view.project(
+            {"user_events": [event], "goal_contract": {"approval_event": event, "body": body}}
+        )
+        action = projection["actions"][0]
+        self.assertEqual(body, action["match"]["plan"])
+        current = self.pending("fresh-token")
+        current["displayed_plan"].update(terms)
+        task = Mock(spec=TaskRun)
+        task.status.return_value = current
+        cli._action(task, action, current, tape())
+        task.approve_plan.assert_called_once_with("fresh-token")
+
+    def test_scope_or_delivery_changes_refuse_replayed_approval(self):
+        for field, earlier, later in (
+            ("scope_exclusions", [], ["Not covered: changes in billing-api: accept the new payload"]),
+            ("scope_exclusions", ["Not covered: changes in billing-api: accept the new payload"], []),
+            ("git_delivery", None, {"kind": "atomic_commit", "message": "Create a new commit"}),
+            (
+                "git_delivery",
+                {"kind": "atomic_commit", "message": "Earlier terms"},
+                {"kind": "atomic_commit", "message": "Changed terms"},
+            ),
+        ):
+            with self.subTest(field=field, earlier=earlier, later=later):
+                action = self.action()
+                action["match"]["plan"][field] = earlier
+                current = self.pending("fresh-token")
+                current["displayed_plan"][field] = later
+                task = Mock(spec=TaskRun)
+                task.status.return_value = current
+                with self.assertRaisesRegex(RecordingError, "operator request differs"):
+                    cli._action(task, action, current, tape())
+                task.approve_plan.assert_not_called()
+
+    def test_legacy_recording_does_not_invent_authority_for_new_scope_or_delivery_terms(self):
+        for field, value in (
+            ("scope_exclusions", ["Not covered: changes in billing-api: accept the new payload"]),
+            ("git_delivery", {"kind": "atomic_commit", "message": "Create a new commit"}),
+        ):
+            with self.subTest(field=field):
+                current = self.pending("fresh-token")
+                current["displayed_plan"][field] = value
+                task = Mock(spec=TaskRun)
+                task.status.return_value = current
+                with self.assertRaisesRegex(RecordingError, "operator request differs"):
+                    cli._action(task, self.action(), current, tape())
+                task.approve_plan.assert_not_called()
 
 
 if __name__ == "__main__":

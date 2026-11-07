@@ -35,6 +35,8 @@ class AutomaticSelectionCLI(unittest.TestCase):
         script = fixtures._MIXED_TRANSPORT_FIXTURE.replace("__LOG__", str(self.log)).replace(
             "__FIXTURE__", str(fixtures.HERE / "live_fixture_provider.py")
         )
+        # Selection tests use the qualified version; the shared fixture keeps its version-refusal control.
+        script = script.replace("print('1.16.0')", "print('1.18.33')")
         begin = script.index("models = (")
         end = script.index("def record", begin)
         script = script[:begin] + "models = " + repr(models) + "\n" + script[end:]
@@ -62,7 +64,7 @@ data = json.loads(prompt.split""",
             "effort = sys.argv[sys.argv.index(effort_flag) + 1] if effort_flag in sys.argv else None",
         )
         (self.root / "bin/opencode").write_text(script)
-        (self.root / "bin/kilocode").write_text(
+        (self.root / "bin/fixture_command").write_text(
             script.replace("models = " + repr(models), "models = ['fixture-claude']")
         )
 
@@ -80,7 +82,9 @@ data = json.loads(prompt.split""",
         self.assertEqual("approve_plan", before["needs"]["kind"], before)
         routes = before["routes"]
         self.assertEqual("auto_selected", routes["terra"]["origin"])
-        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", routes["terra"]["model"])
+        # No Luna in this catalogue, so the Builder is GPT-6 Sol (#1729). The fixture advertises
+        # no reasoning levels ({"variants": {}}), so the table's medium is vetoed: the model's own default.
+        self.assertEqual("openai/gpt-6-sol", routes["terra"]["model"])
         self.assertEqual("zai-coding-plan/glm-5.3", routes["sol"]["model"])
         self.assertIsNone(routes["terra"]["reasoning_effort"])
         self.assertTrue(self.operations("probe"))
@@ -98,12 +102,12 @@ data = json.loads(prompt.split""",
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_explicit_model_and_tool_win_over_default_selection(self):
-        run = self.start(("--sol-model", "fixture-claude", "--role-transport", "sol=kilocode"))
+        run = self.start(("--sol-model", "fixture-claude", "--role-transport", "sol=fixture_command"))
         shown = run.status()
         self.assertEqual("approve_plan", shown["needs"]["kind"], shown)
         self.assertEqual("fixture-claude", shown["routes"]["sol"]["model"])
         probes = self.operations("probe")
-        self.assertTrue(any(row["tool"] == "kilocode" and "fixture-claude" in row["argv"] for row in probes))
+        self.assertTrue(any(row["tool"] == "fixture_command" and "fixture-claude" in row["argv"] for row in probes))
         self.assertFalse(any(row["tool"] == "opencode" and "fixture-claude" in row["argv"] for row in probes))
 
     def test_explicit_selection_without_checker_refuses_before_spend(self):

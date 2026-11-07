@@ -94,8 +94,15 @@ def action(state: RunState):
     return f"--resume-paused --retry-builder {found[0]['milestone_id']}" if found else None
 
 
+_MODEL_STOPS = (quota_route.REFUSAL_STATUS, quota_route.OUTPUT_STATUS, quota_route.CONTEXT_STATUS)
+
+
 def _refused(row):
-    return row.get("status") in (quota_route.REFUSAL_STATUS, quota_route.OUTPUT_STATUS)
+    return row.get("status") in _MODEL_STOPS
+
+
+def _model_kind(status):
+    return "refused" if status == quota_route.REFUSAL_STATUS else "stopped"
 
 
 def reason(found):
@@ -103,7 +110,7 @@ def reason(found):
     row, worker = found
     milestone, on = row["milestone_id"], f" on {worker['model']}" if worker.get("model") else ""
     if _refused(row):
-        model_kind = "stopped" if row["status"] == quota_route.OUTPUT_STATUS else "refused"
+        model_kind = _model_kind(row["status"])
         return (
             f"Builder {milestone} {quota_route.stop_description(row['status'])}{on}, and information cannot name "
             f"the model it continues on; --retry-builder {milestone} asks its route-terra question again, "
@@ -122,7 +129,7 @@ def next_step(state: RunState):
         return None
     milestone = found[0]["milestone_id"]
     if _refused(found[0]):
-        model_kind = "stopped" if found[0]["status"] == quota_route.OUTPUT_STATUS else "refused"
+        model_kind = _model_kind(found[0]["status"])
         return (
             f"That answer names no model for Builder {milestone}: --resume-paused --retry-builder {milestone} "
             f"asks its route-terra question again, and nothing reruns the {model_kind} model."
@@ -138,7 +145,7 @@ def advice(worker):
     milestone = worker["milestone_id"]
     after = (
         "asks this question again"
-        if worker.get("pause_status") in (quota_route.REFUSAL_STATUS, quota_route.OUTPUT_STATUS)
+        if worker.get("pause_status") in _MODEL_STOPS
         else "retries it unchanged once the quota resets"
     )
     return (
@@ -159,6 +166,8 @@ def card(state: RunState, milestone):
             (
                 "This member exhausted its response output limit; it never reruns on that model. "
                 if found[0].get("status") == quota_route.OUTPUT_STATUS
+                else "This member's request no longer fit its model's context window; it never reruns on that model. "
+                if found[0].get("status") == quota_route.CONTEXT_STATUS
                 else "Its provider's content filter refused this member; it never reruns on that model. "
             )
             + "AutoResolver asks its model question again and nothing launches. Completed members and their work are kept.",

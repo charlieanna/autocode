@@ -6,10 +6,11 @@
   spent(state)    the known spend the cap is compared with
   exceeded(state) whether the known spend has reached the cap: the stage-boundary check
   crossing(state, model, record)
-                  whether one more attempt on a stronger route, projected from `record`'s tokens,
-                  would take the known spend past the cap: the check before a route climb (#611)
+                  whether one more attempt on `model`, projected from `record`'s tokens, would take
+                  the known spend past the cap: the check before a job's next attempt (#2019) or a
+                  route climb (#611)
   climb_stop(over, ...)
-                  the stop reason when that check refuses a climbed attempt
+                  the stop reason when that check refuses an attempt
   line(cost)      the one human line `--status` and a completion summary print
 
 Each stage has one basis, as in autocode_usage.stage_rows: the runner's own stages cost nothing,
@@ -21,7 +22,7 @@ run only when their batch is accounted. The cap compares the known spend, so an 
 cannot trip it; `unpriced_stages` and the cost line say so.
 
 Pure over saved state, with no event-file reads, so the build loop can call it at every boundary.
-Imports only autocode_usage and autocode_prices, which import only the standard library.
+Uses the usage ledger, dated prices and pure breakdown projection; never reads provider logs.
 """
 
 from __future__ import annotations
@@ -33,9 +34,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_cost_breakdown as breakdown
     from . import autocode_prices as prices
     from . import autocode_usage as usage
 except ImportError:
+    import autocode_cost_breakdown as breakdown
     import autocode_prices as prices
     import autocode_usage as usage
 
@@ -48,6 +51,7 @@ FIELDS = (
     "unpriced_stages",
     "complete",
     "prices_as_of",
+    "breakdown",
 )
 
 
@@ -98,6 +102,7 @@ def carried(state: RunState):
 def view(state: RunState):
     """The status view's `cost` field. Never raises on a damaged state."""
     state = state if isinstance(state, dict) else {}
+    rows = usage.stage_rows(state, estimator=prices.estimate)
     known = spend(state)
     unpriced = known["unpriced_stages"]
     nothing_known = all(known[key] is None for key in ("reported_usd", "estimated_usd", "inherited_usd"))
@@ -117,7 +122,33 @@ def view(state: RunState):
         and not state.get("active_stage")
         and not usage.pending_workers(state),
         "prices_as_of": as_of,
+        "breakdown": {**breakdown.summary(rows, state), "price_bases": price_bases(rows)},
     }
+
+
+def price_bases(rows):
+    """The dated rates the estimated stages were priced at: one entry per model and rate, with its stage count.
+
+    A stage is priced at the rate in force when it finished (autocode_prices.rate), so a run that spans a
+    tariff update shows both entries; `until` is null for the current rate.
+    """
+    bases = {}
+    for row in rows:
+        entry = prices.rate(row["model"], row.get("finished_at")) if row["basis"] == "estimated" else None
+        if entry is None:
+            continue
+        model = prices.key(row["model"])
+        group = bases.setdefault(
+            (model, entry.get("until")),
+            {
+                "model": model,
+                **{key: entry[key] for key in (*prices.RATES, "source", "retrieved") if key in entry},
+                "until": entry.get("until"),
+                "stages": 0,
+            },
+        )
+        group["stages"] += 1
+    return sorted(bases.values(), key=lambda group: (group["model"], group["until"] or "9999-12-31"))
 
 
 def spent(state: RunState):
@@ -229,7 +260,26 @@ def line(cost):
         stages = f"{unpriced} stage{'s' if unpriced != 1 else ''}"
         text += f"; {stages} not priced: a model without a rate or no token counts (autocode models --prices)"
     limit = _money(cost.get("cap_usd"))
-    return text + (f"; cap {usd(limit)}." if limit else "; no cap.")
+    text += f"; cap {usd(limit)}." if limit else "; no cap."
+    details = []
+    for row in (cost.get("breakdown") or {}).get("by_stage", []):
+        if row["stages"] <= 1 and not (row["failed_stages"] or row["interrupted_stages"]):
+            continue
+        amount = row["spent_usd"]
+        money = "unknown" if amount is None else ("at least " if not row["complete"] else "") + usd(amount)
+        flags = [
+            f"{row[key]} {label}"
+            for key, label in (
+                ("failed_stages", "failed"),
+                ("interrupted_stages", "interrupted"),
+                ("unpriced_stages", "unpriced"),
+            )
+            if row[key]
+        ]
+        count = row["stages"]
+        detail = f"{row['job']} {count} attempt{'s' if count != 1 else ''}: {money}"
+        details.append(detail + (f" ({', '.join(flags)})" if flags else ""))
+    return text + (" Stage costs: " + "; ".join(details) + "." if details else "")
 
 
 def check(sample):

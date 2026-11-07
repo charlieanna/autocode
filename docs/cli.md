@@ -20,35 +20,41 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode explain` | The same as `autocode --explain`: explain the saved run's stop and the offered next command. Reads only; no model call, run lock or workspace changes. |
 | `autocode demo [--directory PATH]` | Watch an offline sample plan, demo approval, build, rejected evidence and completion acceptance with the bundled fake provider. No account or model spend. Creates a new temporary directory by default, keeps its run and evidence records for inspection, and refuses an existing `--directory`. See [Offline demo](#offline-demo). |
 | `autocode verify` | Check an existing working-tree change, branch or patch against caller-supplied criteria; retain independent review, replay and external-change proof in the canonical evidence format. See [Standalone verification](verify.md). |
+| `autocode coordinate status\|message\|advance\|bind\|approve\|choose\|cancel\|resume\|budget\|planning-budget\|access` | Coordinate a terminal-chat bug across authorized local repositories, approve member and joint-test plans together, bind verified candidates, prove the combined fix and publish linked PRs. The chat takes the core's named actions; see [Automatic multi-repository fixes](multi-repo.md#automatic-bug-fixes-from-terminal-chat). |
 | `autocode chat [BRIEF] [--mode ID] [-- RUN_OPTIONS]` | Talk to a run in the terminal, the way the VS Code extension does: it prints the run's conversation, asks you only for what the [status view](task-run.md#status-view) leaves to you (an answer, a plan approval, a reply) and runs exactly the command the view names. Plain `autocode` in an interactive terminal opens it too. With a brief it starts a new run in the project (`--in-place`, with the start flags of the `--mode` from `autocode modes list`, else its default). Without one it picks up the project's open run (or `--run-dir RUN`), lets you choose when several are open, and asks what you want done when none is. Leaving at a prompt changes nothing. While a stage works, Ctrl-C asks for the view's pause after the current step, a second Ctrl-C interrupts the step and a third stops AutoCode; the chat never exits while AutoCode still runs. A brief that starts with `-` goes in `--brief=TEXT`. Where the view names no action it can take, it prints the command to run yourself. Exits 0 when the run completes, 2 when it waits for you. See [Terminal chat](#terminal-chat). |
 | `autocode conversation start\|attach\|read\|send\|refresh\|handoff` | Core Requirements conversation journal tied to one task run: queue human messages, explicitly refresh its draft and inspect the handoff. See [Core Requirements conversations](task-run.md#core-requirements-conversations). |
 | `autocode ui` | Figma design (and optional `--build` handoff to implementation). |
 | `autocode tasks` | Run a multi-lane task flow file; accepts `--json`. |
 | `autocode components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)); with `--integrate TARGET --run-local`, also start the combined system with Docker Compose and run its smoke check (see [Running the combined system locally](task-lanes.md#running-the-combined-system-locally)). |
-| `autocode program plan\|derive\|show\|approve\|run\|status\|request-change\|resolve-change` | Plan a large requirement, derive a workstream manifest from the approved plan, read and approve that manifest as the program agreement by exact token, run workstreams in parallel worktrees merged onto an integration branch, and raise or reject interface change requests (see [Programs](program.md)). |
 | `autocode dashboard` | Local browser dashboard. |
 | `autocode unattended` | Agent wrapper that refuses operator decisions and reports a stop (see [Unattended callers](#unattended-callers-agents)). |
 | `autocode issue brief\|start\|status\|continue\|plan\|pr` | Read a GitHub issue, work on it through the task-run interface, put the plan waiting for approval in a pull request as a plan file for review (`plan`), and prepare a pull request (see [GitHub issues](issues.md)). |
+| `autocode bridge run\|check\|status` | The channel bridge daemon: take labeled GitHub issues, start durable runs, relay questions, plan approvals and pauses to the issue, and take an allowlisted actor's reply as the exact action the status view names (see [Channel bridge](channels.md)). |
+| `autocode changeset link\|status\|approve\|check-command\|verify\|waive\|reopen\|order\|pr-body\|list` | Start a run in another registered project for work a run's request places there, show the change set the linked runs form, approve all their plans at once, check them together with an integration command, and write the section each pull request carries (see [Linked runs](task-run.md#linked-runs)). |
 | `autocode arena init\|ingest\|cases\|run\|report\|propose\|annotate\|compare` | Run independent benchmark cases, append evidence-backed failure investigations and compare candidate cohorts (see [Arena](arena.md)). |
-| `autocode checkpoint --workspace PATH --run-dir RUN --compare CHECKPOINT` | Compare retained code or restore it by the exact inspected token; accepts `--json` (see [Saved code checkpoints](task-run.md#saved-code-checkpoints)). |
+| `autocode checkpoint --workspace PATH --run-dir RUN --compare CHECKPOINT` | Compare retained code or restore it by the exact inspected token (`--working` shows what the Builder has changed so far, display only); accepts `--json` (see [Saved code checkpoints](task-run.md#saved-code-checkpoints)). |
 | `autocode merge [WORKTREE] [--workspace PATH] [--into BRANCH] [--json]` | Merge a delivered task worktree into its base branch (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
 | `autocode capture --output FILE -- COMMAND` | Run a command with exact output retained for retrieval (see [Exact output](exact-output.md)). |
 | `autocode output read\|retrieve` | Read or retrieve exact retained file bytes (see [Exact output](exact-output.md)). |
 | `autocode visual-capture --config FILE` / `autocode visual-check --policy FILE` | Capture visual references or run a source-owned visual check (see [Visual checks](visual-captures.md)). |
 | `autocode compare-baseline` | Compare Vitest failure evidence (see [Execution](execution.md#baseline-comparison)). |
-| `autocode review-pr URL [--post] [--out NEW_DIRECTORY] [--json] -- PROVIDER_OPTIONS` / `autocode-issue review-pr` | Fetch the exact PR head into an owned checkout, run Code Reviewer only, and print authenticated findings/evidence. `--post` submits COMMENT only after every new-side anchor and the head are rechecked (see [Pull request reviews](issues.md#reviewing-a-pull-request)). |
+| `autocode review-pr URL [--post] [--out NEW_DIRECTORY] [--json] -- PROVIDER_OPTIONS` / `autocode issue review-pr` | Fetch the exact PR head into an owned checkout, run Code Reviewer only, and print authenticated findings/evidence. `--post` submits COMMENT only after every new-side anchor and the head are rechecked (see [Pull request reviews](issues.md#reviewing-a-pull-request)). |
 | `autocode review --workspace PATH [--run-dir RUN]` | Inspect pending human-review criteria and their recorded evidence, then approve, reject with a note, or skip. Reads decisions from terminal or piped input. `--show` and `--json` display without prompting; decisions never start a model. See [Human review](execution.md#human-review-in-the-terminal). |
 | `autocode serve start\|stop\|status [--workspace PATH] [--run-dir RUN]` | Run the run's development server in the foreground from the project's saved `serve` command ([Project settings](#project-settings)) on a free loopback port until Ctrl-C or `autocode serve stop`; `stop` ends it and waits (`--timeout`); `status` shows whether it is configured, running and its address (`--json`). See [Development server](#development-server). |
 | `autocode forget [--workspace PATH] [--json]` | Clear only the learned project record; keep explicit configuration, saved runs and evidence. See [Project memory](project-memory.md). |
 | `autocode clean-worktrees [--yes] [--json]` | List, then with `--yes` remove, task worktrees whose runs are complete and whose branch holds their work; records are archived and branches kept (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
-| `autocode prune-run RUN [--yes] [--json]` | List, then with `--yes` delete a run's settled evidence bytes: finished verification-copy trees (`tool-containment-*/scratch`) and settled job-source stores (`<attempt>.source/`). Manifests, receipts and hashes are retained, so what was there stays provable; `state.json` is never modified. Anything still named at file level by state, owned by a live stage or a pending failure recovery, or the newest of its kind is kept with the reason shown. |
-| `autocode bundle RUN [--out FILE] [--with-diff] [--json]` | Write one redacted archive of a run for a bug report (default `WORKSPACE/.autocode/bundles/RUN.tar.gz`): the replay recording `replay RUN --export` writes, so a maintainer can [replay](replay.md) it; `state.json`, `activity.jsonl`, the stage reports, the check-replay receipts and the last 200 lines of each provider event stream; the resolved settings, `doctor --json` output and the version. Every file it writes passes the credential redaction exports use, plus the values of secret-named environment variables; a recording that redaction would still change is left out, and the manifest says why. No workspace source unless `--with-diff` adds the run's diff (against its base commit, else the uncommitted work). `manifest.json` lists each file's sha256; cite the printed manifest hash in a bug report or a `docs/bugs/` note instead of pasting logs. The run directory is only read. |
+| `autocode prune-run RUN [--yes] [--json]` (or `--run-dir RUN`) | List, then with `--yes` delete a run's settled evidence bytes: finished verification-copy trees (`tool-containment-*/scratch`) and settled job-source stores (`<attempt>.source/`). Manifests, receipts and hashes are retained, so what was there stays provable; `state.json` is never modified. Anything still named at file level by state, owned by a live stage or a pending failure recovery, or the newest of its kind is kept with the reason shown. |
+| `autocode bundle RUN [--out FILE] [--with-diff] [--json]` (or `--run-dir RUN`) | Write one redacted archive of a run for a bug report (default `WORKSPACE/.autocode/bundles/RUN.tar.gz`; a run `clean-worktrees` archived to `PROJECT/.autocode/archive/TREE/runs/RUN` takes the project as its workspace, and `--with-diff` then diffs its base commit against the kept branch): the replay recording `replay RUN --export` writes, so a maintainer can [replay](replay.md) it; `state.json`, `activity.jsonl`, the stage reports, the check-replay receipts and the last 200 lines of each provider event stream; the resolved settings, `doctor --json` output and the version. Every file it writes passes the credential redaction exports use, plus the values of secret-named environment variables; a recording that redaction would still change is left out, and the manifest says why. No workspace source unless `--with-diff` adds the run's diff (against its base commit, else the uncommitted work). `manifest.json` lists each file's sha256; cite the printed manifest hash in a bug report or a `docs/bugs/` note instead of pasting logs. The run directory is only read. |
 | `autocode --version` | Print the executing package version and its source commit when known. An installed package without a source checkout reports `commit unknown`; it does not borrow the workspace commit. |
-| `autocode completion bash\|zsh\|fish` | Print a shell completion script read from the CLI's parsers: the commands, every public option of the main command with its choices, and file names after an option that takes a path. A subcommand completes from the parser it reads: its options, its commands (`output read`, `arena run`, `program approve`) and their options, or its argument's choices (`completion bash`). `capture`, `registry`, `intervention` and `dashboard` complete only `--help`. Load it with `source <(autocode completion bash)` (zsh the same, after `compinit`; fish `autocode completion fish \| source`), or save it; see [Shell completion](install.md#shell-completion). |
-| `autocode models [--provider NAME] [--workspace PATH] [--json] [--prices] [--selection]` | List the models your plans offer, grouped by plan (subscription or pay per token) and tier (cheap worker, strong judge, Resolver only), and check every role's default route. Suggests a replacement for any default you cannot use; exits 1 when one is missing (see [Models](models.md#when-a-model-is-not-in-your-plans)). `--prices` prints the dated price table instead, and the rate each default route is priced at, or "no rate" (never a zero price); it runs nothing and works offline. `--selection` reads the tool's own model and login listings (still no model calls) and prints what automatic selection would choose - the route per role with its price and reasoning level, why every other qualified model lost, and which chosen routes the access check would still probe; exits 1 with the account-terms stop when the connected accounts cannot field an independent checker ([Choosing models automatically](models.md#choosing-models-automatically)). |
-| `autocode doctor [--workspace PATH] [--engine opencode\|codex\|claude] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in), that the workspace is a Git repository with a commit, and the projected run storage (workspace size x its measured ~3x copy growth: worktrees, verification copies, attempt snapshots) against free disk space — a doomed filesystem is a ✖, a tight one a warning with the numbers. Prints the fix for anything missing; exits 1 when not ready. Passes only when the engine a new run uses is ready, resolved as a run resolves it: `--engine codex` is Codex; without `--engine`, the `engine` the project's files set ([Project settings](#project-settings)) counts as that flag; otherwise (no engine, or `--engine opencode`) the provider `AUTOCODE_PROVIDER` or `default_provider` in `~/.config/autocode/config.toml` names, else OpenCode. That provider must answer and list every role's default model (`opencode models`, as `autocode models` checks). `AUTOCODE_PROVIDER=codex` names a provider config, not the Codex engine. A ready Codex alone does not pass; doctor names `--engine codex` as the single-login alternative. `--engine claude`, a project's `engine = "claude"`, or a `claude` default provider, checks Claude Code instead: `claude` on PATH and `claude auth status --json`, run in the agents' environment, reporting a Claude subscription login (`engine:claude`; an API key, Bedrock or Vertex is refused, by the same check a run makes: the agents' environment and the project's `.claude/settings.json`), its conformance row, and its routes; a user `claude.toml` it ignores is a warning. Doctor shows no Claude rows for other runs and never prints the account's email or organization. Lists the settings a new run takes from the project's files ([Project settings](#project-settings)) and fails on a file a run would refuse. When a new run launches built-in OpenCode stages, names the kernel tool boundary they get on this machine (`containment`: macOS Seatbelt or Linux bubblewrap and its version, with OpenCode 1.18.33, by the check run setup makes; `--json` adds it as `containment` with `backend`, `backend_version` and `problem`, or `null` for a Codex, Claude Code or configured-provider run), as a warning that does not fail doctor when such a run would be refused without `--allow-uncontained-tools` ([Execution](execution.md#native-tool-containment)). Runs without psutil and reports it missing. Never reads credentials. |
-| `autocode registry location\|list\|import` | Registry API (see [Registry API](registry-api.md)). |
-| `autocode runs [--all] [--needs] [--json]` | Every run of this project (or, with `--all`, of every registered project) in one read-only table: what each run's own status view says it needs, and the command that answers it. Needs-first order, then working, then settled, then runs whose checkpoint cannot be read; the row shows how long since the checkpoint was written. Nothing here starts, resumes or changes a run. Where a saved run's status alone cannot tell an uncertain attempt from one whose retained report only needs repair, the row points at `autocode --run-dir RUN --status` instead of offering a command that could set accepted work aside. It reads saved checkpoints, so unlike `autocode --run-dir RUN --status` it inspects no supervised process: a row says what the run last saved, not whether its provider is still alive. `registry list` is the pointer index with each pointer's availability; `runs` is what each run now wants from you. |
+| `autocode completion bash\|zsh\|fish` | Print a shell completion script read from the CLI's parsers: the commands, every public option of the main command with its choices, and file names after an option that takes a path. A subcommand completes from the parser it reads: its options, its commands (`output read`, `arena run`) and their options, or its argument's choices (`completion bash`). `capture`, `registry`, `intervention` and `dashboard` complete only `--help`. Load it with `source <(autocode completion bash)` (zsh the same, after `compinit`; fish `autocode completion fish \| source`), or save it; see [Shell completion](install.md#shell-completion). |
+| `autocode models [--provider NAME] [--workspace PATH] [--json] [--prices] [--selection]` | List the models your plans offer, grouped by plan (subscription or pay per token) and tier (cheap worker, strong judge, Resolver only), and check the route every role of a new run takes. Without `--provider` it follows the project's `engine` setting as `doctor` and a task do: a `claude` project lists the Claude Code provider, and a `codex` project is told its routes are fixed ([default models](models.md#default-models)) rather than sent to OpenCode. Suggests a replacement for any route you cannot use; exits 1 when one is missing (see [Models](models.md#when-a-model-is-not-in-your-plans)). A profile default the provider no longer offers is not a gap when automatic selection replaces it with a route it does offer: the verdict then weighs the selected routes and names each replacement, because the profile defaults are only the fallback a run uses when selection cannot field a set (#1995). `--prices` prints the dated price table instead, and the rate each default route is priced at, or "no rate" (never a zero price); it runs nothing and works offline. `--selection` reads the tool's own model and login listings (still no model calls) and prints what automatic selection would choose - the route per role with its price and reasoning level, why every other qualified model lost, and which chosen routes the access check would still probe; exits 1 with the account-terms stop when the connected accounts cannot field an independent checker ([Choosing models automatically](models.md#choosing-models-automatically)). |
+| `autocode setup [--install opencode\|kilocode] [--json]` | Connect the backends AutoCode runs on, once after installing it (#2049): checks Claude Code, Codex, OpenCode and Kilo with each one's own login listing; in a terminal, when neither OpenCode nor Kilo is installed, offers to install OpenCode 1.18.33 with npm (one yes/no; `--install` installs the named hub without asking); offers each installed, signed-out one its own sign-in, where you connect ChatGPT, GLM, MiMo or API keys; then says which backend new runs use and, in a terminal, offers to choose each stage's model and reasoning level on it (`autocode stages choose`; the first time Enter means yes); finally it lists each stage's choice, or without one the route each role takes. It launches no model. Without npm it names the Node.js download and the command to run. `--json` asks nothing and installs only what `--install` names and returns `backends` (the `autocode connections` rows, checked, with `install_command` when missing) and `new_runs_use`. Exit 1 when no backend could start a run. |
+| `autocode stages [list\|choose\|set\|reset] [STAGE] [--model MODEL] [--effort LEVEL] [--backend NAME] [--workspace PATH] [--json]` | See and change the model and reasoning level each stage of a new task runs, kept per backend in `~/.config/autocode/stages.toml` ([Choosing each stage's model](models.md#choosing-each-stages-model)). `list` (the default) shows each stage, what it does, and its model and level, marked as your choice or the default; `choose` asks for every stage in turn in a terminal, with advice on what suits it, and saves the answers together; `set STAGE --model MODEL --effort LEVEL` changes one stage (a stage is its route name, such as `terra`, or its job, such as `builder`), refusing a model the backend does not offer, a level the model does not take, or a model the stage's checker or producer runs; `reset [STAGE]` forgets one stage's choice, or every stage's. Without `--backend` it uses the backend a new run in `--workspace` would take. `--json` returns the view clients render as one dropdown per stage ([Stage choices for clients](task-run.md#stage-choices-for-clients)). Every new task reads the choices before it begins; a flag or the project's `.autocode/config.toml` still wins, and a task already running keeps its own. It launches no model. |
+| `autocode doctor [--workspace PATH] [--engine opencode\|codex\|claude] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in), that the workspace is a Git repository with a commit, and the projected run storage (workspace size x its measured ~3x copy growth: worktrees, verification copies, attempt snapshots) against free disk space — a doomed filesystem is a ✖, a tight one a warning with the numbers. Prints the fix for anything missing; exits 1 when not ready. Passes only when the engine a new run uses is ready, resolved as a run resolves it: `--engine codex` is Codex; without `--engine`, the `engine` the project's files set ([Project settings](#project-settings)) counts as that flag; otherwise (no engine, or `--engine opencode`) the provider `AUTOCODE_PROVIDER` or `default_provider` in `~/.config/autocode/config.toml` names, else OpenCode. That provider must answer and list the route each role of a new run takes - its default model, or the route automatic selection replaces that default with (`opencode models`, as `autocode models` checks; #1995). `AUTOCODE_PROVIDER=codex` names a provider config, not the Codex engine. A ready Codex alone does not pass; doctor names `--engine codex` as the single-login alternative. `--engine claude`, a project's `engine = "claude"`, or a `claude` default provider, checks Claude Code instead: `claude` on PATH and `claude auth status --json`, run in the agents' environment, reporting a Claude subscription login (`engine:claude`; an API key, Bedrock or Vertex is refused, by the same check a run makes: the agents' environment and the project's `.claude/settings.json`), its conformance row, and its routes; a user `claude.toml` it ignores is a warning. Doctor shows no Claude rows for other runs and never prints the account's email or organization. Lists the settings a new run takes from the project's files ([Project settings](#project-settings)) and fails on a file a run would refuse. A `user settings` row shows the keys `~/.config/autocode/config.toml` sets (`default_provider`, `plan_review_call_limit`), warns on a key the user file does not take, naming the project's `.autocode/config.toml` for a project key such as `engine`, and fails on a file that is not TOML. When a new run launches built-in OpenCode stages, names the kernel tool boundary they get on this machine (`containment`: macOS Seatbelt or Linux bubblewrap and its version, with OpenCode 1.18.33, by the check run setup makes; `--json` adds it as `containment` with `backend`, `backend_version` and `problem`, or `null` for a Codex, Claude Code or configured-provider run), as a warning that does not fail doctor when such a run would be refused without `--allow-uncontained-tools` ([Execution](execution.md#native-tool-containment)). The Linux CLI first drops only `CAP_SYS_ADMIN` and `CAP_SYS_PTRACE` from its bounding set and re-executes once; the `session` row records a verified drop. Set `AUTOCODE_NO_CAPABILITY_DROP=1` to opt out. If either capability remains available, this row still fails because every stage launch, the demo included, refuses it; it names the fallback (an ordinary user, or `setpriv --bounding-set=-sys_admin,-sys_ptrace`). Other kernel prerequisites are not established by this check. Runs without psutil and reports it missing. Never reads credentials. |
+| `autocode registry location\|list\|add\|import\|forget-deleted` | Run registry API; `add PATH` registers a committed local project without starting a task, and `forget-deleted --workspace W --run-dir R` drops the entry of a run whose directory no longer exists (see [Registry API](registry-api.md)). |
+| `autocode registry roots add\|list\|remove\|discover` | Configure and inspect bounded, local source roots used by cross-repository bug discovery, independent of the launch directory. |
+| `autocode registry repositories add\|list\|remove` | Register a standalone committed checkout outside the configured source roots. |
+| `autocode runs [--all] [--needs] [--json]` | Every run of this project, including those in its task worktrees under `.autocode/worktrees` and its issue worktrees (or, with `--all`, of every registered project, each row then naming its workspace), in one read-only table, each JSON row titled with the first line of its task (`title`): what each run's own status view says it needs, and the command that answers it. Needs-first order, then working, then settled, then runs whose checkpoint cannot be read; the row shows how long since the checkpoint was written. A `RUNNING` checkpoint whose controller left a `ready` receipt for it (saved by an answer, approval or follow-up, left for the person to continue) is listed under needs you as `Ready to continue`, with `ready_to_continue: true` in its JSON row. Nothing here starts, resumes or changes a run. Where a saved run's status alone cannot tell an uncertain attempt from one whose retained report only needs repair, the row points at `autocode --run-dir RUN --status` instead of offering a command that could set accepted work aside. It reads saved checkpoints, so unlike `autocode --run-dir RUN --status` it inspects no supervised process: a row says what the run last saved, not whether its provider is still alive. `registry list` is the pointer index with each pointer's availability; `runs` is what each run now wants from you. |
 | `autocode events [--run-dir RUN] [--follow]` | One saved run's recorded events as a JSON-lines stream: how it got to where `--status` says it stands, one event per line, printed exactly as the run wrote it. These are the run's own records — its approvals, answers, contract and configuration changes, routing decisions and self-taken recoveries — not a provider's transcript. `--follow` keeps printing new events until the run ends the stream, and the status view contract is what ends it: a completed run exits 0, a run that needs a person exits 2 after naming that person's command on stderr, and `--timeout SECONDS` bounds the wait. Stdout is always JSON lines, so `--json` does not apply; the envelope is [run-event.schema.json](schemas/run-event.schema.json), whose `kind` is an open vocabulary a consumer must tolerate. Read-only, and like `runs` it inspects no supervised process: a stage hung mid-flight keeps the stream open, so ask `autocode --run-dir RUN --status` whether it is alive. |
 | `autocode plan --export PATH [--run-dir RUN] [--json]` / `autocode plan --check PATH [--json]` / `autocode plan --render PATH [--json]` | Write a saved run's current plan (shown for approval or approved) as a Markdown file to review in a pull request: a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body) and the revision it came from, then the plan as text generated from it. Never the approval token; credential-shaped text is masked as in `bundle`, and the export then says the file's goal hash differs from the run's. `--check` reads such a file and prints its goal hash, and exits 2 when the file cannot be read or its text no longer matches its front matter. `--render` regenerates that text after the front matter was edited. Reads the checkpoint like `events`: no run lock, nothing recorded, nothing launched; only the named file is written. `--json` formats results or error endings as structured JSON. See [Reviewing a plan in a pull request](workflow.md#reviewing-a-plan-in-a-pull-request). |
 | `autocode wait [--run-dir RUN] [--timeout S]` | The blocking form of `autocode runs`: wait on one saved run until it reaches you, ends, or stops advancing on its own. Each second it rereads the checkpoint and, read-only, inspects whether a controller still owns the run — the one question a saved status cannot answer. The outcome names which ended the wait: `complete` (the run reported TASK_COMPLETE/COMPLETE; exit 0), `needs_you` (the status view names what you must do, and the command that answers it; exit 2), `controller_lost` (the saved status is still RUNNING but nothing owns the run, so it will not advance on its own; exit 2, pointing at `--status`), `stopped` (anything else; exit 2), or `timeout` when `--timeout SECONDS` elapses first (exit 2, reporting the last observed status and controller). `--json` prints the outcome as exactly one JSON object. Nothing here starts, resumes or changes a run. |
@@ -66,11 +72,11 @@ To run the checkout directly from its root, use `python tools/autocode.py doctor
 a deliberately invoked reinstall command for the current interpreter. It never
 updates an installation or rewrites run state itself.
 
-The old console-script aliases remain for compatibility. The unit entry points
-`autopilot`, `autoplanner`, `autocode-build`, `autoreview`, `autoresolver`,
-`autocode-orchestrator` and `autocode-unattended` are internal entry points; use
-`autocode` and its public subcommands in new instructions. Internal stage and unit
-names keep their existing meaning.
+`autocode` is the only installed command. The earlier per-unit scripts (`autopilot`, `autoplanner`,
+`autocode-build`, `autoreview`, `autoresolver`, `autocode-orchestrator` and the per-tool scripts) are no
+longer installed: use `autocode --unit autoplanner|autocode|autoreview|autoresolver` and the public
+subcommands (`autocode issue`, `unattended`, `ui`, `tasks`, `components`, `arena`, `dashboard`). Their modules still run as
+`python -m autocode_cli.<module>`. Internal stage and unit names keep their existing meaning.
 
 ## Offline demo
 
@@ -81,6 +87,9 @@ a claimed passing check that AutoCode refuses when its independent rerun fails.
 The successful sample also stops at the completion gate until demo acceptance of
 the artifact is recorded. These automatic approvals apply only to the new demo
 project.
+
+Token and cost figures shown when inspecting the demo's run status are simulated;
+they do not represent charges.
 
 The command prints the run directory, canonical evidence record and `demo.json`,
 and keeps every output inside its new directory. To choose where it goes, use
@@ -95,7 +104,7 @@ workflow and is separate from the [real-model reliability results](../RELIABILIT
 | Flag | Meaning |
 | --- | --- |
 | `--brief TEXT` | Start a new run with literal task text; `--brief -` reads UTF-8 bytes from stdin. Mutually exclusive with a positional task, `--brief-file`, saved-run options and `resume`. |
-| `--brief-file PATH` | Start a new run with the file's exact UTF-8 task text, retaining line breaks and trailing whitespace. Mutually exclusive with a positional task, `--brief`, saved-run options and `resume`. |
+| `--brief-file PATH` | Start a new run with the file's exact UTF-8 task text, retaining line breaks and trailing whitespace. Mutually exclusive with a positional task, `--brief`, saved-run options and `resume`. | A whitespace-free positional task that names an existing file (`autocode spec.md`) is refused before any run is created and names this option, since the positional task is literal text. |
 
 Use `autocode --brief-file brief.txt` or pipe UTF-8 text into `autocode --brief -`
 to preserve backticks, `$()`, quotes and line breaks exactly. These inputs start
@@ -117,12 +126,13 @@ brief before continuing.
 | `--workspace /path` | Committed Git workspace to work in. Defaults to the current directory. Without a task or `--run-dir`, where AutoCode looks for the run to act on. |
 | `--run-dir /path` | Act on this saved run, from any directory. Without `--workspace`, the run's own checkout is used. |
 | `--in-place` | Start a new task in the selected checkout instead of a fresh worktree. Uncommitted and untracked files there count as the code the task starts from (see [Workflow](workflow.md)). Only one run's agents work in a checkout at a time; a second run exits with status 2 and changes nothing (see [Task lanes](task-lanes.md#multiple-tasks-in-one-project)). |
-| `--workflow build\|bugfix\|review\|design\|discuss` | Name the kind of job instead of having the recognizer read it from the request. Also accepted by a saved run whose recognizer has not run yet. A run whose job is already decided keeps it: start a new run to change it (see [Workflow](workflow.md)). |
+| `--workflow build\|bugfix\|review\|design\|discuss` | Name the kind of job instead of having Requirements (or, on a flow without it, the recognizer) name it from the request. New build and bug-fix tasks share the standard implementation sequence; a pinned build or bug fix still gathers Requirements. Review, design and discuss start their own first stages. Saved runs retain their recorded routing. Also accepted by a saved run whose job is not named yet. A run whose job is already decided keeps it: start a new run to change it (see [Workflow](workflow.md)). |
 | `--status` | Read-only status, including `milestone_checkpoint`, `interventions`, `active_stage.activity`. |
 | `--json` | Stdout carries exactly one JSON object unless the invocation ends with an error message other than a refused setting (below); everything else the invocation prints goes to stderr. A finished or paused run prints the same payload `--status` prints. A user action (an approval, answer, feedback, resolver response and the like) prints that payload plus `result`: `exit_code`, `saved`, `message` (the text a person would have read) and `error`, which is `{"code": "input_rejected", "message": …}` when the input was refused and null otherwise. A refusal before the run loads prints `{"result": …}` alone. Any other invocation that loaded the run and returned without printing the payload, such as one stopped by `--pause-after-stage` or a time or iteration limit, prints the saved run's payload plus `result`. A setting the run's configuration refuses as the run loads still ends with `autocode: …` on stderr, and also prints the saved run's payload plus `result` (`{"result": …}` alone for a new run refused before its first checkpoint), whose `error` is `input_rejected` with the refusal text. Such settings include `--single-model`, `--spec-first`, `--blind-tests`, `--utility-model`, `--builder-strong-model` or a different `--engine` on a saved run, `--single-model` with a per-role model flag, `--max-milestone-seconds` on a saved run without milestone checkpoints, and the tool-containment refusals: `--allow-uncontained-tools` on a run with no built-in OpenCode stage, or a built-in OpenCode run without it where the kernel tool boundary is unavailable. The refused setting is not saved, though a new run without `--in-place` may already have created its task worktree and branch, which `result.message` names. In a native visual run (a task with a `VISUAL_REVIEW_PROFILE=` directive) such a refusal is instead saved as a `PAUSED_INVALID_OUTPUT` pause and printed like any other pause, with `error` null. Any other invocation that ends with an error message (`autocode: …` or argparse's `usage:` text on stderr) prints nothing on stdout. A refusal reported in `result` also prints `{"error": …}` on its own line of stderr: its last line, except after a refused setting, where `autocode: …` follows. [status-view.schema.json](schemas/status-view.schema.json) describes the status payload. The lone `{"result": …}` does not validate against the schema's root; its `result` validates against the schema's `properties.result`. Exit codes are unchanged ([Exit codes](#exit-codes)); a usage error still prints argparse's text. The read-only commands (`--status`, `--explain`, `--dry-run`, `doctor --json`, `registry`, `usage --json`) print their own output and are unaffected. |
 | `--explain` | Read-only explanation of a saved run's stop and what the next command does. With an explicit task in a Git workspace, previews the initial explanation without creating a run. An explicit `--run-dir` cannot accompany a new task or new-run inputs. |
 | `--dry-run` | Read-only preview; never emits an accepted handoff. |
 | `--inspect-evidence` | With `--status`, inspect the current source and saved verification evidence without running checks. |
+| `--summary` | With `--status` (or `autocode status`), print the run in one sentence instead of the JSON payload: `Needs you`, `Working`, `Done` or `Stopped`, then `Next:` and the exact command the status view names, when there is one. A run whose last controller exited on purpose after a saved answer, approval or follow-up (a `ready` controller receipt for the current checkpoint) reads `Needs you: Saved and ready to continue; nothing runs it until you do.` rather than `Working`. When the run waits on questions, the pending questions follow, each with its options and proposed default, as the readable tail of a full `--status` does before the `Answer with:` command. `Done` means completion is verified against the current checkout; a finished run without that, or a checkpoint that says running while nothing supervises it, reads `Stopped`. The same object is `view.summary` in the JSON payload; `--status` without `--summary` keeps every detail. |
 
 ### Understanding a stop
 
@@ -165,10 +175,15 @@ as if you had passed `--run-dir RUN`.
 
 | Command | Run it takes |
 | --- | --- |
-| `autocode`, `autocode resume`, `--resume-paused` and its `--retry-*` companions, `--unit` | The only unfinished run. A finished run (`TASK_COMPLETE`, or stopped) is never relaunched this way, and a run that `autocode program` or `autocode tasks` drives is left to that command. |
+| `autocode`, `autocode resume`, `--resume-paused` and its `--retry-*` companions, `--unit` | The only unfinished run. A finished run (`TASK_COMPLETE`, or stopped) is never relaunched this way, and a run that `autocode tasks` drives is left to that command. |
 | `--status`, `--explain`, `--dry-run`, `autocode status`, `autocode explain` | The only unfinished run; with none, the latest finished one. |
-| `--show-goal`, `--answer`, `--approve-goal`, `--feedback` and the other user actions | The only unfinished run, preferring one no program or task flow drives. These save the run, so they never pick a finished one. |
-| `--follow-up` | The most recently completed run, preferring one no program or task flow drives. Refused when a run started after it finished has not finished: name the run with `--run-dir`. |
+| `--show-goal`, `--answer`, `--approve-goal`, `--feedback` and the other user actions | The only unfinished run, preferring one no task flow drives. These save the run, so they never pick a finished one. |
+| `--follow-up` | The most recently completed run, preferring one no task flow drives. Refused when a run started after it finished has not finished: name the run with `--run-dir`. |
+
+A new task (`autocode "TEXT"`) always starts a new run. When an unfinished run of this
+project already carries exactly that text, the start first prints a note on stderr naming
+each such run and the `autocode --run-dir RUN` that continues it, so a recalled start
+command does not quietly leave two runs of one request behind (#2340).
 
 ### Keeping authorization tokens out of argv
 
@@ -180,18 +195,18 @@ These options accept `-` to read their paired environment variable:
 | `--job-retry-token` | `AUTOCODE_JOB_RETRY_TOKEN` |
 | `--recover-job-report` | `AUTOCODE_RECOVER_JOB_REPORT` |
 | `--approve-goal` | `AUTOCODE_APPROVE_GOAL_TOKEN` |
+| `--changeset-token` | `AUTOCODE_CHANGESET_TOKEN` |
 | `--review-token` | `AUTOCODE_REVIEW_TOKEN` |
 | `--expected-goal-token` | `AUTOCODE_EXPECTED_GOAL_TOKEN` |
 | `--expected-recovery-token` | `AUTOCODE_EXPECTED_RECOVERY_TOKEN` |
 | `checkpoint --expected-token` | `AUTOCODE_CHECKPOINT_EXPECTED_TOKEN` |
-| `program approve --token` | `AUTOCODE_PROGRAM_APPROVAL_TOKEN` |
 
 Prefer this on shared machines: Linux exposes `/proc/<pid>/cmdline` to every local user, while
 `/proc/<pid>/environ` is readable only by the owner, and a typed token also lands in shell
 history. The environment variable alone never authorizes anything — the flag must still be
 present. `TaskRun`, dashboard actions and the trial driver pass these tokens through
 each CLI child's environment. Their process arguments and saved command records contain
-`-`. Literal CLI tokens remain supported. The controller always removes all nine
+`-`. Literal CLI tokens remain supported. The controller always removes all eight
 variables before launching a provider or test command, even if named in `AUTOCODE_PASS_ENV`.
 Programmatic command builders require full token option names; abbreviated token
 options are refused before recording or launch.
@@ -218,22 +233,27 @@ not approve a plan or start a model.
 | `--chat` | Interactive chat mode (default in a terminal). |
 | `--no-chat` | One command per turn (default for non-interactive). |
 | `--answer 'Q1=…'` | Answer a question the run is waiting on (repeatable; the status view's `needs.kind` is `answer`). Requires the current `--resolver-token` shown by Resolver. A finished run waits on none: the questions in its report take `--follow-up` (see [Waiting or finished](#waiting-or-finished)). |
-| `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`), a content-filter refusal (`PAUSED_CONTENT_FILTER`), or an authenticated output-limit stop (`PAUSED_OUTPUT_CAP`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. A stopped workflow job (`needs.kind` `retry_job` with `needs.route`) takes `--answer route-ROLE=MODEL --job-retry-token TOKEN` instead: no resolver token, no `--abandon-stage`, no `--ROLE-model` flag; it issues a new job retry token, so continue with `--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN` ([Waiting or finished](#waiting-or-finished)). See [Models](models.md#when-a-roles-quota-runs-out). |
+| `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`), a content-filter refusal (`PAUSED_CONTENT_FILTER`), an authenticated output-limit stop (`PAUSED_OUTPUT_CAP`) or a context-window stop (`PAUSED_CONTEXT_WINDOW`: the request no longer fit, or the provider compacted the conversation), name the model the stopped role continues on. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. A stopped workflow job (`needs.kind` `retry_job` with `needs.route`) takes `--answer route-ROLE=MODEL --job-retry-token TOKEN` instead: no resolver token, no `--abandon-stage`, no `--ROLE-model` flag; it issues a new job retry token, so continue with `--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN` ([Waiting or finished](#waiting-or-finished)). See [Models](models.md#when-a-roles-quota-runs-out). |
+| `--answer effort-ROLE=EFFORT` | At `PAUSED_EFFORT_UNSUPPORTED`, a reasoning effort you named that the role's model does not declare: name one of the variants the stop lists (the status view's `needs.effort.declared`). No attempt or issued token is involved, as for a cross-model stop. Saves the level as your own choice (origin `user_explicit`) and records an `effort_assignment`; the run waits at the same pause, and `--resume-paused` then continues. A variant the model does not declare is refused with nothing saved. See [Reasoning effort](models.md#reasoning-effort). |
 | `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). |
-| `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. Finished runs only (`TASK_COMPLETE`); any other run exits 2 unchanged. After a design review, the reply revises that review: the Architect keeps every concern under its id, keeps a settled one as resolved with what settled it, and adds the revision to `revisions` in `review/design-review.json` ([Replying to a design review](#replying-to-a-design-review)). After a design turn, "Build it." builds that design as approved: it is checked against the code first (`check_design`). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
+| `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run starts at Requirements again, which names the new job, and continues in the same run directory. Finished runs only (`TASK_COMPLETE`); any other run exits 2 unchanged. After a design review, the reply revises that review: the Architect keeps every concern under its id, keeps a settled one as resolved with what settled it, and adds the revision to `revisions` in `review/design-review.json` ([Replying to a design review](#replying-to-a-design-review)). After a design turn, "Build it." builds that design as approved: it is checked against the code first (`check_design`). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
 | `--delegate-all --review-token 'r3:<hash>'` | Delegate every pending question marked `delegable` with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval. |
 | `--reject-assumption A1 --review-token 'r3:<hash>'` | Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval. |
-| `--program-guidance '…' --review-token 'r3:<hash>'` | A program's correction of the exact displayed plan, such as "this plan drops inherited requirement C2" ([Program](program.md)). Saved as the program's guidance, never as your feedback: it is no requirement the next plan must quote, no decision basis, and starts no clarification episode. Returns the run to requirements and requires fresh approval. Refused for a stale token or a plan not awaiting approval. |
 | `--show-goal` | Display the current contract/revision. At the approval stop it also says what approving authorizes and what the token locks, and ends with a summary of the decision (outcome, permissions, criteria and how each is checked, what passing proves), the limits in effect and the exact approve command ([sample](workflow.md#conversation-and-approval)). |
+| `--details` | At a plan approval stop, print the full brief (the contract, its diff from the last revision, file hashes and request tokens) instead of the short approval screen. Without it, the stop shows the decision first: what the plan will do, what it may change, the criteria and how each is checked, what passing proves, the limits, then the approve and change commands. In the terminal chat, `/details` does the same. `--show-goal` and `--json` are unchanged. |
 | `--approve-goal 'r3:<hash>'` | Approve the exact displayed revision. |
+| `--changeset-token TOKEN` | With `--approve-goal` on a saved run, bind the approval to a prepared change set. The coordinator supplies this through `TaskRun`; use `changeset approve` to review and approve all member plans. Builders remain held until every member has accepted the same set. |
+| `--related-profile PATH` | Fresh runs only: inherit the coordinator's pinned role routes and limits. Requires its exact `--related-profile-sha256`; target approval policy remains enforced. The core supplies this for related runs. |
+| `--related-profile-sha256 SHA256` | Exact hash of `--related-profile`; both options are required together. |
+| `--assign-linked-scope IDENTITY` | On a saved run, accept the core's exact repository assignment for the current scope identity. Requires the matching registered change set; grants no plan approval. |
 | `--edit-goal body.json` | Load a full contract body as a new draft revision. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). |
 | `--goal-file PATH` | Load a plan file (`autocode plan --export`, reviewed and edited in a pull request) into a saved run as its next draft revision, as `--edit-goal` loads a body; the plan then goes through ordinary approval (in joint planning the Plan Reviewer reviews it first). Refused with the run left as it was when the file cannot be read, its text no longer matches its front matter, it still holds text the export masked as credential-shaped, its runner records are not the run's, or a planner's draft of it would be sent back: a literal the request states that the plan drops (with the message the planner gets), a Go test the request names that no criterion proves by that name, `git status` in a check, or a command the shell cannot parse. The approval stop then names the file and its goal hash and says whether the plan to approve is still the plan loaded from it, and the completed run's evidence report (and the PR body built from it) cites the file, its goal hash and the approved plan's. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). It does not start a new run. See [Reviewing a plan in a pull request](workflow.md#reviewing-a-plan-in-a-pull-request). |
 | `--approve-review C1 --review-token '…'` | Record a human-review decision for criterion `C1`. |
-| `--as NAME` | With `--approve-goal`, `--approve-review`, `--accept-completion`, `--edit-goal`, `--goal-file` or a resume (`--resume-paused`, or `autocode resume` at a pause) on a shared machine: the name of the person approving, accepting completion, editing or resuming, saved beside the Git identity as their claim, never verified ([Who approved](execution.md#who-approved)). With a resume it is saved only when the resume releases a pause; a resume that finds none, or that the pause keeps, ignores it. `--status`, the completion summary and, for a build, bug-fix or design run, the completed run's evidence report (and so the `autocode-issue pr` body) list it with the rest of the record. A project's `require-approver` checks the Git identity, never this name ([Required approver](execution.md#required-approver)). |
+| `--as NAME` | With `--approve-goal`, `--approve-review`, `--accept-completion`, `--edit-goal`, `--goal-file` or a resume (`--resume-paused`, or `autocode resume` at a pause) on a shared machine: the name of the person approving, accepting completion, editing or resuming, saved beside the Git identity as their claim, never verified ([Who approved](execution.md#who-approved)). With a resume it is saved only when the resume releases a pause; a resume that finds none, or that the pause keeps, ignores it. `--status`, the completion summary and, for a build, bug-fix or design run, the completed run's evidence report (and so the `autocode issue pr` body) list it with the rest of the record. A project's `require-approver` checks the Git identity, never this name ([Required approver](execution.md#required-approver)). |
 | `--reject-review C1 --review-token '…' --review-note TEXT` | Reject the current reviewed artifact for criterion `C1`, retaining the nonempty note as feedback for a fresh plan and approval. Uses the same artifact freshness checks as approval. |
-| `--investigator-model MODEL`, `--investigator-reasoning-effort LEVEL` | Pin the stuck-stage Investigator's model for this run (default, at high: Claude Opus 5.5 in `kilocode` runs, otherwise GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol). A `provider/model` id runs it through OpenCode. See [Workflow](workflow.md#when-a-stage-stops-making-progress). |
-| `--utility-model MODEL`, `--utility-reasoning-effort LEVEL` | New runs only: run the stages that only classify or reformat (today the Job recognizer, `recognize_workflow`) on a cheaper model. The route keeps the Plan Reviewer's engine, provider and reasoning effort and replaces only the model. Never used for a stage that writes code or judges evidence. Without it every stage keeps its own route. Refused on a saved run. See [Models](models.md#the-utility-route). |
+| `--investigator-model MODEL`, `--investigator-reasoning-effort LEVEL` | Pin the stuck-stage Investigator's model for this run (default, at high: in `kilocode` runs the run's own direct route outside the stuck stage's model family, never a `kilo/` gateway route; otherwise GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol). A `provider/model` id runs it through OpenCode. See [Workflow](workflow.md#when-a-stage-stops-making-progress). |
+| `--utility-model MODEL`, `--utility-reasoning-effort LEVEL` | New runs only: run the stages that only classify or reformat (today the Job recognizer, `recognize_workflow`, which runs only on a flow without Requirements) on a cheaper model. The route keeps the Plan Reviewer's engine, provider and reasoning effort and replaces only the model. Never used for a stage that writes code or judges evidence. Without it every stage keeps its own route. Refused on a saved run. See [Models](models.md#the-utility-route). |
 | `--resolver-response provide_information --resolver-request ID --resolver-token '…'` | Answer a Resolver request with `--resolver-message TEXT`. A displayed criterion recommendation accepts the exact message `Accept recommended revision` to install an unapproved draft for normal plan review and fresh approval. Other blocker information remains held; operational-exhaustion information is re-evaluated once on resume. Request ID and current token are required. The response launches no provider and grants no approval or budget change ([Execution](execution.md)). |
 | `--close-finding ID --close-reason '…'` | Close an open reviewer finding as your own decision (repeatable), for example a duplicate of a problem you already settled. Records who closed it and why, and launches no agent. Closing every finding a validation-only stop asked about answers that stop, so the next `--resume-paused` continues. |
 
@@ -310,11 +330,14 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--retry-failed-stage` | With `--resume-paused`, authorize one fresh attempt at the recorded repeated failure after inspecting its retained work; no approval or budget bypass. |
 | `--diagnose-failed-stage` | With `--resume-paused`, request bounded read-only diagnosis of a recorded repeated Builder report failure. Alternative to `--retry-failed-stage`; not a permission or budget override. |
 | `--grant-recovery N` | With `--resume-paused`, authorize N more automatic timeout recoveries for a run paused at `PAUSED_TIMEOUT_RECOVERY` after its cause was fixed. Audited as a `recovery_grant` user event; recovery history is retained. |
+| `--skip-requirements` | New run, for an unattended worker: wherever Requirements would wait for your answers, each question that `--delegate-all` could delegate is answered with its proposed default and recorded as delegated (`source: skip_requirements`). The Planner and Plan Reviewer still run in full; a question with no safe default (cost, quota, permission, external side effect, the requested outcome) still waits for a person, and so does plan approval. A saved run keeps the choice it started with. |
+| `--skip-to-build` | New run: `--skip-requirements`, and once the Plan Reviewer has finalized the plan, approve it and go on to the Orchestrator and building in the same invocation. The approval is recorded as yours, with this checkout's provenance, marked `source: skip_to_build` in `approvals` and `approved_contract.approval_source`; a run's `--require-approver` still applies. Needs joint planning. Without this flag AutoCode never approves its own plan. |
 | `--plan-review-full` | Keep full-depth plan review for this run: the review allowance stays per planning cycle even for a small clear brief (see [Milestone checkpoints](execution.md)). |
 | `--planning-review-call-limit N` | At a reconciled planning-budget pause, save a total allowance for the current cycle. `0` disables the cap for this and future cycles while preserving usage history; it can also be saved at a requested pause or after abandoning a stopped stage. No model launch or approval; resume separately. |
 | `--pause-after-stage` | Stop at the next saved boundary. |
 | `--verbose` / `--no-verbose` | Stream each stage's live model activity (tools started and finished, new model text, one bounded line each) to stderr as `Role/model: …`. On by default; `--no-verbose` or `AUTOCODE_VERBOSE=0` turns it off. Not saved with the run: each command that runs stages reads it afresh. The full stream is always kept in the stage's `iterations/NNN/<stage>-NN.jsonl`. |
 | `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members (not a member stopped by its provider's content filter or response output limit: answer its `route-terra` question; once that request was answered with information or left paused, `--retry-builder` asks the question again and launches nothing). Keeps failure history, model routes and verification gates; all workers must be stopped. A refused or output-limited member retry with settings saves nothing. A parallel member reruns on its saved Builder route, so a Builder model, provider or reasoning effort change with its retry is refused. A difference saved separately in the run's Builder settings also refuses the retry, naming both routes. Answer that member's open `route-terra` question to choose its model, or restore the run's Builder settings to the member's route separately before retrying. |
+| `--reconcile-only TOKEN` | Metadata-only classification of an unfinished saved RUNNING attempt whose supervisor, keeper and provider are freshly confirmed dead. Take the exact action and private token offered by status; `-` reads `AUTOCODE_RECONCILE_ONLY_TOKEN`. A successful saved classification exits 0 while the run remains paused. Records an uncertain-stage pause without configuring, launching, adopting or retrying a provider. Retains work, usage, routes and limits. Refuses a changed checkpoint, live/unknown supervision, pending stop or native visual/durable service execution. Cannot combine with settings or other actions. |
 | `--abandon-stage '001/terra-01'` | Archive a stopped attempt, keep partial edits and logs. |
 | `--retry-report ATTEMPT_ID` | With `--resume-paused`, request fresh Tester evidence after report repair or repeated-failure limits stop a rejected report, using the exact attempt ID status names; saved source and evidence pins must still match. After a source edit, `--resume-paused` validates the current source instead. |
 | `--accept-transport-change` | Resume a transport-change pause after route checks. |
@@ -327,15 +350,15 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--max-milestone-replans N` | Changed-approach replan limit (default 1). |
 | `--max-milestone-stalled-reviews N` | Reviews without progress before replanning (default 3; `0` disables). |
 | `--max-findings-per-task N` | Cap open findings bundled into one REWORK task. |
-| `--max-idle-seconds` / `--max-tool-seconds` / `--max-stage-seconds` | Watchdog limits (new-run defaults `300` / `1800` / `3600`; `0` disables). |
+| `--max-idle-seconds` / `--max-tool-seconds` / `--max-stage-seconds` | Watchdog limits (new-run defaults `300` / `1800` / `3600`; `0` disables). On the default idle limit, Requirements, Planner and Plan Reviewer launches run under a 600-second floor and MiMo routes under 900 (see [Timeouts and watchdog](execution.md#timeouts-and-watchdog)); a limit you set is used as given. |
 | `--max-seconds N` | Total active provider time for the run (new-run default `43200`, 12 hours; `0` disables). Checked at stage boundaries, and, when you set it, before an attempt on a stronger route (the Builder's stronger attempt or a role's climb on its effort ladder) whose projected time, the role's last attempt's duration, would take the run past `N`: that pause (`PAUSED_TIME_LIMIT`) names the total, and `--resume-paused --max-seconds M` with `M` at least that total launches the attempt. See [Timeouts and watchdog](execution.md#timeouts-and-watchdog). |
-| `--max-cost-usd N` | A money cap in USD: the run pauses at the next stage boundary once its spend reaches `N` (no cap by default; `0` removes it), and before an attempt on a stronger route (the Builder's stronger attempt or a role's climb on its effort ladder) whose projected cost would take the spend past `N`. Spend is the provider's reported cost, else the stage's tokens at the dated price table (`autocode models --prices`); a stage on a model without a rate, or one whose provider recorded no token counts, is not counted and the cost line says so. The pause is yours to decide (`PAUSED_COST_LIMIT`): `--resume-paused --max-cost-usd M` with `M` above the spend (and at least the cap a stop before a stronger attempt names) continues, and AutoCode never raises the cap itself. See [Money cap](execution.md#money-cap). |
+| `--max-cost-usd N` | A money cap in USD: the run pauses at the next stage boundary once its spend reaches `N` (no cap by default; `0` removes it), and before any attempt it can price (a job's next attempt, projected from that job's last attempt's tokens at the saved route's rate; the Builder's stronger attempt or a role's climb on its effort ladder, at the stronger route's rate) whose projected cost would take the spend past `N`, so a stage the run can price never crosses the cap. Spend is the provider's reported cost, else the stage's tokens at the dated price table (`autocode models --prices`); a stage on a model without a rate, or one whose provider recorded no token counts, is not counted and the cost line says so. The pause is yours to decide (`PAUSED_COST_LIMIT`): `--resume-paused --max-cost-usd M` with `M` above the spend (and at least the cap a stop before a priced attempt names) continues, and AutoCode never raises the cap itself. See [Money cap](execution.md#money-cap). |
 | `--no-progress-limit N` | Unchanged-batch limit (new-run default `3`; `0` disables the cap, never the 3-recovery ceiling). With `--resume-paused`, an N above the retained count, or `0`, acknowledges a `PAUSED_NO_PROGRESS` request, also when N is already saved; it never acknowledges another cause's pause. When the limit caused the pause, its advice names this flag and the retained count, not `--resolver-response`: information alone never acknowledges it. |
 | `--max-iterations N` | Optional total iteration ceiling; new runs default to unlimited, and resumes retain their saved limit. |
 | `--unlimited-iterations` | Remove only the iteration ceiling; other safety and usage limits remain. |
 | `--legacy-iteration-ceiling N` | Compatibility form of the iteration ceiling, used only when `--max-iterations` is absent. |
 | `--autoresolver-managed-limits` | Delegate finite CLI safety limits to bounded Resolver recovery; never changes billing or model routes. |
-| `--test-command CMD` | The project's test suite command for runner-owned regression proof (default: detected). Correct a saved command with `--resume-paused` at a reconciled pause before the Tester or combined checkpoint; see [Bug fixes](workflow.md#bug-fixes). |
+| `--test-command CMD` | The project's test suite command for runner-owned regression proof (default: detected). Correct a saved command with `--resume-paused` at a reconciled pause before the Tester or combined checkpoint, at the acceptance-tests pause before its pre-build proof has run (that proof then runs the Tester's files with the saved command), or at a Completion Owner blocker hold; see [Bug fixes](workflow.md#bug-fixes). |
 | `--test-report junit:PATH` | Use one fresh JUnit XML file at a workspace-relative path as named test evidence. Requires an explicit `--test-command`; when `--regression-command` is omitted, that suite also runs in the regression proof trees. Every invocation must write the same relative report path; old output is cleared and captured XML is hash-pinned. Saved corrections use the same reconciled pre-validation pause as `--test-command`. No directory/glob or TRX input. See [JUnit proof setup](named-test-proof.md#junit-xml-from-other-test-runners). |
 | `--test-root components/api/` | New runs only: save a plain workspace-relative directory for automatic Python suite detection (pytest or unittest). Fixed at launch, not changeable on resume. Changes outside it remain `UNVERIFIED`, including with an explicit test command. This selects proof tests, not a general write boundary; identified generated component tasks also bind their declared plan ownership to this caller root. See [Scoped Python proof](workflow.md#scoped-python-proof). |
 | `--package packages/api/` | New runs in a monorepo: the repository directory the task works in. Suite detection reads only that directory, and the detected suite, the derived regression command and the original-test replay run from it (`cd packages/api && SUITE`); an explicit `--test-command` still runs from the repository root as given (write `cd packages/api && …` to run it in the package), and the learned project-memory test command is not applied. Only the package's existing tests are retained as [original test gates](protected-tests.md). In a bug fix the Investigator is told the package and its suite, and a diagnosis that names files outside it is refused as invalid output. The package is the Builder's write scope: a change outside it, in any package run, is a blocking runner finding naming each path, checked before each Tester and Completion Reviewer dispatch and by `--accept-completion` after its own checks (a runner regression proof also leaves it `UNVERIFIED`); what it leaves out, such as an ignored file the plan does not name or the checkout's own nested repositories, is in the linked section. The directory must hold committed files (an `--in-place` run: files Git does not ignore). Fixed at launch; not with `--test-root`. Nothing limits the Builder's writes while it works. See [Monorepo packages](workflow.md#monorepo-packages). |
@@ -361,14 +384,16 @@ spent time and recovery allowances remain intact.
 | --- | --- |
 | `--engine opencode\|codex\|claude` | Engine for the run. OpenCode is the default; `claude` runs Claude Code, the [built-in claude provider](providers.md#claude-code-provider) (the OpenCode engine's facade with `--provider claude`; another `--provider` is refused). Other tools join as providers (see [Providers](providers.md)). |
 | `--provider <name>` | External tool registered via TOML (see [Providers](providers.md#add-a-tool)). |
-| `--role-transport ROLE=PROVIDER` | New run with `--engine opencode --provider opencode`: select an external configured tool for one role; repeat for more roles and provide each selected role's explicit model flag. Other roles keep their saved routes. The tool binding is immutable after launch and cannot combine with `--single-model` or recorded replay. See [Per-role tools](providers.md#a-different-tool-for-one-role). |
-| `--allow-uncontained-tools` | Built-in OpenCode runs only (including a Codex run whose `--investigator-model` is an OpenCode `provider/model`). Without it, a run is refused before any stage when the kernel tool boundary cannot exist here (it needs macOS `sandbox-exec` or Linux bubblewrap, and OpenCode 1.18.33). With it, the Builder, Validator and other non-planning stages run with OpenCode's own permission checks only, no kernel containment. Accepted on a new run or a resume (including a `PAUSED_TOOL_CONTAINMENT` run); saved with the run and recorded as a user event, so later resumes need not repeat it. The status view shows `tool_containment`. See [Execution](execution.md#native-tool-containment). |
+| `--role-transport ROLE=PROVIDER` | New run on the OpenCode facade engine (any provider, or `--engine claude`): run one role on another connected tool, never the run's own; repeat for more roles and provide each selected role's explicit model flag. Other roles keep their saved routes. The tool binding is immutable after launch and cannot combine with `--single-model` or recorded replay. See [Per-role tools](providers.md#a-different-tool-for-one-role). |
+| `--allow-uncontained-tools` | Built-in OpenCode runs only (including a Codex run whose `--investigator-model` is an OpenCode `provider/model`). Without it, a run is refused before any stage when the kernel tool boundary cannot exist here (it needs macOS `sandbox-exec` or Linux bubblewrap, and OpenCode 1.18.33). With it, every stage, the Planner's read-only shell included, runs with OpenCode's own permission checks only, no kernel containment. Accepted on a new run or a resume (including a `PAUSED_TOOL_CONTAINMENT` run); saved with the run and recorded as a user event, so later resumes need not repeat it. The status view shows `tool_containment`. See [Execution](execution.md#native-tool-containment). |
 | `--joint-planning` | Add joint Requirements / Plan Reviewer work. |
-| `--adaptive-planning` / `--no-adaptive-planning` | New runs plan as deep as the job needs by default (joint planning on the default flow): a clear build request skips the Requirements stage, and a Plan Reviewer with no blocking concern approves the draft. `--no-adaptive-planning` keeps the fixed sequence; `--adaptive-planning` insists. See [Adaptive planning](adaptive-planning.md). |
+| `--adaptive-planning` / `--no-adaptive-planning` | New runs plan as deep as the job needs by default (joint planning on the default flow): a Plan Reviewer with no blocking concern approves the draft, a large plan gets a third review call, and feedback on a shown plan goes to the Planner. Requirements always runs first. `--no-adaptive-planning` keeps the fixed sequence; `--adaptive-planning` insists. See [Adaptive planning](adaptive-planning.md). |
+| `--compact-bugfix-planning` / `--no-compact-bugfix-planning` | Compatibility options for saved runs, which retain their recorded policy. New bug fixes use the standard Requirements → Planner → Plan Reviewer → exact-plan approval sequence. Enabling compact planning for a new run is refused; the negative option is accepted without changing that sequence. See [historical compact planning](adaptive-planning.md#compact-planning-for-bug-fixes). |
+| `--review-routing separate\|combined` | New runs only. `separate` keeps the default Tester followed by Completion Reviewer. `combined` uses the configured Completion Reviewer model, effort and session for one independent testing/completion call (`astra_checkpoint`), with the separate Tester available for concrete escalation. This replaces separate enforced milestone-checkpoint routing and cannot be combined with explicit `--milestone-checkpoints`. The policy is included in the displayed, hashed plan and activated only by approval of that exact plan. Regression proof, changed-code evidence, independent models, required human reviews and limits still apply. Saved runs keep their routing, including across follow-ups. |
 | `--spec-first` / `--no-spec-first` | Off by default. A new run with joint planning on the default flow stops after Requirements every time it produces a handoff: the question (`needs.kind` `answer`, id `requirements-review-…`) shows the outcome, behaviors, acceptance examples, constraints, what was left out and the assumptions. Answer `plan` to start the Planner, or say what to change and Requirements runs again with your answer. Adaptive planning never skips Requirements on such a run. After plan approval the Tester writes the acceptance tests before the Builder, which may not change them. A saved run keeps its choice. See [Spec-first runs](spec-first.md). |
 | `--blind-tests` / `--no-blind-tests` | Off by default. Implies `--spec-first`. The Tester writes acceptance tests before the Builder starts, and the runner archives them in evidence and removes them from the workspace. The Builder gets no prompt note naming them and never sees the test code. Before review and completion, the runner executes them in a candidate scratch tree; any failure becomes a blocking runner finding. See [Blind tests](spec-first.md#blind-tests-blind-tests). |
 | `--builder-strong-model MODEL` | New run: the model for the Builder's stronger attempt after its ordinary retry (default `openai/gpt-6-sol`, or `strong_model` under `[builder_retry]` in the provider config; see [Models](models.md#builder-retry-policy)). Refused when it is the checker model or shares its GLM or MiMo family, and when the run's provider lists its models without it (or without the checker model a Tester or Completion Reviewer on its family would move to). |
-| `--single-model MODEL` | New run: use one model for every role, including reviewers; explicitly relaxes cross-model verification for single-subscription accounts and implies joint planning. |
+| `--single-model MODEL` | New run: use one model for every role, including reviewers; explicitly relaxes cross-model verification for single-subscription accounts and implies joint planning.  With a tool that lists its models' reasoning variants (Kilo, OpenCode), a role effort the model does not declare moves to its nearest declared variant before anything launches (said once, recorded as `effort_fits`); an effort you named with `--reasoning-effort` or a role's flag is never moved: the run pauses as `PAUSED_EFFORT_UNSUPPORTED` and names the variants the model declares, which `--answer effort-ROLE=EFFORT` takes (#2057). See [Reasoning effort](models.md#reasoning-effort)|
 | `--auto-select` / `--no-auto-select` | New run: choose every role's model from the tool's connected accounts (#1426) - cheapest qualified route per role, checkers independent, the routes still unproven probed at their own reasoning level before the first stage. Per-role model flags, `--single-model` and role-provider flags still win; a saved run keeps the routes it started with; a selection that cannot field an independent checker refuses to start, in account terms. `--no-auto-select` is the explicit opt-out. Preview with `autocode models --selection`. Not yet the default: that flip waits on #1426 step 12's qualification. See [Choosing models automatically](models.md#choosing-models-automatically). |
 | `--requirements-model`, `--glm-model`, `--plan-reviewer-model` | Planning-role model overrides (bare GPT names). |
 | `--astra-model`, `--terra-model`, `--sol-model`, `--completion-model` | Execution-role model overrides (`provider/model` IDs). |
@@ -411,12 +436,14 @@ flag takes; a switch takes `true` or `false`.
 | Kind | Keys |
 | --- | --- |
 | Engine | `engine` |
+| Review routing | `review-routing` |
 | Models | `single-model`, `astra-model`, `terra-model`, `sol-model`, `completion-model`, `glm-model`, `requirements-model`, `plan-reviewer-model`, `resolver-model`, `investigator-model`, `builder-strong-model` |
 | Reasoning efforts | `reasoning-effort`, `astra-reasoning-effort`, `terra-reasoning-effort`, `sol-reasoning-effort`, `completion-reasoning-effort`, `glm-reasoning-effort`, `requirements-reasoning-effort`, `plan-reviewer-reasoning-effort`, `resolver-reasoning-effort`, `investigator-reasoning-effort` |
 | Test command/report | `test-command`, `test-report` |
 | Budgets | `max-iterations`, `unlimited-iterations`, `max-seconds`, `max-cost-usd`, `max-stage-seconds`, `max-idle-seconds`, `max-tool-seconds`, `no-progress-limit`, `max-milestone-seconds`, `max-milestone-replans`, `max-milestone-stalled-reviews`, `max-findings-per-task`, `max-parallel-builders` |
 | Approvals (no flag) | `require-approver` |
 | Development server (no flag) | `serve` |
+| Sensitive paths (no flag) | `sensitive-paths` |
 
 `require-approver` has no flag: one plain Git email address, or a list of
 them, allowed to approve the run's plan and reviews and to accept its completion, such as
@@ -428,7 +455,7 @@ stays at the same stop; an `--as` name never counts. Without it anyone may appro
 sets or overrides it. It guards against an approval under the wrong configured Git identity,
 not against someone who deliberately sets a listed address (Git's environment variables or a
 repository-local `user.email` change what is checked): it is not authentication. A replay
-never takes it, and `autocode program` and `autocode components` child runs read it from their
+never takes it, and `autocode components` child runs read it from their
 own worktree, so only a committed file reaches them
 ([Required approver](execution.md#required-approver)).
 
@@ -439,6 +466,8 @@ how long to wait for it (`ready-seconds`, 1 to 600, default 60); `pyproject.toml
 the string. A new run saves it with its settings, so an edit to the file, including one the
 Builder makes, never changes the command a run serves with. Every `{port}` is replaced with a
 free loopback port; any other text goes to the shell unchanged.
+
+`sensitive-paths` has no flag either: a list of shell-style path patterns over repository-relative paths (`src/billing/**`, `*.lock`, `migrations/`) naming the files a shorter planning path may never touch, saved with a new run. The retired compact bug-fix planning path uses this setting only when resuming saved runs; it takes the full path for a fix whose files match any pattern. New runs always retain the Planner. An empty list (`sensitive-paths = []`) declares that nothing is sensitive. Saved runs keep their existing policy. Matching is by path only; runner-proven reproduction, independent plan review and exact-plan approval still apply ([Compact planning for bug fixes](adaptive-planning.md#compact-planning-for-bug-fixes)).
 
 ```toml
 [serve]
@@ -493,7 +522,7 @@ sharing, the versioned schema and the two-run behavior.
 | `--figma-approved-scope PATH` | External reviewed product-scope artifact bound to a complete version 2 inventory and its approved cases. Requires `--figma-approved-scope-sha256` with new-run `--figma-manifest` or stopped `--revise-figma-manifest`. Grants no plan approval; full original-source validation remains required ([scope admission](figma.md#externally-reviewed-product-scope-version-2-inventories)). |
 | `--figma-approved-scope-sha256 SHA256` | Trusted operator SHA256 of the exact `--figma-approved-scope` artifact; required with that option, never inferred from the design bundle. |
 | `--revise-figma-manifest PATH`, `--expected-design-hash HASH`, `--design-change-reason TEXT` | At a stopped run, propose changed Figma references against the inspected hash, retaining history and requiring plan review. |
-| `--revise-protected-tests PATH` | Explicit user revision of the original test inventory and command; requires a reconciled validation pause. |
+| `--revise-protected-tests PATH` | Explicit user revision of the original test inventory and command; requires a reconciled validation pause. The core may offer `@approved-suite` for a command-only correction that keeps every sealed original test, using the combined suite displayed by chat. A package-collision correction explicitly displays root-first collection and `--import-mode=importlib` before confirmation. |
 | `--bind-dependency PATH`, `--receive-dependency PATH` | Register an authorized prerequisite or receive its verified delivery manifest; neither approves the plan. |
 | `--resolver-message TEXT` | Corrective information accompanying an operational Resolver response. |
 | `--reconcile-review CRITERION=ANSWER` | Bind an authenticated legacy acceptance to current validated evidence without granting a new approval. |
@@ -503,33 +532,6 @@ sharing, the versioned schema and the two-run behavior.
 | `--tool-output-mode raw\|conservative` | Display mode for AutoCode capture/file-read tools; saved across resume. |
 | `--headroom off\|on` | Off by default; `on` refuses to run until compatibility has been verified. |
 | `--planning-v2` | Opt in to transactional planning artifacts; keeps the existing role models and default planning flow. |
-
-### Programs
-
-| Command or flag | Meaning |
-| --- | --- |
-| `program plan BRIEF --workspace DIR` | Plan the request with the ordinary planning unit (`--unit autoplanner`, in place) and a program preamble. `--engine` and unrecognized flags go to that run. |
-| `program derive --run-dir RUN --output program.json` | Write the manifest from the run's `approved_contract`; refuses unapproved plans. `--workspace` names the plan run's project, `--name` the program; without `--output` it prints the manifest. |
-| `program show MANIFEST --workspace DIR` | Print the program agreement and the exact token (`a<revision>:<digest>`) that approves its pending revision, or the approved revision. Saves nothing. |
-| `program approve MANIFEST --workspace DIR --token TOKEN` | Approve that agreement revision; refuses any other token. No workstream starts before the first approval, and every later revision is approved the same way. |
-| `program run MANIFEST --max-parallel N` | Concurrent workstreams (default 2). |
-| `program run MANIFEST --authorize-deployment` | Allow `deployment` workstreams to start or resume; their runs still need plan approval. Descriptor generation is ordinary `code`. |
-| `program run MANIFEST --retry-workstream ID` | Explicitly retry a failed workstream in its existing worktree/checkpoint, without bypassing child gates. Repeat for multiple failed workstreams. |
-| `program run MANIFEST --check-timeout S` | Seconds each cumulative check may take after a merge (default 900). |
-| `program run MANIFEST --engine codex\|opencode` | Engine for the workstream runs it starts; a workstream's own `engine` wins. |
-| `program run MANIFEST --dry-run` | Validate and preview without creating branches or worktrees. |
-| `program status MANIFEST --workspace DIR` | The same summary as `run`, read from the saved state and each unfinished child's status view, without launching or saving anything. |
-| `program request-change MANIFEST --workspace DIR --interface ID --by WORKSTREAM --reason TEXT [--proposal TEXT]` | Open a change request (`CR-N`) on a shared interface; its producer, its consumers and the final check (for an interface with no producer, every workstream) neither start, resume nor merge while it is open, and the program is not `COMPLETE` while any request is open. |
-| `program resolve-change MANIFEST --workspace DIR --request CR-N --reject --reason TEXT` | Reject an open change request. Accepting one is an approved agreement revision that publishes the interface's next version. |
-
-Every program command except `derive` takes `--workspace` (default: the current
-directory), the root of the project's Git checkout. Unrecognized `program run` flags
-(for example model overrides) are passed through, with `--workflow build`, to every
-workstream run that pass starts; a resumed run keeps its saved settings. `program run`
-exits 0 only when the program is `COMPLETE`.
-
-Program manifests support `code`, `integration`, and `deployment`. UI workstreams are
-deferred until the UI runner supports checkpoint recovery; use `autocode ui` separately.
 
 ### Figma / UI
 
@@ -588,11 +590,16 @@ also accepts `-h` / `--help`.
 
 | Command | Flags | Meaning |
 | --- | --- | --- |
-| `autocode connections` | `--json`, `--provider` | List installed/registered backends, check local credentials without inference, delegate sign-in, or configure AutoCode’s direct connection with `setup`. See [Connections for clients](task-run.md#connections-for-clients). |
+| `autocode connections` | `--json`, `--provider`, `--routes` | List installed/registered backends, check local credentials without inference, delegate sign-in, or (retired, removed in the next release) configure AutoCode’s direct API-key connection with `setup`. `list` and `check` print one readable line per connection with its state, detail and the `autocode connections ...` command of each action it offers; `--json` returns the connection view clients read. `list --routes` adds the route each role would use, from the connected tool's own model listing (`routes[]` and `routes_lines`, or `routes_stop`), and launches no model; the plain listing names it as `routes_next_command`. See [Connections for clients](task-run.md#connections-for-clients). |
 | `autocode modes` | `--json` | List the run modes a client may offer for a new run: each mode's id, label, description and the start flags to pass. Launches nothing. See [Run modes for clients](task-run.md#run-modes-for-clients). |
-| `autocode chat` | `--workspace`, `--run-dir`, `--mode`, `--brief`, `--line` | Project (the current directory by default); pick up this saved run instead of the project's only run; the run mode a new run starts with; the brief, for one that starts with `-` (`--brief=-TEXT`); the line-by-line prompts instead of the full-screen interface. New-run options follow `--`. |
+| `autocode worker` | `--workspace`, `--run-dir`, `--checkpoint`, `--request-id` | `capabilities` reads host admission. `launch` takes literal core arguments after `--`, using the selected workspace and exact run destination, a current checkpoint token (or `-` for a fresh run), and an optional stable request ID. It returns a launch receipt, not completion. `inspect ID` reads that receipt; `launches --workspace PATH [--run-dir PATH]` finds retained launches after a lost reply. These reads never replay a dispatch. See [Durable local workers](task-run.md#durable-local-workers). |
+| `autocode chat` | `--workspace`, `--run-dir`, `--mode`, `--brief`, `--line`, `--execution` | Project (the current directory by default); pick up this saved run instead of the project's only run; the run mode a new run starts with; the brief, for one that starts with `-` (`--brief=-TEXT`); the line-by-line prompts instead of the full-screen interface. New-run options follow `--`. `--execution durable_local` opts new chats in this invocation into persistent Linux user services; the default is `owned`. Reattached runs use their saved status mode. |
+| `autocode attention` | `--workspace`, `--run-dir`, `--item-id` | Its `ack` command acknowledges the current saved alert using the status/inventory's named argument array. Records only this local OS user's read state; never answers, approves, resumes or launches a model. Repeating the same acknowledged ID reconciles its original receipt. See [attention semantics](task-run.md#observation-decision-and-attention-requirements). |
 | `autocode conversation` | `--workspace`, `--run-dir`, `--text`, `--title`, `--request-id`, `--expected-revision`, `--supersedes-request-id`, `--question-id`, `--resolver-token`, `--expected-plan-token`, `--timeout` | Select a conversation/run, queue a human message, explicitly refresh a revision or hand off its reviewed draft; creation provider/model/effort/budget options follow `--`. On `send`, `--supersedes-request-id` queues a correction only for a definitively rejected, unapplied human request, retaining its history; it cannot replace acknowledged input or active delivery. Sending does not advance the run. All commands print JSON. |
-| `autocode verify` | `--workspace`, `--base`, `--branch`, `--patch`, `--criteria`, `--criteria-file`, `--out`, `--record`, `--engine`, `--provider`, `--model`, `--reasoning-effort`, `--evidence-provenance`, `--suite-command`, `--check-timeout`, `--max-seconds`, `--max-stage-seconds`, `--json` | Verify an existing change against caller criteria, or read a retained verification and recheck freshness. See [Standalone verification](verify.md). |
+| `autocode verify` | `--workspace`, `--base`, `--branch`, `--patch`, `--criteria`, `--criteria-file`, `--out`, `--record`, `--engine`, `--provider`, `--model`, `--reasoning-effort`, `--evidence-provenance`, `--suite-command`, `--check-timeout`, `--max-seconds`, `--max-stage-seconds`, `--max-cost-usd`, `--related-profile`, `--related-profile-sha256`, `--json` | Verify an existing change against caller criteria, or read a retained verification and recheck freshness. `--max-cost-usd` caps independent review cost; the paired related-profile options preserve a coordinating run's pinned role routes and limits. See [Standalone verification](verify.md). |
+| `autocode coordinate` | `--run-dir`, `--workspace`, `--token`, `--target`, `--request-id`, `--text`, `--plan-token`, `--max-cost-usd`, `--max-planning-cost-usd`, `--json` | The anchor run to coordinate, the authorized local checkout to choose, the exact token of the displayed decision, the ambiguous repository target to resolve, a finite whole-set cost cap for `budget`, and JSON output. `status` reads; `message --request-id ID --text TEXT` saves original task text with an exact retry receipt without launching work or releasing any hold. At coordinated plan approval, the named message action adds `--plan-token TOKEN` to bind interpretation by the saved Plan Reviewer to the exact complete displayed packet (use `-` with `AUTOCODE_COORDINATION_TOKEN` to keep it out of argv). This message does not approve; `advance` performs one durable core step; `bind` snapshots exact completed member trees into the approved joint plan; `approve`, `choose` and `cancel` take the corresponding named action. At a settled cost stop, `budget --token TOKEN --max-cost-usd N` takes the current status offer, retains accumulated spend and other limits, and acknowledges only its displayed member cost pause. It cannot waive a check or approve a plan; zero/unlimited, stale, insufficient, active and cancelled requests are refused. `planning-budget --token TOKEN --max-planning-cost-usd N` explicitly reallocates a total planning allowance inside the unchanged whole-set cap at its named stop. It preserves all prior spend and work, records the prior allocation, launches nothing, and requires a new exact checkpoint; stale/duplicate, active, unpriced, uncertain and out-of-range requests are refused. A separate ordinary cost-pause acknowledgement may still be needed. At a settled cancellation, `resume --token TOKEN --max-cost-usd N` takes the exact recovery offer without launching a model or approving a plan. It retains prior work and accounting; an explicit zero removes the shared cap and disables the planning allocation limit while retaining their history. Newer cancellations, stale tokens, active/uncertain work and changed sources refuse. With incomplete pricing, an already uncapped policy (including the public cost view’s `null` cap) can recover only with explicit zero; a finite cap cannot be established. `access` checks GitHub delivery readiness without starting a run. Configure shared roots with `autocode registry roots add PATH` and standalone checkouts with `autocode registry repositories add PATH`; `/repos` displays discovery. |
+| `autocode setup` | `--install`, `--json` | Install that hub (`opencode` or `kilocode`) with npm without asking when it is missing; report the four backends and what new runs use without asking anything. |
+| `autocode stages` | `--model`, `--effort`, `--backend`, `--workspace`, `--json` | For `set`, the stage's model (one the backend offers) and reasoning level (one that model takes, or `default` when it lists none); the backend whose choices to read or change (`claude`, `codex`, `opencode`, `kilocode` or a configured provider; default: the one a new run takes); the project whose `engine` setting counts; and the stage view as JSON. |
 | `autocode doctor` | `--workspace`, `--engine`, `--json` | Project and engine to inspect; optionally print checks as JSON. |
 | `autocode forget` | `--workspace`, `--json` | Clear the selected project's learned record only; configuration and saved runs remain. |
 | `autocode models` | `--workspace`, `--provider`, `--json`, `--prices`, `--selection` | Project/provider model availability and default routes; optionally JSON; `--prices` shows the dated price table and each default route's rate; `--selection` shows what automatic selection would choose and why (#1426). |
@@ -600,10 +607,10 @@ also accepts `-h` / `--help`.
 | `autocode review` | `--workspace`, `--run-dir`, `--show`, `--json` | Saved task workspace and run (otherwise the workspace's only run); text or JSON evidence without decisions. With neither display flag, ask approve/reject/skip for each pending criterion. |
 | `autocode serve` | `--workspace`, `--run-dir`, `--timeout`, `--json` | Saved task workspace and run (otherwise the workspace's only run); with `stop`, seconds to wait for the server to end (default 15); with `status`, one JSON object. |
 | `autocode clean-worktrees` | `--workspace`, `--yes`, `--json` | Select the project; remove eligible completed worktrees only with `--yes`; optionally format output as JSON. |
-| `autocode bundle` | `--out`, `--with-diff`, `--json` | Where to write the archive; add the run's diff of the workspace source; print the archive path and manifest as JSON. |
-| `autocode prune-run` | `--yes`, `--json` | Delete the listed settled evidence bytes (manifests, receipts and hashes retained); without it the command only lists; optionally format output as JSON. |
+| `autocode bundle` | `--run-dir`, `--out`, `--with-diff`, `--json` | The run, as the other commands name it (instead of the positional `RUN`); where to write the archive; add the run's diff of the workspace source; print the archive path and manifest as JSON. |
+| `autocode prune-run` | `--run-dir`, `--yes`, `--json` | The run, as the other commands name it (instead of the positional `RUN`); delete the listed settled evidence bytes (manifests, receipts and hashes retained); without it the command only lists; optionally format output as JSON. |
 | `autocode merge` | `--workspace`, `--into`, `--json` | Select the project and target branch for a delivered task worktree; optionally format result as JSON. |
-| `autocode checkpoint` | `--workspace`, `--run-dir`, `--compare`, `--restore`, `--expected-token`, `--request-id`, `--json` | Compare or restore retained code. Restore requires its exact inspected token; the request ID identifies the action. |
+| `autocode checkpoint` | `--workspace`, `--run-dir`, `--compare`, `--restore`, `--working`, `--step`, `--expected-token`, `--request-id`, `--json` | Compare or restore retained code; `--working` shows what the running Builder has changed so far and `--step CHECKPOINT` what one saved step itself changed (both display only). Restore requires its exact inspected token; the request ID identifies the action. |
 | `autocode replay` | `--into`, `--export` | Create a replay at an exact fresh run directory in an isolated workspace, or export a bounded recording bundle. Exactly one target is required. |
 | `autocode replay` | `--recorded-checks`, `--json` | Simulate archived checks with `--into` without current completion or delivery proof; optionally print the result as JSON. Fresh checks are the default. |
 | `autocode tasks` | `--workspace`, `--max-parallel`, `--dry-run`, `--json` | Project, concurrent lanes and a read-only manifest preview. |
@@ -619,22 +626,19 @@ also accepts `-h` / `--help`.
 | `autocode ui` | `--workspace`, `--run-dir`, `--figma-file`, `--from-plan-run` | Project, new artifact directory, design file and saved accepted UI plan. |
 | `autocode ui` | `--planner-model`, `--astra-model`, `--terra-model`, `--sol-model`, `--astra-reasoning-effort` | Requirements/Planner, Plan Reviewer, Builder and Tester model choices; review reasoning effort. |
 | `autocode ui` | `--max-plan-reworks`, `--max-reworks`, `--dry-run`, `--build`, `--no-chat` | Plan/design rework limits, preview, implementation handoff and noninteractive presentation. |
-| `autocode program` | `--workspace` | Project for program commands; `derive` defaults to its plan run's project. |
-| `autocode program plan` | `--engine` | Engine for the ordinary planning run; additional run flags pass through. |
-| `autocode program derive` | `--run-dir`, `--output`, `--name` | Approved planning run, optional manifest output and program name. |
-| `autocode program approve` | `--token` | Exact displayed agreement token; `-` reads its paired environment variable. |
-| `autocode program run` | `--max-parallel`, `--authorize-deployment`, `--engine`, `--retry-workstream`, `--check-timeout`, `--dry-run` | Parallelism, deployment authorization, child engine, explicit retries, cumulative check deadline and preview; additional run flags pass through. |
-| `autocode program status` | `--max-parallel`, `--authorize-deployment`, `--engine`, `--retry-workstream`, `--check-timeout`, `--dry-run` | Accepted compatibility options; status remains read-only and starts no workstream. |
-| `autocode program request-change` | `--interface`, `--by`, `--reason`, `--proposal` | Interface, requesting workstream, reason and optional proposed change. |
-| `autocode program resolve-change` | `--request`, `--reject`, `--reason` | Reject the named change request with the recorded reason. |
 | `autocode compare-baseline` | `--baseline-root`, `--candidate-root`, `--normalize-dependency-prefixes`, `--output` | Source roots, explicit dependency-prefix normalization and comparison-result output; see [baseline comparison](execution.md#baseline-comparison). |
 | `autocode visual-capture` | `--config`, `--timeout` | Capture configuration and command deadline (120 seconds). |
 | `autocode visual-check` | `--workspace`, `--policy`, `--policy-sha256`, `--output` | Project, source-owned policy and expected hash, and fresh check-output directory. |
 | `autocode capture` | `--output`, `--no-compress`, `--mode`, `--known-output-sha256` | Retained output, full display, `raw`/`conservative` display and verified unchanged-output reference; a command follows `--`. |
 | `autocode output` | `--store`, `--mode`, `--known-sha256`, `--raw`, `--start-line`, `--end-line` | Retained store, display mode, verified copy reference, raw retrieval and requested line range. |
-| `autocode registry` | `--max-depth`, `--directory-budget`, `--workspace`, `--run-dir`, `--json` | Bound imports or select a run; see [Registry API](registry-api.md) for the operations using each option. |
-| `autocode intervention` | `--workspace`, `--run-dir`, `--request-id`, `--kind`, `--text`, `--json` | Select a run, identify a feedback/pause/stop request and supply text; optionally JSON. |
-| `autocode issue` | `--project`, `--remote`, `--issue-file`, `--note`, `--base`, `--pr-base`, `--open`, `--ready`, `--path` | Project and remote; optional offline issue and extra guidance; start/PR bases; explicit push/open and ready-for-review controls; with `plan`, where the plan file goes in the repository (default `plans/issue-N.md`). See [GitHub issues](issues.md). |
+| `autocode registry` | `--max-depth`, `--directory-budget`, `--workspace`, `--run-dir`, `--json` | Bound run-registry imports or select a run; see [Registry API](registry-api.md). |
+| `autocode registry roots discover` | `--max-depth`, `--directory-budget`, `--json` | Bound source-repository discovery; the result includes completeness diagnostics and catalog/source snapshot identities. |
+| `autocode registry roots add\|remove` | `--json` | Add or remove one canonical source root. |
+| `autocode registry roots list` | `--json` | List configured source roots and standalone repository registrations. |
+| `autocode registry repositories add\|remove` | `--json` | Register or remove one standalone committed checkout. |
+| `autocode registry repositories list` | `--json` | List source roots and standalone repository registrations. |
+| `autocode intervention` | `--workspace`, `--run-dir`, `--request-id`, `--kind`, `--text`, `--context-file`, `--json` | Select a run, identify a feedback/message/pause/stop request and supply text; optionally JSON. A message may include a bounded JSON snapshot of public participant plans via `--context-file`; this is evidence, not authority. |
+| `autocode issue` | `--project`, `--remote`, `--issue-file`, `--note`, `--base`, `--pr-base`, `--open`, `--ready`, `--path`, `--chat`, `--no-chat` | Project and remote; optional offline issue and extra guidance; start/PR bases; explicit push/open and ready-for-review controls; with `plan`, where the plan file goes in the repository (default `plans/issue-N.md`). For `start` and `continue`, `--chat` enters terminal chat when input is needed (default with terminal stdin/stdout); `--no-chat` returns the status and next action instead. See [GitHub issues](issues.md). |
 | `autocode arena` | `--arena` | Arena store (default `.autocode/arena`). |
 | `autocode arena` | `--repository`, `--base`, `--issue`, `--issue-file`, `--note`, `--oracle`, `--reference`, `--check`, `--split` | Ingest a case with its pinned repository, request, oracle/reference, checks and development/regression/holdout split. |
 | `autocode arena` | `--cohort`, `--runner`, `--option`, `--fixture`, `--i-authorize-live-model-spend`, `--approve-benchmark-plans`, `--timeout`, `--oracle-timeout` | Run/report/propose controls: cohort, runner checkout, repeated child options, fake or explicitly authorized live run, plan approval and deadlines. |
@@ -642,12 +646,42 @@ also accepts `-h` / `--help`.
 | `autocode arena` | `--report`, `--reviewer` | Annotate a completed attempt from an attribution JSON report; an explicit independent reviewer is required to confirm a diagnosis. |
 | `autocode unattended --analyze` | `--analyze`, `--run-dir`, `--workspace`, `--out` | Read-only run analysis; optionally save its evidence report in `--out`. |
 | `autocode dashboard` | `--workspace`, `--watch-root`, `--watch-depth`, `--runner`, `--port`, `--provider` | Repeated projects and discovery roots, discovery depth (3), CLI runner, local port (8765) and provider for new runs. |
+| `autocode changeset` | `--run-dir`, `--target`, `--workspace`, `--set-token`, `--in`, `--reason`, `--message`, `--json` | The source run (with every other action: any run of the change set), the repository as its `scope.external_parts` names it (with `reopen` and `pr-body`: the run to act on), the registered project to start the linked run in, the `approval.set_token` that `status` showed (`-` reads `AUTOCODE_CHANGESET_TOKEN`), the run whose workspace the integration command runs in, a waiver's reason, a follow-up's text (default: the failed check's output), and JSON output. Arguments after `--` are the linked run's run options with `link`, and the integration command with `check-command`. `order` takes every run's repository name, first to merge first. |
+| `autocode bridge` | `--once`, `--project`, `--poll-seconds`, `--json` | With `run`: one poll then exit (for tests and cron-style operation), the persistent checkout to build in (default: `AUTOCODE_BRIDGE_PROJECT` or the daemon's directory) and seconds between polls (default 10, or `AUTOCODE_BRIDGE_POLL_SECONDS`); with `status`, JSON output. See [Channel bridge](channels.md). |
 
 ## Terminal chat
 
+`autocode chat --execution durable_local "YOUR TASK"` opts a new run into the
+[durable local worker](task-run.md#durable-local-workers) mode on a supported
+persistent Linux host. The core checks an existing systemd user manager (254+)
+and existing linger policy; it never configures them. Normal quit, Ctrl-D,
+terminal closure and SSH disconnect leave that worker running. Reopen with
+`autocode chat --run-dir RUN`. Repeated Ctrl-C requests only the current boundary
+pause, without escalating to worker termination. This does not change ordinary
+owned-worker behavior or migrate saved runs. While the current view advertises
+durable detach support, `/open`, `/new`, `/tab` and the tab keys are available
+during work. The worker being left continues independently. Returning to an
+idle boundary reads status and waits for explicit Continue.
+
+Within this terminal session, each of the most recent 32 run identities keeps
+its transcript, unsent draft and cursor, scroll, log filter and panel choices.
+Titles are display text; workspace and run paths select the context. Switching
+always reads fresh core status before a decision. A changed question or plan
+keeps its earlier draft in input history for explicit recovery with Up, rather
+than filling the new question automatically. Pending restore confirmations and
+queued keys never transfer between runs. If a target disappears or cannot be
+read, Enter retries its status and `/runs`, `/open` or `/tab` selects another;
+typed text cannot submit a task decision while status is unavailable.
+
+`/new` opens a local request composer; no core run or tab is created until a
+brief is submitted. An empty request returns to the original context. Unsent
+drafts and view choices live only in this TUI process. After restart, saved
+core conversations, registered runs and existing project input history remain;
+session drafts, scroll and filters do not.
+
 `autocode chat` is the terminal client of the [task-run interface](task-run.md),
 beside the VS Code extension and the browser dashboard. It reads only
-`autocode --status`, `autocode runs --json` (to find the project's open runs) and
+`autocode --status`, `autocode runs --json` and `runs --all --json` (your chats, in this project and every registered one) and
 `autocode modes list --json` (a new run's mode), shows the conversation the view
 carries (`view.chat`), and acts
 only through the view's named actions: `next_command`, the `chat.input` message
@@ -657,7 +691,12 @@ offer and the `pause` offer. The rules it reads them by are in
 follow, so a person gets the same choices in each:
 
 - **Requirements** asks in its own words; you reply in yours, and confirm the
-  understanding it summarizes with `y`.
+  understanding it summarizes with `y`. Before the plan is prepared the chat shows the
+  core's spend confirmation (`review.spend_confirmation`: what planning spends) and
+  asks `Prepare plan? [y/N]`; anything but yes sends nothing. A mode that could plan at
+  once (`spend_confirmation` `start`; the core lists none since `quick` was removed on
+  2026-10-22) would ask `Start it? [y/N]` before the run starts instead, as the VS Code
+  extension does.
 - **A question** with options takes the option's number or your own answer; Enter
   takes the proposed default when there is one.
 - **The plan** is shown from `displayed_plan` and approved with `y` only while its
@@ -670,19 +709,195 @@ follow, so a person gets the same choices in each:
 autocode                            # in a terminal: pick up the open run, or ask what to do
 autocode chat "Add a --verbose flag to greet.py"
 autocode chat                       # the same as plain autocode in a terminal
-autocode chat --mode quick "Fix the README typo" -- --engine claude
+autocode chat --mode full "Fix the README typo" -- --engine claude
 autocode chat --line                # the line-by-line prompts, even in a terminal
 ```
 
 In a terminal the chat takes the whole screen: a wordmark splash, the conversation
 in a scrollable transcript with a colored label for each speaker
-(`PgUp`/`PgDn`), the current question or activity above a boxed composer, and a
+(`PgUp`/`PgDn`, or mouse wheel/trackpad over the transcript), the current question or activity above a boxed composer, and a
 hint bar. The composer is labeled **New chat** when typing there starts a run and
 **Reply** when it answers the run (`Up`/`Down` for history, `Ctrl-W`/`Ctrl-U` to
-edit, `Enter` to send, `Ctrl-D` to leave). A plan, a question or a stop is shown
+edit, `Enter` to send, `Ctrl-D` to leave). The composer wraps a long reply and grows
+to six rows; `\` then `Enter` starts a new line, and `Up`/`Down` move between its
+lines before walking history. A paste stays in the composer as one
+reply, line breaks included, until you press `Enter`. A plan, a question or a stop is shown
 where it is asked, and `Ctrl-C` keeps its meaning: the first asks the run to pause
-after the current step, the second interrupts it. `--line` keeps the plain
+after the current step, the second interrupts it. When the chat ends, its last words
+stay on the terminal: an error, where to pick the run up, or the command a stop
+leaves for you to run. `--line` keeps the plain
 prompts, and scripts get them automatically when there is no terminal.
+
+The default screen has one scrolling conversation. Your messages, AutoCode's
+questions and plans, and the agents' plain-English progress updates appear there
+in order, each progress entry labeled with its stage. Updates to the same streaming message replace it in place. Reading
+older messages keeps your scroll position as new progress arrives; the composer
+stays at the bottom.
+
+While an agent works, its latest two plain-English progress notes also stay above
+the composer in a short rolling view, including while you read earlier messages.
+Short terminals show only the newest note or give all the space to the conversation
+and input. Questions and the optional agent-details pane replace this rolling view.
+It uses existing public progress messages and makes no extra model calls.
+
+The conversation uses the full terminal width by default. The input stays above
+a compact footer showing the current stage, cost and token totals; usage takes
+priority over keyboard hints when space is limited. `/panel` opens a side panel
+with the current stage, any decision needed and compact task/check counts.
+The stage name remains visible while waiting for an answer.
+It has no scrolling activity log. `/details`, `/plan`, `/tasks` and `/log` show
+the full details in the conversation. For a task spanning repositories, **Task
+usage** remains the cumulative cost and tokens across the conversation,
+repository work and retained joint attempts. A `+` means the figure is incomplete;
+`tokens pending` means no token count has arrived yet. Switching repositories
+never resets the task total.
+
+Progress comes from the public view's `chat.log`. Commands, reasoning and
+transport counters do not appear in the default conversation. A raw structured
+report appears only as a neutral receipt; it is not a validated plan or proof.
+Use `/live` to open an optional agent-details pane with readable thinking and
+messages, `/live tools` for commands, edits and tool history, `/live thinking`
+for reasoning alone, or `/live messages` for messages alone. `/live off` closes
+that extra pane without stopping ordinary progress updates in the conversation.
+Detailed logs retain the last 500 entries. Everything shown is display only:
+a progress message is not verification, and a command shown is not a passed check.
+
+After coordinated work stops at a saved cancellation boundary, the full-screen chat
+stays open. `/runs`, `/open` and `/quit` remain available; typed messages use only
+the current task's public message offer and do not resume the work. The line client
+still exits with status 2 at that boundary.
+
+Type `/` in the composer for commands, at a question or while AutoCode works. The
+menu narrows as you type; `Up`/`Down` choose, `Tab` completes and `Enter` runs the
+highlighted one:
+
+| Command | What it does |
+| --- | --- |
+| `/plan`, `/tasks`, `/log` | Show the requirements, the task list or the run's log in the conversation |
+| `/details` | Why the run is where it is, verification and recovery evidence, recorded timings, cost coverage, token usage, actual attempt routes and saved routes for future attempts |
+| `/why` | What went wrong in this run, oldest first: each rejected answer, rewritten report, Builder sent back for untested lines, stage handed to the Investigator and Resolver decision, with the stage, the problem, what AutoCode did next and what the Investigator found. When the Investigator or the Resolver ran, it also says when and why AutoCode calls each one |
+| `/spend` | Where the run's model spend went: each job's cost and share, the token split (new input, cache writes, cache reads, output) and how much input came from the cache; what was spent again (failed attempts, jobs that ran more than once, report repairs); and the Builder's spend, which stands in for one model building the change alone, beside what the planning and checking stages produced (criteria accepted, tests that fail before and pass after, checks rerun clean, broken lines caught, blocking findings, problems handled). The side panel's Spend section shows the Builder's share, the costliest jobs, cache use and waste |
+| `/diff` | List the saved code steps with the files each changed; `/diff N` shows the files and the diff changed since step N, and when nothing has changed since step N (the newest step of a finished run), what step N itself changed |
+| `/undo N` | At a question: go back to saved step N. It shows what differs and asks first; yes makes a new run on a new branch, your branch and its later work stay as they are, and the chat carries on with the new run, which checks every requirement again |
+| `/changeset` | For a run linked with runs in other repositories (`autocode changeset link`): every run of the change set and its state. Once every run waits on a complete plan it shows each plan and asks before approving them together; once every run is complete and an integration check is due it asks before running it. Nothing else is offered: linking, the check command, waivers, reopening and the merge order stay `autocode changeset` commands |
+| `/runs` | Your chats in every project, open and finished, grouped by project: this project first, then the others by their latest activity, newest chat first in each. Each shows its request, its state and when it last moved; a chat whose run was removed is left out and counted. Chats of one change set are marked and listed together at the end. Also at the first "What do you want done?" |
+| `/open N` | At a question, or during detachable durable work: open chat N from `/runs`, restore its session context and read current status before carrying on. The chat left keeps its worker lifetime |
+| `/new` | At a question, or during detachable durable work: compose a new request (also `Ctrl-T`); an empty request returns to the original chat |
+| `/tab N` | At a question, or during detachable durable work: switch to tab N (also `Ctrl-←`/`Ctrl-→`); a tab Ctrl-T opened can be left the same way before its request is sent, since nothing runs there. Once a session has two chats, a tab bar under the header lists them with a mark for each: `●` working, `!` needs you, `✓` done |
+| `/repos` | Show configured source roots and discovered repositories. Configure locations once with `autocode registry roots add PATH` or `autocode registry repositories add PATH`; bugs need no per-task repository list. See [multi-repository setup](multi-repo.md#automatic-bug-fixes-from-terminal-chat). |
+| `/mode [ID]` | The modes the core lists (`autocode modes list`; only `full` since 2026-10-22), and which one new chats start in; `/mode ID` changes it for new chats only, and a saved mode the core no longer lists gives way to its default |
+| `/engine [NAME]` | The engine new chats run on: `opencode`, `codex` or `claude`, set as the VS Code extension's engine picker sets it |
+| `/connect [NAME check\|login\|setup\|use]` | The backends `autocode connections list` reports, with their state. `check` runs the connection's own check; `login` and `setup` hand the terminal to the backend's sign-in or AutoCode's setup and bring the chat back afterwards; `use` makes new chats use it. Only an action the connection offers is run |
+| `/stages [STAGE N LEVEL]` | Each stage's model and reasoning level for new chats, from `autocode stages list --json` ([Choosing each stage's model](models.md#choosing-each-stages-model)). In the full-screen chat it opens a drawer with one list per stage: Up and Down move, Enter opens the stage's models (one the stage may not run is shown with the reason and cannot be picked), then that model's reasoning levels, and saves the choice; Esc goes back. The line-by-line chat lists the stages with numbered models and takes `/stages builder 2 medium`. It lists the backend new chats run on (`/engine`, `/connect … use`). Chats already started keep their own |
+| `/panel` | Show or hide the side panel |
+| `/live [NAME\|thinking\|messages\|tools\|all\|off]` | Open or hide the optional agent-details pane. Ordinary progress is always in the conversation; the pane defaults to readable thinking and messages from every agent, as does `all`. `tools` shows retained commands (including failures), edits and tool history; `thinking` shows only reasoning and `messages` only messages. Transport token/character counters are omitted. A name (such as `M2` or `reviewer`) filters thinking and messages by agent; `off` hides the pane. Where the terminal is too short, the newest entries are printed in the conversation |
+| `/attention` or F8 | Inspect current saved questions, decisions and completed turns across registered projects, even before selecting a chat. `a` acknowledges the selected alert, Enter opens its chat, `r` requests a refreshed snapshot and Esc returns to the original draft and cursor. Acknowledgement leaves the task's answer or plan approval pending. Unavailable inventory and unknown read state remain visible. |
+| `/pause` | While AutoCode works: ask it to pause after the current step, as the first `Ctrl-C` does |
+| `/help` | List the commands |
+| `/quit` | At a question: leave the chat; the run stays as it is |
+
+A new chat opens on a welcome with a few example requests, and its status row reads
+"New chat" until something is sent; a run that has just started reads "Starting the
+run…" while its first status reads land. When a run finishes, the chat names the
+files its saved steps changed, then the files its acceptance tests are in (named apart, since the
+Tester may have bound a test that was already there), and points to `/diff`. The F8 badge counts alerts from
+other chats; the question on screen is not counted again.
+
+A run recovers from most failures on its own, and the chat says so as it happens, once each:
+a `Recovery ·` notice names the stage, what went wrong and what AutoCode did about it, such as
+"Builder stuck", the rejection that caused it, and "AutoCode called the Investigator, which found
+the cause, and the Builder tried again with its advice." A chat opened on a run that already
+recovered says how many times in one line instead of replaying them. `/why` lists the complete recovery history with times. These come
+from the view's `recoveries` ([task-run interface](task-run.md#what-went-wrong-recoveries)).
+
+What the chat put to you is said once: a question or the understanding you
+approved is not repeated when the run records your answer, and once you approve
+a plan its record reads only as its heading (`Approved plan · revision 2. /plan
+shows it.`). A message's fenced code blocks are drawn as code under a rule naming
+their language, `code` and **bold** spans are drawn without their marks (what you
+typed is shown as typed), and `/diff N` colors its patch: file headers, hunks,
+added and removed lines.
+
+`/details` lists the stages the run has launched,
+each with its state (`✓` done, `●` working, `↻` on a later attempt, `✗` failed), its
+time, its accounted cost, which attempt it is on (a report repair counts as the repaired stage's next attempt;
+a stage that ran again after succeeding, such as a second review round, says how many times it ran), and on a second row the model and
+reasoning level it ran on and the tokens it used (`+` when some usage is unreported).
+The footer and optional side panel carry the run's accounted total and how long its
+stages have worked in all (`worked 42m05s`: every attempt's own duration added together,
+the working one counted to now, time waiting for a person left out); with more
+than one chat open the header adds a session total over the open chats, leaving out
+what a run restored from a saved step carried over. A stage on its second attempt or
+later after one that did not succeed takes the status row, with that attempt's reason
+and, when the core reports it (`progress.retry`), how many more failures it allows
+before the stage stops: `2 tries left`, `last try`. While a supervised stage works, the
+status row also says when it last wrote anything (`last output 12s ago`, from
+`chat.last_output_at`) and, after two minutes of silence, warns `no output for 4m05s`:
+the one cue that tells a stalled stage from a busy one before it fails. In a
+total, `+` marks the figure that is a floor: `$0.42+` when some cost is unaccounted,
+`184k+ tokens` when some usage is unreported.
+These come from the view's `usage.accounting.attempts` and `cost`. The Usage summary
+also names the run's spending cap (`$1.73 of $5.00 · 843k tokens`). The Verification section
+appears once the run has finished or recorded a review, since before then the
+delivery is always unverified; `/details` keeps the evidence either way. Full requirements and tasks remain available through `/plan` and `/tasks`.
+
+The side panel's Usage summary shows the accounted subtotal and any configured
+cap, marking incomplete figures with `+`. `/details` shows missing prices or usage
+and active/pending attempts, and separates
+provider-reported figures, dated-table estimates and historical comparison estimates;
+subscription/API-equivalent estimates are not the subscription invoice. Cache and
+reasoning counts are shown as subsets of input and output, never added twice.
+Historical attempt models and efforts come from their launch records, while saved
+routes describe future attempts. Missing fields in older cores remain unknown.
+Displaying this information calls no model and changes no route, cap or workflow.
+
+The header keeps a last-read status visible while you read history; new background
+messages do not move the history viewport. If the current tab's read fails, the
+header says the previous read is being shown. It separates the viewer's successful
+read age (local monotonic time) from the core snapshot's sample time. `/details`
+shows the full sample timestamp and opaque checkpoint/workspace/run identity.
+Missing or mismatched optional metadata stays unknown. A new poll can refresh
+the local receipt while the core checkpoint stays identical; neither timestamp
+is a worker-liveness check, evidence acceptance or meaningful work progress.
+Failed reads retain the last snapshot under a last-known label; a fresh read
+clears that read error. No ETA or completion percentage is inferred.
+
+A Plan path section appears for a bug-fix run that recorded which planning path it took (the
+status view's `stage_policy`, [compact planning](adaptive-planning.md#compact-planning-for-bug-fixes)):
+`compact: Planner draft omitted` with what covers the omission (the runner's draft, the Plan Reviewer,
+your approval, the regression proof), or `full: every planning stage runs` with the first reason the
+full path was kept, and where a review fell back to it. `/details` lists every reason, the decision
+rows and the hashes the decision rests on. It renders the core's record and offers no action.
+
+The Verification section and `/details` distinguish the core's current delivery
+gate from report inspection. A recorded PASS can be unchecked or stale, and a
+verified delivery can still have a report not explicitly inspected by that status
+request. Criteria show their recorded results, supplied coverage state, pending
+human acceptance and evidence references. Retained edits and successful commands
+alone do not establish accepted evidence. Recovery details show the core's reason,
+retained work and offered actions; `/diff` remains the way to inspect saved changes.
+Recorded execution, observed interval wall time, current-attempt duration and
+answered-request waiting are shown only where the core supplies those measurements;
+missing durations stay unknown, and overlapping categories are not added together.
+
+A command never answers the question that is waiting. To send a reply that starts
+with `/`, type `//`. `/diff` and `/undo` take only the `compare`, `step` and `restore`
+actions the status view names for a saved step ([Saved code
+checkpoints](task-run.md#saved-code-checkpoints)); the view offers going back only
+at a pause it can restore from, and `/undo` says why when it cannot.
+
+The first screen says what a new chat starts with (`New chats: Full · OpenCode`). A
+choice made with `/mode`, `/engine` or `/connect … use` is kept for the project in
+`.autocode/chat-settings.json`; options after `--` on the command line take its place
+for that chat. While Requirements writes its reply, the reply grows on screen as it is
+written (the view's streaming message). The terminal rings its bell when AutoCode has
+worked and now needs you, and a chat you opened earlier in the session is checked while
+AutoCode works: when it starts to wait for you or finishes, the chat says so.
+
+`autocode` in a project with earlier chats says how many there are. `Up`/`Down` recall
+your earlier requests and messages in this project, across chats: they are kept, the
+last 100, in the project's `.autocode/chat-history.jsonl` once a run has made that
+directory (a bare `y`, `n` or option number is not kept).
 
 The older inline chat (`--chat`, the default when `autocode "TASK"` runs in a
 terminal) still works and is being replaced by this client. Scripts that call plain
@@ -691,14 +906,19 @@ terminal) still works and is being replaced by this client. Scripts that call pl
 ## Unattended callers (agents)
 
 `autocode unattended` (or the internal compatibility wrapper
-`autocode-unattended` / `scripts/autocode-unattended` from a checkout) runs AutoCode
+`autocode unattended` / `scripts/autocode-unattended` from a checkout) runs AutoCode
 for another agent without letting that agent make the operator's decisions. It takes
 AutoCode's own arguments but refuses every decision or recovery flag (`--answer`,
 `--delegate*`, `--approve-*`, `--resume-paused`, `--retry-*`, `--feedback`, `--follow-up`,
 `--accept-completion`, `--close-finding`, `--close-reason`, `--resolver-response`, …, including
-abbreviations), the command word `resume` (on a paused or blocked run it stands for
+abbreviations) and every flag that sets operator policy instead of a person: `--skip-requirements`
+(answers Requirements questions by default), `--skip-to-build` (approves the plan),
+`--allow-uncontained-tools` (lifts the tool boundary) and `--accept-source-edit`. Setup, routing
+and start-time budgets (`--max-seconds`, `--unlimited-iterations`, model flags) stay allowed. The two
+classes are `DECISION_FLAGS` and `START_FLAGS` in `tools/autocode_decision_flags.py`; a test fails
+when a parser flag is in neither, the command word `resume` (on a paused or blocked run it stands for
 `--resume-paused`; a bare relaunch still continues a run that is not paused)
-and the `intervention`, `tasks`, `ui`, `program`, `registry`, `capture` and `compare-baseline`
+and the `intervention`, `tasks`, `ui`, `registry`, `capture` and `compare-baseline`
 subcommands. It forces `--no-chat` with no stdin, and when AutoCode stops it prints
 `--status` and tells the caller to report and stop. Exit codes are AutoCode's.
 
@@ -713,7 +933,7 @@ including new untracked files, plus a summary of the run's always-on [activity l
 
 To lock a Claude Code agent to it, launch the agent from a copy of
 [`examples/agent-operator`](../examples/agent-operator): its `.claude/settings.json`
-allows only `autocode-unattended` and read-only tools, denies edits and other
+allows only `autocode unattended` and read-only tools, denies edits and other
 AutoCode or provider commands, and uses `dontAsk` so anything else is refused
 without a prompt. Its `CLAUDE.md` has the agent report stops verbatim and, after completion,
 analyze the work read-only. Keep that directory outside the target workspace.
@@ -796,6 +1016,26 @@ model/limits still invalidate the retry. An older attempt with no saved original
 identity exposes `recover_source` and an explanation instead of a retry action.
 Inspect its archive and current changes before starting a new run.
 
+A workflow job stopped by its hard stage deadline first settles that itself
+(#2605): AutoCode retries it on the same model with the stage deadline doubled,
+never past the run's remaining total time, at most twice for that job in a run, and
+under the run's money cap. Each extension belongs to that job's retry alone: the
+run's own stage limit stays as set, so other stages keep it (#2823). It is recorded
+with its reason as a runner `automatic_job_stage_deadline_extended` event, and the
+job's exact retry keeps the last deadline it ran on. No question is asked. Only when no extension is left, or the
+total time cap leaves no room, does the job pause as below, for its exact retry on the
+same model: a stage-deadline stop asks no model question and takes no model answer.
+
+For an authenticated hard stage timeout that still paused, an operator can preserve the selected
+model and save a larger finite deadline with `--job-retry-token TOKEN
+--max-stage-seconds N`, without resume or retry flags. This changes only that
+deadline, leaves the job paused and issues a fresh retry token. It preserves total
+time and money caps, usage, approved plans and source bindings. It refuses idle or
+tool timeouts, a stale attempt/source/token, a non-increasing deadline and mixed
+configuration changes. Inspect fresh public status, then retry separately with
+the new token. This is a public CLI recovery; the status view does not yet offer a
+deadline editor to clients.
+
 A failed Builder classification can also offer `retry_job` for the Investigator
 at `PAUSED_BUILDER_CLASSIFICATION`. Inspect `needs.retained_evidence` and use the
 current `needs.job_retry_token` through `AUTOCODE_JOB_RETRY_TOKEN` with
@@ -847,6 +1087,10 @@ are never inferred. `--out` names a fresh output directory. `--record` reads an
 existing verification and checks freshness instead of running models or checks.
 Review controls are `--engine`, `--provider`, `--model`, `--reasoning-effort`,
 `--evidence-provenance`, `--max-seconds` and `--max-stage-seconds`.
+The paired `--related-profile` and `--related-profile-sha256` inherit saved
+review routing and provenance. They refuse explicit `--engine`, `--provider`,
+`--model`, `--reasoning-effort` or `--evidence-provenance` flags rather than
+silently discarding them. Time and cost caps may still bound the review.
 `--suite-command` selects the proof suite and `--check-timeout` bounds each runner
 command. `--json` emits the verdict and evidence metadata. See
 [Standalone verification](verify.md) for the criteria format, proof modes and
@@ -854,4 +1098,4 @@ exit codes.
 
 `autocode modes list` lists the run modes a client may offer for a new run (`--json` for the version-1 list). See [Run modes for clients](task-run.md#run-modes-for-clients).
 
-`autocode connections list|check|login|setup` manages backend setup; list and check return status without inference, and login delegates to the backend in a terminal. See [Connections for clients](task-run.md#connections-for-clients).
+`autocode connections list|check|login|setup` manages backend setup; list and check return status without inference, and login delegates to the backend in a terminal. `connections setup` (retired with the direct connection, #2049) ends by naming the route each role will use, and `connections list --routes --json` returns the same choice as `routes[]` — both read the connected tool's own model listing and launch no model. See [Connections for clients](task-run.md#connections-for-clients).

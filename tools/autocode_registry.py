@@ -22,8 +22,10 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_repo_catalog as source_catalog
     from . import autocode_util as util
 except ImportError:
+    import autocode_repo_catalog as source_catalog
     import autocode_util as util
 
 
@@ -39,13 +41,66 @@ class RegistryError(RuntimeError):
         self.code = code
 
 
+def _registry_project(workspace: Path) -> Path:
+    """The project that owns registry storage for ``workspace``.
+
+    A default task worktree (``.autocode/task-workspace.json``) registers under its
+    project so ``registry list`` and ``runs --all`` from that project see the lane
+    (#2279). Invalid or foreign metadata keeps the workspace itself.
+    """
+    meta = workspace / ".autocode" / "task-workspace.json"
+    if not meta.is_file() or meta.is_symlink():
+        return workspace
+    try:
+        data = json.loads(meta.read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return workspace
+    if not isinstance(data, dict) or not isinstance(data.get("project_workspace"), str):
+        return workspace
+    if data.get("workspace") != str(workspace):
+        return workspace
+    project = Path(data["project_workspace"]).resolve()
+    try:
+        if not workspace.is_relative_to(project / ".autocode" / "worktrees"):
+            return workspace
+    except (OSError, ValueError):
+        return workspace
+    return project
+
+
 def configure_workspace_storage(workspace: str | Path) -> None:
-    """Use workspace-local registry storage unless a shared home was chosen."""
-    os.environ.setdefault("AUTOCODE_HOME", str(Path(workspace).resolve() / ".autocode" / "registry"))
+    """Use project-local registry storage unless a shared home was chosen.
+
+    Task worktrees register through their ``project_workspace`` (#2279). An explicit
+    ``AUTOCODE_HOME`` still wins.
+    """
+    root = _registry_project(Path(workspace).resolve())
+    os.environ.setdefault("AUTOCODE_HOME", str(root / ".autocode" / "registry"))
+
+
+def project_storage(start: str | Path) -> Path | None:
+    """The project registry to read beside the shared home from ``start`` (#2279).
+
+    Without ``AUTOCODE_HOME`` a run indexes in its project's registry while the read
+    commands default to the per-user home, so a listing from inside a project reads
+    both. An explicit ``AUTOCODE_HOME`` selects exactly one registry: None.
+    """
+    if os.environ.get("AUTOCODE_HOME") is not None:
+        return None
+    try:
+        here = Path(start).resolve()
+    except (OSError, RuntimeError):
+        return None
+    for directory in (here, *here.parents):
+        if (directory / ".git").exists():
+            root = _registry_project(directory) / ".autocode" / "registry"
+            return None if root == storage_root() else root
+    return None
 
 
 def storage_root() -> Path:
-    return Path(os.environ.get("AUTOCODE_HOME", str(Path.home() / ".autocode"))).expanduser().resolve()
+    selected = os.environ.get("AUTOCODE_HOME")
+    return Path(selected if selected is not None else Path.home() / ".autocode").expanduser().resolve()
 
 
 def registry_path() -> Path:
@@ -151,6 +206,48 @@ def register_run(workspace: Path, run_dir: Path, state: RunState) -> dict[str, s
         except OSError as error:
             raise RegistryError("write_failed", f"Registry update failed: {error}") from error
     return {"workspace_id": workspace_id, "run_id": run_id, "task_id": task_id}
+
+
+def add_project(selected: Path) -> dict[str, Any]:
+    """Register an operator-selected committed Git root without creating a task."""
+    try:
+        if not selected.expanduser().exists():
+            raise ValueError("no such directory")
+        workspace = selected.expanduser().resolve(strict=True)
+        if not workspace.is_dir() or not (workspace / ".git").exists():
+            raise ValueError("select the root of an existing Git checkout or worktree")
+        # Ambient Git overrides must not make a different repository qualify this path.
+        environ = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        top = util.git(workspace, "rev-parse", "--show-toplevel", env=environ, timeout=10)
+        if Path(top).resolve() != workspace:
+            raise ValueError("select the Git repository root, not a subdirectory")
+        try:
+            util.git(workspace, "rev-parse", "--verify", "HEAD^{commit}", env=environ, timeout=10)
+        except ValueError as error:
+            # Git's own "fatal: Needed a single revision" names no remedy.
+            raise ValueError("the repository has no commit yet; make a first commit, then register it") from error
+    except (OSError, RuntimeError, ValueError) as error:
+        raise RegistryError("invalid_workspace", f"Cannot register {selected}: {error}") from error
+    workspace_id = _identity("workspace", workspace)
+    record = {"id": workspace_id, "workspace": str(workspace)}
+    with _locked_registry() as path:
+        document = _read_registry(path)
+        existing = document["workspaces"].get(workspace_id)
+        if existing is not None and existing != record:
+            raise RegistryError("record_conflict", "Registry has a conflicting record for this canonical project")
+        if existing is None:
+            document["workspaces"][workspace_id] = record
+            try:
+                util.atomic_json(path, document)
+            except OSError as error:
+                raise RegistryError("write_failed", f"Registry update failed: {error}") from error
+    return {
+        "registry_version": REGISTRY_VERSION,
+        "operation": "add",
+        "workspace_id": workspace_id,
+        "workspace": str(workspace),
+        "already_registered": existing is not None,
+    }
 
 
 def _register_imported_run(workspace: Path, run_dir: Path, state: RunState) -> tuple[dict[str, str | None], bool]:
@@ -308,18 +405,36 @@ def location() -> dict[str, Any]:
     }
 
 
-def listing() -> dict[str, Any]:
+def listing(also: Path | None = None) -> dict[str, Any]:
+    """The registry's workspaces and runs; ``also`` adds a project registry (``project_storage``).
+
+    The shared registry's records win on a shared key. An unreadable ``also`` is a diagnostic,
+    never a reason to hide the shared registry.
+    """
+    documents, diagnostics = [], []
     path = registry_path()
-    if not path.exists():
+    if path.exists():
+        documents.append(_read_registry(path))
+    extra = also / "registry.json" if also is not None else None
+    if extra is not None and extra.exists():
+        try:
+            documents.append(_read_registry(extra))
+        except RegistryError as error:
+            diagnostics.append({"code": "project_registry_unreadable", "message": f"{extra}: {error}"})
+    if not documents:
         return {
             "registry_version": REGISTRY_VERSION,
             "operation": "list",
             "registry_exists": False,
             "workspaces": [],
             "runs": [],
-            "diagnostics": [{"code": "registry_absent", "message": "No registry exists yet"}],
+            "diagnostics": [{"code": "registry_absent", "message": "No registry exists yet"}, *diagnostics],
         }
-    document = _read_registry(path)
+    document = _empty()
+    for source in documents:
+        for kind in ("workspaces", "runs"):
+            for key, value in source[kind].items():
+                document[kind].setdefault(key, value)
     workspaces = [_workspace_listing(key, document["workspaces"][key]) for key in sorted(document["workspaces"])]
     runs = []
     for key in sorted(document["runs"]):
@@ -340,7 +455,7 @@ def listing() -> dict[str, Any]:
         "registry_exists": True,
         "workspaces": workspaces,
         "runs": runs,
-        "diagnostics": [],
+        "diagnostics": diagnostics,
     }
 
 
@@ -396,6 +511,8 @@ def registry_import(
         raise RegistryError("invalid_depth", "Import max depth must be a nonnegative integer")
     if isinstance(directory_budget, bool) or not isinstance(directory_budget, int) or directory_budget < 1:
         raise RegistryError("invalid_budget", "Import directory budget must be a positive integer")
+    if not Path(selected_root).expanduser().exists():
+        raise RegistryError("invalid_root", f"Selected root is unavailable: no such directory: {selected_root}")
     try:
         root = Path(selected_root).resolve(strict=True)
     except (OSError, RuntimeError) as error:
@@ -567,6 +684,11 @@ def forget_deleted(workspace: Path, run_dir: Path) -> dict[str, Any]:
 
 
 def cli(argv: list[str]) -> int:
+    if argv and argv[0] in ("roots", "repositories"):
+        family, *tail = argv
+        if family == "roots":
+            return source_catalog.cli(tail)
+        return source_catalog.cli(["repositories", *tail])
     parser = argparse.ArgumentParser(description="Read the per-user Autocode run registry")
     subcommands = parser.add_subparsers(dest="operation", required=True)
     for operation in ("location", "list"):
@@ -574,23 +696,42 @@ def cli(argv: list[str]) -> int:
         command.add_argument(
             "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
         )
-    command = subcommands.add_parser("import")
-    command.add_argument("selected_root", type=Path)
-    command.add_argument("--max-depth", type=int, default=DEFAULT_IMPORT_MAX_DEPTH)
-    command.add_argument("--directory-budget", type=int, default=DEFAULT_IMPORT_DIRECTORY_BUDGET)
+    command = subcommands.add_parser("add", help="Register a committed local Git project without starting a task")
+    command.add_argument("workspace", type=Path, help="The project directory to register")
     command.add_argument(
         "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
     )
-    command = subcommands.add_parser("forget-deleted")
-    command.add_argument("--workspace", type=Path, required=True)
-    command.add_argument("--run-dir", type=Path, required=True)
-    command.add_argument("--json", action="store_true")
+    command = subcommands.add_parser("import", help="Register every committed Git project found under a directory")
+    command.add_argument("selected_root", type=Path, help="The directory to search")
+    command.add_argument(
+        "--max-depth",
+        type=int,
+        default=DEFAULT_IMPORT_MAX_DEPTH,
+        help=f"How deep to search (default: {DEFAULT_IMPORT_MAX_DEPTH})",
+    )
+    command.add_argument(
+        "--directory-budget",
+        type=int,
+        default=DEFAULT_IMPORT_DIRECTORY_BUDGET,
+        help=f"Most directories to visit (default: {DEFAULT_IMPORT_DIRECTORY_BUDGET})",
+    )
+    command.add_argument(
+        "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
+    )
+    command = subcommands.add_parser("forget-deleted", help="Drop the entry of a run whose directory no longer exists")
+    command.add_argument("--workspace", type=Path, required=True, help="The project the run belonged to")
+    command.add_argument("--run-dir", type=Path, required=True, help="The run directory that no longer exists")
+    command.add_argument(
+        "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
+    )
     args = parser.parse_args(argv)
     try:
         if args.operation == "location":
             result = location()
         elif args.operation == "list":
-            result = listing()
+            result = listing(also=project_storage(Path.cwd()))
+        elif args.operation == "add":
+            result = add_project(args.workspace)
         elif args.operation == "forget-deleted":
             result = forget_deleted(args.workspace, args.run_dir)
         else:

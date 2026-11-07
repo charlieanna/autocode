@@ -38,6 +38,15 @@ WAITING = {
 DESIGN_CONFLICT = "PAUSED_DESIGN_CONFLICT"
 # A validation archived with this reason was never applied to the run (autopilot.apply_review_result).
 NOT_APPLIED = "Stored during an open correction; not applied to the current candidate"
+# The headline that claims the run stopped with nothing saved. One reading of it can be a clean
+# finish caught between the worker exiting and its report landing, so a chat log waits for a second
+# reading that says the same before writing it as history (#2608).
+STOP_CLAIM = "stopped without saving a report"
+
+
+def claims_a_stop(headline) -> bool:
+    """True when this progress headline asserts the run stopped with nothing saved."""
+    return isinstance(headline, str) and STOP_CLAIM in headline
 
 
 def _mapping(value):
@@ -61,6 +70,7 @@ def progress(
     reviewed=(),
     stopped: str | None = None,
     finished: bool = False,
+    following: str | None = None,
 ) -> dict:
     """The progress projection of one run.
 
@@ -70,6 +80,8 @@ def progress(
     reviewed  criterion IDs whose human review receipt is valid now (autocode_goals.missing_human_reviews)
     stopped   the next action when the recorded workers are gone with no saved report, else None
     finished  the running stage's turn is over (its report is saved, not yet applied)
+    following screen name of the job after that finished stage, when the run already knows it
+              (#1711: a finished Builder must not keep the headline across a Builder→Tester handoff)
     """
     status = state.get("status", "")
     done = status in COMPLETE
@@ -89,7 +101,7 @@ def progress(
     if done:
         headline = "Complete"
     elif stopped:
-        headline = f"{stage or 'The stage'} stopped without saving a report"
+        headline = f"{stage or 'The stage'} {STOP_CLAIM}"
         asked = stopped
     elif kind in WAITING:
         headline = WAITING[kind]
@@ -98,7 +110,10 @@ def progress(
         # --chat run is asking at its prompt, and otherwise the next launch shows it.
         headline, asked = "Waiting for you", "plan approval needed"
     elif stage and state.get("active_stage") and finished:
-        headline = f"{stage} finished"
+        # The attempt saved its report. Name the job that comes next when the run
+        # already knows it, so a finished Builder does not keep the headline while
+        # the Tester is already queued (#1711).
+        headline = f"{stage} finished · Next: {following}" if following else f"{stage} finished"
     elif stage and state.get("active_stage"):
         # Recognition chooses the workflow before planning. Explain the activity
         # without making it sound like a separate conversation with another agent;
@@ -329,6 +344,15 @@ def _problems(state: RunState, turns):
     return {"open": total, "items": items, "reports": reports}
 
 
+def _raised_bound(needs) -> str | None:
+    """The bound a person may raise to continue, in words ('total active time'), or None (#2044)."""
+    rows = needs.get("command_inputs")
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        return None
+    label = rows[0].get("label")
+    return label.split(" (")[0].lower() if isinstance(label, str) and label else None
+
+
 def _asked(needs, state: RunState | None = None):
     kind = (needs or {}).get("kind")
     if (
@@ -339,7 +363,10 @@ def _asked(needs, state: RunState | None = None):
         return needs["recovery_hint"]
     if kind == "answer":
         if needs.get("resolver_scope") in ("blocker", "operational_exhaustion") and not needs.get("route"):
-            return "provide corrective information with --resolver-response provide_information"
+            # Words for a person, never a flag (#2607); a limit is raised, not explained away.
+            if bound := _raised_bound(needs):
+                return f"raise the {bound} to continue, or leave the run paused"
+            return "send AutoResolver corrective information"
         return f"{_count(len(needs.get('questions') or []), 'question')} to answer"
     if kind == "review":
         return f"{_count(len(needs.get('criteria') or []), 'requirement')} to review"
@@ -358,6 +385,8 @@ def _asked(needs, state: RunState | None = None):
         if needs.get("edit_required"):
             actions = " or ".join(action for action in (needs["action"], needs.get("feedback_action")) if action)
             return f"correct the plan with {actions}; fresh approval needed"
+        if (bound := _raised_bound(needs)) and needs.get("action", "").endswith(" N"):
+            return f"raise the {bound} to continue"
         if needs.get("action"):
             return f"inspect the pause, then use {needs['action']}"
         return "inspect the pause, then resume"

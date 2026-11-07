@@ -8,6 +8,642 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_scripted_changed_code_reasons_keep_the_protected_oracle_cli_regression(self):
+        consumer = "tests.test_protected_oracles_cli"
+        selected = run_suite.select_tests(["tools/goal_fixtures.py"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
+    def test_legacy_guard_keeps_json_status_cli_regression(self):
+        consumer = "tests.test_json_status_observer_cli"
+        selected = run_suite.select_tests(
+            ["tools/autocode_legacy_process.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+        self.assertEqual([consumer], list(kept))
+
+    def test_source_recovery_keeps_its_no_provider_public_regression(self):
+        self.assertIn(
+            "tests.test_coordination_request_cli",
+            dependencies.dependencies("tools/autocode_coordination_request_runtime.py"),
+        )
+
+    def test_coordinated_gate_keeps_its_public_cli_regression(self):
+        for path in (
+            "tools/autocode_coordination_gate.py",
+            "tools/prompts/coordinated-plan-chat.md",
+            "tools/autocode_chat_coordination.py",
+            "tests/coordination_provider.py",
+        ):
+            self.assertIn("tests.test_coordination_gate_cli", dependencies.dependencies(path))
+
+    def test_gate_interpretation_keeps_its_public_cli_regression(self):
+        for path in ("tools/autocode_gate_chat.py", "tools/prompts/gate-chat.md", "tools/autocode_chat_client.py"):
+            self.assertIn("tests.test_gate_chat_cli", dependencies.dependencies(path))
+
+    def test_requirements_confirmation_keeps_the_public_chat_consumer(self):
+        consumers = {"tests.test_chat_confirmation", "tests.test_chat_client"}
+        selected = run_suite.select_tests(["tools/autocode_chat_confirmation.py"], {name: "" for name in consumers})
+        kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+        self.assertEqual(consumers, set(kept))
+
+    def test_coordination_provider_keeps_late_planner_scope_consumer(self):
+        consumers = {
+            "tests.test_coordination_tui_e2e",
+            "tests.test_planning_scope_cli",
+            "tests.test_coordination_gate_cli",
+        }
+        selected = run_suite.select_tests(
+            ["tests/coordination_provider.py"],
+            {**{name: "" for name in consumers}, "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+        self.assertEqual(consumers, set(kept))
+
+    def test_bugfix_policy_keeps_current_sequence_and_legacy_resume_consumers(self):
+        cases = {
+            "tools/autocode_workflows.py": {"tests.test_requirements_first_cli", "tests.test_saved_run_replay_cli"},
+            "tests/legacy_bugfix_fixture.py": {
+                "tests.test_acceptance_tests",
+                "tests.test_job_failure_recovery",
+                "tests.test_job_report_recovery",
+                "tests.test_investigation_progress",
+                "tests.test_bug_job",
+                "tests.test_bug_questions",
+                "tests.test_package_investigator_cli",
+                "tests.test_pilot_investigator_cli",
+                "tests.test_stale_diagnosis_feedback_cli",
+                "tests.test_investigation_handoff_cli",
+                "tests.test_provider_auth_cli",
+                "tests.test_go_reproduction",
+            },
+        }
+        for path, consumers in cases.items():
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in consumers})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
+    def test_coordinated_composer_keeps_real_terminal_message_regression(self):
+        consumer = "tests.test_chat_task_messages_cli"
+        for path in (
+            "tools/autocode_chat_task_messages.py",
+            "tools/autocode_chat_messages.py",
+            "tools/autocode_chat_coordination.py",
+            "tools/autocode_chat_client.py",
+            "tools/autocode_chat_tui.py",
+            "tools/autocode_interventions.py",
+            "tools/autocode_stop.py",
+            "tools/autocode_coordination_conversation.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_coordinated_messages_keep_public_pause_answer_resume_regression(self):
+        consumer = "tests.test_coordination_conversation_cli"
+        for path in (
+            "tools/autocode_coordination_conversation.py",
+            "tools/autocode_coordination_conversation_runtime.py",
+            "tools/autocode_coordination_message_watch.py",
+            "tools/autocode_coordination_message_inbox.py",
+            "tools/autocode_coordination_request.py",
+            "tools/autocode_coordinate.py",
+            "tools/autocode_taskrun.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_queued_feedback_keeps_public_revision_and_reopen_regression(self):
+        consumer = "tests.test_intervention_plan_feedback_cli"
+        for path in ("tools/autocode_goals.py", "tools/autocode_adaptive_planning.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_cancel_recovery_keeps_public_budget_reopen_regression(self):
+        consumer = "tests.test_coordination_budget_cli"
+        for path in ("tools/autocode_coordination_resume.py", "tools/autocode_coordination_store.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_ticket_title_trace_keeps_public_plan_and_reopen_consumer(self):
+        consumer = "tests.test_ticket_title_cli"
+        for path in ("tools/autocode_source_metadata.py", "tools/autocode_source_trace.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_coordinator_receipt_keeps_public_reopen_consumer(self):
+        consumer = "tests.test_coordinate_receipt_cli"
+        for path in ("tools/autocode_coordinate.py", "tools/autocode_chat_history.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_go_prerequisites_keep_public_execution_consumer(self):
+        consumer = "tests.test_go_prerequisites_execution"
+        for path in (
+            "tools/autocode_go_test_prerequisites.py",
+            "tools/autocode_acceptance_tests.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_verify.py",
+            "tools/prompts/acceptance-tests.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_capability_startup_keeps_the_public_demo_consumer(self):
+        consumers = {"tests.test_capability_startup", "tests.test_demo"}
+        for path in ("tools/autocode_capability_startup.py", "tools/autocode_native_invocation.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in consumers})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
+    def test_scripted_greeting_fixture_keeps_public_task_consumers(self):
+        consumers = {
+            "tests.test_live_fixture_changed_code",
+            "tests.test_taskrun",
+            "tests.test_agent_step",
+            "tests.test_codex_capture_copy",
+        }
+        selected = run_suite.select_tests(["tools/live_fixture_provider.py"], {name: "" for name in consumers})
+        kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+        self.assertEqual(consumers, set(kept))
+
+    def test_execution_criteria_resources_keep_prepared_and_public_consumers(self):
+        consumers = {"tests.test_execution_criteria_prompt", "tests.test_builder_criteria_cli"}
+        for path in (
+            "tools/autocode_execution_prompt.py",
+            "tools/autocode_stage_context.py",
+            "tools/autocode_report_schema.py",
+            "tools/units/common.py",
+            "tools/units/autoresolver.py",
+            "tools/prompts/fragments/goals/execution-prompt.md",
+            "tools/prompts/fragments/goals/criteria-definition-output.md",
+            "tools/prompts/fragments/goals/criteria-id-output.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in consumers})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
+    def test_empty_conflict_generation_keeps_the_public_request_consumer(self):
+        consumer = "tests.test_conflict_generation_cli"
+        for path in (
+            "tools/autocode_trace_coverage.py",
+            "tools/autocode_planning_report_policy.py",
+            "tools/units/autoplanner.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_draft_failure_correction_keeps_its_public_admission_consumer(self):
+        consumer = "tests.test_draft_failure_correction_cli"
+        for path in (
+            "tools/autocode_draft_failure_correction.py",
+            "tools/autocode_report_repair_context.py",
+            "tools/prompts/fragments/autoplanner/draft-failure-correction.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_provider_model_rules_keep_the_public_recovery_consumer(self):
+        consumer = "tests.test_provider_route_recovery_cli"
+        for path in (
+            "tools/autocode_role_transport.py",
+            "tools/autocode_quota_route.py",
+            "tools/autocode_action_resolver.py",
+            "tools/fake_command_tool.py",
+            "tools/autocode_taskrun.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_the_quota_worker_keeps_its_dynamically_imported_fixture_consumer(self):
+        consumer = "tests.test_quota_worker"
+        selected = run_suite.select_tests(["tests/opencode_fixture_cli.py"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
+    def test_builder_capture_guidance_keeps_its_public_capture_consumer(self):
+        consumer = "tests.test_capture_event_contract"
+        selected = run_suite.select_tests(
+            ["tools/prompts/fragments/stage-context/context-packet-04.md"],
+            {consumer: "", "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
+    def test_scenario_map_inputs_keep_the_target_discovery_guard(self):
+        consumer = "tests.test_run_suite"
+        for path in (
+            "tools/autocode_report_identity.py",
+            "tools/autocode_planning_advice.py",
+            "tools/autocode_stuck_job.py",
+            "tools/autocode_regression.py",
+            "tools/autocode_verify.py",
+            "scenarios/test_adversarial_evidence.py",
+            "scenarios/test_adversarial_planning.py",
+            "scenarios/test_harness.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+        self.assertNotIn(
+            consumer,
+            run_suite.select_tests(
+                ["scenarios/test_unrelated.py"],
+                {consumer: "", "tests.test_unrelated": ""},
+            ),
+        )
+
+    def test_scripted_retry_fixtures_keep_their_slow_public_consumers(self):
+        mappings = {
+            "tools/blackbox_build_provider.py": {
+                "tests.test_failure_routing_cli",
+                "tests.test_builder_policy",
+                "tests.test_build_recovery_blackbox",
+                "tests.test_build_blackbox",
+                "tests.test_build_graph_cli",
+            },
+            "tools/fake_command_tool.py": {"tests.test_command_flow", "tests.test_command_source_schema"},
+        }
+        for path, consumers in mappings.items():
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {module: "" for module in consumers})
+                kept, _ = run_suite.drop_slow(selected, {module: "slow" for module in consumers})
+                self.assertEqual(consumers, set(kept))
+
+    def test_native_identity_changes_keep_the_public_repair_consumer(self):
+        public = "tests.test_native_event_identity_cli"
+        metadata = "tests.test_validation_metadata"
+        for path in (
+            "tools/autocode_event_matching.py",
+            "tools/providers/opencode_events.py",
+            "tools/autocode_support.py",
+            "tests/test_report_repair.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {public: "", metadata: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {public: "slow"})
+                self.assertEqual({public} if path.startswith("tests/") else {public, metadata}, set(kept))
+
+    def test_batch_scope_prompt_keeps_the_handoff_and_public_join_consumers(self):
+        consumers = {"tests.test_milestone_checkpoints", "tests.test_build_graph_cli"}
+        selected = run_suite.select_tests(
+            ["tools/prompts/fragments/stage-context/context-packet-07.md"],
+            {**{module: "" for module in consumers}, "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {module: "slow" for module in consumers})
+        self.assertEqual(consumers, set(kept))
+
+    def test_graph_execution_changes_keep_the_slow_joined_graph_cli_consumer(self):
+        consumer = "tests.test_build_graph_cli"
+        for path in (
+            "tools/autocode_dispatch.py",
+            "tools/autocode_builder_worker.py",
+            "tools/autocode_milestones.py",
+            "tests/test_build_blackbox.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_launch_identity_keeps_the_public_http_and_evidence_consumers(self):
+        consumers = {"tests.test_direct_connections_cli", "tests.test_route_execution_evidence"}
+        for path in (
+            "tools/autocode_route_evidence.py",
+            "tools/autocode_provider_launch.py",
+            "tools/autocode_usage.py",
+            "tools/providers/direct.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {module: "" for module in consumers})
+                kept, _ = run_suite.drop_slow(selected, {module: "slow" for module in consumers})
+                self.assertEqual(consumers, set(kept))
+
+    def test_qualification_evidence_keeps_the_public_selection_consumer(self):
+        consumers = {"tests.test_model_catalogue", "tests.test_route_evidence"}
+        for path in ("tools/autocode_route_evidence.py", "tools/autocode_route_selector.py", "tools/qualify_routes.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {module: "" for module in consumers})
+                kept, _ = run_suite.drop_slow(selected, {module: "slow" for module in consumers})
+                self.assertEqual(consumers, set(kept))
+
+    def test_claim_reference_changes_keep_the_public_consumer(self):
+        consumer = "tests.test_verification_claim_cli"
+        for path in (
+            "tools/autocode_handoff_dedup.py",
+            "tools/autocode_context.py",
+            "tools/autocode_stage_context.py",
+            "tests/stage_repair_provider.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_validation_evidence_admission_keeps_its_public_repair_regression(self):
+        consumer = "tests.test_validation_evidence_cli"
+        for path in (
+            "tools/autocode_check_refs.py",
+            "tools/autocode_report_repair_queue.py",
+            "tools/autocode_completion.py",
+            "tools/autopilot.py",
+            "tools/autocode_resolver.py",
+            "tools/prompts/validator.md",
+            "tools/prompts/completion-review.md",
+            "tests/stage_repair_provider.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_planning_metadata_keeps_the_public_acceptance_consumer(self):
+        consumer = "tests.test_acceptance_tests"
+        selected = run_suite.select_tests(["tools/autocode_planning_metadata.py"], {consumer: ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
+    def test_copied_recovery_providers_keep_their_public_consumers(self):
+        for path, consumers in (
+            ("tools/fake_codex.py", {"tests.test_subprocess"}),
+            (
+                "tests/failure_routing_provider.py",
+                {"tests.test_failure_routing_cli", "tests.test_classification_recovery"},
+            ),
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {module: "" for module in consumers})
+                kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+                self.assertEqual(consumers, set(kept))
+
+    def test_regression_detection_keeps_the_workflow_provenance_consumer(self):
+        consumer = "tests.test_bugfix_workflow"
+        for path in ("tools/autocode_regression.py", "tools/autocode_verify.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_task_worktree_cleanup_keeps_the_json_refusal_consumer(self):
+        consumer = "tests.test_json_output"
+        for path in (
+            "tools/autocode_native_invocation.py",
+            "tools/autocode_run_setup.py",
+            "tools/autocode_workspaces.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_launch_provenance_keeps_the_denied_admission_consumer(self):
+        consumer = "tests.test_dashboard_integration"
+        for path in (
+            "tools/autocode_route_evidence.py",
+            "tools/autocode_provider_launch.py",
+            "tools/autocode_usage.py",
+            "tools/providers/direct.py",
+        ):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+            self.assertEqual([consumer], list(kept))
+
+    def test_review_handoffs_keep_the_public_followup_and_state_contract_consumers(self):
+        consumers = {"tests.test_run_state", "tests.test_follow_up_acceptance_cli"}
+        for path in (
+            "tools/autocode_review_source.py",
+            "tools/autocode_stage_context.py",
+            "tools/autocode_bug_job.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {module: "" for module in consumers})
+                kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+                self.assertEqual(consumers, set(kept))
+
+    def test_planning_provenance_helpers_keep_the_importless_run_state_scan(self):
+        consumer = "tests.test_run_state"
+        for path in ("tools/autocode_planning_review_usage.py", "tools/autocode_assumption_provenance.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                self.assertIn(consumer, selected)
+
+    def test_proof_reference_prompt_keeps_planning_repair_and_public_follow_up_consumers(self):
+        consumers = {
+            "tests.test_planning_proof_reference",
+            "tests.test_report_repair_context",
+            "tests.test_requirements_job_cli",
+        }
+        selected = run_suite.select_tests(
+            ["tools/prompts/fragments/autoplanner/proof-reference-rule.md"],
+            {module: "" for module in consumers},
+        )
+        kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+        self.assertEqual(consumers, set(kept))
+
+    def test_attention_dynamic_cli_keeps_public_flow_and_real_terminal_consumers(self):
+        consumers = {"tests.test_attention_flow", "tests.test_chat_attention", "tests.test_chat_attention_screen"}
+        for path in (
+            "tools/autocode_attention_cli.py",
+            "tools/autocode_chat_attention.py",
+            "tools/autocode_runs_command.py",
+        ):
+            selected = run_suite.select_tests([path], {module: "" for module in consumers})
+            kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+            self.assertEqual(consumers, set(kept))
+
+    def test_lifecycle_metadata_keeps_schema_and_read_only_worktree_consumers(self):
+        consumers = {"tests.test_json_contract", "tests.test_worktrees"}
+        for path in ("tools/autocode_run_view.py", "tools/autocode_status_command.py", "tools/autocode_worker_view.py"):
+            selected = run_suite.select_tests([path], {module: "" for module in consumers})
+            kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+            self.assertEqual(consumers, set(kept))
+        self.assertIn("tests.test_json_contract", dependencies.dependencies("docs/schemas/status-view.schema.json"))
+
+    def test_kilo_profile_keeps_its_native_effort_consumer(self):
+        consumer = "tests.test_kilocode_effort"
+        selected = run_suite.select_tests(["scenarios/harness/profiles.py"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+        self.assertEqual([consumer], list(kept))
+
+    def test_clean_review_fixture_keeps_its_oracle_and_public_cli_consumers(self):
+        consumers = {"tests.test_review_clean_fixture", "tests.test_review_attribution_cli"}
+        for path in (
+            "scenarios/catalog/review-clean-pr/oracle.py",
+            "scenarios/catalog/review-clean-pr/seed/pr-191.patch",
+        ):
+            selected = run_suite.select_tests([path], {module: "" for module in consumers})
+            kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+            self.assertEqual(consumers, set(kept))
+
+    def test_chat_projections_keep_their_public_terminal_and_view_consumers(self):
+        consumers = {
+            "tests.test_chat_cost",
+            "tests.test_chat_verification",
+            "tests.test_chat_panel",
+            "tests.test_chat_tui",
+            "tests.test_chat_client",
+            "tests.test_chat_polling_cli",
+            "tests.test_chat_inventory_cli",
+        }
+        for path in (
+            "tools/autocode_chat_cost.py",
+            "tools/autocode_chat_verification.py",
+            "tools/autocode_chat_panel.py",
+            "tools/autocode_chat_tui.py",
+        ):
+            selected = run_suite.select_tests([path], {module: "" for module in consumers})
+            kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+            self.assertEqual(consumers, set(kept))
+
+    def test_python_entrypoints_keep_the_real_toolchain_consumer_even_when_slow(self):
+        consumer = "tests.test_toolchain"
+        for path in ("tools/autocode_python_entrypoints.py", "tools/autocode_toolchain.py"):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+            self.assertEqual([consumer], list(kept))
+
+    def test_shared_test_binding_resources_keep_the_acceptance_consumer_even_when_slow(self):
+        consumer = "tests.test_acceptance_tests"
+        for path in (
+            "tools/autocode_acceptance_tests.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_test_cases.py",
+            "tools/prompts/acceptance-tests.md",
+            "tools/prompts/fragments/test-cases/diagnosis-builder-note.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_python_collection_keeps_the_public_acceptance_consumer_even_when_slow(self):
+        consumer = "tests.test_acceptance_tests"
+        for path in ("tools/autocode_python_tests.py", "tools/autocode_verify.py"):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+            self.assertEqual([consumer], list(kept))
+
+    def test_resolver_fixture_keeps_its_cli_consumer_even_when_slow(self):
+        consumer = "tests.test_resolver_recommendation_cli"
+        selected = run_suite.select_tests(
+            ["tests/resolver_recommendation_provider.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+        self.assertEqual([consumer], list(kept))
+
+    def test_cost_aliases_and_attribution_keep_the_public_cap_consumer(self):
+        consumer = "tests.test_cost_cap"
+        for path in (
+            "tools/autocode_prices.json",
+            "tools/autocode_cost.py",
+            "tools/autocode_cost_breakdown.py",
+            "tools/autocode_usage.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_recovery_advice_keeps_the_public_boundary_pause_regression(self):
+        consumer = "tests.test_investigator_pause_cli"
+        for path in ("tools/autocode_stuck_job.py", "tools/autocode_planning_advice.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_checkpoint_projection_keeps_its_public_status_consumers(self):
+        consumers = {"tests.test_liveness", "tests.test_usage"}
+        selected = run_suite.select_tests(
+            ["tools/autocode_code_checkpoints.py"],
+            {**{module: "" for module in consumers}, "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+        self.assertEqual(consumers, set(kept))
+
+    def test_planning_prompt_policies_keep_the_dispatch_and_domain_consumers(self):
+        for name, domain_consumers in (
+            ("obligation", {"tests.test_autoplanner_step3"}),
+            ("obligation-planner", {"tests.test_autoplanner_step3"}),
+            ("obligation-review", {"tests.test_autoplanner_step3"}),
+            ("progressive", {"tests.test_progressive_plan_flow", "tests.test_progressive_rules"}),
+            ("progressive-proposal", {"tests.test_progressive_plan_flow", "tests.test_progressive_rules"}),
+            ("progressive-review", {"tests.test_progressive_plan_flow", "tests.test_progressive_rules"}),
+        ):
+            with self.subTest(name=name):
+                path = f"tools/prompts/fragments/autoplanner/{name}-policy.md"
+                expected = {"tests.test_planning", "tests.test_reviewer_effort_cli", *domain_consumers}
+                selected = run_suite.select_tests([path], {module: "" for module in expected})
+                kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in expected})
+                self.assertEqual(expected, set(kept))
+
+    def test_investigation_reuse_resources_and_units_keep_the_public_cli_consumer(self):
+        consumer = "tests.test_investigation_handoff_cli"
+        for path in (
+            "tools/autocode_investigation_evidence.py",
+            "tools/units/autoplanner.py",
+            "tools/units/autoresolver.py",
+            "tools/prompts/discovery.md",
+            "tools/prompts/fragments/autoplanner/bug-diagnosis-rule.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_review_attribution_and_adversarial_nit_keep_the_public_consumer(self):
+        consumer = "tests.test_review_attribution_cli"
+        for path in (
+            "tools/autocode_review_job.py",
+            "tools/autocode_review_proof.py",
+            "tools/autocode_review_attribution.py",
+            "tools/prompts/review-change.md",
+            "scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/review/findings.json",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_brief_review_ownership_keeps_its_public_cli_consumer_even_when_slow(self):
+        consumer = "tests.test_brief_cli"
+        for path in (
+            "tools/autocode_brief_acceptance.py",
+            "tools/autocode_brief_obligations.py",
+            "tools/autocode_plan_retention.py",
+            "tools/autocode_planning_cycle.py",
+            "tools/autocode_follow_up.py",
+            "tools/units/autoplanner.py",
+            "scenarios/harness/fake_codex.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_reviewer_effort_producers_keep_the_public_dispatch_consumer(self):
         for path in ("tools/units/autoplanner.py", "tools/autocode_configure.py", "tools/autocode_role_route.py"):
             with self.subTest(path=path):
@@ -37,6 +673,27 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
                 self.assertEqual([consumer], list(kept))
 
+    def test_kilo_defaults_keep_the_planning_consumer_even_when_slow(self):
+        consumer = "tests.test_planning"
+        selected = run_suite.select_tests(
+            ["tools/providers/configs/kilocode.toml"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "151s"})
+        self.assertEqual([consumer], list(kept))
+
+    def test_report_repair_context_keeps_its_public_cli_consumer_even_when_slow(self):
+        consumers = ("tests.test_discovery_report_edits_cli", "tests.test_stage_repair_cli")
+        for path in (
+            "tools/autocode_report_repair_context.py",
+            "tools/autocode_plan_retention.py",
+            "tools/autocode_report_edits.py",
+            "tests/stage_repair_provider.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "30s"))
+                self.assertCountEqual(consumers, kept)
+
     def test_typed_planning_allowance_keeps_its_public_consumer_even_when_slow(self):
         consumer = "tests.test_planning_allowance_cli"
         for path in (
@@ -49,6 +706,21 @@ class DynamicDependenciesTests(unittest.TestCase):
             "tools/autocode_control_tokens.py",
             "tools/autocode_pause_command.py",
             "scenarios/harness/conformance.py",
+        ):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+            self.assertEqual([consumer], list(kept))
+
+    def test_checkpoint_reconciliation_keeps_its_public_cli_consumer(self):
+        consumer = "tests.test_checkpoint_reconciliation"
+        for path in (
+            "tools/autocode_checkpoint_reconciliation.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_native_invocation.py",
+            "tools/autocode_run_setup.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_args.py",
+            "tools/autocode_control_tokens.py",
         ):
             selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
             kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
@@ -96,6 +768,18 @@ class DynamicDependenciesTests(unittest.TestCase):
             set(dependencies.REFUSAL_CONSUMERS),
             dependencies.dependencies("tools/autocode_model_preflight.py"),
         )
+
+    def test_preflight_relocation_keeps_its_public_consumer_even_when_slow(self):
+        consumer = "tests.test_preflight_relocation_cli"
+        for path in (
+            "tools/autocode_access_identity.py",
+            "tools/autocode_access_evidence.py",
+            "tools/autocode_model_preflight.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
 
     def test_chat_projection_keeps_its_public_cli_consumer(self):
         for path in ("tools/autocode_chat_view.py", "tools/autocode_run_view.py"):
@@ -281,6 +965,21 @@ class DynamicDependenciesTests(unittest.TestCase):
             sorted(module for module in declared if not root.joinpath(*module.split(".")).with_suffix(".py").is_file()),
         )
 
+    def test_job_retry_invocation_keeps_public_job_failure_consumers(self):
+        consumers = {
+            "tests.test_job_failure_recovery",
+            "tests.test_output_length_route_cli",
+            "tests.test_job_stage_limit",
+            "tests.test_job_route",
+            "tests.test_run_finder",
+        }
+        for path in ("tools/autocode_taskrun.py", "tools/autocode_job_args.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in (*consumers, "tests.test_unrelated")})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+                self.assertNotIn("tests.test_unrelated", kept)
+
     def test_internal_question_wiring_selects_its_public_cli_regression(self):
         consumer = "tests.test_technical_questions_cli"
         for path in (
@@ -295,3 +994,11 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "11 seconds"})
                 self.assertIn(consumer, kept)
                 self.assertNotIn("tests.test_unrelated", kept)
+
+
+class PromptExitSelectionTests(unittest.TestCase):
+    def test_tui_changes_keep_the_real_prompt_exit_regression(self):
+        consumer = "tests.test_chat_prompt_exit_cli"
+        selected = run_suite.select_tests(["tools/autocode_chat_tui.py"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))

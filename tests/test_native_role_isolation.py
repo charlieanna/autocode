@@ -109,6 +109,11 @@ class IsolationTests(unittest.TestCase):
             "PATH": "/usr/bin:/bin",
             "HOME": str(self.root / "original-home-not-opened"),
             "OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX": "54321",
+            # The snapshot excludes file (#1630) travels as a whole GIT_CONFIG_* set; a stray index does not.
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "core.excludesFile",
+            "GIT_CONFIG_VALUE_0": "/project/.autocode/snapshot-excludes",
+            "GIT_CONFIG_KEY_7": "must-not-survive",
             "NODE_OPTIONS": "--require must-not-survive.js",
             "UNRELATED_SECRET": "must-not-be-retained",
             "OPENCODE_CONFIG_CONTENT": json.dumps(
@@ -219,6 +224,11 @@ class IsolationTests(unittest.TestCase):
         command, env = self.stage(owner)
         self.assertEqual(self.command, command)
         self.assertEqual("54321", env["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"])
+        self.assertEqual(
+            ("1", "core.excludesFile", "/project/.autocode/snapshot-excludes"),
+            (env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]),
+        )
+        self.assertNotIn("GIT_CONFIG_KEY_7", env)
         self.assertNotIn("NODE_OPTIONS", env)
         self.assertNotIn("UNRELATED_SECRET", env)
         final = json.loads(env["OPENCODE_CONFIG_CONTENT"])

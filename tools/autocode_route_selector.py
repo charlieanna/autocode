@@ -39,12 +39,14 @@ try:
     from . import autocode_prices as prices
     from . import autocode_role_route as role_route
     from . import autocode_roles as roles
+    from . import autocode_route_evidence as route_evidence
     from . import autocode_verifier_independence as independence
 except ImportError:
     import autocode_model_identity as model_identity
     import autocode_prices as prices
     import autocode_role_route as role_route
     import autocode_roles as roles
+    import autocode_route_evidence as route_evidence
     import autocode_verifier_independence as independence
 
 QUALIFICATION_PATH = Path(__file__).with_name("autocode_route_qualification.json")
@@ -65,6 +67,7 @@ ACCOUNT_LABELS = {
     "xiaomi-token-plan-sgp": "the Xiaomi Token Plan",
     "alibaba-token-plan": "the Alibaba Token Plan",
     "openai": "the ChatGPT login",
+    "anthropic": "the Anthropic (Claude) login",
     "kilo": "Kilo Gateway credits",
 }
 _ROLE_LABELS = {
@@ -89,7 +92,8 @@ def parse(document):
             raise ValueError(f"bad qualification role {role!r}")
         for entry in entries:
             _validate_entry(role, entry)
-    return {"as_of": document["as_of"], "roles": document["roles"]}
+    excluded = _validate_excluded(document, document["roles"])
+    return {"as_of": document["as_of"], "roles": document["roles"], "excluded": excluded}
 
 
 def _validate_entry(role, entry):
@@ -106,6 +110,8 @@ def _validate_entry(role, entry):
         raise ValueError(f"{where}: evidence is required")
     if entry.get("effort") is not None and (not isinstance(entry["effort"], str) or not entry["effort"]):
         raise ValueError(f"{where}: effort must be a level name or null")
+    if "preference" in entry and (type(entry["preference"]) is not int or entry["preference"] < 0):
+        raise ValueError(f"{where}: preference must be a nonnegative integer")
     benchmark = entry.get("benchmark")
     if benchmark is not None and (
         not isinstance(benchmark, dict)
@@ -115,6 +121,59 @@ def _validate_entry(role, entry):
         or not benchmark["source"]
     ):
         raise ValueError(f"{where}: benchmark needs a name and a source")
+    runs = entry.get("runs")
+    if runs is not None and (
+        not isinstance(runs, list) or not all(_valid_run(run, role, entry["model"]) for run in runs)
+    ):
+        raise ValueError(
+            f"{where}: runs must be records with a date, a run, and minutes and cost_usd as numbers or null"
+        )
+
+
+def _valid_run(run, role=None, model=None):
+    if not route_evidence.valid_run(run):
+        return False
+    return all(
+        (role is None or row["identity"]["role"] == role)
+        and (model is None or model_identity.identity(row["identity"]["model"]) == model_identity.identity(model))
+        for row in (run.get("execution_evidence") or {}).get("observations", [])
+    )
+
+
+def evidence_summary(entry):
+    return route_evidence.summary(entry)
+
+
+def _validate_excluded(document, roles):
+    """The models a role must never auto-select, with the decision that says so.
+
+    A profile can pin a route the owner ruled out for automatic selection, so a live run still
+    reaches it; recording the exclusion here keeps the qualification script from re-admitting it
+    and keeps selection from choosing it (#2121)."""
+    excluded = document.get("excluded")
+    if excluded is None:
+        return {}
+    if not isinstance(excluded, dict):
+        raise ValueError("the qualification table's excluded list must be an object of roles")
+    for role, entries in excluded.items():
+        if not isinstance(role, str) or role not in roles:
+            raise ValueError(f"bad excluded role {role!r}")
+        if not isinstance(entries, list) or not entries:
+            raise ValueError(f"excluded {role} needs a nonempty list")
+        listed = {
+            model_identity.identity(route_id)
+            for entry in roles[role]
+            for route_id in entry.get("routes") or [entry["model"]]
+        }
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("model"), str) or not entry["model"]:
+                raise ValueError(f"bad excluded entry in {role}: needs a model")
+            where = f"excluded {role}.{entry['model']}"
+            if not isinstance(entry.get("evidence"), str) or not entry["evidence"]:
+                raise ValueError(f"{where}: evidence is required")
+            if model_identity.identity(entry["model"]) in listed:
+                raise ValueError(f"{where}: excluded and also listed as a qualified model")
+    return excluded
 
 
 @lru_cache(maxsize=1)
@@ -143,11 +202,16 @@ def _account_label(model):
 
 
 def _rank(candidate, entry):
-    """The sort key that orders one role's candidates: billing, probe, price, then id."""
+    """The sort key that orders one role's candidates: the table's preference, billing, probe, price, then id.
+
+    Preference is the owner's explicit order for a role (the Plan Reviewer: GPT-6 Sol, then Claude Opus,
+    2026-10-20); an entry without one ranks 0, so every other role keeps billing-then-price order.
+    """
     billing = candidate.get("billing") if candidate.get("billing") in BILLING_ORDER else None
     row = prices.rate(candidate.get("model")) or prices.rate(entry["model"])
     total = row["input"] + row["output"] if row else math.inf
     return (
+        entry.get("preference", 0),
         BILLING_ORDER[billing],
         0 if candidate.get("probe") == "known" else 1,
         total,
@@ -199,6 +263,22 @@ def permitted_set(candidates):
     ``route_selection["candidates"]``.
     """
     return {role: [candidate for candidate, _entry in _options(role, candidates, None)] for role in PIPELINE_ROLES}
+
+
+def current(selection, roles):
+    """``selection`` with each saved route's model replaced by the one the run now uses.
+
+    Catalogue substitutions and explicit assignments can differ from the startup
+    selection; a switch must be checked against the routes that would actually run.
+    """
+    roles = roles or {}
+    return {
+        **(selection or {}),
+        "routes": {
+            other: {**saved, "model": (roles.get(other) or saved).get("model")}
+            for other, saved in ((selection or {}).get("routes") or {}).items()
+        },
+    }
 
 
 def next_route(selection, role, stopped_model, *, failed_models=()):

@@ -100,8 +100,8 @@ def record(state: RunState, *, timestamp=None):
     elif status.endswith("REWORK_REQUIRED"):
         text = "Design rework limit reached. Inspect the saved review before continuing."
     elif status == "RESOLVER_PENDING" or (status in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL") and not public):
-        role = "AutoResolver"
-        text = "AutoResolver is evaluating an internal decision; no human request has been authorized."
+        role = roles.SCREEN["resolver"]
+        text = "The Resolver is deciding the next step. Nothing is needed from you yet."
     elif status.startswith("PAUSED") or status in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL", "BLOCKED"):
         detail = (
             request.get("question")
@@ -121,15 +121,13 @@ def record(state: RunState, *, timestamp=None):
             and request.get("kind", "none") == "none"
         )
         if public:
-            role = "AutoResolver"
-            text = "AutoResolver: " + detail
-            text += (
-                " Review the proposed plan and use its exact approval token."
-                if public["scope"] == "goal_approval"
-                else " Respond to the issued AutoResolver request."
-            )
+            # The job's screen name (autocode_roles), never the unit, and no token: a client shows the
+            # plan or the question with its own named action.
+            role = roles.SCREEN["resolver"]
+            text = "Resolver: " + detail
+            text += " Review the proposed plan." if public["scope"] == "goal_approval" else " Answer its question."
         elif operational_hold:
-            text += " AutoResolver must evaluate human escalation before any request is shown."
+            text += " The Resolver is deciding whether this needs you."
     elif check:
         role = "Runner"
         text = check["summary"] + ". This check runs locally before the Validator; no model is active."
@@ -181,16 +179,19 @@ def persist(path, state: RunState, *, before_commit=None, after_commit=None):
         import autocode_usage as token_usage
         import autocode_util as util
     try:
+        from . import autocode_changeset_barrier as changeset_barrier
         from . import autocode_code_checkpoints as code_checkpoints
     except ImportError:
+        import autocode_changeset_barrier as changeset_barrier
         import autocode_code_checkpoints as code_checkpoints
     code_checkpoints.update(state, util.Path(path).parent)
     checkpoints.update(state)
     entry = record(state)
-    if after_commit is None and before_commit is None:
-        util.atomic_json(path, state)
-    else:
-        util.atomic_json(path, state, before_commit=before_commit, after_commit=after_commit)
+    with changeset_barrier.checkpoint(path, state):
+        if after_commit is None and before_commit is None:
+            util.atomic_json(path, state)
+        else:
+            util.atomic_json(path, state, before_commit=before_commit, after_commit=after_commit)
     activity_log.record(path, state)
     token_usage.record(path, state)
     # Publication uses the durable owned checkpoint, not a model's prose. Its

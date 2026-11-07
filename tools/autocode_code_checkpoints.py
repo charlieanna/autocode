@@ -414,6 +414,9 @@ def update(state: RunState, run_dir):
 
 
 def blocked_reason(state: RunState):
+    if state.get("status") == "TASK_COMPLETE":
+        # Nothing runs, so "pause first" would be advice the person cannot follow (#1643).
+        return "A finished run cannot go back to a saved step. Its steps can still be compared; ask for a follow-up to change the code."
     if state.get("status") not in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION"):
         return "Pause after the current step before restoring a checkpoint."
     if not approved(state):
@@ -467,7 +470,9 @@ def row_actions(row, *, restorable, run_dir=None, workspace=None):
             "id": "compare",
             "label": "Show what changed since here",
             "next_command": [*prefix, "--compare", row["id"]],
-        }
+        },
+        # Display only: what this step itself changed, which a compare of the newest step cannot show.
+        {"id": "step", "label": "Show what this step changed", "next_command": [*prefix, "--step", row["id"]]},
     ]
     if restorable:
         actions.append(
@@ -486,6 +491,27 @@ def row_actions(row, *, restorable, run_dir=None, workspace=None):
             }
         )
     return actions
+
+
+def working_action(state: RunState, *, run_dir=None, workspace=None):
+    """The display-only `checkpoint --working` action, named while a Builder step is running."""
+    active = state.get("active_stage")
+    if not isinstance(active, dict):
+        return None
+    if active.get("stage") not in ("terra", "orchestrator") or not approved(state):
+        return None
+    return {
+        "id": "working",
+        "label": "Show what the Builder has changed so far",
+        "next_command": [
+            "checkpoint",
+            "--workspace",
+            str(workspace) if workspace else "WORKSPACE",
+            "--run-dir",
+            str(run_dir) if run_dir else "RUN_DIR",
+            "--working",
+        ],
+    }
 
 
 def project(state: RunState, *, run_dir=None, workspace=None):
@@ -518,6 +544,7 @@ def project(state: RunState, *, run_dir=None, workspace=None):
         "version": 1,
         "blocked_reason": reason,
         "rows": rows,
+        "working": working_action(state, run_dir=run_dir, workspace=workspace),
         "continuation": deepcopy(state.get("checkpoint_continuation")),
         "restores": deepcopy(state.get("checkpoint_restores", [])),
     }

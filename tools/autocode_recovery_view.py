@@ -14,19 +14,24 @@ if TYPE_CHECKING:
 
 import hashlib
 import json
+from copy import deepcopy
 from pathlib import PurePath
 
 try:
     from . import autocode_accepted_source as accepted_source
     from . import autocode_builder_policy as builder_policy
     from . import autocode_member_stop as member_stop
+    from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
+    from . import autocode_run_messages as run_messages
     from .autocode_role_names import role_name
 except ImportError:
     import autocode_accepted_source as accepted_source
     import autocode_builder_policy as builder_policy
     import autocode_member_stop as member_stop
+    import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
+    import autocode_run_messages as run_messages
     from autocode_role_names import role_name
 
 ACTIVE = {"RUNNING", "DISCOVERING", "EXECUTING", "TASK_COMPLETE", "COMPLETE"}
@@ -68,6 +73,7 @@ BOUND_FIELDS = (
     "resolver",
     "user_events",
     "applied_interventions",
+    "pause_intent",
     "progressive",
     "stop_reason",
 )
@@ -119,6 +125,7 @@ def _explanation(status, role):
         "PAUSED_STAGE_ABANDONED": "The interrupted attempt has been reconciled. Continuing is a separate action.",
         "PAUSED_PROVIDER_UNCERTAIN": "The provider ended without a confirmed result. Its partial work needs inspection.",
         "PAUSED_OUTPUT_CAP": "The response exhausted its output limit without a complete report. Name another model before retrying.",
+        "PAUSED_CONTEXT_WINDOW": "The request no longer fit the model's context window, or the provider compacted the conversation, so the response is not accepted. Name a model with a larger window, or give the job a smaller task.",
         "PAUSED_UNCERTAIN_STAGE": "The step ended without a confirmed result. Its partial work needs inspection.",
         "PAUSED_PLANNING_BUDGET": "Planning used its configured review allowance.",
         "PAUSED_COMPONENT_PLAN": "The saved component plan conflicts with its caller-owned scope or executable child flow. "
@@ -172,7 +179,20 @@ _JOB_STOP_CAUSE = {
     "content_filter": "PAUSED_CONTENT_FILTER",
     "quota": "PAUSED_BUDGET",
     "output_limit": "PAUSED_OUTPUT_CAP",
+    "context_window": "PAUSED_CONTEXT_WINDOW",
 }
+
+
+AUTH_STOP = (
+    "The model provider rejected the saved credentials (HTTP 401): the key or sign-in has expired or "
+    "been revoked. Sign in to the backend again (in the terminal chat: /connect NAME login), then reply here."
+)
+
+
+def _auth_stop(state: RunState) -> str | None:
+    """A stop on the core's own authentication diagnostic, in plain words; never the provider's message."""
+    reason = str(state.get("stop_reason") or "")
+    return AUTH_STOP if reason.startswith(provider_auth.AUTH_FAILED) else None
 
 
 def _job_model_stop(state: RunState, role):
@@ -181,11 +201,11 @@ def _job_model_stop(state: RunState, role):
     Once a person named another model (``route_assignment``), the next step is only the retry
     with the token issued for it; a job without a route keeps only its exact retry.
     """
-    if state.get("status") not in ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED"):
+    if not quota_route.job_pause_current(state):
         return None
     failure = _dict(state.get("job_failure"))
     route = _dict(quota_route.job_question(state))
-    cause = failure.get("pause_status") or _JOB_STOP_CAUSE.get(failure.get("kind"))
+    cause = quota_route.job_stop_status(failure) or _JOB_STOP_CAUSE.get(failure.get("kind"))
     job = route.get("job") or role or "job"
     on = f" on {route['stopped_model']}" if route.get("stopped_model") else ""
     assigned = _dict(failure.get("route_assignment")).get("to") if route else None
@@ -207,6 +227,27 @@ def _job_model_stop(state: RunState, role):
             " Name another model for this job, then retry it with the new token."
             if route
             else " This stop keeps only its exact retry."
+        )
+    if cause == "PAUSED_CONTEXT_WINDOW":
+        stopped = (
+            f"The {job}'s request no longer fit the model's context window{on}, or the provider compacted the "
+            "conversation; the response is not accepted."
+        )
+        if now:
+            return f"{stopped} {now}"
+        return stopped + (
+            " Name a model with a larger context window for this job, then retry it with the new token."
+            if route
+            else " This stop keeps only its exact retry."
+        )
+    if cause == quota_route.AUTH_STATUS:
+        stopped = f"The {job}'s provider authentication failed{on}."
+        if now:
+            return f"{stopped} {now}"
+        return stopped + (
+            " Repair the provider login and retry unchanged, or name another model for this exact job."
+            if route
+            else " Repair the provider login before retrying this exact job."
         )
     if cause == "PAUSED_BUDGET":
         spent = f"The {job}'s provider reported its quota, usage limit or credits used up{on}."
@@ -411,6 +452,15 @@ def project(state: RunState, need=None):
     role = role_name(stage, _dict(_dict(state.get("settings")).get("workflow")).get("mode"))
     cause = _cause(state) or status
     terminal = any(row.get("kind") == "stop" for row in _rows(state.get("applied_interventions")))
+    # A stop AutoCode recorded itself when it could not continue (autocode_stop.end, #2485).
+    ended = next(
+        (
+            _dict(row.get("outcome"))
+            for row in _rows(state.get("applied_interventions"))
+            if row.get("kind") == "stop" and row.get("actor") == "autocode"
+        ),
+        None,
+    )
     decision = need.get("kind") in ("answer", "review", "approve_plan")
     finished = sum(bool(row.get("finished_at")) for row in _rows(state.get("stages")))
     result = {
@@ -419,11 +469,19 @@ def project(state: RunState, need=None):
         "status": status,
         "cause": cause,
         "role": role,
-        "title": "Stopped at your request" if terminal else "Review checkpoint" if decision else "Task paused",
-        "category": "stopped" if terminal else "request" if decision else "recovery",
-        "what_happened": "The current step finished and saved. This conversation will launch no more stages."
+        "title": "AutoCode could not finish this task"
+        if ended is not None
+        else "Stopped at your request"
         if terminal
-        else (_job_model_stop(state, role) or _explanation(cause, role)),
+        else "Review checkpoint"
+        if decision
+        else "Task paused",
+        "category": "stopped" if terminal else "request" if decision else "recovery",
+        "what_happened": f"{ended.get('reason')} This conversation will launch no more stages."
+        if ended is not None
+        else "The current step finished and saved. This conversation will launch no more stages."
+        if terminal
+        else (_auth_stop(state) or _job_model_stop(state, role) or _explanation(cause, role)),
         "retained": f"{finished} finished attempt(s) remain in the history. Saved plan, messages and recorded evidence remain available; partial work still needs verification.",
         "saved_reason": state.get("stop_reason"),
         "context": {
@@ -435,6 +493,8 @@ def project(state: RunState, need=None):
             },
         },
         "failure_groups": _failures(state),
+        # The recorded finished, failed outcome: its reason and the evidence it names; None otherwise.
+        "outcome": deepcopy(ended) if ended is not None else None,
         "actions": [],
     }
     actions = result["actions"]
@@ -492,11 +552,12 @@ def project(state: RunState, need=None):
         else None
     )
     uncertain = status in ("PAUSED_PROVIDER_UNCERTAIN", "PAUSED_UNCERTAIN_STAGE")
-    # The public status also prescribes abandonment after quota/limit stops.
+    # The public status also prescribes abandonment after quota/limit stops,
+    # as a resume or, once the core has classified the attempt, as a continue.
     # Bind that advice to this exact saved attempt; pending decisions and the
     # more specific report-repair path must keep their existing precedence.
     prescribed = (
-        need.get("kind") == "resume"
+        need.get("kind") in ("resume", "continue")
         and attempt is not None
         and need.get("abandon_stage") == attempt
         and not need.get("retry_report_attempt")
@@ -556,6 +617,15 @@ def project(state: RunState, need=None):
                 attempt_id=need["retry_report_attempt"],
             )
         )
+    elif need.get("kind") == "resume" and need.get("retry_action") == " ".join(_args("retry_failed_stage", {}) or ()):
+        # A novelty hold whose request is not yet published re-holds on a plain resume (#1770).
+        actions.append(
+            _action(
+                "retry_failed_stage",
+                "Retry the held step once",
+                "Authorize exactly one more attempt of the held step; a plain resume would hold again. Saved attempts and evidence are kept; existing limits, approvals and verification gates still apply.",
+            )
+        )
     elif cause == "PAUSED_REPEATED_FAILURE" and not any(
         state.get(key)
         for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "pending_report_repair")
@@ -599,11 +669,20 @@ def project(state: RunState, need=None):
         and not state.get("active_runner_check")
     ):
         requested = cause in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION")
+        handoff = run_messages.resume_stage(state)
+        handoff_role = role_name(handoff) if handoff else None
+        if handoff_role:
+            result["what_happened"] = (
+                f"The task remains paused. On resume, {handoff_role} will handle your saved message "
+                f"before the saved {role} step can continue."
+            )
         actions.append(
             _action(
                 "resume",
-                "Resume" if requested else "Resume after correction",
-                "Continue from where the run paused. Existing model pins, limits and approval gates still apply."
+                f"Resume with {handoff_role}" if handoff_role else "Resume" if requested else "Resume after correction",
+                f"Handle your saved message with {handoff_role} first. Existing model pins, limits and approval gates still apply."
+                if handoff_role
+                else "Continue from where the run paused. Existing model pins, limits and approval gates still apply."
                 if requested
                 else "Continue from this saved pause after its cause is corrected. Existing model pins, limits and approval gates still apply.",
             )

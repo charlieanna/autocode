@@ -3,7 +3,7 @@ tests), with a diagnosis that names the real cause. Run checks: the run investig
 gathers requirements. Either fix route passes: live, the Investigator fixed it in two files and sized it
 small (2026-09-28), which its own rule allows; bugfix-cent-drift is the one that must be planned."""
 
-from harness.oracle import Check, load_json, mentions, python_change_checks, run_checks
+from harness.oracle import Check, bugfix_entry, load_json, mentions, python_change_checks, run_checks
 
 DIAGNOSIS_FIELDS = ("observed", "reproduction", "root_cause", "affected_paths", "invariant")
 
@@ -30,5 +30,5 @@ def check(project, scenario, run=None):
         paths = {p.rstrip("/") for p in note.get("affected_paths") or [] if isinstance(p, str)}
         modules = sorted(p for p in paths if p.startswith("shop/") and p.endswith(".py"))
         checks.append(Check("affected_paths_span_modules", len(modules) >= 2, str(sorted(paths))))
-    checks += run_checks(run, workflow="bugfix", no_requirements=True)
+    checks += run_checks(run, workflow="bugfix", after_requirements=bugfix_entry(run))
     return checks

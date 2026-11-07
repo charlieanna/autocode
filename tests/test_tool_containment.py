@@ -397,8 +397,11 @@ class PolicyTests(unittest.TestCase):
         # Each entry is bound here to the modules that make it, so a store renamed there fails this
         # test instead of leaving the new directory readable to a native planning shell. Only
         # autocode_issue names its store as a constant; the others build the path inline, so their
-        # code is read for it.
+        # code is read for it. A store no module makes any longer stays denied, since older runs may
+        # have left it: `autocode program` (archived on branch archive/program) made .autocode/programs.
         import autocode_issue
+
+        retired = {"programs"}
 
         owners = {
             "archive": ("autocode_worktrees",),  # clean-worktrees keeps a removed task worktree's runs
@@ -409,15 +412,14 @@ class PolicyTests(unittest.TestCase):
             "conversation-starts": ("autocode_conversation_session",),
             "investigation": ("autocode_investigation_workspace",),
             "issues": ("autocode_issue",),
-            "programs": ("autocode_program",),
             "pull-reviews": ("autocode_review_pr",),
             "registry": ("autocode_registry",),
             "replay": ("autocode_replay_cli", "autocode_replay_checks"),
             "task-flows": ("autocode_tasks",),
             "verification": ("autocode_verify_task",),
-            "worktrees": ("autocode_workspaces", "autocode_checkpoint_cli", "autocode_program"),
+            "worktrees": ("autocode_workspaces", "autocode_checkpoint_cli"),
         }
-        self.assertEqual(sorted(owners), sorted(containment.PRIVATE_STORES))
+        self.assertEqual(sorted({*owners, *retired}), sorted(containment.PRIVATE_STORES))
         self.assertEqual(Path(".autocode", "issues"), autocode_issue.STORE)
         for name, modules in owners.items():
             for module in modules:
@@ -1080,6 +1082,31 @@ class KernelReceiptTests(unittest.TestCase):
             "tools": {"bash": True, "read": False},
         }
 
+    def test_native_permission_refusal_names_policy_without_exposing_provider_stderr(self):
+        denial = "The user has specified a rule which prevents you from using this specific tool call."
+        for diagnostic, expected in (
+            (denial + " private-config-secret", "Native tool permissions deny"),
+            ("unrelated failure private-config-secret", "conformance failed"),
+        ):
+            with (
+                self.subTest(diagnostic=diagnostic[:20]),
+                patch.object(containment.sys, "platform", "darwin"),
+                patch.object(containment.shutil, "which", return_value="/owned/opencode"),
+                patch.object(
+                    containment.subprocess,
+                    "run",
+                    side_effect=[
+                        SimpleNamespace(returncode=0, stdout=containment.SUPPORTED_VERSION, stderr=""),
+                        SimpleNamespace(returncode=1, stdout="", stderr=diagnostic),
+                    ],
+                ),
+                patch.object(containment, "prepare") as prepare,
+            ):
+                with self.assertRaisesRegex(RuntimeError, expected) as error:
+                    containment.configure(self.command, self.environment, self.workspace, allow_write=False, request={})
+                self.assertNotIn("private-config-secret", str(error.exception))
+                prepare.assert_not_called()
+
     def configure(self, change=lambda response: response, *, scratch=True, sentinel=True, request=None, private=None):
         import autocode_toolchain
 
@@ -1445,9 +1472,45 @@ class AvailabilityTests(unittest.TestCase):
             patch.object(containment, "BWRAP", str(bwrap)),
         ):
             reason = containment.unavailable(environment=self.opencode(containment.SUPPORTED_VERSION))
-        self.assertIn("cannot create unprivileged namespaces", reason)
+        self.assertIn("cannot create the unprivileged namespaces and fresh /proc mount", reason)
         self.assertIn("setting up uid map: Permission denied", reason)
+        self.assertIn("disable unprivileged user namespaces", reason)
         # Named the way every refusal names the host (test_containment_policy_cli matches it).
+        self.assertIn("this machine is linux", reason)
+
+    def test_linux_probe_mounts_the_fresh_proc_a_masked_container_refuses(self):
+        # #2373: namespaces can form where the fresh /proc mount cannot (Docker's default
+        # system-path masks): the old no-proc probe passed there and the first real launch
+        # failed. The probe must exercise --dev/--proc as bubblewrap_arguments() does, and
+        # the refusal must name the mount, the container-mask cause and its remedy.
+        bwrap = self.bin / "bwrap"
+        seen = self.bin / "probe-arguments"
+        bwrap.write_text(
+            "#!/bin/sh\n"
+            "printf '%s\\n' \"$@\" > " + shlex.quote(str(seen)) + "\n"
+            'for argument in "$@"; do\n'
+            '  if [ "$argument" = "--proc" ]; then\n'
+            '    echo "bwrap: Can\'t mount proc on /newroot/proc: Operation not permitted" >&2\n'
+            "    exit 1\n"
+            "  fi\n"
+            "done\n"
+            "exit 0\n"
+        )
+        bwrap.chmod(0o755)
+        with (
+            patch.object(containment, "sys", SimpleNamespace(platform="linux")),
+            patch.object(containment, "BWRAP", str(bwrap)),
+        ):
+            reason = containment.unavailable(environment=self.opencode(containment.SUPPORTED_VERSION))
+        arguments = seen.read_text().split()
+        self.assertIn("--unshare-all", arguments)
+        self.assertIn("ALL", arguments)
+        self.assertIn("--dev", arguments)
+        self.assertIn("--proc", arguments)
+        self.assertIn("cannot create the unprivileged namespaces and fresh /proc mount", reason)
+        self.assertIn("Can't mount proc on /newroot/proc: Operation not permitted", reason)
+        self.assertIn("mask system paths so the sandbox cannot mount its own /proc", reason)
+        self.assertIn("--security-opt=systempaths=unconfined", reason)
         self.assertIn("this machine is linux", reason)
 
     def test_linux_with_working_bubblewrap_checks_the_opencode_version(self):

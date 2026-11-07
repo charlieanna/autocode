@@ -44,7 +44,7 @@ def take(driver) -> dict:
     folder = Path(driver.root) / FOLDER
     folder.mkdir(parents=True, exist_ok=True)
     number = 1
-    while (folder / f"{number:02d}.md").exists():  # one folder for a program's plan and workstream runs
+    while (folder / f"{number:02d}.md").exists():  # one folder for every plan a scenario exports
         number += 1
     path = folder / f"{number:02d}.md"
     run_dir = Path(driver.run_dir)

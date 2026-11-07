@@ -25,33 +25,49 @@ if TYPE_CHECKING:
 import sys
 
 try:
+    from . import autocode_acceptance_recovery as acceptance_recovery
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
+    from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_limit_events as limit_events
     from . import autocode_member_stop as member_stop
     from . import autocode_milestones as milestones
     from . import autocode_operational_information as operational_information
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
+    from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_result_application as result_application
+    from . import autocode_scope_pause as scope_pause
+    from . import autocode_stop as stop
     from . import autocode_support as support
+    from . import autocode_verify as verify
 except ImportError:
+    import autocode_acceptance_recovery as acceptance_recovery
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_interventions as interventions
+    import autocode_launch_inputs as launch_inputs
+    import autocode_limit_events as limit_events
     import autocode_member_stop as member_stop
     import autocode_milestones as milestones
     import autocode_operational_information as operational_information
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
+    import autocode_planning_review_usage as review_usage
     import autocode_progressive_state as progressive
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_result_application as result_application
+    import autocode_scope_pause as scope_pause
+    import autocode_stop as stop
     import autocode_support as support
+    import autocode_verify as verify
 
 
 def prepare_actions(runner, args, state: RunState, factory):
@@ -94,7 +110,9 @@ def apply_queued_input(runner, state: RunState, run_dir, workspace):
     pause = state["status"]
     try:
         if runner.consume_interventions(state, run_dir, workspace):
-            print(f"{state['status']}: {state['stop_reason']}")
+            print(
+                f"{state['status']}: {state.get('stop_reason') or 'Queued input saved; current checkpoint retained.'}"
+            )
             return 2
     except interventions.InterventionError as error:
         print(f"{pause}: queued input could not be applied ({error}); the pause stays in force.")
@@ -153,15 +171,33 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             args.reject_review,
             args.reconcile_review,
             args.feedback is not None,
-            args.program_guidance is not None,
             args.follow_up is not None,
             args.show_goal,
             args.accept_completion,
             args.resolver_response,
+            getattr(args, "assign_linked_scope", None),
             args.planning_review_call_limit is not None,
             bool(args.close_finding),
         )
     )
+    if (
+        args.resume_paused
+        and not decision_action
+        and not explicit_recovery_requested(args, state)
+        and scope_pause.resume(state, at=runner.now(), acknowledge=stop.acknowledge_pause)
+    ):
+        runner.write_json(state_path, state)
+        print(lifecycle.render(state))
+        return 2
+    if (
+        args.feedback is None
+        and not args.edit_goal
+        and not args.goal_file
+        and args.follow_up is None
+        and (hold := resolver_human.permission_hold(state))
+    ):
+        print(f"{state['status']}: {hold['reason']}")
+        return 2
     if (
         args.resume_paused
         and not decision_action
@@ -196,6 +232,59 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             print(lifecycle.render(state))
             return 2
     specific_recovery = False
+    if (
+        args.resume_paused
+        and not decision_action
+        and not explicit_recovery_requested(args, state)
+        and not any(resolver_human.pending_interruptions(run_dir).values())
+        and acceptance_recovery.can_resume(state)
+    ):
+
+        def restore_acceptance(candidate: RunState):
+            clean_run, _ = launch_inputs.runners(candidate, workspace, run_dir, verify.scratch_run)
+
+            def check_tests(tests):
+                acceptance_recovery.require_boundary(candidate, getattr(args, "expected_goal_token", None))
+                return clean_run(
+                    workspace,
+                    run_dir / "check-replay" / "acceptance-recovery",
+                    tests=tests,
+                    timeout=verify.DEFAULT_TIMEOUT,
+                )
+
+            if not acceptance_recovery.reconcile(
+                candidate,
+                workspace,
+                at=runner.now(),
+                run_tests=check_tests,
+            ):
+                raise ValueError("The inherited-test correction no longer has exact recovery provenance")
+
+        try:
+            candidate = result_application.prepare(
+                state, run_dir, acceptance_recovery.STAGE, restore_acceptance, persist=runner.write_json
+            )
+        except ValueError as error:
+            print(f"Input rejected: {error}", file=sys.stderr)
+            return 2
+        cast(dict, state).clear()
+        state.update(candidate)
+        runner.write_json(state_path, state)
+        # Continue through ordinary settings, queued-input and Build admission.
+        # Reconciliation grants no Resolver or report-repair allowance.
+        decided.evidence_reconciled = True
+        specific_recovery = True
+    if (
+        args.resume_paused
+        and not decision_action
+        and review_usage.can_resume(state)
+        and review_usage.reconcile(state, at=runner.now())
+    ):
+        resolver_human.supersede_operational(state, "Inherited review accounting was corrected under the saved limit")
+        state.update({"status": "RUNNING", "phase": "PLANNING"})
+        state.pop("stop_reason", None)
+        runner.write_json(state_path, state)
+        specific_recovery = True
     issued = resolver_human.current(state)
     if args.resume_paused and issued and issued["scope"] == "operational_exhaustion":
         cause = state["resolver"]["human_escalations"][issued["request_id"]]["identity"]["proposal"]["origin"].get(
@@ -204,7 +293,9 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         if cause == "PAUSED_REPEATED_FAILURE":
             published_status = state["status"]
             state["status"] = cause
-            specific_recovery = runner.prepare_abandoned_completion_revalidation(state, run_dir, workspace)
+            specific_recovery = runner.prepare_abandoned_completion_revalidation(
+                state, run_dir, workspace
+            ) or runner.prepare_timeout_archived_completion(state, run_dir, workspace)
             if not specific_recovery:
                 state["status"] = published_status
     # A source-only stale repair is already a recognized recovery. Do not let
@@ -216,13 +307,14 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         and runner.stale_report_repair(state, workspace)
     ):
         specific_recovery = True
+    # The last decision, not the last event: a limit raised on the same resume is recorded after it (#2412).
+    last_decision = limit_events.last_decision(state) or {}
     acknowledged_planning_extension = (
         args.resume_paused
         and state.get("status") == "PAUSED_PLANNING_BUDGET"
-        and bool(state.get("user_events"))
-        and state["user_events"][-1].get("kind") == "planning_budget_change"
-        and state["user_events"][-1].get("limit") == planning.review_call_limit(state)
-        and state["user_events"][-1].get("calls_used") == cast(dict, state.get("planning", {})).get("astra_calls")
+        and last_decision.get("kind") == "planning_budget_change"
+        and last_decision.get("limit") == planning.review_call_limit(state)
+        and last_decision.get("calls_used") == cast(dict, state.get("planning", {})).get("astra_calls")
     )
     marker: dict = state.get("_authorized_bound_change", {})
     current_request = resolver_human.current(state)
@@ -260,10 +352,32 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             and apply_queued_input(runner, state, run_dir, workspace) is not None
         ):
             return 2
+        already_held = (operational_information.projection(state) or {}).get("status") == "held"
         review = operational_information.reevaluate(runner, state, run_dir, workspace, resume=args.resume_paused)
         if review is not None:
             print(review.message, flush=True)
             if review.action in ("hold", "pending"):
+                # The held view offers plain resume while a pending repair blocks scoped retry.
+                # Reconcile only a spent terminal planning report on that second explicit action;
+                # retain the pause and counts and return before any provider admission (#2191).
+                pending = state.get("pending_report_repair") or {}
+                original = pending.get("original") or {}
+                if (
+                    args.resume_paused
+                    and already_held
+                    and review.action == "hold"
+                    and state.get("status") == "PAUSED_REPEATED_FAILURE"
+                    and pending.get("attempts", 0) >= runner.repair_limit(state)
+                    and original.get("rejected")
+                    and original.get("exit_code") == 0
+                    and not original.get("timed_out")
+                    and not original.get("interrupted")
+                    and not any(
+                        state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts")
+                    )
+                    and runner.prepare_planning_retry(state, run_dir)
+                ):
+                    print("Spent planning repair reconciled; inspect the fresh retry action. No provider launched.")
                 return 2
     information_admitted = review is not None and review.action == "continue"
     if (

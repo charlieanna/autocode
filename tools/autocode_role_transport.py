@@ -105,6 +105,21 @@ def add_arguments(parser):
     )
 
 
+def engine_provider(args, parser) -> None:
+    """Reconcile ``--engine`` with ``--provider`` before a run starts.
+
+    Claude Code is the built-in claude provider on the facade engine (#717). Codex is an engine, not a
+    provider config: ``--provider codex`` used to fail only after the worktree was created, asking for a
+    TOML file for a tool AutoCode already runs (#2330).
+    """
+    if args.engine == "claude":
+        if args.provider not in (None, "claude"):
+            parser.error(f"engine claude runs the built-in claude provider; it cannot run --provider {args.provider}")
+        args.engine, args.provider = "opencode", "claude"
+    elif args.provider == "codex":
+        parser.error("codex is an engine, not a provider config: run with --engine codex and no --provider")
+
+
 def guard(args, state: RunState):
     """Reject a saved binding change before the ordinary configure path mutates anything."""
     settings = state.get("settings")
@@ -156,22 +171,33 @@ def _entry(settings, role):
     return selected
 
 
+def _sha256_field(value) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+
+
 def valid_identity(identity, provider):
-    """The configured command facade's existing identity contract, not model authority."""
-    return (
-        isinstance(identity, dict)
-        and identity.get("engine") == provider
-        and type(identity.get("identity_version")) is int
-        and identity["identity_version"] == 1
-        and isinstance(identity.get("executable"), str)
-        and bool(identity["executable"])
-        and isinstance(identity.get("config_path"), str)
-        and bool(identity["config_path"])
-        and isinstance(identity.get("config_sha256"), str)
-        and len(identity["config_sha256"]) == 64
-        and all(char in "0123456789abcdef" for char in identity["config_sha256"])
-        and (identity.get("version") is None or isinstance(identity["version"], str))
-    )
+    """A facade's own identity contract, not model authority.
+
+    Every facade records ``engine`` (its name), an integer ``identity_version``, its executable and an
+    optional version string. Version 1 (a configured command tool, the direct connection) carries its
+    config's ``config_sha256``, and a command tool its ``config_path``; version 2 (the built-in claude
+    provider) carries ``launch_policy_sha256`` instead. Any other shape is refused: a saved binding
+    never falls back to another tool.
+    """
+    if not isinstance(identity, dict) or identity.get("engine") != provider:
+        return False
+    version = identity.get("identity_version")
+    if type(version) is not int or version not in (1, 2):
+        return False
+    if not isinstance(identity.get("executable"), str) or not identity["executable"]:
+        return False
+    if identity.get("version") is not None and not isinstance(identity["version"], str):
+        return False
+    if version == 1:
+        if "config_path" in identity and (not isinstance(identity["config_path"], str) or not identity["config_path"]):
+            return False
+        return _sha256_field(identity.get("config_sha256"))
+    return _sha256_field(identity.get("launch_policy_sha256"))
 
 
 def validate(settings):
@@ -201,16 +227,29 @@ def entry(settings, role):
 
 
 def configured(settings, role, fallback=False):
-    # Overrides are configured providers; legacy Codex model_provider flags are unrelated.
-    return entry(settings, role) is not None or fallback
+    """Recognize role overrides and the saved whole-run provider without loading a live facade."""
+    if entry(settings, role) is not None or fallback:
+        return True
+    settings = settings or {}
+    route = settings.get("roles", {}).get(role, {})
+    provider = route.get("provider") or settings.get("provider")
+    identity = settings.get("transport_identities", {}).get("opencode", settings.get("transport_identity"))
+    return (
+        route.get("engine", settings.get("engine")) == "opencode"
+        and provider not in (None, "opencode", "openai")
+        and valid_identity(identity, provider)
+    )
 
 
 def configure(settings, args, workspace):
     requested = getattr(args, "role_transport", None) or ()
     if not requested:
         return
-    if settings.get("engine") != "opencode" or settings.get("provider") not in (None, "opencode"):
-        raise ValueError("--role-transport phase 1 requires --engine opencode --provider opencode")
+    if settings.get("engine") != "opencode":
+        raise ValueError(
+            "--role-transport binds roles on the OpenCode facade engine; --engine codex keeps Codex's own transport"
+        )
+    base = settings.get("provider") or "opencode"
     if settings.get("replay_recording") or getattr(args, "single_model", None):
         raise ValueError("--role-transport cannot combine with replay or --single-model")
     parsed = {}
@@ -220,6 +259,8 @@ def configure(settings, args, workspace):
         role, name = item.split("=", 1)
         if role not in settings["roles"] or role in parsed:
             raise ValueError("--role-transport needs an existing role named exactly once")
+        if name == base:
+            raise ValueError(f"--role-transport {role}={name} names the run's own tool; every role runs there already")
         if not getattr(args, f"{role}_model", None):
             raise ValueError(f"--role-transport {role} requires an explicit --{role.replace('_', '-')}-model")
         parsed[role] = name
@@ -228,7 +269,7 @@ def configure(settings, args, workspace):
     for role, name in parsed.items():
         facade = providers.resolve(name)
         if not getattr(facade, "CONFIGURED", False):
-            raise ValueError("--role-transport selects an external configured tool; builtin roles keep their route")
+            raise ValueError("--role-transport selects a tool with its own identity; OpenCode roles keep their route")
         existing = entry(settings, role)
         if existing is not None:
             if existing["provider"] != name:

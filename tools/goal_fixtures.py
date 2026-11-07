@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -9,12 +11,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 
-def write_greeting_source(workspace, *, revision=None):
-    """A real fixture artifact; revision markers vary source without breaking behavior."""
-    marker = f"# Fixture revision: {revision}\n" if revision is not None else ""
-    (Path(workspace) / "greet.py").write_text(
-        marker
-        + """import sys
+GREETING_SOURCE = """import sys
 
 def main():
     if len(sys.argv) != 2 or not sys.argv[1].strip():
@@ -26,21 +23,16 @@ def main():
 if __name__ == "__main__":
     raise SystemExit(main())
 """
-    )
 
 
-def seed_greeting_workspace(workspace):
-    """Give check-replay a discoverable suite that exercises the fixture contract."""
-    root = Path(workspace)
-    write_greeting_source(root)
-    (root / "test_greeting.py").write_text("""from pathlib import Path
+GREETING_TESTS = """from pathlib import Path
 import subprocess
 import sys
 import unittest
 
 class GreetingTests(unittest.TestCase):
-    def invoke(self, name):
-        return subprocess.run([sys.executable, str(Path(__file__).with_name("greet.py")), name],
+    def invoke(self, *args):
+        return subprocess.run([sys.executable, str(Path(__file__).with_name("greet.py")), *args],
                               capture_output=True, text=True)
 
     def test_greets_a_valid_name(self):
@@ -50,13 +42,312 @@ class GreetingTests(unittest.TestCase):
         self.assertEqual("", result.stderr)
 
     def test_rejects_empty_and_whitespace_names(self):
-        for name in ("", "   "):
-            with self.subTest(name=name):
-                result = self.invoke(name)
+        for args in (("",), ("   ",), (), ("Ada", "Lovelace")):
+            with self.subTest(args=args):
+                result = self.invoke(*args)
                 self.assertEqual(2, result.returncode)
                 self.assertEqual("", result.stdout)
                 self.assertIn("nonempty name", result.stderr)
-""")
+"""
+
+
+GOODBYE_SOURCE = """import sys
+print('Goodbye, ' + sys.argv[1])
+"""
+
+GOODBYE_TESTS = """from pathlib import Path
+import subprocess
+import sys
+import unittest
+
+class GoodbyeTests(unittest.TestCase):
+    def test_says_goodbye_to_a_name(self):
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name("bye.py")), "Ada"],
+                                capture_output=True, text=True)
+        self.assertEqual(0, result.returncode)
+        self.assertEqual("Goodbye, Ada\\n", result.stdout)
+        self.assertEqual("", result.stderr)
+"""
+
+
+def write_goodbye_source(workspace, *, revision=None):
+    """The second milestone's CLI with its own fail-to-pass test; revision markers vary the source."""
+    marker = f"# batch {revision}\n" if revision is not None else ""
+    (Path(workspace) / "bye.py").write_text(GOODBYE_SOURCE + marker)
+    (Path(workspace) / "test_goodbye.py").write_text(GOODBYE_TESTS)
+
+
+def write_greeting_source(workspace, *, revision=None):
+    """A real fixture artifact; revision markers vary source without breaking behavior."""
+    marker = f"# Fixture revision: {revision}\n" if revision is not None else ""
+    (Path(workspace) / "greet.py").write_text(marker + GREETING_SOURCE)
+
+
+def seed_greeting_workspace(workspace):
+    """Give check-replay a discoverable suite that exercises the fixture contract."""
+    root = Path(workspace)
+    write_greeting_source(root)
+    (root / "test_greeting.py").write_text(GREETING_TESTS)
+
+
+# The fake Tester's reasons for the lines the mutator cannot break, per fixture CLI: the exact source
+# and tests they describe (comment lines aside, which are never obligations), and each line's reason.
+FIXTURE_REASONS = {
+    "greet.py": (
+        GREETING_SOURCE,
+        "test_greeting.py",
+        GREETING_TESTS,
+        {
+            "import sys": "No supported import mutation. The tests execute sys.argv, stderr and process exits; removing this import breaks the observed CLI flows.",
+            'print("A nonempty name is required", file=sys.stderr)': "No supported call mutation. test_rejects_empty_and_whitespace_names asserts the nonempty-name diagnostic on stderr for four invalid inputs; deleting or redirecting this call fails those assertions.",
+            'print("Hello, " + sys.argv[1])': "No supported call mutation. test_greets_a_valid_name asserts exact Hello, Ada plus newline on stdout and empty stderr; suppressing or redirecting this call fails the test.",
+            'if __name__ == "__main__":': "Entrypoint guards are excluded by the mutator. Both test methods invoke the CLI as a process and require its greeting or rejection; disabling this guard fails those assertions.",
+            "raise SystemExit(main())": "No supported exit-adapter mutation. Both test methods check exit status, including exit 2 for empty, whitespace, missing and extra names; discarding main's result fails those checks.",
+        },
+    ),
+    "bye.py": (
+        GOODBYE_SOURCE,
+        "test_goodbye.py",
+        GOODBYE_TESTS,
+        {
+            "import sys": "No supported import mutation. test_says_goodbye_to_a_name runs the CLI with a name argument; removing this import breaks the observed flow.",
+            "print('Goodbye, ' + sys.argv[1])": "No supported call mutation. test_says_goodbye_to_a_name asserts exact Goodbye, Ada plus newline on stdout and empty stderr; suppressing or redirecting this call fails the test.",
+        },
+    ),
+}
+
+
+def _code_lines(text):
+    return [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+def greeting_changed_code_reasons(data):
+    """Specific independent judgments for the exact tested fixture CLIs only."""
+    proof = data.get("regression_proof") or {}
+    if not proof.get("path"):
+        return []
+    decisions = []
+    for path, (expected_source, test_name, expected_tests, reasons) in FIXTURE_REASONS.items():
+        try:
+            source = Path(path).read_text()
+            tests = Path(test_name).read_text()
+        except OSError:
+            continue
+        if _code_lines(source) != _code_lines(expected_source) or tests != expected_tests:
+            continue
+        decisions.extend(_line_reasons(proof, path, source, reasons))
+    return decisions
+
+
+def _line_reasons(proof, path, source, reasons):
+    digest, lines = hashlib.sha256(source.encode()).hexdigest(), source.splitlines()
+    decisions = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        line = row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or row.get("path") != path
+            or row.get("sha256") != digest
+            or type(line) is not int
+            or not 0 < line <= len(lines)
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        source_line = lines[line - 1].strip()
+        reason = reasons.get(source_line)
+        if reason is None and line == 1 and source.startswith("# Fixture revision: "):
+            # This exact first-line comment is the fixture's source-revision nonce;
+            # it cannot affect execution and is outside the behavioral mutation surface.
+            reason = "This exact fixture revision comment carries no executable behavior. The pinned CLI tests exercise the implementation below it; removing the comment changes only fixture identity."
+        if reason:
+            decisions.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reason,
+                    "evidence_refs": [proof["path"], path],
+                }
+            )
+    # The multi-milestone visual CLI fixture has one additional, deliberately
+    # tiny deliverable. Its Validator executes bye.py Ada and checks the exact
+    # stdout and exit code. Accept only the two exact lines in that fixture;
+    # ordinary or altered files still receive no exception.
+    try:
+        goodbye = Path("bye.py").read_text()
+    except OSError:
+        goodbye = ""
+    goodbye_lines = goodbye.splitlines()
+    if (
+        len(goodbye_lines) == 3
+        and goodbye_lines[:2] == ["import sys", "print('Goodbye, ' + sys.argv[1])"]
+        and re.fullmatch(r"# batch [0-9a-f-]{36}", goodbye_lines[2])
+    ):
+        goodbye_digest = hashlib.sha256(goodbye.encode()).hexdigest()
+        goodbye_reasons = {
+            1: "The exact offline milestone fixture executes bye.py with Ada and asserts its output. The import supplies sys.argv used by the checked CLI; there is no other behavior on this line.",
+            2: "The exact offline milestone fixture executes bye.py with Ada and asserts exact Goodbye, Ada output, empty stderr and exit zero; changing or removing this call fails that check.",
+        }
+        for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+            line = row.get("line")
+            if (
+                row.get("status") == "reason_required"
+                and row.get("path") == "bye.py"
+                and row.get("sha256") == goodbye_digest
+                and type(line) is int
+                and line in goodbye_reasons
+                and not row.get("mutation_outcomes")
+            ):
+                decisions.append(
+                    {
+                        "gap_id": row["gap_id"],
+                        "decision": "accept",
+                        "reason_kind": "instrumentation_unavailable",
+                        "reason": goodbye_reasons[line],
+                        "evidence_refs": [proof["path"], "bye.py"],
+                    }
+                )
+    return decisions
+
+
+def scripted_files_changed_code_rejections(data, files):
+    """Reject undecided lines in a failed proof, bound to the Builder's exact scripted bytes."""
+    proof = data.get("regression_proof") or {}
+    if not files or not proof.get("path") or proof.get("verdict") not in ("FAIL", "UNVERIFIED"):
+        return []
+    decisions = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        path, line = row.get("path"), row.get("line")
+        source = files.get(path)
+        if (
+            source is None
+            or row.get("status") != "reason_required"
+            or row.get("sha256") != hashlib.sha256(source.encode()).hexdigest()
+            or type(line) is not int
+            or not 0 < line <= len(source.splitlines())
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        decisions.append(
+            {
+                "gap_id": row["gap_id"],
+                "decision": "reject",
+                "reason_kind": "instrumentation_unavailable",
+                "reason": (
+                    f"The failed fixture proof does not establish behavioral evidence for {path}:{line}. "
+                    "Add a regression test for the scripted behavior, run it against the original and candidate "
+                    "source, and include this file in the verified suite before accepting the line."
+                ),
+                "evidence_refs": [proof["path"], path],
+            }
+        )
+    return decisions
+
+
+def scripted_files_changed_code_reasons(data, files):
+    """The fake Tester's reasons for exact scripted lines without complete mutation evidence.
+
+    Ordinary reasons bind the gap, scripted bytes and line, and only where the proof's collected
+    mutation check read those bytes and found no mutation site on the line: never for a file it
+    did not script, other bytes than it wrote, or a line a mutant reached or could have reached.
+    The protected-link fixture additionally reviews one redundant assertion's exact surviving
+    mutant, pinned to its scripted source and both independently observed oracle tests.
+    """
+    proof = data.get("regression_proof") or {}
+    mutation = proof.get("mutation_check") or {}
+    if not proof.get("path") or not files or mutation.get("collected") is not True:
+        return []
+    scripted = {name: hashlib.sha256(content.encode()).hexdigest() for name, content in files.items()}
+    sites = {}
+    for entry in mutation.get("files") or []:
+        if scripted.get(entry.get("path")) == entry.get("sha256"):
+            sites[entry["path"]] = [
+                (mutant.get("line"), mutant.get("end_line") or mutant.get("line"))
+                for mutant in entry.get("mutants") or []
+            ]
+    decisions = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        path, line = row.get("path"), row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or path not in sites
+            or row.get("sha256") != scripted[path]
+            or type(line) is not int
+            or row.get("mutation_outcomes")
+            or any(start <= line <= end for start, end in sites[path])
+        ):
+            continue
+        decisions.append(
+            {
+                "gap_id": row["gap_id"],
+                "decision": "accept",
+                "reason_kind": "instrumentation_unavailable",
+                "reason": (
+                    f"Scripted fixture: {path}:{line} is the exact scripted content of this delivery, and the "
+                    "proof's mutation check read these bytes and found no mutation site on the line. The "
+                    "delivery's tests, run independently by the proof, exercise the behavior it takes part in."
+                ),
+                "evidence_refs": [proof["path"], path],
+            }
+        )
+    return decisions + _scripted_oracle_equivalence(proof, files, mutation)
+
+
+def _scripted_oracle_equivalence(proof, files, mutation):
+    """Review the exact protected-link fixture's redundant assertion, never arbitrary survivors."""
+    path = "shared/oracle.py"
+    oracle = (
+        "import unittest\nfrom layout import height\nclass Layout(unittest.TestCase):\n"
+        "    def test_required_height(self):\n        self.assertEqual(height(), 40)\n\n"
+        "    def test_positive_height(self):\n        self.assertGreater(height(), 0)\n"
+    )
+    if (
+        proof.get("verdict") != "PASS"
+        or files.get(path) != oracle
+        or files.get("test_layout.py") != oracle
+        or files.get("layout.py") != "def height():\n    return 40\n"
+    ):
+        return []
+    digest = hashlib.sha256(oracle.encode()).hexdigest()
+    required_tests = {"test_layout.Layout.test_required_height", "test_layout.Layout.test_positive_height"}
+    observed = any(
+        entry.get("path") == path
+        and entry.get("sha256") == digest
+        and any(
+            mutant.get("line") == mutant.get("end_line") == 8
+            and mutant.get("operator") == "drop_call"
+            and mutant.get("before") == "self.assertGreater(height(), 0)"
+            and mutant.get("after") == "None"
+            and mutant.get("outcome") == "survived"
+            and mutant.get("source_sha256") == digest
+            and mutant.get("failed_tests") == []
+            and required_tests.issubset(mutant.get("survived_tests") or [])
+            for mutant in entry.get("mutants") or []
+        )
+        for entry in mutation.get("files") or []
+    )
+    if not observed:
+        return []
+    return [
+        {
+            "gap_id": row["gap_id"],
+            "decision": "accept",
+            "reason_kind": "equivalent_mutant",
+            "reason": (
+                "The exact scripted protected oracle already asserts height() == 40 in "
+                "test_required_height, which implies height() > 0. The drop_call mutant removes "
+                "only this redundant positive-height assertion, not production behavior. Both "
+                "named test_layout tests passed independently under that exact mutant."
+            ),
+            "evidence_refs": [proof["path"], path],
+        }
+        for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []
+        if row.get("path") == path
+        and row.get("sha256") == digest
+        and row.get("line") == 8
+        and row.get("status") == "reason_required"
+        and row.get("mutation_outcomes") == ["survived"]
+    ]
 
 
 def assert_operational_wait(test, state: RunState, pause_status):
@@ -85,7 +376,7 @@ def body(*, questions=False, human=False, task_kind="build") -> dict[str, Any]:
                 "objective": "Deliver and verify the greeting flow",
                 "acceptance_criteria": ["C1"],
                 "depends_on": [],
-                "affected_paths": ["greet.py"],
+                "affected_paths": ["greet.py", "test_greeting.py"],
             }
         ],
         "deliverables": ["greet.py", "CLI regression tests"],

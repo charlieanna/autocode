@@ -2,9 +2,10 @@
 
 Code that coordinates several task runs (the planned architecture and
 multi-component layer) uses this instead of importing runner internals. Each
-call is one CLI invocation and the run's state lives on disk, so a caller that
+action is one CLI invocation and the run's state lives on disk, so a caller that
 crashes can reattach with ``TaskRun(workspace, run_dir)``. Reads return the
-status view from autocode_run_view. See docs/task-run.md.
+status view from autocode_run_view. An explicit read-only response may reuse
+identical status reads within its own scope. See docs/task-run.md.
 
     run = TaskRun.start(workspace, brief, options=("--engine", "codex"))
     view = run.advance_until_input()
@@ -25,12 +26,18 @@ from typing import Any
 try:
     from . import autocode_conversation_session as conversation_session
     from . import autocode_operational_change as operational_change
+    from . import autocode_route_fit as route_fit
+    from . import autocode_taskrun_reads as reads
+    from . import autocode_taskrun_worker as worker_driver
     from .autocode_captured_process import ProcessError
     from .autocode_captured_process import run as run_captured
     from .autocode_control_tokens import private_command
 except ImportError:
     import autocode_conversation_session as conversation_session
     import autocode_operational_change as operational_change
+    import autocode_route_fit as route_fit
+    import autocode_taskrun_reads as reads
+    import autocode_taskrun_worker as worker_driver
     from autocode_captured_process import ProcessError
     from autocode_captured_process import run as run_captured
     from autocode_control_tokens import private_command
@@ -92,6 +99,81 @@ class TaskRun:
     # The CompletedProcess of the latest call that starts or advances the run (also when it was
     # rejected), for a caller that keeps the run's output or exit code. Status reads never replace it.
     last_advance: subprocess.CompletedProcess | None = field(default=None, compare=False, repr=False)
+
+    @classmethod
+    def start_durable(cls, workspace, run_dir, brief, *, options=(), command=AUTOCODE, env=None):
+        """Return (handle, launch receipt) without waiting for the first human gate.
+
+        Only an available core-named persistent Linux mode may be selected. Inspect
+        the receipt until it binds (including effective bootstrap paths), then use
+        ordinary status reads and dispatch_durable for the exact displayed action.
+        Existing start()/advance() keep their synchronous owned-worker semantics.
+        """
+        workspace, run_dir = Path(workspace).resolve(), Path(run_dir).absolute()
+        environment = {**os.environ, **(env or {})}
+        reply = run_process([*command, "modes", "list", "--json"], env=environment)
+        try:
+            modes = json.loads(reply.stdout)["execution"]["modes"]
+            execution = next(row for row in modes if row["id"] == "durable_local")
+            receipt = worker_driver.dispatch(
+                workspace,
+                run_dir,
+                ["--brief", brief, "--in-place", *options],
+                execution=execution,
+                fresh=True,
+                command=command,
+                env=environment,
+                process=run_process,
+            )
+        except (ValueError, KeyError, TypeError, StopIteration, RuntimeError) as error:
+            raise TaskRunError(str(error)) from error
+        run = cls(workspace, run_dir, tuple(command), tuple(options), env)
+        return run, receipt
+
+    def dispatch_durable(self, command, *, view):
+        """Dispatch the exact caller-inspected NamedCommand through this view's transport.
+
+        Returns a launch receipt immediately; it does not claim completion or wait
+        for a model. The core independently fences the checkpoint under its lock.
+        A lost reply grants no repeat, recovery, approval or model substitution.
+        """
+        try:
+            from . import autocode_client_actions as actions
+        except ImportError:
+            import autocode_client_actions as actions
+        if not isinstance(command, actions.NamedCommand):
+            raise TaskRunError("dispatch_durable requires a public NamedCommand")
+        if actions.own(view, self.workspace, self.run_dir) != (self.workspace, self.run_dir):
+            raise TaskRunError("Durable view belongs to another task handle")
+        try:
+            return worker_driver.dispatch(
+                self.workspace,
+                self.run_dir,
+                command.argv,
+                execution=view.get("execution") or {},
+                command=self.command,
+                env={**os.environ, **(self.env or {}), **command.env},
+                process=run_process,
+            )
+        except (ValueError, RuntimeError) as error:
+            raise TaskRunError(str(error)) from error
+
+    def inspect_launch(self, receipt):
+        """Read the receipt's named inspection action; adopts only its bound paths."""
+        expected = ["autocode", "worker", "inspect", receipt.get("launch_id")]
+        if receipt.get("inspect_command") != expected or not isinstance(expected[-1], str):
+            raise TaskRunError("Unsupported worker inspection action")
+        reply = run_process([*self.command, *expected[1:]], env={**os.environ, **(self.env or {})})
+        try:
+            observed = json.loads(reply.stdout)
+            if reply.returncode or observed["launch_id"] != receipt["launch_id"]:
+                raise ValueError("unknown launch")
+            bound = observed.get("binding")
+            if observed.get("ready") and bound:
+                self.workspace, self.run_dir = Path(bound["workspace"]), Path(bound["run_dir"])
+            return observed
+        except (ValueError, KeyError, TypeError):
+            raise TaskRunError("Worker inspection unavailable; no replay is authorized", reply) from None
 
     @classmethod
     def start(
@@ -300,12 +382,86 @@ class TaskRun:
         """The runs already saved in ``workspace``; see ``attach``'s ``exclude``."""
         return sorted(_runs(Path(workspace).resolve()))
 
+    def _status_process(self, inspect_evidence=False):
+        """Share an identical public read only inside an explicit read-only response."""
+        key = (
+            tuple(self.command),
+            str(self.workspace),
+            str(self.run_dir),
+            str(self.cwd) if self.cwd is not None else None,
+            self.timeout,
+            inspect_evidence,
+            tuple(sorted({**os.environ, **(self.env or {})}.items())),
+        )
+        return reads.read(
+            key,
+            lambda: self._invoke("status", "--status", *(("--inspect-evidence",) if inspect_evidence else ())),
+        )
+
     def status(self, *, inspect_evidence=False) -> dict:
-        proc = self._invoke("status", "--status", *(("--inspect-evidence",) if inspect_evidence else ()))
+        proc = self._status_process(inspect_evidence)
         try:
             return json.loads(proc.stdout)["view"]
         except (ValueError, KeyError) as error:
             raise TaskRunError(f"--status did not return a status view: {error}", proc) from None
+
+    def intervention_status(self) -> dict:
+        """Read the public view and its sibling intervention evidence atomically.
+
+        The public status document exposes receipts beside ``view``. Coordinators
+        need both to distinguish their pauses from a person's independent hold;
+        a missing observation must never be interpreted as an empty receipt list.
+        """
+        proc = self._status_process()
+        try:
+            document = json.loads(proc.stdout)
+            result = {key: document[key] for key in ("view", "interventions")}
+            if any(not isinstance(value, dict) for value in result.values()):
+                raise ValueError("invalid intervention observation")
+            return result
+        except (ValueError, KeyError, TypeError) as error:
+            raise TaskRunError(f"--status did not return intervention evidence: {error}", proc) from None
+
+    def _saved_stage_deadline(self):
+        """The run's saved stage deadline, from the status document's settings."""
+        proc = self._invoke("status", "--status")
+        try:
+            return (json.loads(proc.stdout).get("settings") or {}).get("limits", {}).get("stage_timeout_seconds")
+        except ValueError as error:
+            raise TaskRunError(f"--status did not return a status document: {error}", proc) from None
+
+    def acknowledge_attention(self, view: dict) -> dict:
+        """Acknowledge the displayed alert; never answer, approve or advance a task."""
+        try:
+            from . import autocode_client_actions as actions
+        except ImportError:
+            import autocode_client_actions as actions
+        try:
+            action = actions.attention_acknowledgement(view.get("attention") or {}, self.workspace, self.run_dir)
+            proc = run_process(
+                [*self.command, *action.argv],
+                env={**os.environ, **(self.env or {})},
+                cwd=self.cwd,
+                timeout=self.timeout or 5,
+                advancing=False,
+            )
+            result = json.loads(proc.stdout)
+            receipt = result.get("receipt") if isinstance(result, dict) else None
+            item = view["attention"]["item"]
+            if (
+                proc.returncode
+                or not isinstance(result, dict)
+                or result.get("acknowledged") is not True
+                or not isinstance(receipt, dict)
+                or any(
+                    receipt.get(field) != item.get("id" if field == "item_id" else field)
+                    for field in ("item_id", "workspace", "run_dir")
+                )
+            ):
+                raise TaskRunError("Attention acknowledgement was refused or its receipt is unconfirmed", proc)
+            return result
+        except (actions.ClientGap, OSError, ValueError, subprocess.TimeoutExpired) as error:
+            raise TaskRunError(f"Attention acknowledgement outcome needs inspection: {error}") from error
 
     def evidence_report(self, *, require_current=True) -> dict:
         """Read the authenticated canonical pair through the public CLI only.
@@ -363,7 +519,22 @@ class TaskRun:
 
     def advance(self) -> dict:
         """Relaunch the run; it works until it completes or stops for input."""
-        self._invoke("advance", "--no-chat", *self.options, advancing=True)
+        return self._advance(self.status())
+
+    def _advance(self, view: dict) -> dict:
+        """Take this view's named continue action, or the ordinary ``--no-chat`` relaunch."""
+        need = view.get("needs") or {}
+        if need.get("kind") == "continue" and need.get("action") and view.get("next_command"):
+            try:
+                from . import autocode_client_actions as actions
+            except ImportError:
+                import autocode_client_actions as actions
+            # A named recovery (--abandon-stage, --reconcile-only) is exactly the command the view
+            # names; launch settings belong to a relaunch, and the CLI refuses them on these actions.
+            named = actions.named(view, self.workspace, self.run_dir)
+            self._invoke("advance", *named.argv, advancing=True, secret_env=named.env)
+        else:
+            self._invoke("advance", "--no-chat", *self.options, advancing=True, secret_env={})
         return self.status()
 
     def advance_until_input(self, max_calls: int = 20) -> dict:
@@ -373,7 +544,7 @@ class TaskRun:
             if view["done"] or view["needs"]["kind"] != "continue":
                 return view
             before = (view["status"], view["next_stage"], view["iteration"], view["phase"])
-            view = self.advance()
+            view = self._advance(view)
             if (view["status"], view["next_stage"], view["iteration"], view["phase"]) == before:
                 raise TaskRunError(f"no progress at {view['status']} (next stage {view['next_stage']})")
         raise TaskRunError(f"still not stopped after {max_calls} relaunches")
@@ -388,8 +559,42 @@ class TaskRun:
         self._act("abandon stage", "--abandon-stage", attempt_id)
         return self.status()
 
+    def save_stage_deadline(self, token: str, seconds: int) -> dict:
+        """The first step of a stopped job's two-step deadline recovery: save a larger deadline alone.
+
+        The CLI refuses a stage deadline beside a retry ("Save the stopped job's stage
+        deadline separately, then retry with its fresh token"), and only an increase is
+        admitted. The job stays paused and issues the fresh token its retry then takes.
+        """
+        self._invoke(
+            "save stage deadline",
+            "--job-retry-token",
+            "-",
+            "--max-stage-seconds",
+            str(seconds),
+            "--no-chat",
+            secret_env={"AUTOCODE_JOB_RETRY_TOKEN": token},
+        )
+        fresh = (self.status().get("needs") or {}).get("job_retry_token")
+        if not fresh:
+            raise TaskRunError("save stage deadline: the run issued no fresh job retry token")
+        # The successful standalone save supersedes this handle's launch deadline.
+        # Retry must use the saved value and fresh token, not reassert the old option.
+        self.options, _ = _split_flag(self.options, "--max-stage-seconds")
+        return {"token": fresh, "view": self.status()}
+
     def retry_job(self, token: str) -> dict:
-        """Retry exactly the inspected failed workflow job, retaining route and limits."""
+        """Retry exactly the inspected failed workflow job, retaining route and limits.
+
+        Retaining them means this never re-asserts a stage deadline: the CLI refuses one
+        beside a retry, so the saved limit stands and a differing one is rejected like any
+        other change beside a retry. Raise it first with ``save_stage_deadline``.
+        """
+        options, deadline = _split_flag(self.options, "--max-stage-seconds")
+        if deadline is not None and deadline != str(self._saved_stage_deadline()):
+            raise TaskRunError(
+                "retry job keeps the stopped job's configuration and limits; save a stage deadline on its own first"
+            )
         self._invoke(
             "retry job",
             "--resume-paused",
@@ -397,7 +602,7 @@ class TaskRun:
             "--job-retry-token",
             "-",
             "--no-chat",
-            *self.options,
+            *options,
             advancing=True,
             secret_env={"AUTOCODE_JOB_RETRY_TOKEN": token},
         )
@@ -489,6 +694,10 @@ class TaskRun:
     def bind_dependency(self, specification: Path) -> dict:
         return self._act("bind dependency", "--bind-dependency", str(specification))
 
+    def assign_linked_scope(self, identity: str) -> dict:
+        """Accept the core's exact repository assignment, never a plan approval."""
+        return self._act("assign linked scope", "--assign-linked-scope", identity)
+
     def receive_dependency(self, manifest: Path) -> dict:
         return self._act("receive dependency", "--receive-dependency", str(manifest))
 
@@ -523,6 +732,15 @@ class TaskRun:
                 )
             resolver_token = need.get("resolver_token")
             if not resolver_token:
+                route = need.get("route") or {}
+                if (
+                    not request_options
+                    and route.get("cause") == "cross_model"
+                    and route.get("question_id") == question_id
+                ):
+                    # Derived from current saved routes: the core rechecks independence
+                    # and availability; no AutoResolver request or token exists.
+                    return self._act("answer", "--answer", f"{question_id}={text}")
                 raise TaskRunError(
                     f"no current AutoResolver request carries {question_id}; "
                     "advance the run to publish one, then answer"
@@ -594,6 +812,32 @@ class TaskRun:
             self.options = tuple(options)
         return view
 
+    def assign_effort(self, role: str, effort: str) -> dict:
+        """Choose a level the model declares for a role whose named effort it does not (``needs.effort``, #2057).
+
+        The same answer as ``--answer effort-ROLE=EFFORT``: AutoCode refuses a level the model does not
+        declare and leaves the run paused. It saves without launching; continue with resume_paused().
+        A ``--<role>-reasoning-effort`` in ``options`` is updated, so advancing never passes the old level back.
+        A global ``--reasoning-effort`` would set every role again on resume, so the role's own flag, which
+        wins over it, is added beside it.
+        """
+        view = self._act("assign effort", "--answer", f"effort-{role}={effort}")
+        flag = route_fit.flag(role)
+        if flag == "--reasoning-effort":
+            return view  # a role without its own flag: the global one is the person's to change
+        self.options = tuple(
+            effort
+            if index and self.options[index - 1] == flag
+            else f"{flag}={effort}"
+            if option.startswith(flag + "=")
+            else option
+            for index, option in enumerate(self.options)
+        )
+        named = any(option == flag or option.startswith(flag + "=") for option in self.options)
+        if not named and any(o == "--reasoning-effort" or o.startswith("--reasoning-effort=") for o in self.options):
+            self.options = (*self.options, f"{flag}={effort}")
+        return view
+
     def respond_operational(self, request_id: str, request_token: str, text: str) -> dict:
         """Send corrective information to the published AutoResolver request."""
         return self._act(
@@ -609,8 +853,13 @@ class TaskRun:
             secret_env={"AUTOCODE_RESOLVER_TOKEN": request_token},
         )
 
-    def approve_plan(self, token: str) -> dict:
-        return self._act("approve plan", "--approve-goal", "-", secret_env={"AUTOCODE_APPROVE_GOAL_TOKEN": token})
+    def approve_plan(self, token: str, *, changeset_token: str | None = None) -> dict:
+        """Approve this plan; a set preparation keeps it held until every member acknowledges."""
+        options = ("--changeset-token", "-") if changeset_token else ()
+        environment = {"AUTOCODE_APPROVE_GOAL_TOKEN": token}
+        if changeset_token:
+            environment["AUTOCODE_CHANGESET_TOKEN"] = changeset_token
+        return self._act("approve plan", "--approve-goal", "-", *options, secret_env=environment)
 
     def approve_review(self, criterion: str, token: str) -> dict:
         return self._act(
@@ -637,17 +886,6 @@ class TaskRun:
 
     def feedback(self, text: str) -> dict:
         return self._act("feedback", "--feedback", text)
-
-    def guide_plan(self, text: str, token: str) -> dict:
-        """A program's correction of the displayed plan ``token``: saved as the program's, never as user feedback."""
-        return self._act(
-            "program guidance",
-            "--program-guidance",
-            text,
-            "--review-token",
-            "-",
-            secret_env={"AUTOCODE_REVIEW_TOKEN": token},
-        )
 
     def follow_up(self, text: str) -> dict:
         """Say the next thing to a finished run; continue it afterwards."""
@@ -704,6 +942,27 @@ class TaskRun:
         if usage_error or rejected_input or not accepted:
             raise TaskRunError(f"{name} exited {proc.returncode}: {_detail(proc)}", proc)
         return proc
+
+
+def _split_flag(options, flag):
+    """``options`` without ``flag``, and the value it carried (None when it is absent)."""
+    kept: list[str] = []
+    value = None
+    pending = False
+    for item in options:
+        if pending:
+            value = item
+            pending = False
+            continue
+        name, sep, inline = item.partition("=")
+        if name != flag:
+            kept.append(item)
+            continue
+        if sep:
+            value = inline
+        else:
+            pending = True
+    return tuple(kept), value
 
 
 # The lines a refusal starts with: AutoCode's own, and argparse's usage error (PROG: error: ...).

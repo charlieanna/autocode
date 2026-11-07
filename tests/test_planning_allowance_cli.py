@@ -6,6 +6,7 @@ reevaluation and continuation all use the public CLI. No live models.
 """
 
 import copy
+import hashlib
 import json
 import sys
 import unittest
@@ -88,6 +89,94 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         text = self.launch(["--run-dir", str(self.run), "--show-goal"], 0).stdout
         self.assertIn(f"{used}/4 plan-review calls used", text, "Saving an allowance must preserve charged calls")
 
+    def test_saved_inherited_review_false_pause_resumes_under_the_unchanged_allowance(self):
+        self.run, state = self.draft()
+        self.assertEqual("approve_plan", self.status()["needs"]["kind"])
+        planning = state["planning"]
+        charges = planning["review_charges"]
+        self.assertEqual(2, len(charges), "The fixture supplies two completed real fake-provider reviews")
+        self.assertNotEqual(charges[0], charges[1])
+        self.assertEqual(2, planning["astra_calls"])
+        # Owned fault boundary from #2087: A and B were reported in two cycles of this turn;
+        # the current cycle inherited B. Reduced-depth activation counted A + B + inherited B.
+        # Keep the actual review reports, stage records and usage; only seed the accounting shape.
+        turn = "fixture-inherited-review-turn"
+        history = state.setdefault("planning_history", [])
+        for charge in charges:
+            archived = copy.deepcopy(planning)
+            archived.update(astra_calls=1, review_charges=[charge], turn_event_id=turn)
+            archived.pop("inherited_review", None)
+            archived.pop("review_depth_reduced", None)
+            history.append(archived)
+        planning.update(
+            astra_calls=3,
+            review_charges=[charges[-1]],
+            turn_event_id=turn,
+            inherited_review={
+                "astra_calls": 1,
+                "cycle": len(history) - 1,
+                "reports": ["astra_challenge", "glm_revise"],
+                "next_stage": "astra_finalize",
+            },
+            review_depth_reduced=True,
+            review_calls_before_policy=2,
+            review_call_limit=3,
+            review_call_limit_origin="runner_default",
+            revision_review_renewals=1,
+        )
+        state["workflow"].update(kind="build", clarity="clear", brief_size="small")
+        state.update(
+            status="PAUSED_PLANNING_BUDGET",
+            phase="PLANNING",
+            next_stage="astra_finalize",
+            stop_reason="3/3 plan-review calls used",
+        )
+        runner.write_json(self.run / "state.json", state)
+        state_file = self.run / "state.json"
+        initial_history = copy.deepcopy(state["planning_history"])
+        initial_hash = hashlib.sha256(state_file.read_bytes()).hexdigest()
+        before = self.payload()
+        view = before["view"]
+        self.client = object.__new__(ConformanceDriver)
+        self.client.project, self.client.run_dir = self.project, self.run
+        self.assertNotIn("command_inputs", view["needs"], "A duplicated charge cannot require a larger allowance")
+        words, env, _ = self.client.named_command(view)
+        self.assertEqual(["--resume-paused"], words)
+        self.assertNotIn("--planning-review-call-limit", json.dumps(view["needs"]))
+        self.status()
+        self.assertEqual(initial_hash, hashlib.sha256(state_file.read_bytes()).hexdigest(), "Status must be read-only")
+        old_attempts = {row["identity"]: row for row in view["usage"]["accounting"]["attempts"]}
+        code, launched, output = self.invoke(*words, env=env)
+        self.assertEqual((2, True), (code, launched), output)
+        current = self.payload()
+        after = current["view"]
+        self.assertEqual("approve_plan", after["needs"]["kind"], after["stop_reason"])
+        self.assertEqual(before["settings"], current["settings"])
+        _, saved = self.saved()
+        self.assertEqual(initial_history, saved["planning_history"])
+        self.assertEqual(3, saved["planning"]["review_call_limit"])
+        self.assertEqual("runner_default", saved["planning"]["review_call_limit_origin"])
+        self.assertEqual(3, saved["planning"]["astra_calls"], "Two unique earlier reviews plus one new final review")
+        attempts = {row["identity"]: row for row in after["usage"]["accounting"]["attempts"]}
+        for identity, original in old_attempts.items():
+            self.assertEqual(original, attempts[identity], "Historical reported usage must stay intact")
+        new_reviews = [row for identity, row in attempts.items() if identity not in old_attempts]
+        self.assertEqual(["astra_finalize"], [row["stage"] for row in new_reviews])
+        self.assertFalse(new_reviews[0]["report_only"])
+        self.assertNotIn("approved_contract", after)
+        self.assertFalse((self.project / "greet.py").exists(), "Resume and review cannot approve the Builder")
+        code, launched, output = self.invoke("--approve-goal", "r0:not-the-plan-that-was-shown")
+        self.assertEqual((2, False), (code, launched), output)
+        self.assertEqual("approve_plan", self.status()["needs"]["kind"])
+        approval, approval_env, _ = self.client.named_command(after)
+        code, launched, output = self.invoke(*approval, env=approval_env)
+        self.assertEqual((0, False), (code, launched), output)
+        self.assertFalse((self.project / "greet.py").exists())
+        code, launched, output = self.invoke("--no-chat")
+        self.assertEqual((0, True), (code, launched), output)
+        self.assertEqual("TASK_COMPLETE", self.status()["status"])
+        self.assertTrue((self.project / "greet.py").is_file())
+
     def test_finite_resume_choice_checks_freshness_and_never_approves_the_plan(self):
         view = self.checkpoint()
         selected, env = self.choose(view)
@@ -105,6 +194,14 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         self.assertEqual("approve_plan", self.status()["needs"]["kind"])
         self.assertNotEqual(self.original_plan["token"], self.status()["displayed_plan"]["token"])
         self.assert_unapproved(used=3)
+
+    def test_the_paused_question_names_the_allowance_and_feedback_not_an_internal_category(self):
+        # #1815: a live worker run waited on "AutoResolver could not resolve internal_default".
+        self.checkpoint(operational=True)
+        shown = json.dumps(self.status()["needs"])
+        self.assertIn("--planning-review-call-limit N", shown)
+        self.assertIn("--feedback TEXT", shown)
+        self.assertNotIn("resolve internal_default", shown)
 
     def test_held_choice_only_saves_without_resuming_or_approving(self):
         view = self.checkpoint(operational=True)
@@ -128,6 +225,40 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         self.assertEqual((2, True), (code, launched), output)
         self.assertEqual("approve_plan", self.status()["needs"]["kind"])
         self.assert_unapproved(used=3)
+
+    def test_restarted_reduced_plan_keeps_the_explicit_finite_allowance(self):
+        self.checkpoint()
+        # Seed only the reduced-depth classification at this owned fault
+        # boundary. The plan and its two actual fake reviews are unchanged.
+        run, state = self.saved()
+        state["workflow"].update(kind="build", clarity="clear", brief_size="small")
+        state["planning"]["review_depth_reduced"] = True
+        runner.write_json(run / "state.json", state)
+        selected, env = self.choose(self.status())
+        code, launched, output = self.invoke(*selected, env=env)
+        self.assertEqual((0, False), (code, launched), output)
+        self.assert_unapproved()
+
+        # Feedback begins another real fake-provider planning cycle. Its
+        # reviews must use the remaining two calls, not the default 2/2 hold.
+        before = self.status()["usage"]["accounting"]["attempts"]
+        self.launch(["--run-dir", str(run), "--feedback", "Print the greeting on its own line."], 0)
+        self.launch(["--run-dir", str(run), "--no-chat"], 2)
+        current = self.status()
+        self.assertEqual("approve_plan", current["needs"]["kind"], current["stop_reason"])
+        self.assert_unapproved(used=4)
+        attempts = current["usage"]["accounting"]["attempts"]
+        old_ids = {row["identity"] for row in before}
+        reviews = [
+            row
+            for row in attempts
+            if row["identity"] not in old_ids
+            and row["stage"] in ("astra_challenge", "astra_finalize")
+            and not row["report_only"]
+            and not row["runner_owned"]
+        ]
+        self.assertEqual(2, len(reviews))
+        self.assertEqual(self.initial_settings, self.payload()["settings"])
 
     def test_finite_recovery_grant_replenishes_one_slot_without_other_authority(self):
         view = self.checkpoint(operational=True, grant=True)

@@ -8,11 +8,13 @@
  */
 
 import * as vscode from "vscode";
+import { statusLine } from "./statusBar";
 import { RunController, type RunRef } from "./controller";
 import { RunPanel } from "./panel";
 import { RunsProvider, type RunItem } from "./runsView";
 import { ChatView } from "./chat";
 import { ConnectionsPanel } from "./connections";
+import { StagesPanel } from "./stages";
 import { readSettings, spendTarget } from "./settings";
 
 type RunTarget = RunRef | RunItem;
@@ -22,6 +24,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const controller = new RunController(log);
   const runs = new RunsProvider(controller);
   const connections = new ConnectionsPanel(context.workspaceState);
+  const stagePanel = new StagesPanel();
   let active: RunRef | undefined;
   let watched: RunRef | undefined;
   let statusSequence = 0;
@@ -54,12 +57,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const currentWatched = watched;
     try {
-      const view = await controller.status(currentWatched);
+      const view = await controller.pollStatus(currentWatched);
       if (sequence !== statusSequence || !watched || !sameRun(watched, currentWatched)) {
         return;
       }
-      status.text = `$(autorenew) AutoCode: ${view.progress?.headline ?? view.status}`;
-      status.tooltip = view.progress?.line ?? view.status;
+      const line = statusLine(view);
+      status.text = line.text;
+      status.tooltip = line.tooltip;
       status.command = { command: "autocode.openRun", title: "Open Run", arguments: [currentWatched] };
       status.show();
     } catch {
@@ -91,6 +95,7 @@ export function activate(context: vscode.ExtensionContext): void {
     status,
     chat,
     connections,
+    stagePanel,
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("autocode")) {
         void refresh();
@@ -98,6 +103,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("autocode.connections", () => connections.show().catch((error) => {
       void vscode.window.showErrorMessage(`AutoCode Connections: ${messageOf(error)}`);
+    })),
+    vscode.commands.registerCommand("autocode.stages", () => stagePanel.show().catch((error) => {
+      void vscode.window.showErrorMessage(`AutoCode Stage Models: ${messageOf(error)}`);
     })),
     vscode.window.registerWebviewViewProvider("autocode.chat", chat, { webviewOptions: { retainContextWhenHidden: true } }),
     vscode.window.createTreeView("autocode.runs", { treeDataProvider: runs, showCollapseAll: true }),

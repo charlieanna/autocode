@@ -195,7 +195,14 @@ class ParallelQuotaTests(unittest.TestCase):
             '                "required_behaviors": draft["required_behaviors"], "constraints": draft["constraints"],\n'
             '                "acceptance_tests": ["Read a.txt, b.txt and combined.txt"], "source_refs": [],\n'
             '                "proposed_assumptions": [], "open_questions": [], "requirements": [],\n'
-            '                "ignored_statements": [], "conflicts": []}\n'
+            '                "ignored_statements": [], "conflicts": [],\n'
+            '                "workspace_scope": {"spans_repositories": False, "external_parts": []},\n'
+            # Requirements names the job (#1860) and, where its schema asks, judges clarity as the
+            # recognizer below would; the strict generation schema requires both.
+            '                "job": "build", "design_document": "",\n'
+            '                **({"clarity": "clear"} if "--output-schema" in sys.argv and "clarity" in json.loads(\n'
+            '                    Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()).get("properties", {})\n'
+            "                   else {})}\n"
             '    if data["stage"] == "astra_challenge":\n'
             '        draft = ((data.get("goal_contract") or {}).get("body") or {})\n'
             '        return {"summary": "The three milestones cover the outputs", "concerns": [],\n'
@@ -211,6 +218,7 @@ class ParallelQuotaTests(unittest.TestCase):
             '                  "contract_changes": [], "conflict_resolutions": [], "requirement_trace": []}\n'
             '        if data["stage"] in ("astra_discovery", "glm_revise"):\n'
             '            result["code_refs"] = ["goal_contract.body"]\n'
+            '            result["workspace_scope"] = {"spans_repositories": False, "external_parts": []}\n'
             '        if data["stage"] == "astra_discovery":\n'
             "            result.update(alternatives=[], uncertainties=[])\n"
             '        if data["stage"] == "glm_revise":\n'
@@ -333,7 +341,10 @@ class ParallelQuotaTests(unittest.TestCase):
     def paused(self, marker="AUTOCODE_BUILDER_QUOTA_FAIL_ONCE", error=QUOTA, members="M1"):
         self.fixture(marker, error, members)
         result = self.launch(
-            ["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat"], 2, answers="yes\n"
+            # Fixed routes: the batch's Builder is GLM, whatever automatic selection prefers (#1729 put Luna first).
+            ["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat", "--no-auto-select"],
+            2,
+            answers="yes\n",
         )
         self.assertTrue(list((self.project / ".autocode/runs").glob("*/state.json")), result.stdout + result.stderr)
         run, state = self.saved()

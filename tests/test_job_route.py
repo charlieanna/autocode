@@ -65,6 +65,29 @@ class JobModelRouteTests(JobHarness):
         self.env.update(REFUSE_KIND=kind, REFUSE_MODEL=model)
         return self.start(mode, workflow)
 
+    def test_a_stage_deadline_stop_asks_no_model_question_and_takes_its_exact_retry(self):
+        # #2605: the deadline is AutoCode's own limit. Once its extensions are spent (none fit under
+        # this harness's total cap) the job waits for its exact retry; no model is asked or accepted.
+        (self.workspace / ".autocode" / "bin" / "codex").write_text(PROVIDER)
+        run = self.start("timeout")
+        held = run.advance_until_input()
+        need = held["needs"]
+        self.assertEqual("retry_job", need["kind"])
+        self.assertNotIn("route", need)
+        self.assertFalse(need.get("questions"))
+        self.assertNotIn("--answer", held["next_command"])
+        self.assertNotIn("MODEL", held["stop_reason"])
+        self.assertNotIn("--", held["stop_reason"])
+        calls, before = self.calls.read_text(), self.saved(run)
+        with self.assertRaises(TaskRunError):
+            run.assign_model("sol", "gpt-6-luna")
+        self.assertEqual(calls, self.calls.read_text())
+        self.assertEqual(before, self.saved(run))
+        run.env["JOB_MODE"] = "success"
+        done = run.retry_job(need["job_retry_token"])
+        self.assertEqual("TASK_COMPLETE", done["status"])
+        self.assertEqual(held["routes"]["sol"]["model"], done["routes"]["sol"]["model"])
+
     def models(self):
         return [line.split(" ", 1)[1] for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
 
@@ -112,9 +135,11 @@ class JobModelRouteTests(JobHarness):
                 "cause": "content_filter",
                 "stopped_model": "gpt-6-sol",
             },
-            {key: value for key, value in route.items() if key != "candidates"},
+            {key: value for key, value in route.items() if key not in ("candidates", "command")},
         )
         self.assertIn("candidates", route)
+        # After a refusal the answer is the next step itself; it is still named on the route too (#2005).
+        self.assertEqual(need["route"]["command"], run.status()["next_command"])
         self.assertIn("Code Reviewer: the provider's content filter refused the response on gpt-6-sol", need["reason"])
         self.assertIn("the same model is likely to refuse it again", need["reason"])
         self.assertIn("--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["reason"])
@@ -245,6 +270,13 @@ class JobModelRouteTests(JobHarness):
         self.assertEqual(
             "--resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["action"]
         )
+        # The answer is named as a command too, so a chat can take a typed model instead of reading it as
+        # a decline (#2005): the same shell-quoted form as next_command, with the issued token.
+        import autocode_client_actions as client_actions
+
+        command = client_actions.parse(need["route"]["command"], run.workspace, run.run_dir)
+        self.assertEqual(["--answer", "route-sol=MODEL", "--job-retry-token", "-"], command.argv)
+        self.assertEqual(need["job_retry_token"], command.env.get("AUTOCODE_JOB_RETRY_TOKEN"))
         recovery = run.status()["recovery"]
         self.assertIn("quota", recovery["what_happened"])
         self.assertEqual(["inspect", "retry_job", "feedback"], [action["kind"] for action in recovery["actions"]])
@@ -481,7 +513,7 @@ class JobModelRouteTests(JobHarness):
             "route-sol=gpt-6-luna",
             "--job-retry-token",
             need["job_retry_token"],
-            message="did not stop on quota, a content-filter refusal or an output limit",
+            message="did not stop on quota, a content-filter refusal, output limit, context window, provider authentication or a stopped-job timeout",
         )
 
 
@@ -536,6 +568,19 @@ class RerouteTests(unittest.TestCase):
         state["settings"]["roles"]["sol"]["model"] = to  # as quota_route.assign applies it
         with mock.patch.object(job_failure.source, "matches_original", return_value=matches):
             return job_failure.reroute(runtime, state, "/run", "/workspace", assignment)
+
+    def test_an_effort_the_answer_fitted_to_the_new_model_is_bound_with_it(self):
+        """#2006: quota_route.assign moves the role's effort to a variant the named model declares and records
+        it on the assignment; the exact retry must bind that too, not call the run's configuration stale."""
+        state = bound_state()
+        state["settings"]["roles"]["sol"]["reasoning_effort"] = "high"  # as assign fitted it (was medium)
+        with self.assertRaisesRegex(ValueError, "retry is stale"):
+            self.reroute(bound_state() | {"settings": state["settings"]})  # without the fit on the assignment
+        state = bound_state()
+        state["settings"]["roles"]["sol"]["reasoning_effort"] = "high"
+        token = self.reroute(state, effort={"from": "medium", "to": "high"})
+        self.assertTrue(token.startswith("jr:"))
+        self.assertEqual("high", state["job_failure"]["configuration"]["roles"]["sol"]["reasoning_effort"])
 
     def test_the_route_never_lists_the_model_the_job_now_runs_on(self):
         # With the runtime's launch rules the question is asked again against the new configuration.
@@ -661,6 +706,7 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             for name, row, routed in (
                 ("quota", {"type": "error", "error": {"message": "subscription usage limit reached"}}, "quota"),
+                ("auth", {"type": "error", "error": {"statusCode": 401}}, "provider_auth"),
                 (
                     "filter",
                     {"type": "turn.failed", "error": {"code": "content_filter", "message": "x"}},
@@ -734,13 +780,16 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         message = self.answer(state)
         self.assertIn(
             "The stopped Code Reviewer takes no other model: only a job stopped on quota, a "
-            "content-filter refusal or an output limit does",
+            "content-filter refusal, output limit, context window, provider authentication or a stopped-job timeout does",
             message,
         )
         self.assertNotIn("did not stop on quota", message)
         # An archived error that is not about the model still says so.
         other = self.legacy_exit({"message": "connection reset by peer"})
-        self.assertIn("did not stop on quota, a content-filter refusal or an output limit", self.answer(other, runner))
+        self.assertIn(
+            "did not stop on quota, a content-filter refusal, output limit, context window, provider authentication or a stopped-job timeout",
+            self.answer(other, runner),
+        )
 
     def test_an_investigator_without_bound_attempt_evidence_keeps_only_its_exact_retry(self):
         state = unrouted_stop()

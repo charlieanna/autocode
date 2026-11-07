@@ -15,12 +15,16 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_component_plan as component_plan
+    from . import autocode_diagnosis_refresh as diagnosis_refresh
     from . import autocode_roles as roles
+    from . import autocode_run_status as run_status
     from . import autocode_source_scope as source_scope
     from . import autocode_technical_questions as technical_questions
 except ImportError:
     import autocode_component_plan as component_plan
+    import autocode_diagnosis_refresh as diagnosis_refresh
     import autocode_roles as roles
+    import autocode_run_status as run_status
     import autocode_source_scope as source_scope
     import autocode_technical_questions as technical_questions
 
@@ -50,6 +54,8 @@ try:
     from . import autocode_adaptive_planning as adaptive
     from . import autocode_approval_view as approval_view
     from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_criterion_changes as criterion_changes
+    from . import autocode_current_behavior as current_behavior
     from . import autocode_design_plan as design_plan
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_findings as findings
@@ -58,16 +64,21 @@ try:
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
     from . import autocode_plan_chat as plan_chat
+    from . import autocode_plan_retention as plan_retention
     from . import autocode_planning_cycle as planning_cycle
     from . import autocode_progressive_state as progressive_state
     from . import autocode_proof_declarations as proof_declarations
     from . import autocode_recovery_context as recovery_context
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recommendation as recommendation
+    from . import autocode_review_routing as review_routing
     from . import autocode_risk_obligations as risk_obligations
+    from . import autocode_scope_question as scope_question
     from . import autocode_source_log as source_log
+    from . import autocode_superseded_tests as superseded_tests
     from . import autocode_task_feasibility as task_feasibility
     from . import autocode_test_cases as test_cases
+    from . import autocode_trace_coverage as trace_coverage
     from . import autocode_util as s
     from . import autocode_verification_plan as verification_plan
     from . import autocode_workflows as workflows
@@ -97,6 +108,8 @@ except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_approval_view as approval_view
     import autocode_brief_obligations as brief_obligations
+    import autocode_criterion_changes as criterion_changes
+    import autocode_current_behavior as current_behavior
     import autocode_design_plan as design_plan
     import autocode_finding_rescope as finding_rescope
     import autocode_findings as findings
@@ -105,16 +118,21 @@ except ImportError:
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
     import autocode_plan_chat as plan_chat
+    import autocode_plan_retention as plan_retention
     import autocode_planning_cycle as planning_cycle
     import autocode_progressive_state as progressive_state
     import autocode_proof_declarations as proof_declarations
     import autocode_recovery_context as recovery_context
     import autocode_resolver_human as human
     import autocode_resolver_recommendation as recommendation
+    import autocode_review_routing as review_routing
     import autocode_risk_obligations as risk_obligations
+    import autocode_scope_question as scope_question
     import autocode_source_log as source_log
+    import autocode_superseded_tests as superseded_tests
     import autocode_task_feasibility as task_feasibility
     import autocode_test_cases as test_cases
+    import autocode_trace_coverage as trace_coverage
     import autocode_util as s
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
@@ -168,6 +186,7 @@ def validate_body(state: RunState, body, *, ready=False, allow_legacy=False, ori
             raise ValueError("Question, criterion and milestone IDs must be nonempty and unique")
     if not test_cases.design_only(state):
         proof_declarations.validate(criteria)
+    superseded_tests.validate(state, criteria)
     criterion_ids = {row["id"] for row in criteria}
     for milestone in milestones:
         covered = milestone["acceptance_criteria"]
@@ -320,13 +339,26 @@ def apply_requirements(state: RunState, body, *, artifact_sha256, record=None):
 # verification_plan.refuse_new_plan existed), and a bug job's small correction is built by the runner from the
 # Investigator's report (autocode_bug_job.ORIGIN), and a spec-first run's correction relabels test: cases the runner saw
 # already pass as guard: (autocode_acceptance_tests_job.ORIGIN); plan review and the user's approval still follow.
-UNAUTHORED_DRAFTS = ("adaptive_review_approval", "bugfix_small_correction", "acceptance_tests_correction")
+# The compact bug-fix draft (autocode_compact_planning.ORIGIN) is the runner's too (#2021), and so is the
+# supersedes list for an original test the gate saw a fix change in place (autocode_superseded_correction.ORIGIN).
+UNAUTHORED_DRAFTS = (
+    "adaptive_review_approval",
+    "bugfix_small_correction",
+    "acceptance_tests_correction",
+    "bugfix_compact_draft",
+    "superseded_tests_correction",
+)
 
 
 def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
+    body = review_routing.contract_body(state, body)
     body = brief_obligations.prepare_body(state, body, origin, record)
     body = risk_obligations.prepare_body(state, body, origin, record)
+    if not allow_legacy or any(key in body for key in BRIEF_FIELDS):  # a legacy body has no such box
+        body = current_behavior.prepare_body(state, body, origin)
     validate_body(state, body, allow_legacy=allow_legacy, origin=origin)
+    if origin in examples.PLANNER_ORIGINS:
+        examples.refuse_unterminated_outputs(body, (state.get("goal_contract") or {}).get("body") or {})
     # Here, not in validate_body, which approval runs again on a saved draft. Human-review criteria too:
     # autocode_dispatch.task_for puts their methods in other milestones' task plans, which reach the Validator.
     if origin not in UNAUTHORED_DRAFTS:
@@ -365,6 +397,10 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
         created_at=s.now(),
         declared_changes=copy.deepcopy(changes or []),
     )
+    # The only authenticated record of a person-authorized exact exclusion reword: each
+    # row is validated against the current assignment and the installed body, whatever
+    # the revision guard did or skipped for this origin (#2467).
+    scope_question.record_installed_corrections(state, body, changes or [], revision)
     state["goal_contract"] = contract
     if origin in ("user_cli_edit", "resolver_recommendation"):
         # An authenticated scope change is new user intent.
@@ -393,6 +429,7 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
         questions = remaining
         if not questions:
             # The default is planning input, never a ready or approved plan.
+            planning_cycle.internal_answer_restart(state)
             state.update(
                 {
                     "status": "RUNNING",
@@ -627,12 +664,45 @@ def migrate(state: RunState, *, fresh=False):
     state.update(
         {"version": 3, "phase": "DISCOVERING", "status": "RUNNING", "pending_questions": [], "next_stage": first_stage}
     )
-    if fresh:
+    if fresh and workflows.requirements_first(state):
+        # Requirements is the front door of every run that has it: its report names the job (#1860).
+        workflows.begin_requirements(state)
+    elif fresh:
         workflows.begin(state, first_stage)
 
 
-def render(state: RunState, run_dir=None):
-    """The brief as a person reads it; ``run_dir``, when given, completes the approve command."""
+ANSWER_KINDS = {
+    "delegated": "the proposed default, delegated",
+    "permission_answer": "a permission decision",
+    "checkpoint_answer": "a checkpoint decision",
+}
+
+
+def answer_lines(answers) -> list[str]:
+    """One line per saved answer, the question and what was answered (#2363). The record itself,
+    with its token and timestamps, stays in the run state and the source log."""
+    lines = []
+    for key, row in answers.items() if isinstance(answers, dict) else []:
+        if not isinstance(row, dict):
+            lines.append(f"  - {key}: {row}")
+            continue
+        question = row.get("question")
+        asked = str(question.get("question") or "").strip() if isinstance(question, dict) else ""
+        how = ANSWER_KINDS.get(str(row.get("kind") or ""))
+        answered = str(row.get("text") or "").strip() or "(no text)"
+        lines.append(f"  - {key}: {asked} -> {answered}" if asked else f"  - {key} -> {answered}")
+        if how:
+            lines[-1] += f" ({how})"
+    return lines
+
+
+def render(state: RunState, run_dir=None, *, details=True):
+    """The brief as a person reads it; ``run_dir``, when given, completes the approve command.
+
+    Without ``details``, a plan waiting for approval shows only its short approval screen
+    (``approval_screen``, #2535); every other stop, and ``details``, show the full brief."""
+    if not details and (screen := approval_screen(state, run_dir)):
+        return screen
     contract = state.get("goal_contract")
     if not contract:
         if roles.planning_flow(state) == "v2":
@@ -758,17 +828,53 @@ def render(state: RunState, run_dir=None):
     )
     lines += examples.review_notes(state)
     lines += base_examples.notes(state)
-    declared = contract.get("declared_changes") or []
+    declared = list(contract.get("declared_changes") or [])
+    # A line of the Planner's own changed as the Plan Reviewer's blocking concern asked (revision guard) stays on
+    # the approval screen when the final review keeps it without declaring it again: the person approving this
+    # plan is the first to see it. Only this cycle's drafts count, back to the draft the cycle began with.
+    for revision in reversed(state.get("contract_history") or []):
+        if (
+            not isinstance(revision, dict)
+            or revision.get("approval_status") != "draft"
+            or revision.get("approval_event")
+            or revision.get("origin") == "user_cli_edit"
+        ):
+            break
+        declared += [
+            dict(row, revision=revision.get("revision"))
+            for row in revision.get("declared_changes") or []
+            if isinstance(row, dict) and (row.get("review_concerns") or row.get("change") == current_behavior.CHANGE)
+        ]
+        if revision.get("origin") in ("glm_draft", "astra_discovery", "plan"):
+            break
     if declared:
         lines += ["", "Declared contract changes:"]
         ordered = sorted(declared, key=lambda row: row.get("change") != "permission_changed")
         for row in ordered:
             replaced = (
                 f" -> {row['replacement']}"
-                if row.get("change") == "permission_changed" and row.get("replacement")
+                if row.get("change") in ("permission_changed", "reworded", current_behavior.CHANGE)
+                and row.get("replacement")
                 else ""
             )
-            lines.append(f"  - {row.get('change')}: {row.get('item')}{replaced} (basis: {row.get('basis')})")
+            asked = (
+                "; Plan Reviewer concern " + ", ".join(str(cid) for cid in row["review_concerns"])
+                if row.get("review_concerns")
+                else ""
+            )
+            earlier = f"; revision {row['revision']}" if row.get("revision") else ""
+            lines.append(
+                f"  - {row.get('change')}: {row.get('item')}{replaced} (basis: {row.get('basis')}{asked}{earlier})"
+            )
+            correction = row.get("draft_failure_correction")
+            if isinstance(correction, dict):
+                lines.append(
+                    "    First reviewer judged this an unapproved model inference: "
+                    + correction["rationale"]
+                    + " (draft/source snapshot: "
+                    + correction["snapshot"]
+                    + ")"
+                )
     history = state.get("contract_history", [])
     if history:
         lines += ["", "Contract delta:"] + list(
@@ -781,11 +887,19 @@ def render(state: RunState, run_dir=None):
             )
         )
     if state.get("answers"):
-        lines += ["", "Saved user answers:", json.dumps(state["answers"], indent=2)]
+        lines += ["", "Saved user answers:"] + answer_lines(state["answers"])
     if state.get("brief_feedback"):
         lines += ["", "Saved brief feedback:"] + ["  - " + row["text"] for row in state["brief_feedback"]]
     if public:
-        if public["request"]:
+        if (public["request"] or {}).get("kind") == "human_review":
+            lines += [""] + approval_view.review_request(
+                body,
+                public["request"],
+                state.get("validation"),
+                criterion_changes.attribute(body, state.get("code_checkpoints")),
+                run_dir if run_dir is not None else state.get("run_dir"),
+            )
+        elif public["request"]:
             lines += ["", "Decision needed:", json.dumps(public["request"], indent=2)]
         lines += [f"Answer ID: {q['id']} - {q['question']}" for q in public["questions"]]
         lines += [f"Resolver request ID: {public['request_id']}", f"Resolver request token: {public['request_token']}"]
@@ -822,19 +936,11 @@ def render(state: RunState, run_dir=None):
         lines += adaptive.review_notes(state["planning"])
     review = review_token(state) if public else None
     if review:
-        lines += [
-            "",
-            f"Review token (current validated artifact): {review}",
-            "Validation: " + json.dumps(state["validation"], indent=2),
-        ]
+        lines += ["", f"Review token (current validated artifact): {review}"]
+        lines += approval_view.validation_summary(state["validation"] or {})
     if asks_approval:
         # The last screen: the decision in brief, then the limits and the commands (#381).
-        lines += [""] + approval_view.summary(
-            body,
-            contract["revision"],
-            test_cases.proof_cases(state, all_due=True),
-            design_only=test_cases.design_only(state),
-        )
+        lines += [""] + approval_summary(state)
         lines += goal_file.approval_lines(state)
         lines += [""] + approval_view.actions(
             token(contract), state.get("settings") or {}, state.get("iteration", 0), run_dir
@@ -843,9 +949,53 @@ def render(state: RunState, run_dir=None):
     return "\n".join(lines)
 
 
-def present(state: RunState, run_dir=None):
+def approval_summary(state: RunState, *, above=True) -> list[str]:
+    contract = cast(dict, state["goal_contract"])
+    lines = approval_view.summary(
+        contract["body"],
+        contract["revision"],
+        test_cases.proof_cases(state, all_due=True),
+        design_only=test_cases.design_only(state),
+        proxied=trace_coverage.proxied_rows(plan_retention.validated_trace(state)),
+        above=above,
+    )
+    if (state.get("settings") or {}).get(review_routing.SETTING) == "combined":
+        lines += ["", review_routing.POLICY]
+    return lines
+
+
+def approval_screen(state: RunState, run_dir=None) -> str:
+    """The plan approval stop as a person first reads it (#2535): the decision in plain words, the
+    limits, one line naming the full brief (``render``), then the commands. The machinery (the contract
+    diff, file hashes, request tokens) is only in the full brief, and approval still binds to the token
+    of this exact plan. '' when no plan waits for approval."""
+    contract = state.get("goal_contract")
     public = human.current(state)
-    if not plan_chat.pending(state):
+    if not contract or not public or public["scope"] != "goal_approval":
+        return ""
+    lines = approval_summary(state, above=False)
+    if workflows.approval_note(state):
+        lines += ["", workflows.approval_note(state)]
+    lines += [
+        "",
+        approval_view.limits(state.get("settings") or {}, state.get("iteration", 0)),
+        "",
+        approval_view.details(run_dir),
+        "",
+        approval_view.intro(contract["revision"]),
+    ]
+    lines += approval_view.commands(token(contract), run_dir)
+    lines += ["", f"State: {state.get('phase')} / {state['status']}"]
+    return "\n".join(lines)
+
+
+def present(state: RunState, run_dir=None, *, details=True):
+    try:
+        from . import autocode_changeset_barrier as changeset_barrier
+    except ImportError:
+        import autocode_changeset_barrier as changeset_barrier
+    public = human.current(state)
+    if not (plan_chat.pending(state) or plan_chat.gate_chat.pending(state)):
         state.pop("displayed_goal", None)
     # Preserve the historical display acknowledgement for exact, already-recorded
     # review replays. Rendering still hides controls without current authority.
@@ -861,7 +1011,7 @@ def present(state: RunState, run_dir=None):
     # Any current request is shown against the contract: --delegate-all and
     # --reject-assumption act on that display at clarification and permission
     # stops. Approval itself still requires the goal-approval status.
-    if public and state.get("goal_contract"):
+    if (public or changeset_barrier.held_approval(state)) and state.get("goal_contract"):
         state["displayed_goal"] = token(state["goal_contract"])
     if state.get("goal_contract"):
         # Question actions bind to the displayed handoff even without a
@@ -873,16 +1023,71 @@ def present(state: RunState, run_dir=None):
         # Advisory base-revision check (#676): runs the planned commands on the base revision once for each
         # distinct set of planned examples; render() only reads what this recorded.
         base_examples.check(state)
-    rendered = render(state, run_dir)
+    rendered = render(state, run_dir, details=details)
     interaction_timing.presented(state, public, at=s.now())
     return rendered
 
 
-def approve(state: RunState, selected, *, initial_assignment_proof=None):
+def refresh_diagnosis(state: RunState, workspace):
+    """Route an admitted exact feedback correction through the existing Investigator.
+
+    Only a safe planning boundary may do this. Approval and operational holds are
+    never silently converted to execution or new recovery/spending authority.
+    """
+    if state.get("status") not in (
+        "RUNNING",
+        "AWAITING_GOAL_APPROVAL",
+        "PAUSED_REQUESTED",
+        "PAUSED_INTERVENTION",
+        "PAUSED_GOAL_UNAPPROVED",
+        "PAUSED_STALE_DIAGNOSIS",
+    ) or any(
+        state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair", "pending_questions")
+    ):
+        return False
+    if (state.get("investigation_refresh") or {}).get("pending"):
+        return False
+    if not diagnosis_refresh.conflicts(state):
+        return False
+    # An approved plan requires its existing explicit revision path. This barrier
+    # never revokes that approval or substitutes a new investigation behind it.
+    if (state.get("goal_contract") or {}).get("approval_status") != "draft":
+        return False
+    public = human.current(state)
+    proposal = state.get(human.PRIVATE) or {}
+    if (public and public.get("scope") != "goal_approval") or (proposal and proposal.get("scope") != "goal_approval"):
+        return False
+    try:
+        prepared = diagnosis_refresh.prepare(state, workspace)
+    except ValueError as error:
+        prepared = None
+        reason = str(error)
+    if public:
+        entry = state["resolver"]["human_escalations"][public["request_id"]]
+        entry.update(
+            status="superseded",
+            superseded_at=s.now(),
+            superseded_reason="Accepted diagnosis conflicts with the corrected draft",
+        )
+    state.pop(human.PUBLIC, None)
+    state.pop(human.PRIVATE, None)
+    state.pop("user_request", None)
+    state.pop("displayed_goal", None)
+    cast(dict, state.get("planning", {})).pop("final_token", None)
+    if prepared is None:
+        run_status.pause(state, "PAUSED_STALE_DIAGNOSIS", reason)
+    else:
+        diagnosis_refresh.queue(state, prepared)
+        run_status.running(state, "INVESTIGATING", next_stage="investigate_bug")
+    return True
+
+
+def approve(state: RunState, selected, *, initial_assignment_proof=None, source=None):
     # Assignment/eligibility may still reject after seal preflight. Publish no
     # approval, retirement or active pointer unless the whole boundary succeeds.
+    # ``source`` marks an approval the person chose when starting the run (--skip-to-build, #1731).
     candidate = copy.deepcopy(state)
-    _approve(candidate, selected, initial_assignment_proof=initial_assignment_proof)
+    _approve(candidate, selected, initial_assignment_proof=initial_assignment_proof, source=source)
     cast(dict, state).clear()
     state.update(candidate)
 
@@ -898,9 +1103,11 @@ def approval_boundary_refusal(state: RunState):
     return None
 
 
-def _approve(state: RunState, selected, *, initial_assignment_proof=None):
+def _approve(state: RunState, selected, *, initial_assignment_proof=None, source=None):
     if reason := approval_boundary_refusal(state):
         raise ValueError(reason)
+    if diagnosis_refresh.conflicts(state) or (state.get("investigation_refresh") or {}).get("pending"):
+        raise ValueError("The accepted diagnosis conflicts with this draft; resume to refresh it before plan approval")
     contract = cast(dict, state["goal_contract"])
     if not sealed(contract) or selected != token(contract) or state.get("displayed_goal") != selected:
         raise ValueError("Approve only the current displayed draft token; show the goal again")
@@ -920,8 +1127,11 @@ def _approve(state: RunState, selected, *, initial_assignment_proof=None):
     prepared_progressive = progressive_state.prepare_seal(state, selected)
     recorded_under = finding_rescope.previous_approved(state)
     event = {"kind": "goal_approval", "actor": "user_cli", "at": s.now(), "token": selected}
+    if source:
+        event["source"] = source
     state.setdefault("user_events", []).append(event)
     contract.update(approval_status="approved", approval_event=event)
+    review_routing.bind_approval(state)
     progressive_state.seal(state, selected, prepared=prepared_progressive)
     # Open findings follow the criteria this revision moved to other milestones (#447).
     finding_rescope.on_approval(

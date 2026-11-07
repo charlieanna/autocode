@@ -13,6 +13,45 @@ import autocode_verify as verify
 
 
 class GoInvocationTests(unittest.TestCase):
+    def test_explicit_empty_run_selector_is_a_command_check_without_test_credit(self):
+        for command in (
+            "go test -count=1 -run '^$' ./...",
+            "go test ./... -run='^$'",
+            "env GOWORK=off /tools/go test -test.run '^$' .",
+            "go test -run TestOne -run '^$' .",
+            "go test -tags integration -timeout 1m -p=2 -parallel=1 -cpu 1 -shuffle=off -mod=readonly -modfile=go.mod -v=false -short -race -cover -failfast -json -run '^$' .",
+        ):
+            with self.subTest(command=command):
+                invocation = go_tests.parse(command)
+                self.assertTrue(invocation.compile_only)
+                self.assertIsNone(verify.command_framework(command))
+                # A submitted regression/suite still needs real named results.
+                self.assertTrue(verify._go_test(command))
+
+    def test_compile_only_check_does_not_require_named_test_collection(self):
+        self.assertIsNone(verify.command_framework("go test -count=1 -run '^$' ./..."))
+
+    def test_empty_selector_cannot_hide_other_execution_or_test_program_overrides(self):
+        for command in (
+            "go test ./...",
+            "go test -run TestOne .",
+            "go test -run '^$' -run TestOne .",
+            "go test -run '^$' -test.run=TestOne .",
+            "go test -run '^$' -bench . .",
+            "go test -run '^$' -fuzz=FuzzOne .",
+            "go test -run '^$' -args -test.run TestOne",
+            "go test -run '^$' -- -test.run TestOne",
+            "go test -run -json .",
+            "go test -ldflags '-run=^$' .",
+            "go test -run '^$' -unknown=value .",
+            "go test -run '^$' -count",
+            "go test -run '^$' -v=invalid .",
+            "go test -run '^$' -tags -run=TestOne . -run TestOne",
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(go_tests.parse(command).compile_only)
+                self.assertEqual("go", verify.command_framework(command).name)
+
     def test_absolute_executable_environment_and_quoted_selector_are_preserved(self):
         words = [
             "env",

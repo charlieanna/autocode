@@ -32,8 +32,10 @@ try:
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_regression as regression
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_skip_requirements as skip_requirements
     from . import autocode_storage_budget as storage_budget
     from . import autocode_support as support
+    from . import autocode_transport_relocation as transport_relocation
     from . import autocode_workflow as workflow
     from . import autocode_workflows as workflows
     from . import autopilot
@@ -55,8 +57,10 @@ except ImportError:
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_regression as regression
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_skip_requirements as skip_requirements
     import autocode_storage_budget as storage_budget
     import autocode_support as support
+    import autocode_transport_relocation as transport_relocation
     import autocode_workflow as workflow
     import autocode_workflows as workflows
     import autopilot
@@ -96,11 +100,31 @@ def record_resume(runner, args, state: RunState, state_path) -> None:
 
 def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checkout_owned=False):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
+    storage_checked = False
+    args._ready_message_boundary = False
+
+    def check_storage(current):
+        nonlocal storage_checked
+        if storage_checked or storage_budget.conversation_only(current):
+            return True
+        budget = storage_budget.projection(workspace)
+        reason = storage_budget.refusal(budget)
+        if reason:
+            print(f"Cannot start: {reason}", file=sys.stderr)
+            return False
+        note = storage_budget.warning(budget)
+        if note:
+            print(f"warning: {note}", file=sys.stderr)
+        storage_checked = True
+        return True
 
     def consume_boundary(current):
         try:
             if runner.consume_interventions(current, run_dir, workspace):
                 print(f"{current['status']}: {current['stop_reason']}")
+                args._ready_message_boundary = current.get("status") == "RUNNING" and not any(
+                    current.get(key) for key in ("active_stage", "active_runner_check")
+                )
                 raise runner.orchestrator.LoopExit(2)
         except interventions.InterventionError as error:
             raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
@@ -109,6 +133,8 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         consume_boundary(state)
         if (run_dir / "pause-requested").exists():
             raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous model access probe saved")
+        if reason := storage_budget.dispatch_refusal(workspace, run_dir):
+            raise support.Paused("PAUSED_TASK_PREFLIGHT", reason)
 
     try:
         model_preflight.check(
@@ -124,6 +150,18 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         return stopped.code
 
     def before_code_stage(current):
+        if not check_storage(current):
+            raise runner.orchestrator.LoopExit(2)
+        if current.get("next_stage") in model_preflight.DEFERRED_STAGES:  # a deferred role's access, first (#1744)
+            model_preflight.check(
+                runner,
+                current,
+                run_dir,
+                workspace,
+                checkpoint=lambda: runner.write_json(state_path, current),
+                before_probe=before_probe,
+                selection=(current.get("settings") or {}).get("route_selection"),
+            )
         native = getattr(runner, "native_calls", None)
         if native is not None:
             native.guard(current)
@@ -142,6 +180,10 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             print(
                 "Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True
             )
+        if autopilot.lifecycle.refresh_diagnosis(current, workspace):
+            runner.write_json(state_path, current)
+            if current["status"] != "RUNNING":
+                raise support.Paused(current["status"], current["stop_reason"])
         workflow.guard(current)
         # spec-first: the Tester writes the tests before the Builder, for a parallel batch's whole wave (#1200)
         acceptance_tests.route(current, wave=lambda: dispatch.select(current))
@@ -213,7 +255,11 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
                 raise support.Paused(
                     "PAUSED_TRANSPORT_CHANGED", "Local model/auth/provider settings differ from checkpoint"
                 )
-            if using_opencode and current["settings"]["transport_identity"].get("identity_version", 1) < 2:
+            if using_opencode:
+                transport_relocation.follow(current, workspace, current_settings, at=runner.now())
+            if using_opencode and transport_relocation.expands(
+                current_settings, current["settings"]["transport_identity"]
+            ):
                 current.setdefault("configuration_changes", []).append(
                     {
                         "at": runner.now(),
@@ -269,7 +315,13 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         if stage == "orchestrator":
             record_resume(runner, args, current, state_path)  # every check that could hold the pause passed
             return autopilot.unit_module(stage).dispatch(current, workspace, run_dir)
-        request = autopilot.prepare_request(current, stage, state_path, runner.SCHEMA_DIR)
+        request = autopilot.prepare_request(
+            current,
+            stage,
+            state_path,
+            runner.SCHEMA_DIR,
+            retry_authorization=getattr(args, "_failure_retry_authorization", None),
+        )
         role, route_role = request.role, request.route_role
         runner.rotate_if_needed(current, route_role, run_dir)
         prompt, metrics = request.prompt, request.metrics
@@ -345,13 +397,10 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         autopilot.publish_handoffs(current, run_dir)
         if milestones.enabled(current):
             print(milestones.status_line(current), flush=True)
-        try:
-            if runner.consume_interventions(current, run_dir, workspace):
-                print(f"{current['status']}: {current['stop_reason']}")
-                raise runner.orchestrator.LoopExit(2)
-        except interventions.InterventionError as error:
-            raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
+        consume_boundary(current)
         resolver_runtime.boundary(runner, current, run_dir, workspace)
+        if skip_requirements.settle(runner, current, run_dir, native=getattr(runner, "native_calls", None)):
+            runner.write_json(state_path, current)  # an unattended worker's defaults or approval (#1731)
         if args.chat and current["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
             if not runner.chat_checkpoint(current, run_dir):
                 runner.write_json(state_path, current)
@@ -360,17 +409,10 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         if args.pause_after_stage and current["status"] == "RUNNING":
             raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
 
-    # Fail before spend (#971): a filesystem that cannot host this run's copies
-    # must not consume model budget first. The floor is provable (not one source
-    # copy fits); below the measured projection the run proceeds with a warning.
-    budget = storage_budget.projection(workspace)
-    reason = storage_budget.refusal(budget)
-    if reason:
-        print(f"Cannot start: {reason}", file=sys.stderr)
+    # A conversation creates no workspace copies. Defer their storage estimate
+    # until planning starts, including a transition within this same invocation.
+    if not check_storage(state):
         return 2
-    note = storage_budget.warning(budget)
-    if note:
-        print(f"warning: {note}", file=sys.stderr)
 
     try:  # One run's agents at a time in a checkout (autocode_checkout_lock).
         from contextlib import nullcontext
@@ -383,6 +425,11 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             ):
                 # Found the checkout busy at launch (autocode_run_setup.launch_base): it starts from here.
                 regression.start(state, workspace, run_dir)
+                if "launch_sources" in state and state["launch_sources"].get("base_commit") is None:
+                    # The launch record vouched for no base. Retake it for this base, under the same lock and
+                    # before any provider, as an idle launch takes both together; otherwise supply() distrusts
+                    # it and the proof cannot tell an inert base from behavior to preserve.
+                    launch_inputs.record(state, workspace, run_dir)
                 runner.write_json(state_path, state)
             runner.orchestrator.drive(
                 state,

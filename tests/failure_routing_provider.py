@@ -13,7 +13,8 @@ from pathlib import Path
 
 
 def main():
-    original = runpy.run_path(os.environ["FAILURE_ROUTING_PROVIDER"])["main"]
+    provider = runpy.run_path(os.environ["FAILURE_ROUTING_PROVIDER"])
+    original = provider["main"]
     if sys.argv[1:] == ["login", "status"]:
         return original()
     prompt = sys.stdin.read()
@@ -47,7 +48,12 @@ def main():
         assert data.get("builder_failure"), "The quota fault requires a real Builder classification"
         assert sys.argv[sys.argv.index("--sandbox") + 1] == "read-only"
         print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}), flush=True)
-        print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}), flush=True)
+        error = (
+            {"statusCode": 401, "message": "Authentication failed"}
+            if os.environ.get("FAILURE_ROUTING_STOP_KIND")
+            else {"message": "subscription usage limit reached"}
+        )
+        print(json.dumps({"type": "error", "error": error}), flush=True)
         raise SystemExit(3)
     retained_rework = os.environ.get("FAILURE_ROUTING_RETAINED_REWORK") == "1"
     if data["stage"] == "investigate_stuck_report_repair":
@@ -100,6 +106,19 @@ def main():
         )
         needs_user = bool(os.environ.get("FAILURE_ROUTING_NEEDS_USER"))
         routable = choice in ("execution", "plan", "stale") and not needs_user
+        counterexample = {"file": "", "find": "", "replace": ""}
+        if probe:
+            original_report = report.read_text()
+            opposite = json.loads(original_report)
+            if retained_rework and failure["record"].get("stage") == "astra_review":
+                opposite["status"] = "COMPLETE"
+            else:
+                opposite["results"] = ["check exit=1" if choice == "plan" else "check exit=0"]
+            counterexample = {
+                "file": "run/" + report.name,
+                "find": original_report,
+                "replace": json.dumps(opposite),
+            }
         result = dict(
             diagnosis=diagnosis,
             cause="needs_user" if needs_user else "other",
@@ -109,6 +128,7 @@ def main():
             evidence_refs=[str(report)],
             example=diagnosis,
             probe=probe,
+            counterexample=counterexample,
             untestable="" if probe else "An empty source diff cannot distinguish the cause.",
             failure_class="execution" if choice == "stale" else choice,
             failure_id="stale-incident" if choice == "stale" else failure["failure_id"],
@@ -143,10 +163,19 @@ def main():
         # Scripted model follows the fresh task's corrected approach. This is a
         # provider input fixture, never a contract or runner-state replacement.
         spec = json.loads(Path(os.environ["BUILD_AUDIT_SPEC"]).read_text())
-        spec["payloads"]["M1"] = {"main.py": "print('hello')\n"}
+        # A corrected delivery, like any other, ships the test that proves it (#2474). The
+        # original goodbye code had no tests, so the delivery also keeps one test of the behavior
+        # it preserves (a clean one-line CLI) that passes on the original and on the fix (#2259).
+        corrected_tests = provider["HELLO_TESTS"] + (
+            "    def test_cli_prints_one_clean_line(self):\n"
+            "        result = subprocess.run([sys.executable, 'main.py'], capture_output=True, text=True)\n"
+            "        self.assertEqual((0, 1, ''), (result.returncode, len(result.stdout.splitlines()), result.stderr))\n"
+        )
+        spec["payloads"]["M1"] = {"main.py": "print('hello')\n", "test_main.py": corrected_tests}
         spec["checks"]["M1"] = corrected_check
         spec["complete_product"] = True
         spec["contract"]["milestones"][0]["objective"] = corrected_objective
+        spec["contract"]["milestones"][0]["affected_paths"] = ["main.py", "test_main.py"]
         candidate_spec = log.parent / ("corrected-provider-" + str(os.getpid()) + ".json")
         candidate_spec.write_text(json.dumps(spec))
         os.environ["BUILD_AUDIT_SPEC"] = str(candidate_spec)
@@ -205,6 +234,8 @@ def main():
         result["evidence"] = investigation["report"]["evidence_refs"]
         if correcting:
             result["next_objective"] = corrected_objective
+            # The corrected delivery ships its test (#2474), so the fresh task must own it.
+            result["affected_paths"] = ["main.py", "test_main.py"]
             result["next_task"].update(
                 kind="implement",
                 milestone_id="M1",

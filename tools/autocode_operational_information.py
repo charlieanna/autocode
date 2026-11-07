@@ -82,7 +82,7 @@ BOUND_FLAGS = {
 OPERATOR_ONLY = {
     "PAUSED_TIMEOUT_RECOVERY": "the automatic-recovery allowance for this run is spent",
     "PAUSED_TIME_LIMIT": "the saved active-time limit is reached, or an attempt on a stronger route is projected past it",
-    "PAUSED_COST_LIMIT": "the saved cost cap is reached, or an attempt on a stronger route is projected past it",
+    "PAUSED_COST_LIMIT": "the saved cost cap is reached, or the next attempt is projected past it",
     "PAUSED_ITERATION_LIMIT": "the saved iteration ceiling is reached",
     "PAUSED_MILESTONE_TIME_LIMIT": "the milestone's active-time budget is reached",
     "PAUSED_MILESTONE_BUDGET": (
@@ -137,6 +137,9 @@ def resume_flags(state: RunState, pause):
         )
     if pause == "PAUSED_REPEATED_FAILURE":
         return "--resume-paused --retry-failed-stage"
+    if pause == "PAUSED_ACCEPTANCE_TESTS":
+        # A resume reruns the same Tester on the same plan; feedback revises the plan (#1869).
+        return "--feedback 'WHAT TO CHANGE'"
     return None
 
 
@@ -368,7 +371,10 @@ def _resume_after(state: RunState, cause):
     """
     active = state.get("active_stage") or {}
     role = active.get("route_role") or active.get("role")
-    if cause in (quota_route.REFUSAL_STATUS, quota_route.OUTPUT_STATUS) and role in quota_route.ROLES:
+    if (
+        cause in (quota_route.REFUSAL_STATUS, quota_route.OUTPUT_STATUS, quota_route.CONTEXT_STATUS)
+        and role in quota_route.ROLES
+    ):
         return f"--resume-paused {quota_route.flag(role)} MODEL"
     return "--resume-paused"
 

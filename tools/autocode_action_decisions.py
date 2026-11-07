@@ -1,8 +1,7 @@
 """The user's decisions on a saved run (a step of autocode_run_actions.handle).
 
 Answers (--answer, --delegate, --delegate-all, --reject-assumption), plan approval and edits
-(--approve-goal, --edit-goal, --goal-file, --feedback, --follow-up), a program's correction of the displayed
-plan (--program-guidance, autocode_program_guidance), review decisions (--approve-review,
+(--approve-goal, --edit-goal, --goal-file, --feedback, --follow-up), review decisions (--approve-review,
 --reject-review, --reconcile-review), --accept-completion, --close-finding and a planning budget change apply
 together to a copy of the run, checked against AutoResolver's current request, and are committed
 only when every one applies. The invocation then stops, unless --resume-paused asked it to
@@ -28,6 +27,7 @@ try:
     from . import autocode_acceptance_tests as acceptance
     from . import autocode_answer_output as answer_output
     from . import autocode_approval_provenance as approval_provenance
+    from . import autocode_changeset_barrier as changeset_barrier
     from . import autocode_conversation_policy as conversation_policy
     from . import autocode_finding_close as finding_close
     from . import autocode_follow_up as follow_up
@@ -39,7 +39,6 @@ try:
     from . import autocode_pause_command as pause_command
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
-    from . import autocode_program_guidance as program_guidance
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as resolver_human
@@ -54,6 +53,7 @@ except ImportError:
     import autocode_acceptance_tests as acceptance
     import autocode_answer_output as answer_output
     import autocode_approval_provenance as approval_provenance
+    import autocode_changeset_barrier as changeset_barrier
     import autocode_conversation_policy as conversation_policy
     import autocode_finding_close as finding_close
     import autocode_follow_up as follow_up
@@ -65,7 +65,6 @@ except ImportError:
     import autocode_pause_command as pause_command
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
-    import autocode_program_guidance as program_guidance
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
     import autocode_resolver_human as resolver_human
@@ -76,6 +75,21 @@ except ImportError:
     import autocode_support as support
     import autopilot
     from autocode_action_resolver import OPERATIONAL_NOT_ANSWER
+
+
+def _edited_goal(runner, path):
+    """The revised contract body at ``path``; ValueError names a file that cannot be loaded.
+
+    A mistyped path or malformed JSON is the person's input to reject, never a reason to pause
+    the run as PAUSED_INVALID_OUTPUT (#2389), as --goal-file already refuses it.
+    """
+    try:
+        body = runner.read_json(path)
+    except (OSError, ValueError) as error:
+        raise ValueError(f"Cannot read the revised goal {path}: {error}") from None
+    if not isinstance(body, dict):
+        raise ValueError(f"{path} does not hold a contract body (a JSON object)")
+    return body
 
 
 def resume_dispatch_requested(args, state: RunState):
@@ -144,7 +158,11 @@ def revalidate_on_resume(state: RunState, workspace, *, review_stage):
 
 def preflight(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Reject an ineligible approval before recovery can consume a retained report."""
-    if getattr(args, "approve_goal", None) and (reason := lifecycle.approval_boundary_refusal(state)):
+    if (
+        getattr(args, "approve_goal", None)
+        and not changeset_barrier.held_approval(state)
+        and (reason := lifecycle.approval_boundary_refusal(state))
+    ):
         try:
             action = conversation_policy.load_action(state, run_dir, args)
         except (ValueError, OSError) as error:
@@ -165,7 +183,6 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
     if not any(
         (
             args.feedback is not None,
-            args.program_guidance is not None,
             args.edit_goal,
             args.goal_file,
             args.answer,
@@ -197,7 +214,6 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
             args.reject_review,
             args.reconcile_review,
             args.feedback is not None,
-            args.program_guidance is not None,
             args.follow_up is not None,
             args.accept_completion,
             args.planning_review_call_limit is not None,
@@ -225,6 +241,23 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         try:
             if require_current_inputs:
                 runner.launch_inputs.guard(candidate, workspace, run_dir)
+            if (
+                args.approve_goal
+                and changeset_barrier.held_approval(candidate)
+                and args.approve_goal == goals.token(candidate["goal_contract"])
+                and not resolver_human.current(candidate)
+            ):
+                # The earlier per-run approval consumed its request, but the set
+                # never released (or was invalidated). Issue the ordinary exact-plan
+                # boundary again; do not bypass AutoResolver authority for retries.
+                resolver_human.queue(
+                    candidate,
+                    "goal_approval",
+                    changeset_barrier.reapproval_origin(candidate),
+                    status="AWAITING_GOAL_APPROVAL",
+                    next_stage=candidate.get("next_stage"),
+                )
+                runner.normalize_human_boundary(candidate, run_dir)
             published = resolver_human.current(candidate)
             if not published and candidate.get("status") == "TASK_COMPLETE":
                 follow_up.refuse_on_finished(args)  # only --follow-up reopens a finished run
@@ -291,25 +324,26 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
                 goals.answer(candidate, question, "accept default", delegated=True)
             if args.delegate_all:
                 goals.delegate_all(candidate, args.review_token)
-            requirements_review.after_answers(candidate)
+            requirements_review.after_answers(candidate, queue=resolver_human.queue)
             requirements_chat.recognize_after_approval(candidate)
             for assumption_id in args.reject_assumption:
                 goals.reject_assumption(candidate, assumption_id, args.review_token)
             if args.feedback is not None:
+                # The answered semantic blocker's own authority is the pause-authority predicate;
+                # goals.feedback admits it through this pass, never on its own (#2434).
+                semantic_hold = pause_authority.answered_blocker_decision(candidate)
                 refusal = pause_authority.feedback_refusal(candidate)
                 if refusal:
                     raise ValueError(refusal)
-                goals.feedback(candidate, args.feedback)
+                goals.feedback(candidate, args.feedback, semantic_hold=semantic_hold)
             requirements_chat.adopt_reply(candidate)
-            if args.program_guidance is not None:
-                program_guidance.apply(candidate, args.program_guidance, args.review_token)
             if args.follow_up is not None:
                 follow_up.accept(candidate, args.follow_up, workspace, runner.now())
             if args.edit_goal:
                 refusal = pause_authority.correction_refusal(candidate, "An edited goal")
                 if refusal:
                     raise ValueError(refusal)
-                lifecycle.install_draft(candidate, runner.read_json(args.edit_goal), origin="user_cli_edit")
+                lifecycle.install_draft(candidate, _edited_goal(runner, args.edit_goal), origin="user_cli_edit")
                 planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir)
             if args.goal_file:
                 # The person's own edit, as --edit-goal, held to a planner draft's checks too (#720).
@@ -322,7 +356,9 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
                 goal_file.record(candidate, args.goal_file, plan)
                 planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir, label="--goal-file")
             if args.approve_goal:
-                getattr(runner, "approve_goal", lifecycle.approve)(candidate, args.approve_goal)
+                if not changeset_barrier.held_approval(candidate):
+                    getattr(runner, "approve_goal", lifecycle.approve)(candidate, args.approve_goal)
+                changeset_barrier.approve(candidate, args.approve_goal, getattr(args, "changeset_token", None))
             for criterion in args.approve_review:
                 goals.approve_review(
                     candidate,
@@ -391,6 +427,8 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         print(rendered)
         if args.goal_file:
             print(goal_file.summary(state, args.goal_file))
+            # Chat everywhere (#1731): the loaded plan is reviewed, discussed and approved in the run's conversation.
+            print(f"Review it and approve it in chat: autocode chat --workspace {workspace} --run-dir {run_dir}")
         if args.answer:
             view = runner.run_view.view(state, run_dir=run_dir, workspace=workspace)
             print(answer_output.summary(view, after_answer=True), file=sys.stderr)

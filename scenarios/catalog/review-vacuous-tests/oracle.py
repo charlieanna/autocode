@@ -72,5 +72,5 @@ def check(project, scenario, run=None):
             fixed = run_delivered(copy)
             checks.append(Check("targeted_test_passes_once_fixed", fixed.returncode == 0, tail(fixed)))
     checks.append(only_changed_under(project, "review/"))
-    checks += run_checks(run, workflow="review", no_build=True, no_requirements=True)
+    checks += run_checks(run, workflow="review", no_build=True, after_requirements="review_change")
     return checks

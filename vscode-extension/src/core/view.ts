@@ -9,7 +9,7 @@
  * No VS Code API, so it is unit-testable in-process.
  */
 
-import { usageDisplay, type ModelRoute, type Usage } from "./telemetry";
+import { usageDisplay, type BudgetCost, type ModelRoute, type Usage } from "./telemetry";
 
 export interface Needs {
   kind: string;
@@ -24,6 +24,8 @@ export interface Needs {
   resolver_request_id?: string;
   request_id?: string;
   route?: Route;
+  /** A level a person named that the model does not declare (#2057): the levels it does. */
+  effort?: EffortNeed;
   retry_action?: string;
   job_retry_token?: string;
   new_run_required?: boolean;
@@ -34,21 +36,24 @@ export interface Needs {
   confirmation_required?: boolean;
 }
 
-/** A person's finite total, offered only for its exact recovery command. */
-interface IntegerCommandInputBase {
+/**
+ * A person's finite number for one exact core-named command (#2044). `command` is present when
+ * next_command is not that command: the view then names the raise separately.
+ */
+export interface IntegerCommandInput {
+  id: string;
   kind: "integer";
+  flag: string;
   placeholder: "N";
+  arg_index: 1 | 2;
   label: string;
   current: number;
   minimum: number;
   maximum: number;
+  used?: number;
+  elapsed?: number;
+  command?: string;
 }
-
-export type IntegerCommandInput = IntegerCommandInputBase & (
-  { id: "max_seconds"; flag: "--max-seconds"; arg_index: 2; elapsed: number }
-  | { id: "planning_review_call_limit"; flag: "--planning-review-call-limit"; arg_index: 1 | 2; used: number }
-  | { id: "grant_recovery"; flag: "--grant-recovery"; arg_index: 2; used: number }
-);
 
 export interface Question {
   id: string;
@@ -67,6 +72,16 @@ export interface Route {
   cause?: string;
   stopped_model?: string;
   candidates?: string[];
+}
+
+export interface EffortNeed {
+  question_id: string;
+  role: string;
+  job?: string;
+  model?: string;
+  requested?: string;
+  declared: string[];
+  nearest?: string | null;
 }
 
 export interface Progress {
@@ -112,6 +127,7 @@ export interface DisplayedPlan {
   acceptance_criteria?: AcceptanceCriterion[];
   constraints?: string[];
   permission_boundaries?: string[];
+  scope_exclusions?: string[];
   git_delivery?: { kind: "atomic_commit"; message: string } | null;
 }
 
@@ -144,6 +160,8 @@ export interface CodeCheckpoints {
   version?: number;
   blocked_reason?: string | null;
   rows?: CodeCheckpointRow[];
+  /** While a Builder step runs: the display-only diff of what it has changed so far (`checkpoint --working`). */
+  working?: CheckpointAction | null;
   continuation?: Record<string, unknown> | null;
   restores?: Record<string, unknown>[] | null;
 }
@@ -181,6 +199,7 @@ export interface StatusView {
   displayed_plan?: DisplayedPlan | null;
   progress?: Progress | null;
   usage?: Usage | null;
+  cost?: BudgetCost | null;
   provider?: string | null;
   routes?: Record<string, ModelRoute> | null;
   evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
@@ -190,6 +209,8 @@ export interface StatusView {
   controller?: { kind?: string; checked?: boolean; alive?: boolean | null } | null;
   current_task?: { id?: string; objective?: string } | null;
   code_checkpoints?: CodeCheckpoints | null;
+  /** What the request spans beyond this repository; `linked` lists the other runs of its change set (#2066). */
+  scope?: { linked?: LinkedRun[] | null; [key: string]: unknown } | null;
   /** The pause the view offers while the run works (#1598); a client runs only its `next_command`. */
   pause?: { label?: string; effect?: string; requested?: boolean; next_command?: string[] | null } | null;
   chat?: {
@@ -198,11 +219,84 @@ export interface StatusView {
     notice?: string | null;
     /** Core-authored activity and recent attempt descriptions; display text only. */
     progress?: string[];
+    /** The running attempt's recent commands, edits and tool calls; display only, never proof. */
+    activity?: ChatActivity[];
+    /** Live agent log: reasoning and messages beside those tool marks (docs/task-run.md). */
+    log?: ChatLogEntry[];
     review?: { question_id: string; answer: string; label: string; summary?: string;
       spend_confirmation?: { title: string; detail: string; label: string; match?: "trim_lower" } } | null;
     context: string;
     input: { kind: "feedback" | "follow_up" | "resolver_response"; label: string; next_command: string } | null;
   };
+}
+
+/** One `chat.activity` event: what the running step did, never whether it was right. */
+export interface ChatActivity {
+  kind: "command" | "edit" | "tool";
+  text: string;
+  status: "running" | "done" | "failed";
+  paths?: string[];
+}
+
+/** One `chat.log` entry: what a running agent thinks, says or does. Display only. */
+export interface ChatLogEntry {
+  id: string;
+  agent: string;
+  kind: "thinking" | "message" | "command" | "edit" | "tool";
+  text: string;
+  status?: "running" | "done" | "failed";
+  paths?: string[];
+}
+
+/** One other run of this run's change set, as `view.scope.linked` lists it. */
+export interface LinkedRun {
+  changeset: string;
+  target: string;
+  role: "source" | "member";
+  workspace: string;
+  run_dir: string | null;
+}
+
+/** One run of a change set, as `autocode changeset status --json` shows it. */
+export interface ChangesetRun {
+  role: "source" | "member";
+  target: string;
+  workspace: string;
+  run_dir: string;
+  status: string;
+  needs?: string | null;
+  plan?: DisplayedPlan | null;
+}
+
+/** `autocode changeset status --json` (docs/task-run.md#change-sets-in-clients). */
+export interface ChangesetSummary {
+  changeset: string;
+  runs: ChangesetRun[];
+  approval: { set_token: string | null; waiting_on: string[]; next_command: string[] | null };
+  verification: {
+    waiting_on: string[];
+    done: boolean;
+    merge_order: string[];
+    next_command: string[] | null;
+    check?: { command: string[]; in: string } | null;
+    result?: { passed: boolean; current: boolean; exit_code?: number | null } | null;
+    waiver?: { reason: string; current: boolean } | null;
+  };
+}
+
+/** Parse `changeset status --json`; its refusal (`{"error": ...}`) or another shape is an error. */
+export function readChangesetSummary(raw: string): ChangesetSummary {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error("changeset status did not return JSON");
+  }
+  if (typeof parsed?.error === "string") throw new Error(parsed.error);
+  if (typeof parsed?.changeset !== "string" || !Array.isArray(parsed.runs) || !parsed.approval || !parsed.verification) {
+    throw new Error("changeset status did not return a change set");
+  }
+  return parsed as unknown as ChangesetSummary;
 }
 
 /** The envelope `autocode --status` prints: the view sits under `"view"`. */
@@ -352,7 +446,7 @@ export function planForApproval(view: StatusView): DisplayedPlan | null {
     row && typeof row.id === "string" && typeof row.criterion === "string"
       && typeof row.verification_method === "string" && typeof row.human_review === "boolean"
   )) return null;
-  if (![plan.constraints, plan.permission_boundaries].every((rows) =>
+  if (![plan.constraints, plan.permission_boundaries, plan.scope_exclusions === undefined ? [] : plan.scope_exclusions].every((rows) =>
     Array.isArray(rows) && rows.every((row) => typeof row === "string")
   )) return null;
   return plan;
@@ -361,12 +455,12 @@ export function planForApproval(view: StatusView): DisplayedPlan | null {
 /** Cost so far, in the words the view supports: unknown cost is not zero. */
 export function usageLine(view: StatusView): string | null {
   const usage = view.usage;
-  if (!usage) return null;
-  const display = usageDisplay(usage);
+  if (!usage && !view.cost) return null;
+  const display = usageDisplay(usage, view.cost);
   const parts: string[] = [];
   if (display.tokens !== "Tokens not reported") parts.push(display.tokens);
   if (display.cost !== "Cost not reported") parts.push(display.cost);
-  if (typeof usage.unknown_stages === "number" && usage.unknown_stages > 0) {
+  if (!view.cost && typeof usage?.unknown_stages === "number" && usage.unknown_stages > 0) {
     parts.push(`${usage.unknown_stages} stage(s) unknown`);
   }
   return parts.length ? parts.join(" · ") : null;

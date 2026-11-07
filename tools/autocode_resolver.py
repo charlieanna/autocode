@@ -286,7 +286,8 @@ def _validate_body(body: Any) -> bool:
     if not _rows(
         body["acceptance_criteria"],
         {"id", "criterion", "verification_method", "human_review"},
-        optional={"sources"},
+        # current_behavior: today's behaviour beside a criterion (#2133); supersedes: original tests it replaces (#2748)
+        optional={"sources", "current_behavior", "supersedes"},
     ):
         return False
     criteria = {row["id"] for row in body["acceptance_criteria"]}
@@ -298,6 +299,7 @@ def _validate_body(body: Any) -> bool:
         and isinstance(row["verification_method"], str)
         and row["verification_method"].strip()
         and isinstance(row["human_review"], bool)
+        and isinstance(row.get("current_behavior", ""), str)
         for row in body["acceptance_criteria"]
     ):
         return False

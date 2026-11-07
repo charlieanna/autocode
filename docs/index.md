@@ -23,6 +23,10 @@ Use the five navigation sections to find deeper guides. Search includes the full
 reference pages. The [stage names](roles.md) come from the same canonical list as
 the CLI and dashboard.
 
+If investigation reveals another repository, follow the
+[multi-repository walkthrough](multi-repo.md#walkthrough-a-bug-reveals-another-repository)
+to register a checkout, link runs, approve their plans and check them together.
+
 `latest` follows master. The version selector also lists release tags as they are
 published, so a release's guide remains available after the implementation changes.
 [Reliability results](reliability-table.md) distinguish real-model trials from

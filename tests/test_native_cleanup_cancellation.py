@@ -111,7 +111,7 @@ class NativeHeldCancellationTests(unittest.TestCase):
                 "reports": {},
                 "final_token": None,
                 "v2_cycle": {
-                    "boundary": {"clarification_input": None, "program_guidance": None},
+                    "boundary": {"clarification_input": None},
                     "requirements_artifact_token": "requirements:controlled",
                 },
             },

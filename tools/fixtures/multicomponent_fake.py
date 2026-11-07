@@ -276,7 +276,7 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
             **({"clarity": "vague"} if 'Add "clarity"' in PROMPT else {}),
         }
     if stage == "investigate_stuck":
-        return {
+        report = {
             "diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.",
             "cause": "other",
             "guidance": "",
@@ -287,6 +287,16 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
             "probe": "",
             "untestable": "",
         }
+        if failure := data.get("builder_failure"):
+            # A Builder-failure classification must cite the pinned failure and its evidence.
+            report.update(
+                failure_class="unknown",
+                example="Offline fixture: it cannot diagnose this failure; it is classified unknown.",
+                untestable="An offline fixture runs no command that could show the cause.",
+                failure_id=failure.get("failure_id", ""),
+                evidence_refs=list(failure.get("evidence_refs") or [])[:1],
+            )
+        return report
     if stage == "requirements_gather":
         return {
             "summary": "Scripted component requirements",
@@ -301,6 +311,10 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
             "ignored_statements": ignored_statements(component_id, data),
             "conflicts": [],
             "proposed_reframes": [],
+            # Requirements names the job (#1860); a component is always built.
+            "job": "build",
+            "design_document": "",
+            **({"clarity": "vague"} if 'Add "clarity"' in PROMPT else {}),
         }
     adaptive = "ADAPTIVE PLANNING" in PROMPT  # an adaptive Planner's draft carries its initial_task
     task = brief_of(data)
@@ -432,6 +446,42 @@ def component_id_for(prompt: str, data: dict) -> str:
     return found
 
 
+def changed_code_reasons(spec: dict, data: dict) -> list:
+    """The fixture Tester's reasons for its own scripted lines that have no mutation site.
+
+    A component whose check is a shell command (``test -f …``) declares no Python test runner, so
+    the runner can neither cover nor mutate the scripted file. The real Tester records why such a
+    line is covered; this fixture does the same, bound to the exact gap, file bytes and line it
+    wrote, and never for a file it did not script.
+    """
+    proof = data.get("regression_proof") or {}
+    if not proof.get("path"):
+        return []
+    scripted = {path: hashlib.sha256(text.encode()).hexdigest() for path, text in (spec.get("files") or {}).items()}
+    decisions = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        if (
+            row.get("status") != "reason_required"
+            or row.get("mutation_outcomes")
+            or scripted.get(row.get("path")) != row.get("sha256")
+        ):
+            continue
+        decisions.append(
+            {
+                "gap_id": row["gap_id"],
+                "decision": "accept",
+                "reason_kind": "instrumentation_unavailable",
+                "reason": (
+                    f"Scripted fixture: {row['path']}:{row['line']} is the exact scripted content that the "
+                    f"component check {spec['check']!r} verifies; the component declares no Python test "
+                    "runner, so no mutant of this line can be run against a test."
+                ),
+                "evidence_refs": [proof["path"], row["path"]],
+            }
+        )
+    return decisions
+
+
 def complete(value, schema):
     """Give every required field the script leaves out an empty value of its type (same as
     scenarios/harness/fake_codex.py): new report fields then mean "none", not a crash."""
@@ -467,6 +517,37 @@ def complete(value, schema):
     return value
 
 
+def repair_report(data: dict) -> dict:
+    """Recover the immutable original, including its lossless historical JSON overlay."""
+    source = data.get("original_report") or data.get("rejected_report") or {}
+    if isinstance(source.get("content"), dict):
+        return json.loads(json.dumps(source["content"]))
+    latest = (data.get("rejected_report") or {}).get("content")
+    delta = source.get("content_delta")
+    if (
+        source.get("content_base") != "rejected_report.content"
+        or not isinstance(latest, dict)
+        or not isinstance(delta, dict)
+    ):
+        raise SystemExit("multicomponent_fake: report repair needs the supplied structured report")
+    report = json.loads(json.dumps(latest))
+    for path in delta["remove"]:
+        parent = report
+        for key in path[:-1]:
+            parent = parent[key]
+        del parent[path[-1]]
+    for replacement in delta["replace"]:
+        path, value = replacement["path"], replacement["value"]
+        if not path:
+            report = value
+            continue
+        parent = report
+        for key in path[:-1]:
+            parent = parent[key]
+        parent[path[-1]] = value
+    return report
+
+
 def main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (multicomponent fake)")
@@ -487,10 +568,7 @@ def main() -> int:
         # A repair envelope is not a new task handoff. Preserve the original
         # report identity, failures and event references without rerunning work.
         # This fixture cannot manufacture evidence to fix a semantic rejection.
-        supplied = data.get("original_report") or data.get("rejected_report") or {}
-        if not isinstance(supplied.get("content"), dict):
-            raise SystemExit("multicomponent_fake: report repair needs the supplied structured report")
-        report = json.loads(json.dumps(supplied["content"]))
+        report = repair_report(data)
     else:
         component_id = component_id_for(prompt, data)
         spec = MANIFEST[component_id]
@@ -505,6 +583,8 @@ def main() -> int:
         report = report_for(stage, component_id, spec, data)
     if "--output-schema" in sys.argv:
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in schema.get("properties", {}):
+            report["changed_code_exceptions"] = changed_code_reasons(spec, data)
         if "source_verdict" in schema.get("properties", {}):
             report.setdefault(
                 "source_verdict",

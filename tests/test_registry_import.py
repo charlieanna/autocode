@@ -189,6 +189,12 @@ class RegistryImportTests(unittest.TestCase):
             registry.registry_import(selected, max_depth=-1)
         with self.assertRaisesRegex(registry.RegistryError, "budget"):
             registry.registry_import(selected, directory_budget=0)
+        missing = selected / "missing" / "deeper"
+        with self.assertRaises(registry.RegistryError) as refused:
+            registry.registry_import(missing)
+        self.assertEqual("invalid_root", refused.exception.code)
+        # The typed path, not a Python errno naming the first missing ancestor.
+        self.assertEqual(f"Selected root is unavailable: no such directory: {missing}", str(refused.exception))
         with patch.object(registry.util, "atomic_json", side_effect=OSError("full")):
             result = registry.registry_import(selected)
         self.assertFalse(result["complete"])

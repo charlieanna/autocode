@@ -408,7 +408,17 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
             if expected_worker_context is not None:
                 self.assertEqual(expected_worker_context, command["worker_context"])
         else:
-            self.assertIn("review-proof/scratch/tree", command["cwd"])
+            # Each review comparison owns a changed-side clean tree. Bind the
+            # barrier to this public run/iteration, not any path with a scratch suffix.
+            proof_root = run.run_dir / "iterations" / f"{self.last_status['iteration']:03d}" / "review-proof"
+            command_tree = Path(command["cwd"])
+            self.assertEqual(command_tree, command_tree.resolve(strict=True))
+            relative = command_tree.relative_to(proof_root)
+            self.assertEqual(4, len(relative.parts))
+            self.assertRegex(relative.parts[0], r"^comparison-[0-9a-f]{32}$")
+            self.assertEqual(("changed", "scratch", "tree"), relative.parts[1:])
+            for name in ("calc.py", "review/tests/test_f1_owner.py"):
+                self.assertEqual((workspace / name).read_bytes(), (command_tree / name).read_bytes())
             self.assertTrue(
                 self.last_status["active_stage_finished"], "Result application began before provider collection"
             )

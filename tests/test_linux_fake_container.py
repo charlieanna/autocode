@@ -89,10 +89,16 @@ class LinuxFakeContainerTests(unittest.TestCase):
         self.assertIn("--cap-drop=ALL", command)
         self.assertIn("--security-opt=no-new-privileges:true", command)
         self.assertIn("--security-opt=seccomp=unconfined", command)
+        # #2373: only the OUTER container's system-path masks are removed, so the inner
+        # bwrap sandbox can mount its own fresh /proc in its new PID namespace (Docker's
+        # default masks make the kernel refuse that mount); every inner boundary setting
+        # above and below is unchanged, and no broader mount or live flag is accepted.
+        self.assertIn("--security-opt=systempaths=unconfined", command)
         self.assertIn("--pid=host", command)
         self.assertIn("--network=none", command)
         self.assertNotIn("--privileged", command)
         self.assertFalse(any(argument.startswith("--cap-add") for argument in command))
+        self.assertFalse(any(argument.startswith("-v") or argument.startswith("--volume") for argument in command))
 
         mounts = [command[index + 1] for index, argument in enumerate(command) if argument == "--mount"]
         self.assertEqual([f"type=bind,source={ROOT.resolve()},target=/workspace"], mounts)
@@ -111,6 +117,14 @@ class LinuxFakeContainerTests(unittest.TestCase):
         self.assertNotIn("ADD", instructions)
         self.assertIn("FROM ubuntu:24.04@sha256:", dockerfile)
         self.assertIn("ARG GO_VERSION=1.25.5", dockerfile)
+        # Go's archives are checked against pinned hashes: go.dev's .sha256 URLs answer with HTML (#1878).
+        self.assertIn(
+            "ARG GO_SHA256_AMD64=9e9b755d63b36acf30c12a9a3fc379243714c1c6d3dd72861da637f336ebb35b", dockerfile
+        )
+        self.assertIn(
+            "ARG GO_SHA256_ARM64=b00b694903d126c588c378e72d3545549935d3982635ba3f7a964c9fa23fe3b9", dockerfile
+        )
+        self.assertNotIn("${go_archive}.sha256", dockerfile)
         self.assertIn("ARG NODE_VERSION=22.18.0", dockerfile)
         self.assertIn("python3.11", dockerfile)
 

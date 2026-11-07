@@ -38,7 +38,7 @@ class VerboseTests(unittest.TestCase):
         import autocode_opencode as opencode
 
         def parse(*argv):
-            autocode_args.parse(None, ["task", *argv], opencode.DEFAULT_MODELS)
+            autocode_args.parse(None, ["Add a task", *argv], opencode.DEFAULT_MODELS)
             return verbose.enabled()
 
         self.assertTrue(parse())
@@ -64,7 +64,7 @@ class VerboseTests(unittest.TestCase):
     def test_text_is_rate_limited_but_tool_lines_are_not(self):
         verbose.enable()
         out = io.StringIO()
-        ticks = iter([0.0, 0.1, 2.0])
+        ticks = iter([0.0, 0.1, 2.0, 2.1])
         report = verbose.reporter("sol", None, stream=out, clock=lambda: next(ticks))
         report("text", "first")
         report("text", "suppressed")
@@ -72,6 +72,49 @@ class VerboseTests(unittest.TestCase):
         report("text", "later")
         lines = out.getvalue().splitlines()
         self.assertEqual(["sol: first", "sol: tool: tool finished", "sol: later"], lines)
+
+    def test_repeated_heartbeat_lines_are_coalesced_into_one_counted_line(self):
+        verbose.enable()
+        out = io.StringIO()
+        ticks = iter([0.0, 0.1, 0.2, 0.3, 1.5])
+        report = verbose.reporter("glm", "gpt-x", stream=out, clock=lambda: next(ticks))
+        for _ in range(4):
+            report("progress", "native provider stream advanced")
+        report("tool", "command started")
+        lines = out.getvalue().splitlines()
+        self.assertEqual(["glm/gpt-x: tool: command started"], lines)
+
+    def test_progress_heartbeats_are_never_shown(self):
+        verbose.enable()
+        out = io.StringIO()
+        report = verbose.reporter("glm", None, stream=out, clock=lambda: 0.0)
+        for _ in range(4):
+            report("progress", "native provider stream advanced")
+        report("tool", "command started")
+        self.assertEqual(["glm: tool: command started"], out.getvalue().splitlines())
+
+    def test_repeated_tool_lines_still_print_after_one_second(self):
+        verbose.enable()
+        out = io.StringIO()
+        ticks = iter([0.0, 1.5])
+        report = verbose.reporter("glm", None, stream=out, clock=lambda: next(ticks))
+        report("tool", "tool finished")
+        report("tool", "tool finished")
+        self.assertEqual(["glm: tool: tool finished", "glm: tool: tool finished"], out.getvalue().splitlines())
+
+    def test_suppressed_repeats_of_other_lines_carry_their_count_to_the_next_line(self):
+        verbose.enable()
+        out = io.StringIO()
+        ticks = iter([0.0, 0.1, 0.2, 1.5])
+        report = verbose.reporter("glm", None, stream=out, clock=lambda: next(ticks))
+        report("tool", "tool finished")
+        report("tool", "tool finished")
+        report("tool", "tool finished")
+        report("tool", "command started")
+        self.assertEqual(
+            ["glm: tool: tool finished", "glm: tool: command started (+2 similar)"],
+            out.getvalue().splitlines(),
+        )
 
     def test_a_broken_stream_never_raises(self):
         verbose.enable()

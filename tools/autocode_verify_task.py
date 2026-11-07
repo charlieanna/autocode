@@ -8,6 +8,7 @@ Builder or repairs the user's candidate.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import shutil
@@ -19,6 +20,8 @@ from pathlib import Path
 try:
     from . import autocode_agent_env as agent_env
     from . import autocode_check_replay as check_replay
+    from . import autocode_mutation_check as mutation_record
+    from . import autocode_review_mutation as review_mutation
     from . import autocode_util as util
     from . import autocode_verify as proof_runner
     from . import autocode_verify_contract as criteria_policy
@@ -27,11 +30,15 @@ try:
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_check_replay as check_replay
+    import autocode_mutation_check as mutation_record
+    import autocode_review_mutation as review_mutation
     import autocode_util as util
     import autocode_verify as proof_runner
     import autocode_verify_contract as criteria_policy
     import autocode_verify_record as records
     from autocode_taskrun import TaskRun, TaskRunError
+
+REVIEWED_PATCH = "reviewed-change.patch"  # the change under review, as the runner assembled it (#2506)
 
 
 def git_result(workspace, *args, accepted=(0,)):
@@ -101,7 +108,52 @@ def copy_changes(workspace, candidate, changes):
                 shutil.copy2(source, target)
 
 
+def reviewed_patch(candidate, base):
+    """The whole change under review as one patch of ``base``: committed, copied-in and untracked files.
+
+    ``git diff base --`` leaves out untracked files (the review brief says so), so the candidate's
+    working tree is first written as a dangling commit (commit_worktree: no ref, index or file changes,
+    so the candidate's identity is unchanged). Renames are spelled as a deletion and an addition, the
+    only shapes the review mutation check reads."""
+    head = proof_runner.commit_worktree(candidate)
+    return git_result(
+        candidate, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--binary", base, head, "--"
+    ).stdout
+
+
+def mutation_check(workspace, root, base, patch, proof_verdict):
+    """Run the review mutation check (autocode_review_mutation) on the change's own tests (#2506).
+
+    The reviewer's ``change_patch`` is empty in a verification (the review checkout already holds
+    the change), so the runner supplies the patch it assembled itself: a bare clone of ``base`` holds
+    it, and the check applies it there exactly as it applies a reviewer-named patch. Report only, as
+    everywhere else: survivors are recorded, never a verdict. Like a task run's check (#699) it runs
+    only once the external-change proof passed, so a failed proof spends nothing on mutants."""
+    if proof_verdict != proof_runner.PASS:
+        return mutation_record.record(
+            "The external-change proof has not passed; the review mutation check ran no test."
+        )
+    mutation_base = Path(root) / "mutation-base"
+    clone(workspace, mutation_base, base)
+    target = mutation_base / REVIEWED_PATCH
+    if target.exists():
+        return mutation_record.record(
+            f"The base already holds {REVIEWED_PATCH}; the review mutation check ran no test."
+        )
+    target.write_text(patch)
+    try:
+        return review_mutation.collect(
+            mutation_base,
+            Path(root) / "review-mutation",
+            REVIEWED_PATCH,
+            functools.partial(proof_runner.scratch_run, dependencies_from=workspace),
+        )
+    except util.Paused as error:  # nothing in a standalone verification can answer a pause
+        return mutation_record.record("The review mutation check stopped: " + str(error))
+
+
 def verify(args, contract):
+    cleared = sorted({*records.clear_git_config_parameters(), *getattr(args, "cleared_git_config", ())})
     records.require_git_environment()
     workspace = args.workspace.resolve(strict=True)
     original_snapshot = records.source_identity(workspace)
@@ -118,11 +170,20 @@ def verify(args, contract):
     if not args.branch and not patch:
         records.require_review_inputs(workspace)
     changes = proof_runner.changed_files(workspace, head) if not args.branch and not patch else {}
-    root = args.out.absolute() if args.out else workspace / ".autocode" / "verification" / uuid.uuid4().hex
-    require_output_location(workspace, root)
     _, checkout_policy = records.review_support()
+    root = (
+        checkout_policy.follow_system_links(args.out)
+        if args.out
+        else workspace / ".autocode" / "verification" / uuid.uuid4().hex
+    )
+    require_output_location(workspace, root)
     root = checkout_policy.create_root(root)
-    original = {"workspace": str(workspace), "snapshot": original_snapshot, "started_at": util.now()}
+    original = {
+        "workspace": str(workspace),
+        "snapshot": original_snapshot,
+        "started_at": util.now(),
+        "cleared_git_config": cleared,
+    }
     util.atomic_json(root / "criteria.json", contract)
     candidate = root / "candidate"
     clone(workspace, candidate, base if patch else head)
@@ -169,7 +230,7 @@ def verify(args, contract):
         "--workflow",
         "review",
         "--engine",
-        args.engine,
+        args.engine or "opencode",
         "--no-adaptive-planning",
         "--max-iterations",
         "1",
@@ -178,14 +239,32 @@ def verify(args, contract):
         "--max-stage-seconds",
         str(args.max_stage_seconds),
         "--evidence-provenance",
-        args.evidence_provenance,
+        args.evidence_provenance or "unknown",
     ]
-    if args.provider:
+    if getattr(args, "related_profile", None):
+        options = [
+            "--workflow",
+            "review",
+            "--no-adaptive-planning",
+            "--max-iterations",
+            "1",
+            "--related-profile",
+            str(args.related_profile),
+            "--related-profile-sha256",
+            args.related_profile_sha256,
+            "--max-seconds",
+            str(args.max_seconds),
+            "--max-stage-seconds",
+            str(args.max_stage_seconds),
+        ]
+    if args.provider and not getattr(args, "related_profile", None):
         options += ["--provider", args.provider]
-    if args.model:
+    if args.model and not getattr(args, "related_profile", None):
         options += ["--sol-model", args.model]
-    if args.reasoning_effort:
-        options += ["--sol-reasoning-effort", args.reasoning_effort]
+    if not getattr(args, "related_profile", None):
+        options += ["--sol-reasoning-effort", args.reasoning_effort or "medium"]
+    if getattr(args, "max_cost_usd", None) is not None:
+        options += ["--max-cost-usd", str(args.max_cost_usd)]
     try:
         child_run = TaskRun.start(
             review_workspace,
@@ -237,6 +316,7 @@ def verify(args, contract):
         new_behavior=contract["proof_kind"] == "feature",
         preserve_only=contract["proof_kind"] == "preserve",
     )
+    mutations = mutation_check(workspace, root, base, reviewed_patch(candidate, base), proof.get("verdict"))
     checks = [
         {"command": row["verification_method"], "exit_code": 0, "evidence_ref": "caller-declared-check"}
         for row in contract["acceptance_criteria"]
@@ -283,6 +363,7 @@ def verify(args, contract):
         original=original,
         original_index=original_index,
         candidate=candidate,
+        mutation_check=mutations,
     )
 
 
@@ -302,15 +383,22 @@ def parser():
     result.add_argument(
         "--record", type=Path, help="Read an existing verification and recheck source/evidence freshness"
     )
-    result.add_argument("--engine", choices=("codex", "opencode"), default="opencode")
+    result.add_argument("--engine", choices=("codex", "opencode"), help="Coding agent for the independent review")
     result.add_argument("--provider", help="Configured provider for the independent review")
+    result.add_argument("--related-profile", type=Path, help="Pinned role routing and limits from a coordinating run")
+    result.add_argument("--related-profile-sha256", help="Exact SHA-256 of --related-profile")
     result.add_argument("--model", help="Independent Code Reviewer model")
-    result.add_argument("--reasoning-effort", choices=("low", "medium", "high"), default="medium")
-    result.add_argument("--evidence-provenance", choices=("fake", "live", "unknown"), default="unknown")
+    result.add_argument(
+        "--reasoning-effort", choices=("low", "medium", "high", "xhigh", "max"), help="Reasoning effort of the review"
+    )
+    result.add_argument(
+        "--evidence-provenance", choices=("fake", "live", "unknown"), help="Where the evidence comes from"
+    )
     result.add_argument("--suite-command", help="Project suite command for external-change proof")
     result.add_argument("--check-timeout", type=int, default=900, help="Seconds per independent proof/check command")
     result.add_argument("--max-seconds", type=int, default=900, help="Total review provider time limit")
     result.add_argument("--max-stage-seconds", type=int, default=600, help="Review stage time limit")
+    result.add_argument("--max-cost-usd", type=float, help="Cost cap for the independent review")
     result.add_argument("--json", action="store_true", help="Print the verdict and canonical report as JSON")
     return result
 
@@ -319,12 +407,23 @@ def cli(argv=None):
     arguments = parser()
     args = arguments.parse_args(argv)
     try:
+        args.cleared_git_config = records.clear_git_config_parameters()
         records.require_git_environment()
         if args.record:
             if any((args.base, args.branch, args.patch, args.criteria, args.criteria_file, args.out)):
                 raise ValueError("--record cannot be combined with a new verification input")
             result = records.read(args.record)
         else:
+            if bool(args.related_profile) != bool(args.related_profile_sha256):
+                raise ValueError("--related-profile and --related-profile-sha256 must be supplied together")
+            if args.related_profile:
+                conflicts = [
+                    "--" + name.replace("_", "-")
+                    for name in ("engine", "provider", "model", "reasoning_effort", "evidence_provenance")
+                    if getattr(args, name) is not None
+                ]
+                if conflicts:
+                    raise ValueError("--related-profile cannot be combined with " + ", ".join(conflicts))
             if not args.base or (args.criteria is None and args.criteria_file is None):
                 raise ValueError(
                     "Supply --base and explicit --criteria or --criteria-file; criteria are never inferred"

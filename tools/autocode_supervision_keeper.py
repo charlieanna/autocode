@@ -187,6 +187,22 @@ def _leads_session(identity):
         return False
 
 
+BASE_SAMPLE_TICK = 0.05  # the sample wait while the tree or its sessions are changing
+MAX_SAMPLE_TICK = 0.5  # the sample wait once the tree and its sessions have stayed quiet
+
+
+def next_sample_tick(current, *, activity, base_tick=BASE_SAMPLE_TICK, cap_tick=MAX_SAMPLE_TICK):
+    """The wait before the next whole-tree sample (#2708): the base tick while anything
+    changes (an admission, session traffic, an inventory delta), doubling up to the cap
+    while the tree stays quiet, so hours of quiet local verification do not enumerate
+    the host's process table twenty times a second. The lifeline watcher's owner-EOF and
+    deadline select is separate and keeps its own 50ms bound; a quiet tick only delays the
+    next sample, never a trigger."""
+    if activity:
+        return base_tick
+    return min(cap_tick, max(base_tick, current * 2.0))
+
+
 def _reply_session(listener, cookie, trigger_lock, triggered, done):
     # Native cookie validation is outside the short trigger gate. Disk writes
     # and enclosing handoffs never hold this lock; only the final decision and
@@ -251,8 +267,6 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
     kill_after = request.get("kill_after_seconds", 2)
     if isinstance(kill_after, bool) or not isinstance(kill_after, (int, float)) or not 0 < kill_after < math.inf:
         return 2
-    if not processes.live_processes([provider]):
-        return 2
     if not processes.matches(metadata["keeper"], processes.process_table({os.getpid()}).get(os.getpid())):
         return 2
     # Both providers and guarded CLIs lead dedicated sessions before exec.
@@ -293,6 +307,16 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
             channel.close()
         callback = socket.socket(fileno=request["session_callback"])
         callback.setblocking(False)
+    # The liveness refusal comes after the session handshake on purpose: a
+    # bootstrap that died before delivering its listener (a refused nested
+    # listener dies exactly there) is named by the failed transfer in either
+    # completion order, so the launcher's refusal keeps its cause. This gate
+    # then covers a death after the handshake, and command launches with no
+    # handshake at all; it never exits silently (#815: the launcher attaches
+    # this stderr cause when the keeper dies before acknowledging).
+    if not processes.live_processes([provider]):
+        print("Provider exited before keeper admission", file=sys.stderr, flush=True)
+        return 2
     receipt_write_lock = threading.Lock()
     reason_lock = threading.Lock()
     value = {
@@ -468,14 +492,17 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
             samples[slot] = (started, time.monotonic(), tree.enumeration_seconds)
 
     def service_sessions():
+        """Drain session traffic; True when the listener or callback had any (#2708)."""
         if listener is None:
-            return
+            return False
+        worked = False
         for _ in range(32):
             if boundary.listener_extinct(listener) or not select.select([listener], [], [], 0)[0]:
                 break
             notice = boundary.receive_request(listener)
             if notice is None:
                 continue
+            worked = True
             if triggered.is_set() or done.is_set():
                 boundary.reject_request(listener, notice["id"])
                 continue
@@ -498,6 +525,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
             raw = callback.recv(65537)
             if not raw:
                 break  # Owner EOF is handled by the independent lifeline watcher.
+            worked = True
             answer = json.loads(raw)
             cancelled = "session_cancelled" in answer
             field = "session_cancelled" if cancelled else "session_admitted"
@@ -517,12 +545,16 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                 _reply_session(listener, cookie, trigger_lock, triggered, done)
         if any(time.monotonic() >= limit for limit in pending_sessions.values()):
             raise boundary.BoundaryError("Enclosing session admission exceeded its bound")
+        return worked
 
     try:
+        sample_tick = 0.0
         while not triggered.is_set():
             # Admission disk I/O belongs to the sampling thread. The lifeline
             # watcher must remain free to enforce EOF and the hard deadline.
+            activity = False
             while not admissions.empty() and not triggered.is_set():
+                activity = True
                 nested = admissions.get_nowait()
                 admitted = True
                 if "admit_session" in nested:
@@ -540,12 +572,13 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                         else {"admitted": nested["nonce"]}
                     )
                     os.write(acknowledgement, (json.dumps(answer) + "\n").encode())
-            service_sessions()
+            activity = service_sessions() or activity
             rows = timed_sample("last")
             inventory = tree.inventory()
             if previous_inventory != inventory:
                 save()
                 previous_inventory = inventory
+                activity = True
             if not rows or not processes.live_processes([provider]):
                 # Kernel parent-death cleanup can stop the provider before the
                 # lifeline watcher is scheduled. Inspect the original owner's
@@ -557,7 +590,8 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                         reason[0] = "provider_stopped"
                 break
             # This wait is interruptible by owner loss/deadline, not a test sleep.
-            triggered.wait(0.05)
+            sample_tick = next_sample_tick(sample_tick, activity=activity)
+            triggered.wait(sample_tick)
         loop_exit = time.monotonic()
         discharged = external is not None and reason[0] == "controller_finished"
         if discharged:

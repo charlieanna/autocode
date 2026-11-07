@@ -30,13 +30,16 @@ try:
     from . import autocode_planning as planning
     from . import autocode_process as processes
     from . import autocode_quota_route as quota_route
+    from . import autocode_recovery_limits as recovery_limits
     from . import autocode_report_retry as report_retry
     from . import autocode_report_source as report_source
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_reviewer_fallback as reviewer_fallback
+    from . import autocode_roles as roles
     from . import autocode_run_records as records
     from . import autocode_run_status as run_status
+    from . import autocode_stage_stalls as stage_stalls
     from . import autocode_support as support
     from . import autocode_validation_recovery as validation_recovery
     from . import autocode_workflow as workflow
@@ -49,13 +52,16 @@ except ImportError:
     import autocode_planning as planning
     import autocode_process as processes
     import autocode_quota_route as quota_route
+    import autocode_recovery_limits as recovery_limits
     import autocode_report_retry as report_retry
     import autocode_report_source as report_source
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_reviewer_fallback as reviewer_fallback
+    import autocode_roles as roles
     import autocode_run_records as records
     import autocode_run_status as run_status
+    import autocode_stage_stalls as stage_stalls
     import autocode_support as support
     import autocode_validation_recovery as validation_recovery
     import autocode_workflow as workflow
@@ -235,6 +241,7 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
 
 
 MAX_AUTOMATIC_CAPACITY_RECOVERIES = 3
+TIMEOUT_ARCHIVED_VALIDATION = "Timed-out implementation automatically archived"
 
 
 def automatically_recover_report_repair_timeout(state: RunState, run_dir, workspace, error):
@@ -680,17 +687,44 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     failures.record(state, record, error, records.now())
     originals = records.archive_rejected_stage(state, run_dir, record, record["rejection_reason"])
     state["sessions"].pop(record.get("route_role", record["role"]), None)
-    if state.get("validation"):
-        state.setdefault("validation_archive", []).append(
-            {"reason": "Timed-out implementation automatically archived", "validation": state.pop("validation")}
-        )
-    state["human_reviews"] = {}
-    state.pop("displayed_review", None)
+    semantic_stage = record.get("original_stage") or record["stage"]
+    had_validation = bool(state.get("validation"))
+    # A stopped read-only completion review changed nothing on disk, so the independent validation
+    # it was reviewing is still current. Retiring it would leave the retried completion gate unable
+    # to pass for the evidence it requires; only a writer, or evidence that no longer binds, is
+    # retired here. This is the policy autocode_validation_recovery already applies to an
+    # interrupted completion retry.
+    keep_evidence = semantic_stage in ("astra_review", "astra_checkpoint") and validation_recovery.current(
+        state, record
+    )
+    if not keep_evidence:
+        if had_validation:
+            state.setdefault("validation_archive", []).append(
+                {"reason": TIMEOUT_ARCHIVED_VALIDATION, "validation": state.pop("validation")}
+            )
+        state["human_reviews"] = {}
+        state.pop("displayed_review", None)
 
     next_stage, phase = records.timeout_recovery_route(state, record)
+    retry_missing_tester_report = (
+        semantic_stage == "sol"
+        and next_stage == "astra_review"
+        and not had_validation
+        and record["changed_files"] == []
+        and workflow.review_stage(state) == "sol"
+    )
+    if retry_missing_tester_report:
+        next_stage = "sol"
     # Final-audit-only runs keep the Builder in charge of implementation. Other routing
     # modes retain the established Plan Reviewer recovery review before another writer.
-    semantic_stage = record.get("original_stage") or record["stage"]
+    # The completion retry this route chose needs the evidence just retired, so it goes to the
+    # workflow's own verification stage instead — a final-audit-only run has no separate Validator, so
+    # there its own audit stage re-produces the evidence. Asked only here: this route consults the
+    # workflow approval, which no writer's timeout recovery has any reason to raise over.
+    if had_validation and not keep_evidence and next_stage == semantic_stage:
+        verification_stage = workflow.review_stage(state)
+        if verification_stage in ("sol", "astra_checkpoint"):
+            next_stage = verification_stage
     recovery = {
         "at": records.now(),
         "attempt_id": records.attempt_id(record),
@@ -715,6 +749,13 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         "checks, or fix the identified stall. Preserve all acceptance checks; do not replay the same "
         "task under unchanged limits. Do not extend limits or reset budgets without authorization.",
     }
+    if retry_missing_tester_report:
+        recovery["instruction"] = (
+            "The archived stage left no accepted Tester report and did not change source. "
+            "Execute the required checks for this attempt, using the current runner proof to focus inspection. "
+            "Partial work remains archived and is not a completed report. Completion Review still needs the "
+            "new independent report. Preserve the approved checks and saved execution limits."
+        )
     records.count_automatic_recovery(state)
     state.setdefault("automatic_timeout_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append(
@@ -736,7 +777,18 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     if semantic_stage == "terra":
         state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
     state["consecutive_timeout_recoveries"] = state.get("consecutive_timeout_recoveries", 0) + 1
-    run_status.running(state, phase, next_stage=next_stage)
+    stalls = stage_stalls.repeated(state, semantic_stage, after["revision"])
+    if stage_stalls.escapes_streak(state, stalls):
+        # A review that re-issues the stage saves a valid report and ends the failure streak, so
+        # this stage could stall on the same source forever: pause for the Investigator instead.
+        run_status.pause(
+            state,
+            stage_stalls.STATUS,
+            stage_stalls.reason(roles.screen_name(semantic_stage, state), stalls),
+            next_stage=semantic_stage,
+        )
+    else:
+        run_status.running(state, phase, next_stage=next_stage)
     records.write_json(run_dir / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
@@ -939,6 +991,15 @@ def prepare_planning_retry(state: RunState, run_dir):
         if not any(row.get("output") == active.get("output") for row in state.get("stages", [])):
             state.setdefault("stages", []).append(copy.deepcopy(active))
         state.pop("active_stage", None)
+    if (
+        status == "PAUSED_REPORT_REPAIR_INPUT"
+        and pending
+        and pending.get("attempts", 0) < records.repair_limit(state)
+        and report_source.has_repairable_empty_latest(pending)
+    ):
+        # The existing next repair still has its original input. Preserve its
+        # pins/usage/allowance; normal dispatch rechecks them before spending.
+        return False
     if pending:
         state.setdefault("report_repair_archive", []).append(
             {
@@ -988,6 +1049,14 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
         )
     )
     if (
+        unlaunchable
+        and cast(dict, pending).get("attempts", 0) < records.repair_limit(state)
+        and report_source.has_repairable_empty_latest(pending)
+    ):
+        # A hold saved before #2426 covered execution: the remaining repair still has its
+        # original input, so keep it instead of discarding the stage's work.
+        return False
+    if (
         (stage != state.get("next_stage") and not reroute_abandoned_sol)
         or stage == "astra_discovery"
         or planning.is_planning(state, stage)
@@ -1013,6 +1082,17 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
             "The same stage failed the same way at this source "
             f"{repeated.get('streak', repeated['count'])} consecutive times. Inspect failure_history and saved output; "
             "change the cause before another execution request."
+        )
+        # Reconcile the spent repair before holding, so the inspected retry this pause tells the
+        # operator to authorize is admissible on the next resume instead of refused by it (#1899).
+        # Only a repair this function already judged spent or unlaunchable reaches here.
+        state.setdefault("report_repair_archive", []).append(
+            {
+                "at": records.now(),
+                "reason": "Reconciled on the unchanged-failure hold; the repair was spent or "
+                "cannot launch, and its rejected report stays in the archive",
+                "repair": state.pop("pending_report_repair"),
+            }
         )
         run_status.pause(state, "PAUSED_REPEATED_FAILURE", message, paused_at=records.now())
         records.write_json(run_dir / "state.json", state)
@@ -1041,6 +1121,71 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
             "reason": "Explicit fresh execution retry; rejected reports retained",
         }
     )
+    records.write_json(run_dir / "state.json", state)
+    return True
+
+
+RESTARTS_PER_SOURCE = 2
+CANNOT_LAUNCH = "the report repair cannot launch from its saved inputs"
+
+
+def restart_unlaunchable_repair(state: RunState, run_dir, workspace, error):
+    """Start a fresh attempt of a stage whose report repair cannot launch; never ask a person.
+
+    A repair whose saved inputs are too large, or hold no usable report, can never run, so it is
+    spent. Before this, the run paused and told the person to resume, which only archived the repair
+    and started the same fresh attempt this does (a live Tester, 2026-11-06). The rejected reports
+    stay in the archive. The retry preparation keeps a repair that can still run. A stage that needed this
+    ``RESTARTS_PER_SOURCE`` times on unchanged source pauses ``PAUSED_REPEATED_FAILURE`` instead, which
+    the Investigator diagnoses; the existing repeated-failure hold applies first."""
+    pending = state.get("pending_report_repair")
+    original = pending.get("original") if isinstance(pending, dict) else None
+    if (
+        getattr(error, "status", None) != "PAUSED_REPORT_REPAIR_INPUT"
+        or state.get("active_stage")
+        or not isinstance(original, dict)
+    ):
+        return False
+    stage = original.get("stage")
+    # The person-facing resume route no longer applies: the runner takes that step itself.
+    cause = str(error).replace(report_source.REPAIR_INPUT_ROUTE, "")
+    earlier = [
+        row
+        for row in state.get("report_repair_archive") or []
+        if CANNOT_LAUNCH in str(row.get("reason"))
+        and ((row.get("repair") or {}).get("original") or {}).get("stage") == stage
+        and ((row.get("repair") or {}).get("original") or {}).get("source_revision") == original.get("source_revision")
+    ]
+    if len(earlier) >= RESTARTS_PER_SOURCE:
+        message = (
+            f"{roles.screen_name(str(stage), state)}'s report repair could not launch "
+            f"{len(earlier) + 1} times on unchanged source; another identical attempt is not started. " + cause
+        )
+        run_status.pause(state, "PAUSED_REPEATED_FAILURE", message, paused_at=records.now())
+        records.write_json(run_dir / "state.json", state)
+        raise support.Paused("PAUSED_REPEATED_FAILURE", message)
+    # The retry preparation an explicit resume runs reads the pause it is resuming from.
+    run_status.pause(
+        state,
+        "PAUSED_REPORT_REPAIR_INPUT",
+        cause + " The runner archives this repair and starts a fresh attempt of the stage.",
+        paused_at=records.now(),
+    )
+    planning_stage = prepare_planning_retry(state, run_dir)
+    if not planning_stage and not prepare_exhausted_execution_report_retry(state, run_dir, workspace):
+        records.write_json(run_dir / "state.json", state)
+        return False
+    state.setdefault("user_events", []).append(
+        {
+            "kind": "automatic_unlaunchable_repair_restart",
+            "actor": "runner",
+            "at": records.now(),
+            "stage": stage,
+            "source_revision": original.get("source_revision"),
+            "reason": cause,
+        }
+    )
+    run_status.running(state, "PLANNING" if planning_stage else "EXECUTING", next_stage=state.get("next_stage"))
     records.write_json(run_dir / "state.json", state)
     return True
 
@@ -1080,11 +1225,34 @@ def stale_report_repair(state: RunState, workspace):
 
 
 def archive_stale_report_repair(state: RunState, run_dir, workspace):
-    """On an explicit resume, archive (never delete) a stale report repair so the same stage starts afresh.
+    """On explicit resume, archive report repair that no longer belongs to the source or next stage.
 
-    The role's saved session judged the old source, so it is rotated like an exhausted repair's
-    (prepare_exhausted_execution_report_retry). Returns the message to show, or None when
-    stale_report_repair does not apply."""
+    Source changes rotate the role's saved session, which judged the old source. A stage mismatch
+    instead archives the obsolete repair and preserves the already-selected next stage. Returns
+    the message to show, or None when neither condition applies."""
+    pending = state.get("pending_report_repair") or {}
+    original = pending.get("original") or {}
+    if original and original.get("stage") != state.get("next_stage"):
+        stage = original["stage"]
+        next_stage = state.get("next_stage")
+        message = f"Archived stale {stage} report repair because {next_stage or 'no stage'} is now next."
+        state.setdefault("report_repair_archive", []).append(
+            {
+                "at": records.now(),
+                "reason": "Owning stage changed while paused; pending report repair is no longer next",
+                "repair": state.pop("pending_report_repair"),
+            }
+        )
+        state.setdefault("reconciliation_notes", []).append(
+            {
+                "at": records.now(),
+                "stage": stage,
+                "iteration": original.get("iteration"),
+                "reason": message,
+            }
+        )
+        records.write_json(Path(run_dir) / "state.json", state)
+        return message
     stale = stale_report_repair(state, workspace)
     if not stale:
         return None
@@ -1132,7 +1300,7 @@ def retry_format_failed_report(state: RunState, run_dir, workspace, selected):
     if (
         state.get("status") != "PAUSED_REPEATED_FAILURE"
         or any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
-        or pending.get("error") not in report_retry.RETRYABLE_ERRORS
+        or not report_retry.retryable(pending.get("error"))
         or original.get("stage") != "sol"
         or not repair
         or selected != records.attempt_id(repair)
@@ -1274,6 +1442,115 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
     return True
 
 
+def prepare_timeout_archived_completion(state: RunState, run_dir, workspace):
+    """Re-open one checkpoint whose current validation a stopped completion review retired.
+
+    A read-only Completion Review that stopped mid-call changed nothing, so the Tester report its
+    recovery archived can still bind this exact source, contract, criteria set and task with every
+    evidence pin intact. That archived report is the one thing the completion gate lacked, so it is
+    put back — never adopted for a source it did not check, and never as a claim of completion: the
+    ordinary gate re-decides it. A checkpoint whose evidence no longer binds stays paused, because
+    the runner cannot restore authority an inspection would not re-establish.
+    """
+    recovery = state.get("recovery_context") or {}
+    attempt = recovery.get("attempt_id")
+    task_id = (state.get("current_task") or {}).get("id")
+    if (
+        state.get("status") not in ("PAUSED_COMPLETION_GATE", "PAUSED_REPEATED_FAILURE")
+        or state.get("next_stage") != "astra_review"
+        or state.get("validation")
+        or not attempt
+        or recovery.get("stage") != "astra_review"
+        or recovery.get("role") != "astra"
+        or recovery.get("changed_files")
+        or recovery.get("task_id") != task_id
+        or any(
+            state.get(key)
+            for key in (
+                "active_stage",
+                "active_runner_check",
+                "pending_report_repair",
+                "uncertain_artifacts",
+                "pending_questions",
+                "user_request",
+            )
+        )
+        or not any(row.get("attempt_id") == attempt for row in state.get("automatic_timeout_recoveries") or [])
+        or not any(
+            event.get("kind") == "automatic_timeout_recovery" and event.get("attempt_id") == attempt
+            for event in state.get("user_events") or []
+        )
+    ):
+        return False
+    contract = state.get("goal_contract") or {}
+    archived = [
+        row
+        for row in state.get("validation_archive") or []
+        if row.get("reason") == TIMEOUT_ARCHIVED_VALIDATION and (row.get("validation") or {}).get("task_id") == task_id
+    ]
+    if len(archived) != 1:
+        return False
+    validation = archived[0].get("validation") or {}
+    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
+    if (
+        recovery.get("source_revision") != revision
+        or validation.get("source_revision") != revision
+        or validation.get("contract_hash") != contract.get("hash")
+        or validation.get("contract_revision") != contract.get("revision")
+        or not validation_recovery.current(
+            {**state, "validation": validation}, {"source_revision": revision, "changed_files": []}
+        )
+    ):
+        return False
+    stages = state.get("stages") or []
+    index = next(
+        (
+            i
+            for i in range(len(stages) - 1, -1, -1)
+            if stages[i].get("abandoned") and records.attempt_id(stages[i]) == attempt
+        ),
+        None,
+    )
+    if index is None or any(
+        not row.get("rejected")
+        or row.get("abandoned")
+        or row.get("source_revision") != revision
+        or (row.get("original_stage") or row.get("stage")) != "astra_review"
+        for row in stages[index + 1 :]
+        if not (row.get("runner_owned") and (row.get("decision") or {}).get("action") in ("retry", "hold"))
+    ):
+        return False
+    try:
+        from . import autocode_regression as regression
+    except ImportError:
+        import autocode_regression as regression
+    # The runner's own proof must already carry this source: then the evidence below is the one gap.
+    if not regression.required(state, all_due=True) or not regression.complete(
+        state, revision, all_due=True, require_changed_code=False
+    ):
+        return False
+    state["validation"] = validation
+    state["validation_archive"] = [row for row in state["validation_archive"] if row is not archived[0]]
+    state.setdefault("reconciliation_notes", []).append(
+        {
+            "at": records.now(),
+            "attempt_id": attempt,
+            "previous_status": state["status"],
+            "stage": "astra_review",
+            "reason": "Restored the current pinned validation that a stopped completion review had retired",
+        }
+    )
+    resolver_human.supersede_operational(state, "Scoped completion-timeout evidence recovery was proven")
+    run_status.pause(
+        state,
+        "PAUSED_COMPLETION_GATE",
+        "Validation for this source was restored. Resume explicitly for the Completion Review to decide again.",
+        next_stage="astra_review",
+    )
+    records.write_json(Path(run_dir) / "state.json", state)
+    return True
+
+
 def authorize_failure_retry(state: RunState, run_dir, workspace):
     """Authorize one fresh attempt for an inspected, unchanged repeated failure.
 
@@ -1298,8 +1575,8 @@ def authorize_failure_retry(state: RunState, run_dir, workspace):
         issued and issued["scope"] == "operational_exhaustion" and issued_cause == "PAUSED_REPEATED_FAILURE"
     ):
         raise ValueError("--retry-failed-stage requires a run paused for repeated failure")
-    if any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair")):
-        raise ValueError("Reconcile the active attempt or pending report repair before authorizing a retry")
+    if refusal := recovery_limits.repeated_failure_retry_refusal(state):
+        raise ValueError(refusal)
     record = next((row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None)
     repeated = failures.repeated(state, record) if record else None
     if not repeated:

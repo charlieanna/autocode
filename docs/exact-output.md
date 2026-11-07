@@ -89,9 +89,12 @@ negative. They are not token counts or money saved.
 - `output_transport`: saved display mode and completed-stage tool measurements;
   native tool calls are outside this measurement.
 - `request_context`: the latest completed stage's individual request input
-  counters and observed peak, including cache reads and writes. OpenCode
-  `step_finish` events provide these counters. A native Codex cumulative turn
-  total is not treated as a per-request context measurement.
+  counters and observed peak, including cache reads and writes, and under
+  `stages` each saved stage's own peak request (stage, iteration,
+  `peak_input_tokens`, `complete`), so headroom against the model's window is
+  visible per stage. OpenCode `step_finish` events provide these counters. A
+  native Codex cumulative turn total is not treated as a per-request context
+  measurement.
 
 The existing `usage` field remains cumulative. Missing counters are unavailable,
 not zero. Active requests are outside the completed-stage projection. Comparing

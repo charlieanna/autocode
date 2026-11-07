@@ -10,9 +10,17 @@ import { RunController, type CheckpointComparison, type RunRef } from "./control
 import { requiresConfirmation } from "./core/next-command";
 import { chosenMode, type RunModes } from "./core/modes";
 import type { StatusView } from "./core/view";
-import { transitionNotice } from "./notify";
+import { transitionNotice, waitsForPerson } from "./notify";
+import { runTotal, sessionTotal, totalText } from "./core/meter";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
-import { numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
+import { confirmRaise, numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
+
+// While a reply is being written the view is read this often, so each new extract
+// shows at once. A reply that has not changed for STREAM_QUIET_POLLS reads (a model
+// running tools between messages) is read at the ordinary pace again. Same shape as
+// the terminal chat's STREAM_POLL_SECONDS / STREAM_QUIET_POLLS.
+const STREAM_POLL_SECONDS = 0.25;
+const STREAM_QUIET_POLLS = 8;
 
 interface ChatMessage {
   type?: string;
@@ -24,6 +32,8 @@ interface ChatMessage {
   decisionContext?: string;
   token?: string | null;
   answers?: Record<string, string>;
+  /** A number typed into the bound's separately named raise (#2044). */
+  value?: string;
   checkpoint?: string;
   action?: "compare" | "restore";
   workspace?: string;
@@ -83,6 +93,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private sequence = 0;
   private refreshing = false;
   private timer: NodeJS.Timeout | undefined;
+  private disposed = false;
+  /** Last streaming extract per tab and how many reads it stayed unchanged (the TUI's pace). */
+  private readonly streamText = new Map<string, string>();
+  private readonly streamQuiet = new Map<string, number>();
   private readonly configuration: vscode.Disposable;
   /** The core's run modes for new chats; null when this AutoCode lists none (an older CLI). */
   private modes: RunModes | null | undefined;
@@ -158,13 +172,49 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   private startPolling(): void {
-    if (this.timer) clearInterval(this.timer);
+    this.schedulePoll();
+  }
+
+  /** Recursive timeout so a growing reply can poll at the streaming pace (autocode_chat_client.pace). */
+  private schedulePoll(): void {
+    if (this.disposed) return;
+    if (this.timer) clearTimeout(this.timer);
     const seconds = Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
-    this.timer = setInterval(() => void this.refresh(), seconds * 1000);
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.refresh().finally(() => this.schedulePoll());
+    }, this.pace(seconds) * 1000);
+  }
+
+  /** The wait before the next read: short while a reply is still changing, else ``seconds``. */
+  private pace(seconds: number): number {
+    for (const [key, text] of this.streamText) {
+      if (text && (this.streamQuiet.get(key) ?? 0) < STREAM_QUIET_POLLS) return Math.min(STREAM_POLL_SECONDS, seconds);
+    }
+    return seconds;
+  }
+
+  /** Track the tab's streaming extract so pace() knows whether it is still growing. */
+  private noteStreaming(tab: ChatTab): void {
+    const seconds = Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
+    const before = this.pace(seconds);
+    const live = (tab.status?.chat?.messages ?? []).find((row) => row.streaming)?.text ?? "";
+    if (!live) {
+      this.streamText.delete(tab.key);
+      this.streamQuiet.delete(tab.key);
+    } else {
+      const quiet = live === this.streamText.get(tab.key) ? (this.streamQuiet.get(tab.key) ?? 0) + 1 : 0;
+      this.streamText.set(tab.key, live);
+      this.streamQuiet.set(tab.key, quiet);
+    }
+    // A newly growing (or just finished) extract changes the wait: re-arm the timer.
+    if (this.pace(seconds) !== before) this.startPolling();
   }
 
   dispose(): void {
-    if (this.timer) clearInterval(this.timer);
+    this.disposed = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
     this.configuration.dispose();
   }
 
@@ -213,7 +263,13 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       type: "chat", runKey: tab.key, busy, waitingForStart: tab.starting && !tab.launching, pausing: this.pausing.has(tab.key),
       error: tab.error || tab.readError, pendingBrief: tab.pendingBrief,
       selectedRun: tab.run ?? null, persistSelection,
-      tabs: this.tabs.map((row) => ({ key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null })),
+      tabs: this.tabs.map((row) => ({
+        key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null,
+        // Never offered while this client is acting on the tab: its own action is not a wait.
+        needs: !this.busy.has(row.key) && !row.starting && waitsForPerson(row.status),
+        finished: row.status?.done === true,
+      })),
+      session: this.sessionCost(),
       activeKey: this.activeKey,
       engine: engineOf(readSettings()),
       // Only a chat that has not started chooses a mode; a run keeps the flow it started with.
@@ -223,20 +279,28 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     });
   }
 
+  /** Every open run's accounted total added up, shown only when two or more chats hold runs. */
+  private sessionCost(): string {
+    const runs = this.tabs.filter((tab) => tab.run);
+    if (runs.length < 2) return "";
+    return totalText(sessionTotal(runs.map((tab) => (tab.status ? runTotal(tab.status) : null))), false);
+  }
+
   async refresh(): Promise<void> {
     if (this.refreshing) return;
     const sequence = this.sequence;
     this.refreshing = true;
     try {
-      for (const tab of [...this.tabs]) {
-        if (!tab.run) continue;
+      // Tabs read in parallel: one slow or hung --status must not freeze the others
+      // until its timeout (#1711 timing gaps).
+      await Promise.all([...this.tabs].filter((tab) => tab.run).map(async (tab) => {
         try {
-          const status = await this.controller.status(tab.run);
+          const status = await this.controller.pollStatus(tab.run!);
           if (this.tabs.includes(tab)) this.announce(tab, status);
         } catch (error) {
           if (sequence === this.sequence && !tab.starting) tab.readError = messageOf(error);
         }
-      }
+      }));
     } finally {
       this.refreshing = false;
       if (sequence === this.sequence) this.post();
@@ -246,10 +310,13 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 
   /** Land the tab's fresh status and announce a new person-wait or a finished run once per run. */
   private announce(tab: ChatTab, status: StatusView): void {
-    const notice = transitionNotice(tab.status, status);
+    // The per-run identities below dedupe notices. Reconsider a Continue after
+    // our action settles: its intermediate checkpoint is not a person-wait.
+    const notice = transitionNotice(null, status);
     tab.status = status;
     tab.readError = "";
-    if (!notice || !tab.run) return;
+    this.noteStreaming(tab);
+    if (!notice || !tab.run || (status.needs?.kind === "continue" && this.busy.has(tab.key))) return;
     const run = tab.run;
     const key = runKey(run);
     let seen = this.notified.get(key);
@@ -258,8 +325,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     seen.add(notice.identity);
     if (vscode.workspace.getConfiguration("autocode").get<boolean>("notify", true) === false) return;
     void (async () => {
+      const outcome = notice.identity === "done" ? "finished." : `is waiting for you - ${notice.tail}`;
       const choice = await vscode.window.showInformationMessage(
-        `AutoCode: ${tabName(tab)} is waiting for you - ${notice.tail}`, "Open chat",
+        `AutoCode: ${tabName(tab)} ${outcome}`, "Open chat",
       );
       if (choice === "Open chat") this.show(run);
     })();
@@ -291,6 +359,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (message.type === "select_tab" && message.tabKey) { this.activate(message.tabKey); return; }
     if (message.type === "close_tab" && message.tabKey) { this.close(message.tabKey); return; }
     if (message.type === "checkpoint") { await this.checkpoint(message); return; }
+    if (message.type === "working_diff") { await this.workingDiff(message); return; }
     if (message.type === "pause") { await this.pause(message); return; }
     if (message.type === "checkpoint_open") {
       const opened = asRunRef({ workspace: message.workspace, runDir: message.runDir });
@@ -308,7 +377,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     if (message.type === "new") { if (!this.active.starting) this.show(); return; }
-    if (message.type !== "send" && message.type !== "take") return;
+    if (message.type !== "send" && message.type !== "take" && message.type !== "raise") return;
     const tab = this.active;
     if (message.runKey !== tab.key || tab.starting || this.busy.has(tab.key)) return;
     if (!tab.run) {
@@ -327,6 +396,12 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         await this.controller.sendMessage(view, run, message.text, message.context ?? "");
         void this.view?.webview.postMessage({ type: "sent", runKey: key, text: message.text });
         await this.advanceAfterInput(run);
+      } else if (message.type === "raise") {
+        // The raise resumes the run itself; nothing else is inferred from it.
+        const value = message.value ?? "";
+        if (await confirmRaise(stateFor(view, run, this.controller), message.decisionContext, value)) {
+          await this.controller.raise(view, run, value);
+        }
       } else {
         const state = stateFor(view, run, this.controller);
         if (message.decisionContext !== state.decisionContext) throw new Error("The requested action changed; review it before continuing");
@@ -413,6 +488,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!run || !checkpointId || message.runKey !== tab.key || this.busy.has(tab.key)) return;
     const key = tab.key;
     this.busy.add(key);
+    this.post();
     try {
       if (message.action === "compare") {
         const comparison = await this.controller.compareCheckpoint(run, checkpointId);
@@ -448,6 +524,20 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       this.busy.delete(key);
       this.actions.changed();
       await this.refresh();
+    }
+  }
+
+  /** The running Builder's changes so far: a read, offered only while the view names it. */
+  private async workingDiff(message: ChatMessage): Promise<void> {
+    const tab = this.active;
+    const run = tab.run;
+    if (!run || message.runKey !== tab.key) return;
+    const key = tab.key;
+    try {
+      const comparison = await this.controller.workingDiff(run);
+      void this.view?.webview.postMessage({ type: "working_diff", runKey: key, comparison });
+    } catch (error) {
+      void this.view?.webview.postMessage({ type: "working_diff", runKey: key, error: messageOf(error) });
     }
   }
 
@@ -596,6 +686,7 @@ async function pickEngine(): Promise<void> {
       engine,
     })),
     { label: "Connections…", description: "choose the backend", command: "autocode.connections" },
+    { label: "Stage models…", description: "each stage's model and reasoning level", command: "autocode.stages" },
     { label: "Configure in Settings…", command: "workbench.action.openSettings" },
   ];
   const picked = await vscode.window.showQuickPick(choices, {
@@ -606,7 +697,7 @@ async function pickEngine(): Promise<void> {
     await applyEngine(picked.engine);
     return;
   }
-  if (picked.command === "autocode.connections") return void vscode.commands.executeCommand(picked.command);
+  if (picked.command === "autocode.connections" || picked.command === "autocode.stages") return void vscode.commands.executeCommand(picked.command);
   if (picked.command) return void vscode.commands.executeCommand(picked.command, "autocode");
 }
 

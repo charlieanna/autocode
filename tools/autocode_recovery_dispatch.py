@@ -22,11 +22,13 @@ try:
     from . import autocode_job_failure as job_failure
     from . import autocode_network_retry as network_retry
     from . import autocode_provider_recovery as provider_recovery
+    from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_route_recovery as route_recovery
 except ImportError:
     import autocode_job_failure as job_failure
     import autocode_network_retry as network_retry
     import autocode_provider_recovery as provider_recovery
+    import autocode_resolver_recovery as resolver_recovery
     import autocode_route_recovery as route_recovery
 
 
@@ -59,6 +61,9 @@ RECOVERY_CHAIN = (
     ("capacity", _on_runtime("automatically_recover_capacity_stage")),
     ("timeout", _on_runtime("automatically_recover_timed_out_stage")),
     ("external_directory_denial", _on_runtime("automatically_recover_external_directory_denial")),
+    # A repeated incident's no-progress hold takes AutoCode's own one scoped retry, then ends the
+    # run with its outcome recorded (#2485).
+    ("no_progress", _runtime_first(resolver_recovery, "recover_no_progress")),
 )
 
 

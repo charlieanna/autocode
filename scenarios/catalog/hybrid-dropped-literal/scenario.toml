@@ -10,7 +10,7 @@ check = "python3 -m unittest test_todo.py"
 fault = "requirements_drops_literal"
 
 [hybrid]
-scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "glm_revise", "astra_finalize"]
+scripted = ["requirements_gather", "astra_discovery", "glm_revise", "astra_finalize"]
 
 [run]
 expected = "any"

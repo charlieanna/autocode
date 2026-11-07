@@ -12,6 +12,8 @@ from pathlib import Path
 
 import autocode_taskrun as taskrun
 
+from . import legacy_bugfix_fixture
+
 ROOT = Path(__file__).resolve().parents[1]
 PROVIDER = r"""
 import json, subprocess, sys, uuid
@@ -41,7 +43,8 @@ report = {"outcome": "not_reproduced", "note_path": "docs/bugs/public-input-acce
     "test_cases": [], "conclusion": "The supplied inputs were read in the prepared copy.",
     "fix_size": "none", "fix_plan": [], "questions": [],
     "tests_run": ["python3 -B check_inputs.py"], "plan_approval_requested": True,
-    "probe": "", "untestable": ""}
+    "probe": "", "untestable": "", "counterexample": {"file": "", "find": "", "replace": ""},
+    "workspace_scope": {"spans_repositories": False, "external_parts": []}}
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))
 print(json.dumps({"type": "turn.completed", "usage": {
     "input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1}}), flush=True)
@@ -134,6 +137,7 @@ print("PUBLIC_INPUT_READ_PASS " + json.dumps(observed, sort_keys=True))
             "Bug report: public proof inputs are missing. Diagnose by running python3 -B check_inputs.py "
             "in the prepared investigation copy. The exact supplied paths are "
             "pilot-public/PUBLIC-PROOF.md and pilot-public/pr42.patch. Do not change code.",
+            command=legacy_bugfix_fixture.COMMAND,
             options=(
                 "--engine",
                 "codex",

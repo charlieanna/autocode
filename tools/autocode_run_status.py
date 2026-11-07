@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 PAUSE_PHASE = "PAUSED_OR_BLOCKED"
+# The pauses that take brief feedback as plan feedback: the Tester's names --feedback as its way to revise the plan (#1869).
+PLAN_FEEDBACK_PAUSES = ("PAUSED_PLANNING_BUDGET", "PAUSED_COMPONENT_PLAN", "PAUSED_ACCEPTANCE_TESTS")
 _RESERVED = frozenset({"status", "phase", "stop_reason"})
 
 
@@ -49,3 +51,21 @@ def awaiting_approval(state: RunState, **fields) -> RunState:
     state.update({"status": "AWAITING_GOAL_APPROVAL", "phase": "AWAITING_GOAL_APPROVAL", **cast("RunState", fields)})
     state.pop("stop_reason", None)
     return state
+
+
+def waiting_for_user(state: RunState, phase: str, **fields) -> RunState:
+    """Return a conversation to its current question without answering it."""
+    _check_fields(fields)
+    state.update({"status": "WAITING_FOR_USER", "phase": phase, **cast("RunState", fields)})
+    state.pop("stop_reason", None)
+    return state
+
+
+# How the stop reason of a run AutoCode ended itself begins (autocode_stop.end, #2485). Named here, the
+# leaf module, so the stop policy, the explanation and the pause category read one value.
+ENDED_PREFIX = "AutoCode could not finish this task: "
+# Existing saved feedback checkpoints use this prefix; it describes AutoCode's pause, not a pause request.
+APPLIED_FEEDBACK_PREFIX = "Queued feedback was applied;"
+# A failed original-test gate (autocode_protected_commands.ORIGINAL_GATE_FAILED): the change conflicts with an
+# AutoCode gate, so its pause is AutoCode's even when the stage's rejected reports set a provider status (#2748).
+ORIGINAL_GATE_FAILED = "Protected tests changed and the original gate did not pass"

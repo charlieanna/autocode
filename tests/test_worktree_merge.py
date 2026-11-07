@@ -54,6 +54,20 @@ class WorktreeMergeTests(unittest.TestCase):
         self.assertEqual("master", git(self.project, "symbolic-ref", "--short", "HEAD"))
         self.assertIn("fast-forwarded", message)
 
+    def test_a_second_merge_reports_the_branch_as_already_merged(self):
+        """#2315: the first merge moved the base to the run's own commit, and the second merge read that
+        as "the base branch moved after this run started; re-validate ... then merge again"."""
+        meta = workspaces.create(self.project, "Build a greeting CLI")
+        tree = Path(meta["workspace"])
+        (tree / "b.txt").write_text("two\n")
+        git(tree, "add", "b.txt")
+        git(tree, "-c", "user.name=T", "-c", "user.email=t@e.test", "commit", "-qm", "deliver")
+        self.assertTrue(merge_mod.merge(self.project, tree)[0])
+        ok, message = merge_mod.merge(self.project, tree)
+        self.assertTrue(ok, message)
+        self.assertIn("already merged: master at", message)
+        self.assertNotIn("re-validate", message)
+
     def test_a_moved_base_is_refused_with_the_revalidate_instruction(self):
         meta = workspaces.create(self.project, "Build a greeting CLI")
         tree = Path(meta["workspace"])
@@ -113,6 +127,24 @@ class WorktreeMergeTests(unittest.TestCase):
         payload = json.loads(out.getvalue())
         self.assertFalse(payload["ok"])
         self.assertTrue("branch" in payload["message"].lower() or "delivered" in payload["message"].lower())
+
+    def test_merge_without_a_worktree_argument_says_how_many_there_are(self):
+        import contextlib
+        import io
+
+        def refusal(argv):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+                merge_mod.cli(argv)
+            return err.getvalue()
+
+        self.assertIn("no task worktree under", refusal(["--workspace", str(self.project)]))
+        first = Path(workspaces.create(self.project, "Build a greeting CLI")["workspace"])
+        second = Path(workspaces.create(self.project, "Build a farewell CLI")["workspace"])
+        message = refusal(["--workspace", str(self.project)])
+        self.assertIn("this project has 2:", message)
+        self.assertIn(first.name, message)
+        self.assertIn(second.name, message)
 
 
 if __name__ == "__main__":

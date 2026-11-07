@@ -160,12 +160,14 @@ class AllRoleSubprocessTests(unittest.TestCase):
         # This test must exercise the selected Resolver model as well as the other roles.
         # Complete first repairs can now bypass it; an incomplete plan still needs diagnosis.
         self.env["AUTOCODE_FIXTURE_INCOMPLETE_REWORK"] = "1"
+        # GPT models are one family (2026-10-20): the GPT Builder's checkers and the Planner that GPT-6 Sol
+        # reviews come from other families.
         models = {
-            "glm": "openai/gpt-5.6-sol",
-            "astra": "zai-coding-plan/glm-5.3",
+            "glm": "zai-coding-plan/glm-5.3",
+            "astra": "openai/gpt-6-astra",
             "terra": "openai/gpt-5.6-terra",
-            "sol": "openai/gpt-6-astra",
-            "completion": "openai/gpt-5.6-sol",
+            "sol": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "completion": "zai-coding-plan/glm-5.3",
         }
         expected_models = {
             **models,
@@ -207,15 +209,16 @@ class AllRoleSubprocessTests(unittest.TestCase):
             )
             after_stage = self.saved()[1]
             self.assertEqual(
-                len([row for row in before_stage["stages"] if row["stage"] != "resolver"]) + 1,
-                len([row for row in after_stage["stages"] if row["stage"] != "resolver"]),
+                len([row for row in before_stage["stages"] if row["stage"] not in ("resolver", "regression_proof")])
+                + 1,
+                len([row for row in after_stage["stages"] if row["stage"] not in ("resolver", "regression_proof")]),
             )
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
         self.assertFalse(final.get("direct_rework_assignments"))
         for stage in final["stages"]:
             if stage.get("runner_owned"):
-                self.assertIn(stage["stage"], ("orchestrator", "resolver"))
+                self.assertIn(stage["stage"], ("orchestrator", "resolver", "regression_proof"))
                 self.assertEqual("runner", stage["engine"])
                 self.assertNotIn("command", stage)
                 if stage["stage"] == "resolver":

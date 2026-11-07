@@ -78,6 +78,16 @@ class CostProjectionTests(unittest.TestCase):
         # A stage without a rate cannot trip it: the line says the spend is a floor.
         self.assertIsNone(cost.exceeded(run(stage("mystery-model"), cap=0.000001)))
 
+    def test_claude_aliases_reach_the_cap_and_reported_cost_still_wins(self):
+        for alias in ("anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5-5"):
+            with self.subTest(alias=alias):
+                state = run(stage(alias), cap=0.008)
+                self.assertEqual((0.008, 0.008), cost.exceeded(state))
+                self.assertEqual(0, cost.view(state)["unpriced_stages"])
+                state = run(stage(alias, metrics={"provider_cost_usd": 0.01, "provider_tokens": TOKENS}), cap=0.01)
+                self.assertEqual((0.01, 0.01), cost.exceeded(state))
+                self.assertIsNone(cost.view(state)["estimated_usd"])
+
     def test_a_climb_is_priced_from_the_last_attempts_tokens_at_the_stronger_models_rate(self):
         attempt = stage("gpt-5.6-luna", stage="terra")
         spent = prices.estimate("gpt-5.6-luna", TOKENS)
@@ -131,7 +141,8 @@ class CostProjectionTests(unittest.TestCase):
         reported = stage(metrics={"provider_tokens": TOKENS, "provider_cost_usd": 0.5})
         line = cost.line(cost.view(run(stage(), reported, cap=12.5)))
         self.assertRegex(
-            line, r"^Cost: \$0\.5\d* so far \(\$0\.0\d+ estimated, \$0\.50 reported by the provider\); cap \$12\.50\.$"
+            line,
+            r"^Cost: \$0\.5\d* so far \(\$0\.0\d+ estimated, \$0\.50 reported by the provider\); cap \$12\.50\. Stage costs: Tester 2 attempts: \$0\.5\d*\.$",
         )
         self.assertEqual("$0.00123", cost.usd(0.00123))
         self.assertEqual("$0.000001", cost.usd(0.000001))
@@ -158,6 +169,49 @@ class CostProjectionTests(unittest.TestCase):
                 cost.check({**good, field: value})
         with self.assertRaises(ValueError):
             cost.check(["not", "an", "object"])
+
+
+class TariffUpdateTests(unittest.TestCase):
+    """A rate change does not reprice what earlier stages cost, or flip a resumed run's cap (#1867 S1a)."""
+
+    def test_a_tariff_update_keeps_earlier_spend_and_the_cap_decision(self):
+        import copy
+        import json
+        from pathlib import Path
+        from unittest import mock
+
+        shipped = json.loads((Path(prices.__file__).with_name("autocode_prices.json")).read_text())
+        model = "openai/gpt-5.6-sol"
+        tokens = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+        earlier = stage(model, tokens, finished_at="2026-10-10T12:00:00+00:00")
+        state = run(earlier, cap=None)
+        before = cost.view(state)["spent_usd"]
+        updated = copy.deepcopy(shipped)
+        row = updated["models"][model]
+        updated["models"][model] = {
+            **row,
+            "input": row["input"] * 3,
+            "output": row["output"] * 3,
+            "retrieved": "2026-10-20",
+            "history": [
+                {key: row[key] for key in ("input", "output", "source", "retrieved")} | {"until": "2026-10-20"}
+            ],
+        }
+        cap = round(before * 2, 6)
+        with mock.patch.object(prices, "table", return_value=prices.parse(updated)):
+            self.assertEqual(before, cost.view(state)["spent_usd"])
+            self.assertFalse(cost.exceeded(run(earlier, cap=cap)))
+            later = stage(model, tokens, finished_at="2026-10-21T09:00:00+00:00")
+            both = cost.view(run(earlier, later))
+            self.assertAlmostEqual(before * 4, both["spent_usd"])
+            self.assertEqual(
+                [("openai/gpt-5.6-sol", "2026-10-20", 1), ("openai/gpt-5.6-sol", None, 1)],
+                [(base["model"], base["until"], base["stages"]) for base in both["breakdown"]["price_bases"]],
+            )
+        # Without the history entry, the same update would have tripled the earlier stage.
+        updated["models"][model].pop("history")
+        with mock.patch.object(prices, "table", return_value=prices.parse(updated)):
+            self.assertAlmostEqual(before * 3, cost.view(state)["spent_usd"])
 
 
 if __name__ == "__main__":

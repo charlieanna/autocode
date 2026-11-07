@@ -33,12 +33,14 @@ STATUS_GROUPS = MappingProxyType(
                 "BLOCKED_HUMAN",
                 "PAUSED_ACCEPTANCE_TESTS",
                 "PAUSED_APPROVAL_DEFERRED",
+                "PAUSED_CHANGESET_APPROVAL",
                 "PAUSED_COST_LIMIT",
                 "PAUSED_CRITERIA_CHANGE",
                 "PAUSED_DESIGN_CONFLICT",
                 "PAUSED_DESIGN_INPUT",
                 "PAUSED_DESIGN_INPUT_CHANGED",
                 "PAUSED_DESIGN_REFERENCE",
+                "PAUSED_EFFORT_UNSUPPORTED",
                 "PAUSED_GOAL_UNAPPROVED",
                 "PAUSED_INTERFACE_CHANGE",
                 "PAUSED_INTERVENTION",
@@ -48,6 +50,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_MILESTONE_HUMAN_REVIEW",
                 "PAUSED_PERMISSION",
                 "PAUSED_REQUESTED",
+                "PAUSED_SCOPE_DECISION",
                 "PAUSED_UNANSWERED_QUESTION",
                 "PAUSED_WORKFLOW_APPROVAL",
                 "PAUSED_WORKFLOW_CONFLICT",
@@ -85,6 +88,7 @@ STATUS_GROUPS = MappingProxyType(
             {
                 "PAUSED_COMPLETION_REVIEW",
                 "PAUSED_CONTENT_FILTER",
+                "PAUSED_CONTEXT_WINDOW",
                 "PAUSED_DISCOVERY_WRITE",
                 "PAUSED_INVALID_OUTPUT",
                 "PAUSED_JOB_FAILURE",
@@ -128,6 +132,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_ORCHESTRATOR_WORKER",
                 "PAUSED_ORCHESTRATOR_WORKERS",
                 run_status.PAUSE_PHASE,
+                "PAUSED_PERMISSION_LOOP",
                 "PAUSED_PLANNING_BUDGET",
                 "PAUSED_PROCESS_CLEANUP",
                 "PAUSED_PROGRESSIVE_AUTHORITY",
@@ -141,6 +146,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_SKELETON_UNVERIFIED",
                 "PAUSED_STAGE_ABANDONED",
                 "PAUSED_STAGE_TIMEOUT",
+                "PAUSED_STALE_DIAGNOSIS",
                 "PAUSED_STALE_GOAL",
                 "PAUSED_STALE_HANDOFF",
                 "PAUSED_STALE_REPORT_ROUTE",
@@ -186,6 +192,17 @@ def category(status: object, needs: Mapping[str, object] | None = None) -> str |
         return "autocode" if status == "PAUSED" or status.startswith("PAUSED_") else None
     if not isinstance(needs, Mapping):
         return cause
+    if status == "PAUSED_INTERVENTION" and str(needs.get("reason") or "").startswith(run_status.ENDED_PREFIX):
+        return "autocode"  # AutoCode ended the run itself with a recorded outcome (#2485), not a person's stop
+    if (
+        status == "PAUSED_INTERVENTION"
+        and needs.get("kind") == "resume"
+        and str(needs.get("reason") or "").startswith(run_status.APPLIED_FEEDBACK_PREFIX)
+    ):
+        return "autocode"  # Applying feedback creates this checkpoint; the person did not request a stop.
+
+    if cause == "model_or_provider" and run_status.ORIGINAL_GATE_FAILED in str(needs.get("reason") or ""):
+        return "autocode"  # the change conflicts with the original-test gate; no model or provider failed (#2748)
 
     route = needs.get("route")
     if isinstance(route, Mapping) and route.get("cause") in ("quota", "content_filter", "output_limit"):

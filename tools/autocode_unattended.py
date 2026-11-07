@@ -34,44 +34,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Every flag that records an operator decision or recovers from a pause.
-OPERATOR_FLAGS = (
-    "--answer",
-    "--feedback",
-    "--follow-up",
-    "--delegate",
-    "--delegate-all",
-    "--reject-assumption",
-    "--approve-goal",
-    "--edit-goal",
-    "--goal-file",
-    "--approve-review",
-    "--as",
-    "--reject-review",
-    "--review-note",
-    "--reconcile-review",
-    "--accept-completion",
-    "--review-token",
-    "--resume-paused",
-    "--retry-failed-stage",
-    "--diagnose-failed-stage",
-    "--retry-builder",
-    "--retry-report",
-    "--abandon-stage",
-    "--recover-job-report",
-    "--accept-transport-change",
-    "--planning-review-call-limit",
-    "--migrate-only",
-    "--close-finding",
-    "--close-reason",
-    "--resolver-response",
-    "--chat",
-)
+try:
+    from .autocode_decision_flags import DECISION_FLAGS
+except ImportError:
+    from autocode_decision_flags import DECISION_FLAGS
+
 # Subcommands that submit interventions or run other flows.
 OPERATOR_SUBCOMMANDS = (
     "tasks",
     "ui",
-    "program",
     "compare-baseline",
     "capture",
     "registry",
@@ -91,7 +62,7 @@ Do not edit files, answer questions, approve, retry or resume on the operator's 
 
 DONE_NOTICE = """\
 AUTOCODE COMPLETED THE TASK.
-Analyze the work with: autocode-unattended --analyze --run-dir {run_dir}"""
+Analyze the work with: autocode unattended --analyze --run-dir {run_dir}"""
 
 
 def refused(argv: list[str]) -> str | None:
@@ -114,7 +85,7 @@ def refused(argv: list[str]) -> str | None:
         # --no-chat is allowed: it is forced anyway.
         if name == "--no-chat":
             continue
-        for flag in OPERATOR_FLAGS:
+        for flag in DECISION_FLAGS:
             if flag.startswith(name):
                 return f"{flag} is an operator decision; run autocode directly to make it"
     return None
@@ -241,7 +212,7 @@ def analyze(run_dir: Path, out: Path | None) -> int:
     run_dir = run_dir.resolve()
     state_path = run_dir / "state.json"
     if not state_path.is_file():
-        print(f"autocode-unattended: no state.json in {run_dir}", file=sys.stderr)
+        print(f"autocode unattended: no state.json in {run_dir}", file=sys.stderr)
         return 2
     state = json.loads(state_path.read_text())
     workspace = Path(state.get("workspace") or run_dir.parents[2])
@@ -391,16 +362,16 @@ def analyze(run_dir: Path, out: Path | None) -> int:
 
 def run(argv: list[str]) -> int:
     if "--analyze" in argv:
-        parser = argparse.ArgumentParser(prog="autocode-unattended --analyze", allow_abbrev=False)
-        parser.add_argument("--analyze", action="store_true")
-        parser.add_argument("--run-dir", type=Path, required=True)
+        parser = argparse.ArgumentParser(prog="autocode unattended --analyze", allow_abbrev=False)
+        parser.add_argument("--analyze", action="store_true", help="Read-only analysis of a saved run")
+        parser.add_argument("--run-dir", type=Path, required=True, help="The saved run")
         parser.add_argument("--workspace", type=Path, help="Accepted for symmetry; the run records its own")
-        parser.add_argument("--out", type=Path)
+        parser.add_argument("--out", type=Path, help="Save the evidence report in this directory")
         args = parser.parse_args(argv)
         return analyze(args.run_dir, args.out)
     reason = refused(argv)
     if reason:
-        print(f"autocode-unattended: refused: {reason}", file=sys.stderr)
+        print(f"autocode unattended: refused: {reason}", file=sys.stderr)
         return 2
     command = autocode_command()
     status_only = "--status" in argv or "--dry-run" in argv
@@ -452,10 +423,10 @@ def completed(run_dir: Path) -> bool:
 def cli() -> int:
     if sys.argv[1:2] in (["-h"], ["--help"]):
         argparse.ArgumentParser(
-            prog="autocode-unattended",
+            prog="autocode unattended",
             description=__doc__.split("\n\n")[1],
             epilog="Takes AutoCode's own arguments, minus operator decisions: "
-            + ", ".join(OPERATOR_FLAGS)
+            + ", ".join(DECISION_FLAGS)
             + ". Use --analyze --run-dir RUN [--out DIR] to report on a saved run without launching anything.",
         ).print_help()
         return 0

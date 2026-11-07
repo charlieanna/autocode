@@ -79,7 +79,7 @@ _model_family = model_identity.family
 
 def enforce_cross_model_verification(state: RunState):
     """Pause before dispatch unless the run explicitly uses single-model mode."""
-    problems = verifier_independence.violations(state.get("settings"))
+    problems = verifier_independence.violations(state.get("settings"), (state.get("workflow") or {}).get("kind"))
     if problems:
         raise s.Paused(
             "PAUSED_CROSS_MODEL",
@@ -141,7 +141,7 @@ def select(state: RunState):
             and "depends_on" in row
             and set(row["depends_on"]) <= accepted
             and row.get("affected_paths")
-            and not previous.get("seconds")
+            and not milestones.attempted_seconds(previous)
             and not previous.get("reviews")
             and not previous.get("replans")
             and not builder_policy.failed_before(state, row["id"])
@@ -278,6 +278,38 @@ def task_for(state: RunState, milestone, baseline):
     return task
 
 
+INHERITED_KEYS = (
+    "version",
+    "task",
+    "task_id",
+    "goal_contract",
+    "changeset_approval",
+    "turns",
+    "user_events",
+    "settings",
+    "acceptance_criteria",
+    "criteria_revision",
+    "answers",
+    "brief_feedback",
+    "milestone_progress",
+)
+
+
+def inherited_state(state: RunState) -> dict:
+    """What a parallel Builder's own run starts from, before its task and workspace are set.
+
+    On a spec-first run it also takes the receipts of the acceptance tests the parent's Tester
+    wrote (autocode_acceptance_tests), so its tests count as written and stay fixed for its
+    Builder. Without them each worker sent itself back to the Tester to write them again,
+    and integration refused the batch for the changed test files.
+    """
+    source = cast(dict, state)
+    child: dict = {k: copy.deepcopy(source[k]) for k in INHERITED_KEYS if k in source}
+    if acceptance_tests.receipts(state):
+        child["acceptance_tests"] = {"receipts": copy.deepcopy(acceptance_tests.receipts(state))}
+    return child
+
+
 def prepare(state: RunState, workspace, run_dir, selected):
     batch_id = uuid.uuid4().hex[:12]
     directory = run_dir / "orchestration" / batch_id
@@ -345,23 +377,7 @@ def finish_preparation(state: RunState, workspace, run_dir, batch):
                 "Existing files were left untouched",
             )
         worker_dir.mkdir(parents=True, exist_ok=True)
-        child: dict = {
-            k: copy.deepcopy(state[k])
-            for k in (
-                "version",
-                "task",
-                "task_id",
-                "goal_contract",
-                "user_events",
-                "settings",
-                "acceptance_criteria",
-                "criteria_revision",
-                "answers",
-                "brief_feedback",
-                "milestone_progress",
-            )
-            if k in state
-        }
+        child = inherited_state(state)
         child.update(
             workspace=str(worker_workspace),
             current_task=task,
@@ -814,6 +830,7 @@ def integrate(state: RunState, workspace, run_dir, batch):
 
 
 def dispatch(state: RunState, workspace, run_dir):
+    started_at = s.now()
     goals.execution_guard(state)
     enforce_cross_model_verification(state)
     if not enabled(state):
@@ -876,6 +893,8 @@ def dispatch(state: RunState, workspace, run_dir):
         "stage": "orchestrator",
         "role": "orchestrator",
         "iteration": state["iteration"],
+        # A started_at keeps this step in the chat's "Recent steps" after a turn (autocode_chat_progress).
+        "started_at": started_at,
         "finished_at": s.now(),
         "runner_owned": True,
         "batch_id": batch["id"] if batch else None,
@@ -883,7 +902,7 @@ def dispatch(state: RunState, workspace, run_dir):
         "duration_seconds": 0,
         "metrics": {"provider_tokens": {"input_tokens": 0, "output_tokens": 0}},
         "summary": (
-            "Dispatched one Builder"
+            "No tasks can be built in parallel now; one Builder takes the next task"
             if not batch
             else "Every Builder deferred its stronger attempt; building serially"
             if batch["status"] == "DEFERRED"

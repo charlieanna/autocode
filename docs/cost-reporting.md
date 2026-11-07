@@ -19,12 +19,13 @@ switched on and no model is called.
 
 Cost has three bases, always kept apart: **reported** is the provider's own `cost_usd` (the built-in
 claude provider writes each call's share of Claude Code's cumulative session cost; a provider that
-reports none, or only a zero for a subscription plan, has none); **estimated** is tokens at the flat comparison rates below, and only for models listed
-there (today the GLM route); anything else is **unknown, not zero**. `complete` is false while a
-stage has no cost or is still running, so a total is then a floor. Stages the runner executes
-itself (the regression proof, the orchestrator) cost nothing. The OpenCode/Codex route reports
-tokens but no price, so its cost shows as unknown until a rate is added to
-`autocode_usage.REFERENCE_PRICES`.
+reports none, or only a zero for a subscription plan, has none); **estimated** is tokens at the
+frozen comparison rates in `autocode_usage.REFERENCE_PRICES`, and only for the models listed there
+(today GLM-5.3 on the Z.AI coding plan and MiMo v2.6 Pro on the Xiaomi token plan); anything else is
+**unknown, not zero**. `complete` is false while a stage has no cost or is still running, so a total
+is then a floor. Stages the runner executes itself (the regression proof, the orchestrator) cost
+nothing. Any other model, such as an OpenAI route, has no comparison estimate until a rate is added
+there; the status view's `cost` field prices it from the dated table below instead.
 
 Parallel Builders are counted once, in their parent. A worker run keeps no ledger of its own: when a
 batch finishes, the parent copies each worker's finished stages, cost included, into its own record
@@ -39,6 +40,12 @@ date. Rows change by pull request; `autocode models --prices` prints it with the
 route is priced at, or "no rate". A bare model id (the Codex engine's) is priced as `openai/<id>`,
 and an OpenCode 2.x `#effort` suffix is ignored. A subscription or coding-plan route's row is the
 metered API price of the same model, so its spend is an API-equivalent figure, not the plan's bill.
+
+A row keeps the rates it replaced in `history`, each with `until`, the UTC date from which it no
+longer applies. A stage is priced at the rate in force on the UTC day it finished, so a tariff
+update never rewrites what an earlier stage cost or whether a resumed run is over its cap. Change a
+rate by moving the old one into `history` with `until` set to the new rate's first day; editing a
+rate in place reprices every earlier stage. A stage with no finish time is priced at today's rate.
 
 The status view's `cost` field and the `Cost: ...` line use this table: each finished stage counts
 its reported cost, else its tokens at the table's rates (cache reads at the cached rate when their
@@ -60,6 +67,9 @@ additive measurement projections, not new acceptance gates or model calls.
 - Observed execution intervals, summed execution durations and provider-request
   intervals are separate. Parallel overlap is not added to wall time twice.
   Unobserved waiting, setup or visual-inspection time is not inferred from gaps.
+  Time waiting for the person is measured from each request a person answered: from
+  when it became answerable to their response (`efficiency.time`, category `waiting`).
+  A request superseded or still pending adds nothing.
   OpenCode request starts are paired within the same session and message. Multiple
   pending starts for one message leave its timing unknown and coverage explicitly
   uncertain; known finish-token receipts are retained. Message-free events use
@@ -78,6 +88,9 @@ additive measurement projections, not new acceptance gates or model calls.
   not just a historical `TASK_COMPLETE`. A stale checkout contributes no current
   delivery; a state-only view without a fresh gate result keeps acceptance unknown.
   Unit metrics remain undefined without an accepted root outcome or complete usage.
+  `unit_metrics.reported_usd` divides only provider-reported cost; `unit_metrics.spent_usd`
+  divides the status view's `cost.spent_usd` (reported, else the dated-table estimate), so a
+  coding-plan run gets a figure too, and only while `cost.complete` is true.
   Experiment reports must additionally apply their external
   delivery oracle; the status projection cannot establish untested product quality.
 
@@ -176,3 +189,14 @@ cover cost arithmetic against the actual provider normalizer, missing data,
 retry model identity, repeated events, failed attempts, and both CLI entry paths.
 They make no live model calls. The subprocess fixture needs local process-table
 access for its process-supervision checks.
+
+### Where a run spent money
+
+`cost.breakdown` in `--status --json` attributes the money-cap ledger by stage
+and process outcome. Repeated stages and failed/interrupted attempts also appear
+in the `Cost:` line, with their known subtotal and unpriced count. Reported and
+estimated amounts stay separate in JSON. A process that exits successfully may
+still reject a plan; a failed check can be useful. This breakdown measures where
+money went, without labelling those attempts productive or wasted. Restored
+checkpoint spend remains separately identified as `inherited_usd`. See the
+[status contract](task-run.md) for completeness and rounding semantics.

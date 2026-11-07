@@ -10,7 +10,15 @@ import sys
 import uuid
 from pathlib import Path
 
-from goal_fixtures import body
+from goal_fixtures import (
+    body,
+    greeting_changed_code_reasons,
+    scripted_files_changed_code_reasons,
+    scripted_files_changed_code_rejections,
+    seed_greeting_workspace,
+    write_goodbye_source,
+    write_greeting_source,
+)
 
 if sys.argv[1:] == ["login", "status"]:
     print("Logged in using ChatGPT (offline fixture)")
@@ -172,6 +180,20 @@ if data.get("report_repair"):
                 for event in original_events
                 if event.get("type") == "item.completed" and event.get("item", {}).get("type") == "command_execution"
             ]
+        if original_stage == "sol" and os.environ.get("AUTOCODE_FIXTURE_INCOMPLETE_HUMAN_PROOF"):
+            # A report-only repair cites the original execution and shapes the human gap (#1851).
+            result["criterion_results"][0]["evidence_refs"] = ["event:check"]
+            result["end_to_end_result"].update(
+                status="NOT_VERIFIED",
+                summary="Both CLI flows executed; C1 human acceptance pending",
+                evidence_refs=["event:check"],
+                technical_result={
+                    "status": "PASS",
+                    "summary": "Both CLI flows executed",
+                    "evidence_refs": ["event:check"],
+                },
+                pending_human_criteria=["C1"],
+            )
     source_verdict(result)
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)
@@ -264,7 +286,7 @@ def adaptive_task(draft, implement):
 
 IMPLEMENT_TASK = {
     "objective": "Implement greeting CLI",
-    "affected_paths": sorted(builder_files) if builder_files else ["greet.py"],
+    "affected_paths": sorted(builder_files) if builder_files else ["greet.py", "test_greeting.py"],
     "kind": "implement",
     "milestone_id": "M1",
     "requirements": ["Greet names; reject empty/whitespace input"],
@@ -291,8 +313,18 @@ elif stage == "investigate_stuck":
         "evidence_refs": [],
         "example": "",
         "probe": "",
+        "counterexample": {"file": "", "find": "", "replace": ""},
         "untestable": "",
     }
+    if failure := data.get("builder_failure"):
+        # A Builder-failure classification must cite the pinned failure and its evidence.
+        result.update(
+            failure_class="unknown",
+            example="Offline fixture: it cannot diagnose this failure; it is classified unknown.",
+            untestable="An offline fixture runs no command that could show the cause.",
+            failure_id=failure.get("failure_id", ""),
+            evidence_refs=list(failure.get("evidence_refs") or [])[:1],
+        )
 elif stage == "requirements_gather":
     draft = body(questions=not data["saved_answers"], task_kind=task_kind)
     result = {
@@ -322,7 +354,24 @@ elif stage == "requirements_gather":
         "machine_resolutions": [],
         "access_blockers": [],
         "task_kind": task_kind,
+        # Requirements names the job (#1860); this offline fixture treats every request as a build.
+        "job": "build",
+        "design_document": "",
+        # This offline fixture's requests belong to this repository alone (#2066), unless a test names a part
+        # that belongs elsewhere as TARGET|WORK|QUOTE, the quote copied from its task.
+        "workspace_scope": {"spans_repositories": False, "external_parts": []},
     }
+    external = os.environ.get("AUTOCODE_FIXTURE_EXTERNAL_PART")
+    if external:
+        target, work, quote = external.split("|", 2)
+        result["workspace_scope"] = {
+            "spans_repositories": True,
+            "external_parts": [{"target": target, "work": work, "source_quote": quote, "evidence": ""}],
+        }
+    if 'Add "clarity"' in prompt or "clarity" in schema.get("properties", {}):
+        # Vague, as the recognizer answered: the review allowance counts per planning cycle as before. A report
+        # repair's prompt has no rule, but its schema still asks for clarity.
+        result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
 elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=mode in ("standard", "human-pending"), task_kind=task_kind)
     if os.environ.get("AUTOCODE_FIXTURE_TECHNICAL_FLOW_PENDING"):
@@ -346,7 +395,7 @@ elif stage == "astra_discovery":
                 "objective": "Deliver goodbye CLI",
                 "acceptance_criteria": ["C2"],
                 "depends_on": ["M1"],
-                "affected_paths": ["bye.py"],
+                "affected_paths": ["bye.py", "test_goodbye.py"],
             }
         )
         draft["deliverables"].append("bye.py")
@@ -358,6 +407,13 @@ elif stage == "astra_discovery":
         draft["accepted_assumptions"].append(
             {"text": feedback["text"], "basis": "user_feedback", "answer_id": feedback["id"]}
         )
+    if os.environ.get("AUTOCODE_FIXTURE_CURRENT_BEHAVIOR"):
+        # #2133: C1 is a regression criterion. Its current_behavior box is left for the runner to fill from the
+        # bound diagnosis, or, when AUTOCODE_FIXTURE_CURRENT_BEHAVIOR_DRAFT is set, written wrongly first and
+        # corrected by the revision to AUTOCODE_FIXTURE_CURRENT_BEHAVIOR (the Investigator's observed text).
+        draft["acceptance_criteria"][0]["verification_method"] = "test: test_c1_blank_name_rejected"
+        if os.environ.get("AUTOCODE_FIXTURE_CURRENT_BEHAVIOR_DRAFT"):
+            draft["acceptance_criteria"][0]["current_behavior"] = os.environ["AUTOCODE_FIXTURE_CURRENT_BEHAVIOR_DRAFT"]
     cite(draft)
     result = {"contract": draft, "summary": "Build a small local greeting CLI with a clear invalid-input failure"}
     if data.get("joint_planning"):
@@ -401,6 +457,8 @@ elif stage == "glm_revise":
         if key not in ("brief_acceptance", "risk_acceptance", "source_trace")
     }
     draft.pop("initial_task", None)
+    if os.environ.get("AUTOCODE_FIXTURE_CURRENT_BEHAVIOR_DRAFT"):
+        draft["acceptance_criteria"][0]["current_behavior"] = os.environ["AUTOCODE_FIXTURE_CURRENT_BEHAVIOR"]
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
     adaptive_task(draft, IMPLEMENT_TASK)
     source = next((name for name in ("greet.py", "bye.py") if Path(name).is_file()), None)
@@ -433,7 +491,7 @@ elif stage == "astra_finalize":
     }
     draft["initial_task"] = {
         "objective": "Implement greeting CLI",
-        "affected_paths": sorted(builder_files) if builder_files else ["greet.py"],
+        "affected_paths": sorted(builder_files) if builder_files else ["greet.py", "test_greeting.py"],
         "kind": "implement",
         "milestone_id": "M1",
         "requirements": ["Greet names; reject empty/whitespace input"],
@@ -524,10 +582,10 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
         "evidence": ["Validator events"],
         "blocker": "",
         "plan": ["Implement greeting", "Run both cases"],
-        "affected_paths": ["greet.py"],
+        "affected_paths": ["greet.py", "test_greeting.py"],
     }
     if advance:
-        result.update(next_objective="Implement goodbye CLI", affected_paths=["bye.py"])
+        result.update(next_objective="Implement goodbye CLI", affected_paths=["bye.py", "test_goodbye.py"])
         result["next_task"].update(
             milestone_id="M2",
             requirements=["Print Goodbye, NAME"],
@@ -574,18 +632,15 @@ elif stage == "terra":
     batch = str(uuid.uuid4())
     milestone = data.get("current_task", {}).get("milestone_id")
     if mode == "milestones" and milestone == "M2":
-        Path("bye.py").write_text("import sys\nprint('Goodbye, ' + sys.argv[1])\n# batch " + batch + "\n")
+        write_goodbye_source(Path.cwd(), revision=batch)
     elif mode == "stalled" or mode == "rework" and not data["actionable_findings"]:
         Path("greet.py").write_text("import sys\nprint('Hello, ' + sys.argv[1])\n# attempt " + batch + "\n")
     elif builder_files:
         for name, content in builder_files.items():
             Path(name).write_text(content)
     else:
-        Path("greet.py").write_text(
-            "import sys\nif len(sys.argv) != 2 or not sys.argv[1].strip():\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n# batch "
-            + batch
-            + "\n"
-        )
+        seed_greeting_workspace(Path.cwd())
+        write_greeting_source(Path.cwd(), revision=batch)
     if os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
         with Path("greet.py").open("a") as fixture_output:
             fixture_output.write("# revision " + str(uuid.uuid4()) + "\n")
@@ -602,9 +657,16 @@ elif stage == "terra":
         "recommended_checks": ["Execute valid and invalid input"],
     }
     if mode == "milestones" and milestone == "M2":
-        result.update(changed_files=["bye.py"], evidence_refs=["bye.py"], summary="Goodbye written")
+        result.update(
+            changed_files=["bye.py", "test_goodbye.py"],
+            evidence_refs=["bye.py", "test_goodbye.py"],
+            summary="Goodbye written",
+        )
     elif builder_files:
         result.update(changed_files=sorted(builder_files), evidence_refs=sorted(builder_files))
+    elif mode != "stalled" and (mode != "rework" or data["actionable_findings"]):
+        # The seeded workspace above: the stalled and first rework attempts write greet.py alone.
+        result.update(changed_files=["greet.py", "test_greeting.py"], evidence_refs=["greet.py", "test_greeting.py"])
 else:
     valid = subprocess.run([sys.executable, "greet.py", "Ada"], capture_output=True, text=True)
     invalid = subprocess.run([sys.executable, "greet.py", ""], capture_output=True, text=True)
@@ -724,6 +786,12 @@ else:
                         "evidence_refs": ["check:1"],
                     },
                 )
+        if os.environ.get("AUTOCODE_FIXTURE_INCOMPLETE_HUMAN_PROOF"):
+            # The live #1851 shape: the human row cites nothing and the flow proves no technical result.
+            result["criterion_results"][0]["evidence_refs"] = []
+            result["end_to_end_result"].update(
+                status="NOT_VERIFIED", summary="", evidence_refs=[], technical_result=None, pending_human_criteria=[]
+            )
         if os.environ.get("AUTOCODE_FIXTURE_OMIT_CHECKS"):
             result["checks"] = []
         if os.environ.get("AUTOCODE_FIXTURE_NO_CHECK_EVENT"):
@@ -760,9 +828,23 @@ else:
                 "evidence": ["event:check"],
                 "blocker": "",
                 "plan": ["Implement and independently verify"],
-                "affected_paths": ["greet.py"],
+                "affected_paths": ["greet.py", "test_greeting.py"],
             },
         }
+if stage == "astra_review" and os.environ.get("AUTOCODE_FIXTURE_PERMISSION_LOOP"):
+    number = len(data.get("saved_answers") or {})
+    result.update(
+        status="BLOCKED",
+        blocker="The unchanged evaluator needs a separate maintainer correction",
+        user_request={
+            "kind": "permission",
+            "discovered": "No source or validation progress",
+            "impact": "The unchanged evaluator still blocks completion",
+            "decision_needed": f"No new consent needed; execute the authorized correction (request {number})",
+            "options": ["Execute the correction", "Leave paused"],
+            "proposed_delta": f"Keep the plan unchanged; maintainer delivery remains absent ({number})",
+        },
+    )
 if os.environ.get("AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE") == stage:
     result.pop("summary", None)
 if stage == "terra" and (data.get("workflow") or {}).get("mode") == "glm_final_audit_v2":
@@ -823,7 +905,7 @@ if stage == "terra" and (data.get("workflow") or {}).get("mode") == "glm_final_a
         "next_task": {
             "kind": "implement",
             "objective": "Second Builder batch",
-            "affected_paths": ["greet.py"],
+            "affected_paths": ["greet.py", "test_greeting.py"],
             "milestone_id": "M1",
             "requirements": ["Verify the final greeting"],
             "acceptance_criteria": ["C1"],
@@ -833,7 +915,28 @@ if stage == "terra" and (data.get("workflow") or {}).get("mode") == "glm_final_a
         "question": "Check the empty input boundary" if action == "ESCALATE_SOL" else "",
         "self_assessment": assessment,
     }
+validation_schema = schema.get("properties", {})
+validation_report = result
+if stage == "astra_checkpoint":
+    validation_schema = validation_schema.get("validation", {}).get("properties", {})
+    validation_report = result.get("validation", {})
+if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in validation_schema:
+    # A report repair's schema may allow no reasons (maxItems 0); a schema-following Tester then gives none.
+    cap = validation_schema["changed_code_exceptions"].get("maxItems")
+    reasons = list(
+        {
+            row["gap_id"]: row
+            for row in (
+                scripted_files_changed_code_rejections(data, builder_files)
+                + greeting_changed_code_reasons(data)
+                + scripted_files_changed_code_reasons(data, builder_files)
+            )
+        }.values()
+    )  # one reason per gap: the gate refuses a duplicate gap_id
+    validation_report["changed_code_exceptions"] = reasons[:cap]
 if "--output-schema" in sys.argv:
+    if "workspace_scope" in schema.get("properties", {}):
+        result.setdefault("workspace_scope", {"spans_repositories": False, "external_parts": []})
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)
     source_verdict(result)
@@ -844,5 +947,40 @@ elif stage == "astra_review" and ((contract.get("body") or {}).get("source_trace
         "source_verdict",
         {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
     )
+# New final reviews are verdicts on the exact current plan; old saved schemas
+# continue to use the full fixture report. Keep deliberate invalid-task faults.
+if stage == "astra_finalize" and "retain_contract" in schema.get("properties", {}).get("contract", {}).get(
+    "properties", {}
+):
+    draft = result["contract"]
+    retained = {
+        "retain_contract": data.get("retained_contract")
+        or (data.get("clarification_context") or {}).get("retained_contract"),
+        "open_blocking_questions": draft.get("open_blocking_questions", []),
+    }
+    if "initial_task" in schema["properties"]["contract"]["properties"]:
+        retained["initial_task"] = draft.get("initial_task")
+    if "acceptance_criteria" in schema["properties"]["contract"]["properties"]:
+        # The reference's criteria delta (#1991); empty, it retains every row.
+        retained["acceptance_criteria"] = {
+            "retain_from": retained["retain_contract"],
+            "upsert": [],
+            "remove": [],
+            "proofs": [],
+        }
+    result["contract"] = retained
+    result["requirement_trace"] = []
+# A planner records each part the person left out of this run, as its packet says (#2066).
+if isinstance(result.get("contract"), dict) and "scope_exclusions" in result["contract"]:
+    for entry in data.get("scope_exclusions_required") or []:
+        if entry not in result["contract"]["scope_exclusions"]:
+            result["contract"]["scope_exclusions"] = [*result["contract"]["scope_exclusions"], entry]
+if "failure_class" in schema.get("properties", {}):
+    # Builder-failure investigation reports gained an explicit classification
+    # contract. Keep both the first scripted report and its report-only repair
+    # schema-compliant so these fixtures test recovery rather than malformed
+    # fake-provider output.
+    result.setdefault("failure_class", "unknown")
+    result.setdefault("failure_id", "offline-fixture-failure")
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))

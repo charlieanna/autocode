@@ -21,12 +21,15 @@ class PlanChatCliTests(unittest.TestCase):
         provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
         marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
         amendment = textwrap.dedent(f"""
+            if data.get("message", {{}}).get("gate_kind"):
+                report = {{"message_id": data["message"]["id"], "gate_token": data["message"]["gate_token"],
+                          "intent": "change" if data["message"]["text"] == {MIXED!r} else "question", "assistant_reply": {REPLY!r}}}
             if stage == "requirements_gather" and not data.get("message"):
                 for event in data.get("brief_feedback") or []:
                     if event.get("text") == {MIXED!r}:
                         report["requirements"].append({{"id": "R5", "text": "Keep the existing scope and standard-library-only constraint",
                                                        "source_quote": event["text"]}})
-            if stage == "requirements_gather" and data.get("message"):
+            if stage == "requirements_gather" and data.get("message") and not data["message"].get("gate_kind"):
                 report = {{"message_id": data["message"]["id"],
                           "contract_token": data["message"]["contract_token"],
                           "intent": "change" if data["message"]["text"] == {MIXED!r} else "question", "assistant_reply": {REPLY!r}}}

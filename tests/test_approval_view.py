@@ -175,6 +175,77 @@ class SummaryTests(unittest.TestCase):
             shown[8],
         )
 
+    def test_the_human_review_gate_reads_in_prose(self):
+        """#2327: the gate printed the request and the whole validation record as JSON, naming C1 by id."""
+        plan = {
+            "acceptance_criteria": [
+                criterion("C1", "Contract holds", "Execute greeting and invalid-input regression checks", human=True),
+                criterion("C2", "Works", "Run it"),
+            ]
+        }
+        request = {
+            "kind": "human_review",
+            "criteria": ["C1"],
+            "decision_needed": "Review the current artifact and explicitly approve the listed criteria",
+            "discovered": "Independent evidence passed; human review remains",
+        }
+        validation = {
+            "verdict": "PASS",
+            "checks": [{"command": "python -c pass", "exit_code": 0}],
+            "findings": [],
+            "unverified_criteria": [],
+            "criterion_results": [{"id": "C1", "status": "PASS"}],
+            "output": "/run/iterations/001/validator-01.json",
+            "evidence_hashes": {"a": "b"},
+        }
+        self.assertEqual(
+            [
+                "Your review is needed before the run can complete:",
+                "  [C1] Contract holds",
+                "    Checked by: Execute greeting and invalid-input regression checks (pass in the independent check)",
+                "  Independent evidence passed; human review remains",
+            ],
+            approval_view.review_request(plan, request, validation),
+        )
+        # With the saved Builder steps attributed to each criterion and the run known, the gate names
+        # the files to look at and the one command that shows the change with its evidence (#2360).
+        changes = {"criteria": [{"id": "C1", "files": ["greet.py", "test_greet.py"]}]}
+        self.assertEqual(
+            [
+                "Your review is needed before the run can complete:",
+                "  [C1] Contract holds",
+                "    Checked by: Execute greeting and invalid-input regression checks (pass in the independent check)",
+                "    Changed: greet.py, test_greet.py",
+                "  Independent evidence passed; human review remains",
+                "  See the change and its evidence: autocode review --show --run-dir /run",
+            ],
+            approval_view.review_request(plan, request, validation, changes, "/run"),
+        )
+        self.assertEqual(
+            [
+                "Validation: PASS; 1 check(s) ran, each exited 0; 0 finding(s).",
+                "  Full record: /run/iterations/001/validator-01.json",
+            ],
+            approval_view.validation_summary(validation),
+        )
+        failed = {
+            **validation,
+            "verdict": "FAIL",
+            "checks": [{"exit_code": 0}, {"exit_code": 1}],
+            "findings": [{"id": "F1", "severity": "high", "text": "greet.py exits 0 on empty input"}, "plain text"],
+            "unverified_criteria": ["C2"],
+        }
+        self.assertEqual(
+            [
+                "Validation: FAIL; 2 check(s) ran, exit codes [0, 1]; 2 finding(s).",
+                "  - F1: greet.py exits 0 on empty input",
+                "  - plain text",
+                "  Not verified by the check: C2",
+                "  Full record: /run/iterations/001/validator-01.json",
+            ],
+            approval_view.validation_summary(failed),
+        )
+
     def test_what_passing_proves_follows_the_job_and_the_cases_the_proof_requires(self):
         named = [
             criterion("C1", "New", "test: test_c1_new"),

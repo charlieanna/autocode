@@ -17,32 +17,79 @@ The site has search, deeper guides and a version selector; `latest` follows mast
 
 ## Install and start
 
-Requires Python 3.11+, Git, and macOS or Linux (Windows through WSL). Install
-from this checkout into a virtual environment:
+Requires Python 3.11+, Git and [pipx](https://pipx.pypa.io/). Linux provides
+kernel-enforced provider process ownership. macOS uses portable supervision
+with reduced cleanup guarantees; Windows uses WSL. See the
+[host and installation guide](docs/install.md) before the first task.
+
+Install once, then use AutoCode from any project:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install --editable .
-source .venv/bin/activate
+pipx install autocode-supervisor
+pipx ensurepath
+# Open a new terminal after ensurepath.
 autocode --version
-autocode doctor --workspace /path/to/project
-autocode "Build a greeting CLI" --workspace /path/to/project
+autocode demo
 ```
 
-On WSL, run these commands in the Linux terminal with Linux Python. An existing
-Windows-created `.venv` cannot be reused there; see the
-[WSL checkout and environment notes](docs/install.md#windows-through-wsl).
+Or install the published release with Homebrew:
 
-Try the workflow without an account or model spend: `autocode demo` creates an
-offline sample, shows rejected evidence and a completion refusal, then completes
-with independently reproduced checks and demo acceptance. It prints the retained
-run and evidence paths. See the [offline demo](docs/cli.md#offline-demo).
+```sh
+brew install charlieanna/tap/autocode
+```
 
-OpenCode 1.x is the default engine. To use a logged-in Codex CLI instead, add
-`--engine codex`, or `--engine claude` for a logged-in Claude Code. See [installation](docs/install.md),
-[provider setup](docs/providers.md) and [model selection](docs/models.md).
-If your account serves only one model, start with `--single-model MODEL` to run
-every role on it (per-role reasoning flags still apply).
+The demo uses no account or model spend. It shows rejected evidence, a
+completion refusal and a verified result. PyPI and Homebrew currently publish
+**0.8.2**; these install a tagged release, while this documentation follows master.
+For fixes merged after that tag, use the [master or development-checkout
+installation](docs/install.md#advanced-install-from-a-checkout). See the
+[release verification record](docs/bugs/2026-10-27-release-installation.md) for
+what was checked and the limits of that evidence.
+
+Run `autocode setup` once: it checks Claude Code, Codex, OpenCode and Kilo,
+installs OpenCode if you have no hub yet, offers each one's own sign-in, and says
+which one your tasks will use. Then
+choose an engine you have connected, or pass none. For example, with a logged-in Codex CLI:
+
+```sh
+cd /path/to/your/committed-git-project
+autocode doctor --engine codex
+autocode "Fix the incorrect result when submitting an order" --engine codex
+```
+
+Answer the questions, read the plan and its exclusions, then approve it. AutoCode
+builds and checks the change, and stops when it needs your decision. Reopen the
+same project with `autocode resume`; use `autocode --status` to see what it needs.
+
+For Claude Code use `--engine claude`. Without an explicit choice, the existing
+configured/default route applies: OpenCode when it is installed; otherwise the
+first connected of Claude Code, Codex and Kilo, which the run names as
+`Engine for this run: …`. API keys go in OpenCode (`opencode auth login`) or Kilo
+(`kilo auth login`); AutoCode's own direct API-key connection is retired. The [installation guide](docs/install.md) covers
+sign-in, a new Git project, route checks and common setup errors.
+
+## A bug that turns out to span repositories
+
+On a supported Linux host, open terminal chat. This flow needs current master,
+not the published **0.8.2** release, so use the [master or development-checkout
+installation](docs/install.md#advanced-install-from-a-checkout) first:
+
+```sh
+cd /path/to/your/project
+autocode chat
+```
+
+Use `/connect` to check your coding backend, and `/repos /path/to/repository`
+once for each local checkout AutoCode may use, then describe the bug. Grounded discoveries select unique
+catalog matches automatically and can lead to further repositories. AutoCode
+prepares isolated worktrees, shows the coordinated plans for approval, fixes the
+repositories, generates a joint regression and publishes linked PRs after
+independent verification. Missing access or ambiguous matches produce a question.
+
+The joint regression must fail on the combined original code and pass on the
+exact candidate trees. Separate green repository tests cannot finish this flow.
+PRs are never merged automatically. See [TUI setup](docs/multi-repo.md#automatic-bug-fixes-from-terminal-chat)
+and [verification limits](docs/multi-repo.md#verification-and-current-limits).
 
 To check a change made by another coding tool, supply its comparison base and
 your acceptance criteria to `autocode verify`. It checks the existing change
@@ -142,7 +189,7 @@ for the architecture format, approvals and integration.
 ## More guides
 
 - [Parallel task lanes and components](docs/task-lanes.md)
-- [Large projects and workstreams](docs/program.md)
+- [Channel bridge: requirements from GitHub issues, questions and approvals in comments](docs/channels.md)
 - [Execution and completion checks](docs/execution.md)
 - [Named test proof for Python, Go, Node and Vitest](docs/named-test-proof.md)
 - [Exact output, raw fallback and usage measurement](docs/exact-output.md)

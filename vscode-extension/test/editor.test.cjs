@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { test, afterEach, mock } = require('node:test');
+const { test, beforeEach, afterEach, mock } = require('node:test');
 const { JSDOM } = require('jsdom');
 const { editor, flush } = require('./helpers/editor.cjs');
 
@@ -11,8 +11,10 @@ const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
 const { activate } = host.load('extension.js');
 const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
+const { StagesPanel, stagesHtml } = host.load('stages.js');
+const { readStages, currentRoute } = host.load('core/stages.js');
 const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEngine } = host.load('settings.js');
-const controller = new RunController(host.log);
+let controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
 const ok = { code: 0, stdout: '', stderr: '', rejected: false };
 
@@ -159,6 +161,87 @@ for (const surface of ['chat', 'Run details']) {
     await ui.poll(totalTimeView('time:new'));
     assert.equal(ui.document.querySelector('[data-question="max_seconds"]').value, '');
     assert.equal(ui.document.querySelector('#take-action').disabled, true);
+  });
+}
+
+// A cost cap held behind a plain resume (#2044): the view names the raise as the row's own command.
+function heldCostView(token = 'cost:current', operational = false) {
+  const raise = `AUTOCODE_EXPECTED_RECOVERY_TOKEN=${token} autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused --max-cost-usd N --expected-recovery-token -`;
+  const view = { status: 'PAUSED_COST_LIMIT', done: false, recovery: { token },
+    needs: { kind: 'resume', command_inputs: [{ id: 'max_cost_usd', kind: 'integer', flag: '--max-cost-usd', placeholder: 'N',
+      arg_index: 2, label: 'Cost cap (whole USD)', current: 2, used: 2.37, minimum: 3, maximum: Number.MAX_SAFE_INTEGER, command: raise }] },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` };
+  if (!operational) return view;
+  // AutoResolver's operational request for the same bound: the conversation takes a reply, the row the raise.
+  const reply = 'AUTOCODE_RESOLVER_TOKEN=resolver autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE';
+  return { ...view, status: 'WAITING_FOR_USER', needs: { ...view.needs, kind: 'answer', resolver_scope: 'operational_exhaustion',
+    resolver_request_id: 'req-1', resolver_token: 'resolver' }, next_command: reply.replace('MESSAGE', '"WHAT CHANGED"'),
+    chat: { context: 'chat-1', messages: [], input: { kind: 'resolver_response', label: 'Send recovery reply', next_command: reply } } };
+}
+
+for (const surface of ['chat', 'Run details']) {
+  for (const operational of [false, true]) {
+    test(`a limit held ${operational ? 'by an AutoResolver request' : 'behind a plain resume'} in ${surface} takes a typed raise through its named command`, async (t) => {
+      host.config.set('confirmPersonOnly', false);
+      const ownController = new RunController(host.log);
+      const view = heldCostView('cost:current', operational);
+      const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+      const field = ui.document.querySelector('[data-question="raise:max_cost_usd"]');
+      const raise = () => ui.document.querySelector('#raise-bound');
+      assert.ok(field, 'the separate raise is shown');
+      assert.equal(field.value, ''); assert.equal(raise().disabled, true);
+      assert.equal(field.getAttribute('aria-label'), 'Cost cap (whole USD)');
+      for (const text of ['Saved cost cap: $2', 'Known spend: $2.37', 'at least $3']) assert.ok(ui.document.body.textContent.includes(text), text);
+      for (const value of ['2', '0', '-1', '3.5', '5e2', '9007199254740992']) {
+        field.value = value; field.dispatchEvent(new ui.window.Event('input')); assert.equal(raise().disabled, true, value);
+      }
+      field.value = '5'; field.dispatchEvent(new ui.window.Event('input'));
+      assert.equal(raise().disabled, false);
+      const launch = t.mock.method(cli, 'stream', async () => ok);
+      const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+      raise().click(); await flush();
+      assert.equal(launch.mock.callCount(), 0, 'declining must leave the cap untouched');
+      const [title, options, button] = confirm.mock.calls[0].arguments;
+      assert.equal(title, 'Set the cost cap to $5 and continue?');
+      assert.equal(button, 'Raise limit and continue');
+      for (const text of ['only the cost cap', 'Other saved limits', 'does not approve a plan']) assert.ok(options.detail.includes(text), text);
+      confirm.mock.mockImplementation(async () => button);
+      raise().click(); await flush();
+      assert.equal(launch.mock.callCount(), 1);
+      const [, args, env] = launch.mock.calls[0].arguments;
+      assert.deepEqual(args, ['--resume-paused', '--max-cost-usd', '5', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+      assert.deepEqual(env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: 'cost:current' });
+      ui.setView(heldCostView('cost:new', operational));
+      raise().click(); await flush();
+      assert.equal(launch.mock.callCount(), 1, 'a click on the old offer cannot raise the new pause');
+    });
+  }
+
+  test(`a malformed separate raise in ${surface} is not offered`, async (t) => {
+    const view = heldCostView();
+    view.needs.command_inputs[0].command = view.needs.command_inputs[0].command.replace(run.runDir, '/other/run');
+    const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+    assert.equal(ui.document.querySelector('#raise-bound'), null);
+  });
+
+  test(`an attached cost raise in ${surface} names the cost cap, not active time`, async (t) => {
+    host.config.set('confirmPersonOnly', false);
+    const ownController = new RunController(host.log);
+    const view = heldCostView();
+    view.next_command = view.needs.command_inputs[0].command;
+    delete view.needs.command_inputs[0].command;
+    const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+    assert.equal(ui.document.querySelector('#raise-bound'), null, 'an attached row is the named action itself');
+    const field = ui.document.querySelector('[data-question="max_cost_usd"]');
+    field.value = '4'; field.dispatchEvent(new ui.window.Event('input'));
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+    ui.document.querySelector('#take-action').click(); await flush();
+    assert.equal(launch.mock.callCount(), 0);
+    const [title, options, button] = confirm.mock.calls[0].arguments;
+    assert.equal(title, 'Set the cost cap to $4 and continue?');
+    assert.equal(button, 'Raise limit and continue');
+    assert.ok(options.detail.includes('only the cost cap'));
   });
 }
 
@@ -309,8 +392,13 @@ test('engine chip shows the engine new chats will use and opens the picker', asy
   await flush();
   assert.equal(ui.sent.at(-1).type, 'engine');
   const [items, options] = picker.mock.calls[0].arguments;
-  assert.deepEqual(items.map((item) => item.label), ['OpenCode', 'Codex', 'Claude Code', 'Connections…', 'Configure in Settings…']);
+  assert.deepEqual(items.map((item) => item.label), ['OpenCode', 'Codex', 'Claude Code', 'Connections…', 'Stage models…', 'Configure in Settings…']);
   assert.ok(options.placeHolder.includes('Codex'), 'names the current engine');
+  const run = t.mock.method(host.vscode.commands, 'executeCommand', async () => {});
+  picker.mock.mockImplementation(async (choices) => choices.find((item) => item.label === 'Stage models…'));
+  ui.document.getElementById('engine-picker').click();
+  await flush();
+  assert.deepEqual(run.mock.calls.at(-1).arguments, ['autocode.stages'], 'the chat opens the stage dropdowns');
 });
 
 test('picking an engine applies the CLI consistency rules to new-chat settings', async (t) => {
@@ -347,6 +435,99 @@ test('connections renders backend text safely and sends only provider and action
   } finally { dom.window.close(); }
 });
 
+function stageView(chosen = null) {
+  const set = ['stages', 'set', 'terra', '--backend', 'claude', '--json', '--model', 'MODEL', '--effort', 'EFFORT'];
+  return { version: 1, backend: 'claude', label: 'Claude Code', options_stop: null, stages: [{
+    id: 'terra', label: 'Builder', does: 'Writes the code.', advice: 'A fast model at medium.',
+    default: { model: 'haiku', effort: 'medium', offered: true }, chosen,
+    options: [
+      { model: 'haiku', effort_choices: ['low', 'medium'], family: 'claude', unavailable: null },
+      { model: 'opus', effort_choices: ['low', 'high'], family: 'claude', unavailable: 'the Completion Reviewer runs opus' },
+      { model: 'sonnet', effort_choices: ['low', 'high'], family: 'claude', unavailable: null },
+    ],
+    set: { next_command: set }, reset: chosen ? { next_command: ['stages', 'reset', 'terra', '--backend', 'claude', '--json'] } : null,
+  }] };
+}
+
+test('stage models lists the backend new chats run on and saves only the stage view\'s own command', async (t) => {
+  const calls = [];
+  let chosen = null;
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    if (argv[1] !== 'list') chosen = argv[1] === 'set' ? { model: argv.at(-3), effort: argv.at(-1) } : null;
+    return { ...ok, stdout: JSON.stringify(stageView(chosen)) };
+  });
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  await host.commands.get('autocode.stages')();
+  const panel = host.panels.at(-1);
+  assert.equal(panel.title, 'AutoCode Stage Models');
+  assert.deepEqual(calls, [['stages', 'list', '--json', '--backend', 'claude']]);
+  assert.equal(panel.webview.messages.at(-1).view.stages[0].now, 'haiku at medium (default)');
+  for (const [model, effort, error] of [['evil', 'low', 'not offered evil'], ['opus', 'low', 'cannot run opus'], ['sonnet', 'max', 'sonnet takes low, high']]) {
+    panel.webview.receive({ type: 'set', stage: 'terra', model, effort, next_command: ['evil'] }); await flush();
+    assert.ok(panel.webview.messages.at(-1).error.includes(error), error);
+  }
+  assert.ok(calls.every((argv) => argv[1] === 'list'), 'nothing the view does not offer is sent');
+  panel.webview.receive({ type: 'set', stage: 'terra', model: 'sonnet', effort: 'high' }); await flush();
+  assert.deepEqual(calls.at(-1), ['stages', 'set', 'terra', '--backend', 'claude', '--json', '--model', 'sonnet', '--effort', 'high']);
+  const saved = panel.webview.messages.at(-1);
+  assert.equal(saved.note, 'New chats run the Builder on sonnet at high.');
+  assert.equal(saved.view.stages[0].now, 'sonnet at high (your choice)');
+  panel.webview.receive({ type: 'reset', stage: 'terra' }); await flush();
+  assert.deepEqual(calls.at(-1), ['stages', 'reset', 'terra', '--backend', 'claude', '--json']);
+  assert.equal(panel.webview.messages.at(-1).note, 'The Builder is back to its default.');
+});
+
+test('stage models shows the core\'s refusal and lists without a backend when none was chosen', async (t) => {
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return argv[1] === 'set' ? { ...ok, code: 2, stderr: 'autocode stages: the Tester runs sonnet\n' } : { ...ok, stdout: JSON.stringify(stageView()) };
+  });
+  const stages = new StagesPanel();
+  t.after(() => stages.dispose());
+  await stages.show();
+  const panel = host.panels.at(-1);
+  assert.deepEqual(calls[0], ['stages', 'list', '--json']);
+  panel.webview.receive({ type: 'set', stage: 'terra', model: 'sonnet', effort: 'low' }); await flush();
+  assert.ok(panel.webview.messages.at(-1).error.includes('the Tester runs sonnet'));
+  assert.equal(panel.webview.messages.at(-1).busy, false);
+});
+
+test('stage models renders core text safely, one model and level dropdown per stage, and sends only the choice', () => {
+  const sent = [];
+  const dom = new JSDOM(stagesHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage: (message) => sent.push(message) });
+  } });
+  try {
+    const raw = stageView({ model: 'sonnet', effort: 'high' });
+    raw.stages[0].does = '<img src=x onerror=alert(1)>';
+    const view = readStages(JSON.stringify(raw));
+    view.stages[0].now = currentRoute(view.stages[0]);
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { view, busy: false } }));
+    const document = dom.window.document;
+    assert.equal(document.querySelectorAll('img').length, 0);
+    assert.ok(document.querySelector('main').textContent.includes('<img src=x onerror=alert(1)>'));
+    const [models, levels] = document.querySelectorAll('select');
+    assert.deepEqual([...models.options].map((row) => [row.value, row.disabled]), [['haiku', false], ['opus', true], ['sonnet', false]]);
+    assert.ok(models.options[1].textContent.includes('not available: the Completion Reviewer runs opus'));
+    assert.equal(models.value, 'sonnet', 'the dropdown opens on what the stage runs now');
+    assert.deepEqual([[...levels.options].map((row) => row.value), levels.value], [['low', 'high'], 'high']);
+    models.value = 'haiku'; models.dispatchEvent(new dom.window.Event('change'));
+    assert.deepEqual([...levels.options].map((row) => row.value), ['low', 'medium'], 'levels follow the chosen model');
+    levels.value = 'medium';
+    [...document.querySelectorAll('button')].find((button) => button.textContent === 'Save').click();
+    assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'set', stage: 'terra', model: 'haiku', effort: 'medium' });
+    [...document.querySelectorAll('button')].find((button) => button.textContent === 'Use the default').click();
+    assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'reset', stage: 'terra' });
+  } finally { dom.window.close(); }
+});
+
 test('status polling uses the core-recognized read-only command grammar', async (t) => {
   const { EventEmitter } = require('node:events');
   const child = new EventEmitter();
@@ -360,6 +541,8 @@ test('status polling uses the core-recognized read-only command grammar', async 
   assert.deepEqual(spawn.mock.calls[0].arguments[1], ['/core/autocode.py', '--status', '--workspace', run.workspace, '--run-dir', run.runDir]);
   assert.equal(spawn.mock.calls[0].arguments[2].shell, false);
 });
+
+beforeEach(() => { controller = new RunController(host.log); });
 
 afterEach(() => {
   RunPanel.disposeAll();
@@ -474,6 +657,7 @@ function approvalView() {
       ],
       constraints: ['Never delete the original data'],
       permission_boundaries: ['Only edit app.py'],
+      scope_exclusions: ['billing-api: the server response is not covered <script>excluded()</script>'],
     },
     next_command: `AUTOCODE_APPROVE_GOAL_TOKEN=r1:abc autocode --workspace ${run.workspace} --run-dir ${run.runDir} --approve-goal -`,
   };
@@ -535,6 +719,13 @@ test('approval renders structured criteria, verification, human review, constrai
 });
 
 for (const surface of ['chat', 'Run details']) {
+  test(`excluded repositories are visible before approval in ${surface}`, async (t) => {
+    const view = approvalView();
+    const ui = surface === 'chat' ? await openChat(t, chatView(view)) : await openPanel(t, view);
+    assert.ok(ui.document.body.textContent.includes('Not covered'));
+    assert.ok(ui.document.body.textContent.includes(view.displayed_plan.scope_exclusions[0]));
+    assert.equal(ui.document.querySelectorAll('script').length, 1, 'excluded work stays text');
+  });
   test(`the approved local commit is visible in ${surface}`, async (t) => {
     const view = approvalView();
     view.displayed_plan.git_delivery = { kind: 'atomic_commit', message: 'Add JSON export' };
@@ -550,6 +741,8 @@ test('approval stays disabled for missing, malformed or stale displayed plans', 
   await ui.poll({ ...base, displayed_plan: { ...base.displayed_plan, acceptance_criteria: ['not a structured criterion'] } });
   assert.equal(ui.take().disabled, true);
   await ui.poll({ ...base, displayed_plan: { ...base.displayed_plan, constraints: undefined } });
+  assert.equal(ui.take().disabled, true);
+  await ui.poll({ ...base, displayed_plan: { ...base.displayed_plan, scope_exclusions: 'unshowable' } });
   assert.equal(ui.take().disabled, true);
   await ui.poll({ ...base, needs: { kind: 'approve_plan', token: 'r2:def' } });
   assert.equal(ui.take().disabled, true);
@@ -742,9 +935,12 @@ function chatView(base = approvalView(), kind = 'feedback', context = 'chat-1') 
 }
 
 async function openChat(t, initial, selected = run, options = {}) {
-  if (!options.timersEnabled) t.mock.timers.enable({ apis: ['setInterval'] });
+  if (!options.timersEnabled) t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
   let value = initial;
   const chatController = options.controller || controller;
+  // UI fixtures choose a deterministic no-modes response unless the case has
+  // supplied one. They must not race an unmocked external modes subprocess.
+  if (!chatController.modes.mock) t.mock.method(chatController, 'modes', async () => ({ modes: [] }));
   t.mock.method(chatController, 'status', async (target) =>
     structuredClone(options.statusFor ? options.statusFor(target) : value));
   let receive;
@@ -906,6 +1102,41 @@ test('follow-up submits to the same finished run and never invents another start
   assert.equal(launch.mock.calls[0].arguments[1][0], '--follow-up');
   assert.equal(launch.mock.calls[0].arguments[1].at(-1), run.runDir);
 });
+
+for (const [label, finalState, extraNotice] of [
+  ['working', workingView(), 0],
+  ['stopped', { status: 'PAUSED', done: false, needs: { kind: 'continue' } }, 1],
+]) {
+  test(`follow-up automatic continue stays quiet until ${label} result`, async (t) => {
+    const ui = await openChat(t, chatView({ status: 'TASK_COMPLETE', done: true, needs: null }, 'follow_up'));
+    assert.equal(host.notices.length, 1, 'completed turn has its own notification');
+    let finishAdvance;
+    const launch = t.mock.method(cli, 'stream', async (_options, args) => {
+      if (args.includes('--follow-up')) {
+        ui.setView({ status: 'RUNNING', done: false, needs: { kind: 'continue' },
+          controller: { kind: 'ready', checked: true, alive: false },
+          progress: { needs_you: 'nothing needed from you' } });
+      } else {
+        await new Promise((resolve) => { finishAdvance = resolve; });
+        ui.setView(finalState);
+      }
+      return ok;
+    });
+    ui.type('Add peek to the same queue'); ui.submit();
+    await flush(); await flush();
+    assert.equal(launch.mock.callCount(), 2, 'one save and one automatic continuation');
+    assert.equal(typeof finishAdvance, 'function');
+    try {
+      await ui.poll(); await ui.poll();
+      assert.equal(host.notices.length, 1, 'client-owned continuation is not a person wait');
+    } finally {
+      finishAdvance(); await flush(); await flush();
+    }
+    assert.equal(host.notices.length, 1 + extraNotice, 'a genuine stopped checkpoint must still notify');
+    await ui.poll();
+    assert.equal(host.notices.length, 1 + extraNotice, 'settled result is announced only once');
+  });
+}
 
 test('chat drafts survive polling, hidden view restoration and switching runs', async (t) => {
   const ui = await openChat(t, chatView());
@@ -1104,7 +1335,8 @@ const RUN_MODES = {
   defaultId: 'full',
   modes: [
     { id: 'full', label: 'Full', description: 'Requirements first.', startArgs: ['--joint-planning', '--spec-first'] },
-    { id: 'quick', label: 'Quick plan', description: 'Clear requests skip Requirements.', startArgs: ['--joint-planning', '--no-spec-first', '--adaptive-planning'] },
+    // The core lists only Full since 2026-10-22; a made-up second mode checks the picker still offers what it lists.
+    { id: 'other', label: 'Other mode', description: 'Another way.', startArgs: ['--joint-planning', '--spec-first', '--max-iterations=2'] },
   ],
 };
 
@@ -1115,23 +1347,35 @@ test('a new chat starts with the run mode picked from the core list and passes i
   const chip = ui.document.getElementById('mode-picker');
   assert.equal(chip.hidden, false, 'a fresh chat offers a mode');
   assert.equal(ui.document.getElementById('mode-name').textContent, 'Full', 'the core default until the person picks');
-  const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.id === 'quick'));
+  const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.id === 'other'));
   chip.click(); await flush(); await flush();
   assert.equal(ui.sent.at(-1).type, 'mode');
   const [items, options] = picker.mock.calls[0].arguments;
-  assert.deepEqual(items.map((item) => item.label), ['Full', 'Quick plan']);
-  assert.equal(items[1].detail, 'Clear requests skip Requirements.', 'the core describes each mode');
+  assert.deepEqual(items.map((item) => item.label), ['Full', 'Other mode']);
+  assert.equal(items[1].detail, 'Another way.', 'the core describes each mode');
   assert.ok(options.placeHolder.includes('Full'));
-  assert.equal(ui.saved.get('autocode.chat.mode'), 'quick');
-  assert.equal(ui.document.getElementById('mode-name').textContent, 'Quick plan');
+  assert.equal(ui.saved.get('autocode.chat.mode'), 'other');
+  assert.equal(ui.document.getElementById('mode-name').textContent, 'Other mode');
   const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
   ui.type('Build something'); ui.submit(); await flush(); await flush();
   assert.equal(start.mock.callCount(), 1);
-  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--no-spec-first', '--adaptive-planning']);
+  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--spec-first', '--max-iterations=2']);
   assert.equal(chip.hidden, true, 'a started chat keeps the flow it started with');
   const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
   assert.ok(rules.some((rule) => rule.selectorText === '#composer .chip[hidden]' && rule.style.display === 'none'),
     'the chip style must not override hidden');
+});
+
+test('a saved mode the core no longer lists starts new chats in its default (quick, removed 2026-10-22)', async (t) => {
+  const modes = { defaultId: 'full', modes: [{ ...structuredClone(RUN_MODES.modes[0]), spendConfirmation: 'planning' }] };
+  t.mock.method(controller, 'modes', async () => structuredClone(modes));
+  const ui = await openChat(t, null, false, { storageValues: new Map([['autocode.chat.mode', 'quick']]) });
+  ui.chat.show(); await flush(); await flush();
+  assert.equal(ui.document.getElementById('mode-name').textContent, 'Full');
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build something'); ui.submit(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 1, 'the unlisted choice does not stop the chat starting');
+  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--spec-first']);
 });
 
 test('Full chat starts a greeting without the spend dialog when the core defers it to planning', async (t) => {
@@ -1275,6 +1519,71 @@ test('requirements chat streams replies without an empty task dashboard and keep
   assert.equal(ui.document.querySelector('#message').value, 'It is just for me');
 });
 
+test('a streaming reply is provisional (writing…) and updates in place without rebuilding the thread', async (t) => {
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: {
+    phase: 'requirements', context: 'turn-one', input: null,
+    messages: [
+      { id: 'u1', role: 'user', text: 'A book app' },
+      { id: 'done1', role: 'assistant', text: 'Understood.' },
+      { id: 'live', role: 'assistant', text: 'Who will', streaming: true },
+    ],
+  } };
+  const ui = await openChat(t, value);
+  ui.type('keep this draft');
+  const live = () => ui.document.querySelector('#messages .message.streaming');
+  assert.ok(live(), 'the growing extract is marked provisional');
+  assert.equal(live().querySelector('.speaker').textContent, 'AutoCode · writing…');
+  assert.equal(live().querySelector('.message-content').textContent, 'Who will');
+  const finished = [...ui.document.querySelectorAll('#messages .message:not(.streaming)')];
+  assert.equal(finished.length, 2, 'user and finished reply stay ordinary messages');
+  assert.ok(!finished.some((row) => row.querySelector('.speaker').textContent.includes('writing')));
+
+  // A longer extract rewrites only the growing body: the finished rows keep their nodes.
+  const firstNodes = finished.map((row) => row);
+  const next = structuredClone(value);
+  next.chat.messages[2].text = 'Who will use it?';
+  await ui.poll(next);
+  assert.equal(live().querySelector('.message-content').textContent, 'Who will use it?');
+  const after = [...ui.document.querySelectorAll('#messages .message:not(.streaming)')];
+  assert.deepEqual(after, firstNodes, 'finished rows are not rebuilt while only the extract grows');
+  assert.equal(ui.document.querySelector('#message').value, 'keep this draft');
+
+  // The finished message replaces the provisional one and is marked as written.
+  const done = structuredClone(next);
+  done.chat.messages = [
+    { id: 'u1', role: 'user', text: 'A book app' },
+    { id: 'done1', role: 'assistant', text: 'Understood.' },
+    { id: 'ask', role: 'assistant', text: 'Who will use it?' },
+  ];
+  await ui.poll(done);
+  assert.equal(ui.document.querySelector('#messages .message.streaming'), null);
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('Who will use it?'));
+  assert.ok([...ui.document.querySelectorAll('#messages .speaker')].some((row) => row.textContent === 'AutoCode'));
+});
+
+test('status polls speed up while a reply is streaming and slow down once it is quiet', async (t) => {
+  const growing = (text) => ({ status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: {
+    phase: 'requirements', context: 'turn-one', input: null,
+    messages: [{ id: 'u1', role: 'user', text: 'A book app' }, { id: 'live', role: 'assistant', text, streaming: true }],
+  } });
+  const ui = await openChat(t, growing('Who'));
+  const reads = () => controller.status.mock.callCount();
+  const before = reads();
+  // The configured interval is 5s; a growing extract polls at the streaming pace (250ms).
+  t.mock.timers.tick(250); await flush();
+  assert.equal(reads(), before + 1, 'a changing extract is read at the streaming pace');
+  ui.setView(growing('Who will'));
+  t.mock.timers.tick(250); await flush();
+  assert.equal(reads(), before + 2, 'each new extract is read at once');
+  // The extract stops changing: after STREAM_QUIET_POLLS quiet reads the ordinary pace returns.
+  for (let i = 0; i < 8; i++) { t.mock.timers.tick(250); await flush(); }
+  const quiet = reads();
+  t.mock.timers.tick(250); await flush();
+  assert.equal(reads(), quiet, 'an unchanged extract no longer forces the short pace');
+  t.mock.timers.tick(5000); await flush();
+  assert.equal(reads(), quiet + 1, 'the ordinary poll interval is back');
+});
+
 test('requirements chat offers Continue when no step is running instead of thinking forever', async (t) => {
   const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' },
     liveness: { kind: 'unknown' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`, chat: {
@@ -1288,6 +1597,60 @@ test('requirements chat offers Continue when no step is running instead of think
   resume.click(); await flush(); await flush();
   assert.equal(launch.mock.callCount(), 1);
   assert.ok(!launch.mock.calls[0].arguments[1].includes('--approve-goal'));
+});
+
+test('a reader scrolled up sees the running step change on the Latest button without being moved', async (t) => {
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: null, context: 'live-step', input: null,
+      messages: [{ id: 'a1', role: 'assistant', text: 'Builder working on the follow-up' }],
+      progress: ['Builder working · task M1'] } };
+  const ui = await openChat(t, value);
+  ui.type('Keep this draft');
+  const latest = () => ui.document.querySelector('#latest').textContent;
+  assert.equal(latest(), '↓ Now: Builder working · task M1');
+  const next = structuredClone(value);
+  next.chat.progress = ['Tester working'];
+  await ui.poll(next);
+  assert.equal(latest(), '↓ Now: Tester working', 'the transcript is unchanged, the current step is not');
+  assert.equal(ui.document.querySelector('#message').value, 'Keep this draft');
+  await ui.poll({ ...structuredClone(next), status: 'TASK_COMPLETE', done: true, needs: { kind: 'none' } });
+  assert.equal(latest(), '↓ Latest messages', 'no step is named once none is running');
+});
+
+test('the progress card is already current in the DOM while follow is paused; Latest only scrolls (#1711)', async (t) => {
+  // Root-cause regression for the Builder→Tester "stale card" report: the card
+  // lives inside #thread-content, so a reader who scrolled up cannot see it
+  // update. The data is never stale — Latest does not refetch.
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: null, context: 'live-step', input: null,
+      messages: [{ id: 'a1', role: 'assistant', text: 'Builder working on the follow-up' }],
+      progress: ['Builder working · task M1'] } };
+  const ui = await openChat(t, value);
+  const card = () => ui.document.querySelector('#app').textContent;
+  assert.ok(card().includes('Builder working · task M1'));
+
+  // The conversation row still names the Builder; it is history, not the live card.
+  const next = structuredClone(value);
+  next.chat.progress = ['Tester working'];
+  await ui.poll(next);
+  assert.ok(card().includes('Tester working'), 'the live card updated on the poll alone');
+  assert.ok(!card().includes('Builder working'), 'the live card no longer names the Builder');
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('Builder working on the follow-up'),
+    'the historical row is unchanged and can still be on screen above the card');
+
+  // Latest scrolls to the bottom; it issues no status read and no named action.
+  const reads = () => controller.status.mock.callCount();
+  const before = reads();
+  const invoked = t.mock.method(cli, 'invoke', async () => ok);
+  const streamed = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.querySelector('#latest').click();
+  await flush();
+  assert.equal(reads(), before, 'Latest does not refetch status');
+  assert.equal(invoked.mock.callCount(), 0);
+  assert.equal(streamed.mock.callCount(), 0);
+  assert.ok(card().includes('Tester working'), 'the card Latest reveals is the one the poll already wrote');
 });
 
 test('requirements chat shows only Thinking while a step is running', async (t) => {
@@ -1318,6 +1681,102 @@ for (const phase of ['requirements', null]) test(`chat renders core step progres
   for (const line of next.chat.progress) assert.ok(text().includes(line));
   assert.ok(!text().includes('Builder working'));
   assert.equal(ui.document.querySelector('#message').value, 'Keep this draft');
+});
+
+test('chat shows the running step\'s activity and the live diff the view names (#1643)', async (t) => {
+  const working = ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--working'];
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    code_checkpoints: { rows: [], working: { id: 'working', label: 'Show what the Builder has changed so far', next_command: working } },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working · task M1'],
+      activity: [
+        { kind: 'command', text: 'python3 -m unittest -q', status: 'done' },
+        { kind: 'edit', text: 'edited greet.py', paths: ['greet.py'], status: 'running' },
+        { kind: 'command', text: 'false', status: 'failed' },
+      ] } };
+  const ui = await openChat(t, value);
+  const text = () => ui.document.querySelector('#app').textContent;
+  assert.ok(text().includes('$python3 -m unittest -q'));
+  assert.ok(text().includes('±edited greet.py'));
+  assert.ok(text().includes('✗false'), 'a failed command is marked as failed, not as done');
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return { ...ok, stdout: JSON.stringify({ since: 'start', changed_files: ['greet.py'],
+      patch: '--- checkpoint/greet.py\n+++ current/greet.py\n+print(1)\n', truncated: false }) };
+  });
+  ui.document.querySelector('#working-diff').click();
+  await flush();
+  assert.deepEqual(calls, [working], 'only the named argv runs');
+  assert.ok(text().includes('1 file(s) changed since the run started'));
+  assert.ok(text().includes('+print(1)'));
+  const done = structuredClone(value);
+  done.code_checkpoints.working = null;
+  done.chat.activity = [];
+  await ui.poll(done);
+  assert.equal(ui.document.querySelector('#working-diff'), null, 'no offer once the Builder step ends');
+  assert.ok(!text().includes('+print(1)'), 'a diff of an ended step is not left on screen');
+});
+
+test('chat shows the live agent log (chat.log) with agent names and thinking', async (t) => {
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working · task M2'],
+      // The log already carries tool marks; the bare activity list is not shown beside it.
+      activity: [{ kind: 'command', text: 'duplicate of the log', status: 'done' }],
+      log: [
+        { id: 'a1', agent: 'Builder · task M2', kind: 'thinking', text: 'I should check the tests first' },
+        { id: 'a2', agent: 'Builder · task M2', kind: 'message', text: 'Running the greeting checks now.' },
+        { id: 'a3', agent: 'Builder · task M2', kind: 'command', text: 'python3 -m unittest -q', status: 'done' },
+        { id: 'a4', agent: 'Plan Reviewer', kind: 'command', text: 'false', status: 'failed' },
+      ] } };
+  const ui = await openChat(t, value);
+  const text = () => ui.document.querySelector('#app').textContent;
+  assert.ok(text().includes('Builder · task M2'), 'each line names the agent');
+  assert.ok(text().includes('Plan Reviewer'));
+  assert.ok(text().includes('I should check the tests first'), 'reasoning is shown');
+  assert.ok(text().includes('Running the greeting checks now.'), 'agent prose is shown');
+  assert.ok(text().includes('python3 -m unittest -q'));
+  assert.ok(text().includes('false'));
+  assert.ok(!text().includes('duplicate of the log'), 'the log supersedes the bare activity list');
+  assert.equal(ui.document.querySelector('#app .live-log').getAttribute('aria-label'), 'Agent log');
+  const thinking = ui.document.querySelector('#app .activity-row.thinking');
+  assert.ok(thinking, 'thinking rows are marked');
+  assert.equal(thinking.querySelector('.activity-mark').textContent, '∴');
+  assert.equal(thinking.querySelector('.agent').textContent, 'Builder · task M2');
+});
+
+test('the live agent log keeps entries by id across reads as the view moves on', async (t) => {
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working'],
+      log: [{ id: 'a1', agent: 'Builder', kind: 'message', text: 'First extract' }] } };
+  const ui = await openChat(t, value);
+  const text = () => ui.document.querySelector('#app').textContent;
+  assert.ok(text().includes('First extract'));
+  // The view only holds the newest entries; earlier ones stay available by id.
+  const next = structuredClone(value);
+  next.chat.log = [
+    { id: 'a1', agent: 'Builder', kind: 'message', text: 'First extract, completed' },
+    { id: 'a2', agent: 'Tester', kind: 'command', text: 'pytest -q', status: 'running' },
+  ];
+  await ui.poll(next);
+  assert.ok(text().includes('First extract, completed'), 'a later read of the same id updates in place');
+  assert.ok(text().includes('Tester'));
+  assert.ok(text().includes('pytest -q'));
+});
+
+test('a live diff the view names differently is refused before anything runs', async (t) => {
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, liveness: { kind: 'supervised' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    code_checkpoints: { rows: [], working: { id: 'working', next_command: ['checkpoint', '--working'] } },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working'] } };
+  const ui = await openChat(t, value);
+  const invoked = t.mock.method(cli, 'invoke', async () => ok);
+  ui.document.querySelector('#working-diff').click();
+  await flush();
+  assert.equal(invoked.mock.callCount(), 0);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Unsupported working-diff action'));
 });
 
 function requirementsModelQuestion(token = 'model-question:current') {
@@ -1703,6 +2162,80 @@ test('saved code changes render with only the actions the view named', async (t)
     ['cp-1:compare', 'cp-1:restore'],
     'unavailable rows offer no actions',
   );
+});
+
+for (const outcome of ['success', 'failure']) {
+  test(`saved-code actions explain a pending chat command and recover after ${outcome}`, async (t) => {
+    const ui = await openChat(t, checkpointView());
+    let finish;
+    const launch = t.mock.method(cli, 'stream', () => new Promise((resolve) => {
+      finish = () => resolve(outcome === 'success' ? ok : { ...ok, code: 1, stderr: 'Fixture command failed' });
+    }));
+    t.after(() => finish?.());
+    const compare = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
+      checkpoint_id: 'cp-1', changed_files: [], patch: '', blocked_reason: null,
+    }) }));
+    const actions = () => [...ui.document.querySelectorAll('[data-checkpoint-action]')];
+    assert.ok(actions().every((button) => !button.disabled), 'named actions start available');
+
+    ui.document.querySelector('#take-action').click();
+    await flush(); await flush();
+    assert.equal(launch.mock.callCount(), 1, 'the existing command is still pending');
+    for (const button of actions()) button.click();
+    await flush();
+    assert.equal(compare.mock.callCount(), 0, 'checkpoint clicks must not interfere with the pending command');
+    assert.equal(launch.mock.callCount(), 1, 'no second run action starts');
+    assert.ok(actions().every((button) => button.disabled), 'busy controls must not silently accept a click');
+    assert.ok(ui.document.querySelector('#app').textContent.includes('Saved-code actions are available after the current AutoCode action finishes.'));
+
+    finish(); await flush(); await flush();
+    assert.ok(actions().every((button) => !button.disabled), 'the named actions return when the command settles');
+    assert.ok(!ui.document.querySelector('#app').textContent.includes('Saved-code actions are available after the current AutoCode action finishes.'));
+    ui.document.querySelector('[data-checkpoint-action="compare"]').click();
+    await flush();
+    assert.deepEqual(compare.mock.calls[0].arguments[1],
+      ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--compare', 'cp-1']);
+    assert.ok(ui.document.querySelector('#app').textContent.includes('The files match this checkpoint.'));
+  });
+}
+
+test('a pending saved-code comparison explains its own busy state without duplicate reads', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  let finish;
+  const compare = t.mock.method(cli, 'invoke', () => new Promise((resolve) => {
+    finish = () => resolve({ ...ok, stdout: JSON.stringify({
+      checkpoint_id: 'cp-1', changed_files: [], patch: '', blocked_reason: null,
+    }) });
+  }));
+  t.after(() => finish?.());
+  const button = () => ui.document.querySelector('[data-checkpoint-action="compare"]');
+  button().click(); await flush();
+  assert.equal(compare.mock.callCount(), 1);
+  button().click(); await flush();
+  assert.equal(compare.mock.callCount(), 1, 'the pending comparison is not dispatched again');
+  assert.equal(button().disabled, true, 'a pending comparison must publish its busy state immediately');
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Saved-code actions are available after the current AutoCode action finishes.'));
+  finish(); await flush(); await flush();
+  assert.equal(button().disabled, false);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('The files match this checkpoint.'));
+});
+
+test('a named saved-code comparison stays available during work not owned by this chat', async (t) => {
+  const view = checkpointView();
+  view.status = 'RUNNING';
+  view.liveness = { kind: 'supervised' };
+  view.needs = { kind: 'continue' };
+  view.code_checkpoints.rows[0].actions = [view.code_checkpoints.rows[0].actions[0]];
+  const ui = await openChat(t, view);
+  const compare = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
+    checkpoint_id: 'cp-1', changed_files: [], patch: '', blocked_reason: null,
+  }) }));
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(ui.document.querySelector('[data-checkpoint-action="compare"]').disabled, false);
+  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await flush();
+  assert.equal(compare.mock.callCount(), 1, 'working status alone must not suppress the named read-only action');
+  assert.ok(ui.document.querySelector('#app').textContent.includes('The files match this checkpoint.'));
 });
 
 test('compare runs exactly the named argv and renders the returned diff', async (t) => {
@@ -2449,6 +2982,7 @@ test('Run details guards against concurrent clicks during status and modal confi
   assert.equal(modalCalled.length, 1, 'clicks while modal is open must be dropped');
 
   // Resolve modal -> proceeds to take
+  blockStatus = false; // The final display refresh must settle too.
   resolveModal();
   await flush();
   await flush();
@@ -2710,6 +3244,31 @@ test('two runs open as separate tabs with names and busy marks (#1558)', async (
   assert.equal(active, 'other-run');
 });
 
+test('one hung status read does not freeze the other tabs (#1711)', async (t) => {
+  // ChatView.refresh used to await tabs in order: a hung --status on tab 1
+  // blocked every later tab until it returned. Reads now start together.
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other-run' };
+  const ui = await openChat(t, chatView());
+  ui.chat.show(other);
+  await flush();
+  const calls = [];
+  let releaseHung;
+  const hung = new Promise((resolve) => { releaseHung = resolve; });
+  t.mock.method(controller, 'status', (target) => {
+    calls.push(target.runDir);
+    if (target.runDir === run.runDir) return hung;
+    return Promise.resolve({ status: 'RUNNING', done: false, needs: { kind: 'continue' },
+      chat: { phase: null, context: 'c', input: null, messages: [], progress: ['Tester working'] } });
+  });
+  void ui.chat.refresh();
+  await flush();
+  assert.deepEqual(calls, [run.runDir, other.runDir], 'both tabs start reading at once');
+  // The healthy tab already landed even though the first read is still in flight.
+  await flush();
+  releaseHung({ status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: { phase: null, context: 'c', input: null, messages: [] } });
+  await flush();
+});
+
 test('a run tab is named after the request it works on and stays in view (#1528)', async (t) => {
   const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/20261019-063752-vscode-bea9dd' };
   const ui = await openChat(t, chatView(), run, {
@@ -2821,7 +3380,8 @@ test('a busy tab shows its mark in the strip (#1558)', async (t) => {
   assert.ok(ui.document.querySelector('.chat-tab.active .dot'), 'the working tab carries a busy mark');
   release();
   await flush();
-  assert.equal(ui.document.querySelector('.chat-tab .dot'), null, 'the mark clears when the action settles');
+  // The busy mark only: a run left waiting on Continue earns the separate waiting mark.
+  assert.equal(ui.document.querySelector('.chat-tab .dot:not(.needs):not(.finished)'), null, 'the mark clears when the action settles');
 });
 
 test('a second run starts beside an open run and both tabs remain (#1558)', async (t) => {
@@ -2895,7 +3455,7 @@ test('test_ac4_done_notifies_once_with_outcome', async (t) => {
   views.set(alpha.runDir, { status: 'COMPLETED', done: true });
   await ui.poll();
   assert.equal(host.notices.length, 2);
-  assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - nothing; the run is complete');
+  assert.equal(host.notices[1].message, 'AutoCode: alpha finished.');
   await ui.poll();
   assert.equal(host.notices.length, 2);
 });
@@ -2962,7 +3522,7 @@ test('test_ac12_working_to_done_task_complete_notifies_once', async (t) => {
   views.set(alpha.runDir, { status: 'TASK_COMPLETE', done: true, needs: null });
   await ui.poll();
   assert.equal(host.notices.length, 1);
-  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - nothing; the run is complete');
+  assert.equal(host.notices[0].message, 'AutoCode: alpha finished.');
   await ui.poll();
   assert.equal(host.notices.length, 1);
 });
@@ -3176,4 +3736,194 @@ test('test_ac21_first_observed_waiting_run_notifies_once', async (t) => {
   assert.deepEqual(host.notices[0].items, ['Open chat']);
   await ui.poll();
   assert.equal(host.notices.length, 1);
+});
+
+
+test('cap-counted cost renders above historical cost and polling retains its unknown coverage', async (t) => {
+  const initial = { ...chatView(), cost: { spent_usd: 1.966683, cap_usd: 2, complete: false, unpriced_stages: 10 },
+    usage: { accounting: { cost: { historical_estimated_usd: { value: null, known: 1.5335513, complete: false, known_items: 15 } } } } };
+  const ui = await openChat(t, initial);
+  ui.type('Keep this unsent feedback');
+  const summary = () => ui.document.querySelector('#usage-summary').textContent;
+  const details = ui.document.querySelector('#usage-breakdown');
+  assert.match(summary(), /Cost counted toward cap: at least \$1\.97 \/ \$2\.00 cap \(partial; 10 unpriced stages\)/);
+  assert.ok(!summary().includes('$1.53'), 'the cap uses its own accounting, not the historical subtotal');
+  const rows = [...details.querySelectorAll('.telemetry-row')].map((row) => row.textContent);
+  assert.match(rows[0], /^Cost counted toward cap/);
+  assert.ok(rows.findIndex((row) => row.startsWith('Historical cost estimate')) > 0);
+  assert.match(details.textContent, /Historical cost estimate\$1\.53 \(partial\)/);
+  const next = structuredClone(initial);
+  next.cost.spent_usd = null;
+  await ui.poll(next);
+  assert.match(summary(), /Cost counted toward cap: unknown \/ \$2\.00 cap/);
+  assert.ok(!summary().includes('$0.00'));
+  assert.equal(ui.document.querySelector('#message').value, 'Keep this unsent feedback');
+  delete next.cost;
+  await ui.poll(next);
+  assert.match(summary(), /\$1\.53 \(partial\) historical est\./);
+  assert.ok(!summary().includes('no configured cap'), 'an older core missing cost does not mean a free or uncapped run');
+});
+
+function changesetSummary(token) {
+  const plan = (id) => ({ revision: 1, acceptance_criteria: [{ id, criterion: `criterion ${id}`, verification_method: 'test', human_review: false }], constraints: [], permission_boundaries: [], scope_exclusions: [`${id}: billing-api integration is excluded`] });
+  return {
+    changeset: 'changeset-1',
+    runs: [
+      { role: 'source', target: 'ws', workspace: run.workspace, run_dir: run.runDir, status: 'AWAITING_GOAL_APPROVAL', needs: 'approve_plan', plan: plan('AC1') },
+      { role: 'member', target: 'b', workspace: '/b', run_dir: '/b/.autocode/runs/m', status: 'AWAITING_GOAL_APPROVAL', needs: 'approve_plan', plan: plan('BC1') },
+    ],
+    approval: { set_token: token, waiting_on: [], next_command: ['autocode', 'changeset', 'approve', '--run-dir', run.runDir, '--set-token', token] },
+    verification: { waiting_on: ['ws', 'b'], done: false, merge_order: ['ws', 'b'], next_command: null },
+  };
+}
+
+test('Run details shows the change set and approves only the set token it showed (#2066)', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const ownController = new RunController(host.log);
+  let summary = changesetSummary('set-1');
+  t.mock.method(cli, 'invoke', async (_settings, args) => (args[0] === 'changeset'
+    ? { code: 0, stdout: JSON.stringify(summary), stderr: '', rejected: false } : ok));
+  const view = { status: 'AWAITING_GOAL_APPROVAL', done: false,
+    scope: { linked: [{ changeset: 'changeset-1', target: 'b', role: 'member', workspace: '/b', run_dir: '/b/.autocode/runs/m' }] } };
+  const ui = await openPanel(t, view, undefined, ownController);
+  const text = ui.document.body.textContent;
+  for (const expected of ['Change set changeset-1', 'b (linked run): AWAITING_GOAL_APPROVAL', 'AC1: criterion AC1', 'BC1: criterion BC1', 'AC1: billing-api integration is excluded', 'BC1: billing-api integration is excluded']) {
+    assert.ok(text.includes(expected), expected);
+  }
+  const action = () => ui.document.querySelector('#changeset-action');
+  assert.equal(action().textContent, 'Approve all 2 plans');
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Approve all');
+  summary = changesetSummary('set-2'); // a plan was revised after the card was drawn
+  action().click(); await flush();
+  assert.equal(launch.mock.callCount(), 0, 'a stale set token approves nothing');
+  await ui.poll();
+  action().click(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  assert.deepEqual(launch.mock.calls[0].arguments[1], ['changeset', 'approve', '--run-dir', run.runDir, '--set-token', 'set-2']);
+});
+
+// Stage meter, cost header, closing card, welcome and tab marks: the terminal chat's #2610 features.
+function meteredView(extra = {}) {
+  const tried = (stage, job, more = {}) => ({
+    stage, job, launch_route: { model: 'claude-sonnet-5-5', reasoning_effort: 'medium' }, duration_seconds: 30, exit_code: 0,
+    attributed_tokens: { input_tokens: { value: 1000, complete: true }, output_tokens: { value: 200, complete: true } }, ...more,
+  });
+  return {
+    ...workingView(),
+    chat: { context: 'meter', messages: [{ id: 'initial', role: 'user', text: 'Add a greeting CLI' }], input: null, progress: ['Tester is checking the change'] },
+    usage: { accounting: {
+      attempts: [
+        tried('requirements_gather', 'Requirements'), tried('astra_discovery', 'Planner'), tried('astra_challenge', 'Plan Reviewer'),
+        tried('terra', 'Builder', { launch_route: { model: 'claude-haiku-4-5', reasoning_effort: 'medium' } }),
+        tried('sol', 'Tester', { rejected: true }), tried('sol', 'Tester', { active: true, duration_seconds: 12 }),
+      ],
+      tokens: { input_tokens: { value: 610000, complete: true }, output_tokens: { value: 41000, complete: true } },
+    } },
+    cost: { spent_usd: 1.21, cap_usd: 5, complete: true, breakdown: { by_stage: [{ stage: 'terra', spent_usd: 0.31 }, { stage: 'sol', spent_usd: 0.2 }] } },
+    ...extra,
+  };
+}
+
+test('the chat lists the newest stages with time, cost, model and tokens, and expands to all (#2610 parity)', async (t) => {
+  const ui = await openChat(t, meteredView());
+  const section = ui.document.getElementById('stages');
+  assert.equal(section.hidden, false);
+  const rows = [...ui.document.querySelectorAll('#stage-rows .stage')];
+  assert.deepEqual(rows.map((row) => row.dataset.stage), ['astra_discovery', 'astra_challenge', 'terra', 'sol'], 'the newest four');
+  const builder = rows[2];
+  assert.equal(builder.querySelector('.mark').textContent, '✓');
+  assert.equal(builder.querySelector('.head').textContent, 'Builder · 30s · $0.31');
+  assert.equal(builder.querySelector('.detail').textContent, 'claude-haiku-4-5 medium · 1.2k tokens');
+  const tester = rows[3];
+  assert.ok(tester.classList.contains('retrying'));
+  assert.equal(tester.querySelector('.mark').textContent, '↻');
+  assert.equal(tester.querySelector('.head').textContent, 'Tester · 42s · $0.20 · attempt 2');
+  assert.match(tester.querySelector('.detail').textContent, /answer rejected/);
+  const more = ui.document.getElementById('stages-more');
+  assert.equal(more.textContent, '1 earlier');
+  more.click();
+  assert.equal(ui.document.querySelectorAll('#stage-rows .stage').length, 5);
+  assert.equal(more.textContent, 'Show fewer');
+});
+
+test('a stage on a later attempt shows a struggling warning in the working card', async (t) => {
+  const ui = await openChat(t, meteredView());
+  const warn = ui.document.getElementById('struggling');
+  assert.ok(warn, 'the working card carries the warning');
+  assert.equal(warn.textContent, '⚠ Tester · attempt 2 · 42s · last one answer rejected');
+  const calm = meteredView();
+  calm.usage.accounting.attempts = calm.usage.accounting.attempts.filter((row) => !row.rejected);
+  await ui.poll(calm);
+  assert.equal(ui.document.getElementById('struggling'), null, 'a first attempt is not struggling');
+});
+
+test('the toolbar shows the run cost against its cap, and a total once two chats hold runs', async (t) => {
+  const views = new Map([[alpha.runDir, meteredView()], [beta.runDir, meteredView({ cost: { spent_usd: 0.5, complete: true } })]]);
+  const ui = await openChat(t, meteredView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  const cost = ui.document.getElementById('run-cost');
+  assert.equal(cost.textContent, '$1.21 of $5.00 · 651k tokens');
+  ui.chat.show(beta);
+  await flush();
+  await ui.poll();
+  assert.equal(cost.textContent, '$0.50 · 651k tokens · all chats $1.71 · 1.3M tokens');
+});
+
+test('a finished run closes with its result, requirements, changed files, cost and a way to the changes', async (t) => {
+  const done = meteredView({
+    status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' }, liveness: null,
+    progress: { headline: 'Complete; current delivery verified', requirements: { checked: 8, failed: 0, unchecked: 0, awaiting_review: 0 } },
+    code_checkpoints: { rows: [{ id: 'c1', label: 'Builder step 1', changed_files: ['greet.py', 'README.md'], available: true, actions: [] }] },
+    acceptance_tests: { files: ['test_greet.py'] },
+  });
+  done.usage.accounting.attempts = done.usage.accounting.attempts.map((row) => ({ ...row, active: false }));
+  const ui = await openChat(t, done);
+  const card = ui.document.getElementById('finish-summary');
+  assert.ok(card, 'the closing card is drawn');
+  assert.match(card.textContent, /✓ Complete; current delivery verified/);
+  assert.match(card.textContent, /8 of 8 checked/);
+  assert.match(card.textContent, /3 files: greet\.py, README\.md, test_greet\.py/);
+  assert.match(card.textContent, /\$1\.21 of \$5\.00/);
+  assert.ok(ui.document.getElementById('finish-show-changes'), 'saved changes exist, so it offers them');
+  assert.ok(ui.document.getElementById('saved-changes'));
+  ui.document.getElementById('finish-details').click();
+  assert.ok(ui.sent.some((message) => message.type === 'details'));
+  assert.equal(ui.document.getElementById('struggling'), null);
+});
+
+test('a finished run with no follow-up offer says so instead of pointing at an action that is not there', async (t) => {
+  const ui = await openChat(t, { status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' }, chat: { context: 'x', messages: [], input: null } });
+  assert.equal(ui.document.getElementById('send-hint').textContent, 'This run is finished. Start a new chat with +.');
+});
+
+test('a new chat welcomes with what AutoCode does, and an example only fills the message box', async (t) => {
+  const ui = await openChat(t, null, false);
+  const welcome = ui.document.getElementById('welcome');
+  assert.ok(welcome, 'a new chat shows the welcome');
+  assert.match(welcome.textContent, /Fix.*a bug/);
+  const examples = [...welcome.querySelectorAll('button.example')];
+  assert.equal(examples.length, 3);
+  const launched = t.mock.method(cli, 'stream', async () => ok);
+  examples[1].click();
+  assert.equal(ui.document.getElementById('message').value, 'Add a --json option to the export command');
+  assert.equal(ui.document.getElementById('send-message').disabled, false);
+  await flush();
+  assert.equal(launched.mock.callCount(), 0, 'choosing an example starts nothing');
+  assert.equal(ui.document.getElementById('stages').hidden, true);
+  assert.equal(ui.document.getElementById('run-cost').textContent, '');
+});
+
+test('a tab whose run waits for you, or has finished, carries its own mark', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  assert.equal(ui.document.querySelector('.chat-tab .dot.needs'), null, 'working runs wait for nobody');
+  views.set(alpha.runDir, approveView());
+  views.set(beta.runDir, { status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' } });
+  await ui.poll();
+  const tabs = [...ui.document.querySelectorAll('.chat-tab')];
+  assert.equal(tabs[0].querySelector('.dot').className, 'dot needs');
+  assert.equal(tabs[0].querySelector('.dot').title, 'Waiting for you');
+  assert.equal(tabs[1].querySelector('.dot').className, 'dot finished');
 });

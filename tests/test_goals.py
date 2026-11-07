@@ -21,7 +21,9 @@ import autocode_goal_lifecycle as lifecycle
 import autocode_goals as g
 import autocode_interventions as interventions
 import autocode_proof_declarations as proof_declarations
+import autocode_providers as providers
 import autocode_regression as regression
+import autocode_resolver_human as resolver_human
 import autocode_review_rejection as review_rejection
 import autocode_stage_context as stage_context
 import autocode_support as s
@@ -49,9 +51,20 @@ class GoalTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
-        self.registry_environment = patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry-home")})
-        self.registry_environment.start()
-        self.addCleanup(self.registry_environment.stop)
+        # A new run takes its provider and user settings from AUTOCODE_PROVIDER and
+        # $XDG_CONFIG_HOME/autocode/config.toml: give it an empty config home, never the developer's (#1933).
+        config_home = tempfile.TemporaryDirectory()
+        self.addCleanup(config_home.cleanup)
+        self.isolated_environment = patch.dict(
+            os.environ,
+            {
+                "AUTOCODE_HOME": str(self.root / "registry-home"),
+                "XDG_CONFIG_HOME": config_home.name,
+                "AUTOCODE_PROVIDER": "",
+            },
+        )
+        self.isolated_environment.start()
+        self.addCleanup(self.isolated_environment.stop)
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         seed_greeting_workspace(self.root)
         subprocess.run(["git", "-C", str(self.root), "add", "greet.py", "test_greeting.py"], check=True)
@@ -366,6 +379,136 @@ class GoalTests(unittest.TestCase):
         self.assertFalse(g.approved(self.state))
         self.assertEqual("RUNNING", self.state["status"])
 
+    def test_invalid_planning_report_accepts_named_feedback_without_dispatch(self):
+        self.approve()
+        self.state["settings"]["roles"]["completion"] = {"model": "sol", "reasoning_effort": "high"}
+        self.state["settings"]["limits"].update(idle_timeout_seconds=300, tool_timeout_seconds=600, max_seconds=3600)
+        old_token = g.token(self.state["goal_contract"])
+        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="astra_finalize")
+        message = "Retain the original source quotes while correcting the report."
+        self.assertEqual(0, self.invoke("--status", "--json"))
+        before = json.loads(self.stdout)
+        offered = shlex.split(before["view"]["chat"]["input"]["next_command"])
+        self.assertEqual(["--feedback", "MESSAGE"], offered[-2:])
+        self.assertEqual(0, self.invoke("--feedback", message), self.stdout + self.stderr)
+        self.assertEqual(0, self.invoke("--status", "--json"))
+        after = json.loads(self.stdout)
+        self.assertIn(message, [row["text"] for row in after["view"]["chat"]["messages"]])
+        self.assertFalse(after["view"]["done"])
+        for key in ("roles", "limits"):
+            self.assertEqual(before["settings"][key], after["settings"][key])
+        self.assertEqual(2, self.invoke("--approve-goal", old_token))
+
+    def test_invalid_execution_reports_cannot_take_planning_feedback(self):
+        self.approve()
+        for stage in ("terra", "sol", "astra_review", None, "unknown"):
+            with self.subTest(stage=stage):
+                self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage=stage)
+                self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
+                self.assertIn("conversation checkpoint", self.stderr + self.stdout)
+
+    def test_stopped_acceptance_writer_can_take_named_selector_feedback_without_dispatch(self):
+        self.approve()
+        self.state["settings"]["roles"]["completion"] = {"model": "sol", "reasoning_effort": "high"}
+        self.state["settings"]["limits"].update(idle_timeout_seconds=300, tool_timeout_seconds=600, max_seconds=3600)
+        token = g.token(self.state["goal_contract"])
+        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="write_acceptance_tests")
+        self.assertEqual(0, self.invoke("--status", "--json"))
+        settings = copy.deepcopy(self.state["settings"])
+        offered = json.loads(self.stdout)["view"]["chat"]["input"]
+        self.assertEqual(["--feedback", "MESSAGE"], shlex.split(offered["next_command"])[-2:])
+        self.assertEqual(
+            0, self.invoke("--feedback", "Name the exact regression and guard methods; retain every assertion.")
+        )
+        for key in ("roles", "limits"):
+            self.assertEqual(settings[key], self.state["settings"][key])
+        self.assertFalse(g.approved(self.state))
+        self.assertEqual(2, self.invoke("--approve-goal", token))
+
+    def test_semantic_stop_feedback_uses_named_cli_without_dispatch(self):
+        for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
+            with self.subTest(status=status):
+                self.approve()
+                self.state["settings"]["roles"]["completion"] = {"model": "sol", "reasoning_effort": "high"}
+                self.state["settings"]["limits"].update(
+                    idle_timeout_seconds=300, tool_timeout_seconds=600, max_seconds=3600
+                )
+                old_token = g.token(self.state["goal_contract"])
+                self.state.update(status=status, next_stage="astra_review")
+                message = "Keep the local flow executable here; retain the mandatory actual-code joint proof."
+                self.assertEqual(0, self.invoke("--status", "--json"))
+                before = json.loads(self.stdout)
+                offered = shlex.split(before["view"]["chat"]["input"]["next_command"])
+                self.assertEqual(["--feedback", "MESSAGE"], offered[-2:])
+                product = (self.root / "greet.py").read_bytes()
+                self.assertEqual(0, self.invoke("--feedback", message), self.stdout + self.stderr)
+                self.assertEqual(0, self.invoke("--status", "--json"))
+                after = json.loads(self.stdout)
+                self.assertIn(message, [row["text"] for row in after["view"]["chat"]["messages"]])
+                self.assertFalse(after["view"]["done"])
+                self.assertEqual(product, (self.root / "greet.py").read_bytes())
+                for key in ("roles", "limits"):
+                    self.assertEqual(before["settings"][key], after["settings"][key])
+                self.assertEqual(2, self.invoke("--approve-goal", old_token))
+
+    def test_invalid_planning_feedback_cannot_release_an_operational_hold(self):
+        self.approve()
+        self.state["settings"]["limits"]["max_seconds"] = 1
+        self.state["settings"]["budget_origins"] = {"max_seconds": "user_explicit"}
+        self.state.update(status="PAUSED_TIME_LIMIT", active_seconds=2, stop_reason="Explicit total time exhausted")
+        self.assertTrue(
+            runner.resolver_runtime.record_operational_exhaustion(
+                runner, self.state, self.run, s.Paused("PAUSED_TIME_LIMIT", self.state["stop_reason"])
+            )
+        )
+        held = copy.deepcopy(self.state)
+        for status in ("PAUSED_INVALID_OUTPUT", "RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
+            with self.subTest(status=status):
+                self.state = copy.deepcopy(held)
+                self.state.update(status=status, next_stage="astra_finalize")
+                self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
+                self.assertIn("does not acknowledge PAUSED_TIME_LIMIT", self.stderr + self.stdout)
+
+    def test_operational_answers_keep_their_protected_holds(self):
+        """An answered operational request and a budget pause still refuse corrections (#2434)."""
+        self.approve()
+        published = resolver_human.current(self.state)
+        if published:
+            runner.finish_human_action(self.state, published)
+        self.state["settings"]["limits"]["max_seconds"] = 1
+        self.state["settings"]["budget_origins"] = {"max_seconds": "user_explicit"}
+        self.state.update(status="PAUSED_TIME_LIMIT", active_seconds=2, stop_reason="Explicit total time exhausted")
+        self.assertTrue(
+            runner.resolver_runtime.record_operational_exhaustion(
+                runner, self.state, self.run, s.Paused("PAUSED_TIME_LIMIT", self.state["stop_reason"])
+            )
+        )
+        self.assertTrue(0 <= self.invoke("--no-chat") <= 2, self.stdout + self.stderr)
+        public = resolver_human.current(self.state)
+        assert public is not None
+        self.assertEqual(
+            0,
+            self.invoke(
+                "--resolver-request",
+                public["request_id"],
+                "--resolver-token",
+                public["request_token"],
+                "--resolver-response",
+                "provide_information",
+                "--resolver-message",
+                "The provider incident was investigated",
+                "--no-chat",
+            ),
+            self.stdout + self.stderr,
+        )
+        goal_file = self.root / "body.json"
+        goal_file.write_text(json.dumps(self.state["goal_contract"]["body"]))
+        for args in (("--feedback", "Correct it"), ("--edit-goal", str(goal_file))):
+            with self.subTest(args=args[0]):
+                self.assertEqual(2, self.invoke(*args))
+                self.assertIn("does not acknowledge", self.stderr + self.stdout)
+                self.assertTrue(g.approved(self.state))
+
     def test_existing_answers_persist_and_cannot_be_asked_again(self):
         self.draft(questions=True)
         self.assertEqual(0, self.invoke("--answer", "Q1=CLI"))
@@ -408,6 +551,60 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("astra_review", self.state["next_stage"])
         self.assertNotIn("user_request", self.state)
         self.assertEqual("permission_answer", self.state["answers"]["decision-limit"]["kind"])
+
+    def test_an_answer_to_the_wrong_question_names_the_open_ones(self):
+        """#2313: a wrong id, an answered id and empty text all got "Answer must address one unresolved
+        question with nonempty text"; each now says what went wrong and which questions are open."""
+        question = {"id": "Q1", "question": "CLI or web?", "why": "scope", "options": [], "proposed_default": ""}
+        state = {"pending_questions": [question, dict(question, id="Q2")], "answers": {}}
+        with self.assertRaisesRegex(ValueError, "^No open question Q9; open: Q1, Q2$"):
+            g.answer(state, "Q9", "CLI")
+        with self.assertRaisesRegex(ValueError, "^Q1 needs text: --answer Q1=TEXT$"):
+            g.answer(state, "Q1", "   ")
+        state["answers"]["Q1"] = {"text": "CLI"}
+        with self.assertRaisesRegex(ValueError, "^Q1 is already answered; open: Q2$"):
+            g.answer(state, "Q1", "CLI")
+
+    def test_permission_answer_resolves_the_findings_its_published_request_names(self):
+        # #1783: the ids sit on the published request, and no producer writes a
+        # question payload, so the answer must not look only at the question.
+        self.approve()
+        self.state["findings_ledger"] = [
+            {
+                "id": "F-a",
+                "status": "open",
+                "blocking": True,
+                "evidence": "iterations/001/sol-01.json",
+                "finding": "regression proof unverified",
+            },
+            {
+                "id": "F-b",
+                "status": "open",
+                "blocking": True,
+                "evidence": "iterations/001/astra-01.json",
+                "finding": "the base suite has no passing-test evidence",
+            },
+        ]
+        choice = "Accept completion with the regression gate recorded as an agreed limitation"
+        request = {
+            "kind": "permission",
+            "decision_needed": "How should the runner-side regression gate be resolved?",
+            "impact": "The completion review cannot finish while both findings stay open",
+            "options": [choice, "Decline and stay paused"],
+            "proposed_delta": "No contract, product, acceptance-criterion, implementation-scope change.",
+            "finding_ids": ["F-a", "F-b"],
+        }
+        lifecycle.wait_for_user(self.state, copy.deepcopy(request))
+        lifecycle.human.evaluate(self.state)
+        question = self.state["pending_questions"][0]
+        self.assertNotIn("payload", question)
+        g.resolve_permission(self.state, question["id"], choice)
+        cited = "permission_answer:" + question["id"]
+        self.assertEqual(["resolved", "resolved"], [row["status"] for row in self.state["findings_ledger"]])
+        self.assertEqual([cited, cited], [row["resolved_in"] for row in self.state["findings_ledger"]])
+        self.assertTrue(all(choice in row["resolution_evidence"] for row in self.state["findings_ledger"]))
+        self.assertEqual("permission_answer", self.state["answers"][question["id"]]["kind"])
+        self.assertEqual("RUNNING", self.state["status"])
 
     def test_is_operational_response_classifies_permission_and_scoped_blocker_only(self):
         # kind="permission" is always operational, regardless of proposed_delta.
@@ -963,7 +1160,8 @@ class GoalTests(unittest.TestCase):
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
         contract = copy.deepcopy(self.state["goal_contract"])
         repair = self.decision("REWORK")
-        repair["affected_paths"] = ["greet.py", "formatting.py", "test_greeting.py"]
+        # The owned paths in their declared order, then the correction's new file.
+        repair["affected_paths"] = ["greet.py", "test_greeting.py", "formatting.py"]
         repair["next_task"]["requirements"] = ["Correct formatting.py to meet the approved greeting criterion"]
         lifecycle.assign_task(self.state, repair, s.snapshot(self.root))
         prompt, _ = stage_context.context_packet(self.state, "terra", self.run / "state.json")
@@ -1220,8 +1418,12 @@ class GoalTests(unittest.TestCase):
                     self.assertEqual(2, self.invoke("--resume-paused"))
                     self.assertEqual("WAITING_FOR_USER", self.state["status"])
                 else:
-                    # A clarification or blocker first goes to AutoResolver's read-only
-                    # diagnosis; the user is not asked and no builder is dispatched.
+                    # A clarification or blocker first goes to AutoResolver's
+                    # diagnosis; the user is not asked and no builder is dispatched
+                    # (no write authority). The launch itself is workspace-write
+                    # like the other judging stages: the Resolver writes its report
+                    # and probe evidence under .autocode/, and the after-stage
+                    # source snapshot, not the sandbox, keeps source unchanged.
                     runner.normalize_human_boundary(self.state, self.run)
                     self.assertEqual("RESOLVING", self.state["phase"])
                     self.assertEqual("astra_resolve", self.state["next_stage"])
@@ -1235,7 +1437,7 @@ class GoalTests(unittest.TestCase):
                     self.assertEqual(2, self.invoke("--resume-paused", role=diagnose))
                     self.assertEqual(["astra_resolve"], [call["state"]["next_stage"] for call in launched])
                     self.assertFalse(launched[0]["allow_write"])
-                    self.assertEqual("read-only", launched[0]["sandbox"])
+                    self.assertEqual("workspace-write", launched[0]["sandbox"])
                 self.assertEqual("Useful partial work", self.state["implementation"]["summary"])
 
     def test_goal_change_answer_requires_new_revision_and_approval(self):
@@ -1379,6 +1581,64 @@ class GoalTests(unittest.TestCase):
         self.assertFalse(completion_gate.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
         self.state["validation"]["unverified_criteria"] = ["C2 — unrelated failure"]
         self.assertFalse(g.human_only_pending_validation(self.state, self.state["validation"], "C1"))
+
+    def test_the_plain_status_view_shows_an_accepted_review_as_no_longer_pending(self):
+        """Without --inspect-evidence the view read a human criterion as pending forever (#2342)."""
+        self.approve(human=True)
+        current = self.validation()
+        self.publish_review()
+        lifecycle.present(self.state)
+        pending = runner.run_view.view(self.state)["verification"]["coverage"][0]
+        self.assertEqual((True, "unchecked"), (pending["human_acceptance_pending"], pending["state"]))
+        g.approve_review(self.state, "C1", g.review_token(self.state), current)
+        self.assertEqual(["C1"], runner.run_view.accepted_reviews(self.state))
+        accepted = runner.run_view.view(self.state)["verification"]["coverage"][0]
+        # Accepted, though the report stays unchecked until an actual inspection makes it current.
+        self.assertEqual((False, "unchecked"), (accepted["human_acceptance_pending"], accepted["state"]))
+        self.state["validation"]["source_revision"] = "changed"  # the receipt no longer binds this validation
+        self.assertTrue(runner.run_view.view(self.state)["verification"]["coverage"][0]["human_acceptance_pending"])
+
+    def test_saved_answers_render_as_one_line_each_not_as_their_json_record(self):
+        """Every later launch dumped the answer records, tokens included, as JSON (#2363)."""
+        self.draft(questions=True)
+        lifecycle.human.evaluate(self.state)
+        asked = self.state["pending_questions"][0]
+        g.answer(self.state, asked["id"], "accept default", delegated=True)
+        self.state["answers"]["decision-limit"] = {
+            "kind": "permission_answer",
+            "question": {"id": "decision-limit", "question": "Raise the run limit?"},
+            "text": "Approve the saved limit change",
+            "contract_token": "r1:secret",
+        }
+        shown = lifecycle.render(self.state)
+        section = shown.split("Saved user answers:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(
+            [
+                f"  - {asked['id']}: {asked['question']} -> {asked['proposed_default']} (the proposed default, delegated)",
+                "  - decision-limit: Raise the run limit? -> Approve the saved limit change (a permission decision)",
+            ],
+            section.splitlines(),
+        )
+        self.assertNotIn("r1:secret", shown)
+        self.assertNotIn("contract_token", shown)
+
+    def test_the_review_stop_names_the_changed_files_and_where_to_read_the_change(self):
+        """The gate asked for approval of a change it never located (#2360)."""
+        self.approve(human=True)
+        self.validation()
+        self.state["run_dir"] = "/project/.autocode/runs/r1"  # the request's binding names the run
+        self.publish_review()
+        lifecycle.present(self.state)
+        milestone = self.state["goal_contract"]["body"]["milestones"][0]["id"]
+        self.state["code_checkpoints"] = [
+            {"id": "code-1", "milestone_id": milestone, "changed_files": ["greet.py"], "available": True}
+        ]
+        shown = lifecycle.render(self.state)
+        self.assertIn("  [C1] Contract holds\n", shown)
+        self.assertIn("    Changed: greet.py\n", shown)
+        self.assertIn(
+            "See the change and its evidence: autocode review --show --run-dir /project/.autocode/runs/r1", shown
+        )
 
     def test_medium_blocking_finding_blocks_even_with_tests_passing(self):
         self.approve()
@@ -1760,7 +2020,7 @@ class GoalTests(unittest.TestCase):
         # Issue #381: the full brief runs to hundreds of lines, so the last screen of the approval
         # stop summarizes the decision, right above the limits and the approve command.
         self.draft(human=True)
-        self.assertEqual(2, self.invoke("--no-chat"))  # the stop a plain run prints (present)
+        self.assertEqual(2, self.invoke("--no-chat", "--details"))  # the full stop a plain run prints (#2535)
         stop = self.stdout
         self.assertEqual(0, self.invoke("--show-goal"))
         revision = self.state["goal_contract"]["revision"]
@@ -1816,6 +2076,66 @@ class GoalTests(unittest.TestCase):
         self.assertNotIn("Before you approve", self.stdout)
         self.assertNotIn("Approval token:", self.stdout)
 
+    def test_approval_stop_leads_with_the_decision_and_keeps_the_machinery_behind_details(self):
+        # Issue #2535: the stop a plain run prints starts with the summary in plain words; the contract
+        # diff, file hashes and request tokens wait behind --details, which prints the full brief as before.
+        self.draft(human=True)
+        self.state["contract_history"] = [copy.deepcopy(self.state["goal_contract"])]
+        self.state["contract_history"][0]["body"]["intended_outcome"] = "An earlier outcome"
+        self.assertEqual(2, self.invoke("--no-chat", "--details"))
+        full = self.stdout
+        self.assertEqual(0, self.invoke("--show-goal"))
+        brief = slice(full.index("Build brief r"), full.rindex("\nState: ") + 1)
+        self.assertEqual(full[brief], self.stdout[self.stdout.index("Build brief r") :][: brief.stop - brief.start])
+        self.assertEqual(2, self.invoke("--no-chat"))
+        shown, contract = self.stdout, self.state["goal_contract"]
+        selected, revision = g.token(contract), contract["revision"]
+        published = self.state["resolver_human_request"]
+        blocks = shown[shown.index("Before you approve") :].split("\n\n")
+        self.assertTrue(blocks[0].startswith(f"Before you approve r{revision}:\nWhat it will do:\n"))
+        self.assertIn("Done when:\n  [C1] Contract holds\n    Checked by: ", blocks[0])
+        self.assertTrue(blocks[1].startswith("Limits in effect: "))
+        pointer = f"autocode --run-dir {shlex.quote(str(self.run))} --details"
+        self.assertEqual(
+            "The full plan, its changes since the last revision and the request tokens: "
+            f"{pointer} (in the chat, /details)",
+            blocks[2],
+        )
+        before = shown[: shown.index(pointer)]
+        for machinery in (
+            "Contract delta:",
+            "+++ current",
+            selected.split(":")[1],
+            "Approval token:",
+            published["request_id"],
+            published["request_token"],
+            "Verification obligations",
+        ):
+            self.assertNotIn(machinery, before)
+            self.assertIn(machinery, full)
+        for machinery in ("Contract delta:", published["request_token"], "Approval token:"):
+            self.assertNotIn(machinery, shown)
+        # Approval still binds to the exact plan shown: the one approve command names its token.
+        commands = re.findall(r"^To approve this plan: (.*)$", shown, re.MULTILINE)
+        self.assertEqual([f"autocode --run-dir {shlex.quote(str(self.run))} --approve-goal {selected}"], commands)
+        self.assertTrue(shown.endswith("\nState: AWAITING_GOAL_APPROVAL / AWAITING_GOAL_APPROVAL\n"))
+        self.assertEqual(0, self.invoke(*shlex.split(commands[0])[1:]))
+        self.assertTrue(g.approved(self.state))
+
+    def test_approval_stop_json_is_unchanged_by_the_short_screen(self):
+        # Issue #2535: only the human rendering changes; --json prints the --status payload either way.
+        self.draft()
+        self.assertEqual(2, self.invoke("--no-chat"))
+        payloads = []
+        for extra in ((), ("--details",)):
+            self.assertEqual(2, self.invoke("--no-chat", "--json", *extra))
+            payloads.append(json.loads(self.stdout))
+            self.assertEqual("AWAITING_GOAL_APPROVAL", payloads[-1]["view"]["status"])
+        for payload in payloads:  # what differs between any two invocations: when, and which controller
+            payload["view"]["controller"].pop("receipt")
+            payload["view"]["observation"].pop("sampled_at")
+        self.assertEqual(payloads[0], payloads[1])
+
     def test_approval_stop_states_what_the_regression_proof_will_require(self):
         # A bug fix planned without an investigation: the proof falls back to the plan's test:/guard:
         # criteria, and the approval stop names them with what each test must show.
@@ -1848,7 +2168,7 @@ class GoalTests(unittest.TestCase):
         plan["acceptance_criteria"][0]["verification_method"] = "test: test_c1_greets"
         self.state["workflow"] = {"kind": "design", "reason": "a design", "signals": [], "source": "model"}
         lifecycle.install_draft(self.state, plan, origin="test")
-        self.assertEqual(2, self.invoke("--no-chat"))
+        self.assertEqual(2, self.invoke("--no-chat", "--details"))
         self.assertIn(
             "\nJob type: design (not a bug fix): no test named in a criterion is run as proof, so nothing "
             "shows that a check would fail without the change.\n",
@@ -1992,6 +2312,35 @@ class GoalTests(unittest.TestCase):
         lifecycle.approve(self.state, g.token(contract))
         self.assertTrue(g.approved(self.state))
         self.assertEqual(original, contract["body"])
+        # The public approval projection stays additive for that sealed legacy body (#2434):
+        # its original fields keep their unconditional shape and the newer completion-order
+        # fields stay absent, so the legacy plan remains showable and approvable as it is.
+        import autocode_client_actions as client_actions
+        import autocode_run_view as run_view
+
+        state = self.state
+        state.update(status="AWAITING_GOAL_APPROVAL", phase="AWAITING_GOAL_APPROVAL")
+        state["displayed_goal"] = g.token(contract)
+        displayed = run_view.view(state)["displayed_plan"]
+        self.assertEqual(
+            {
+                "revision": contract["revision"],
+                "hash": contract["hash"],
+                "token": g.token(contract),
+                "acceptance_criteria": contract["body"]["acceptance_criteria"],
+                "constraints": contract["body"]["constraints"],
+                "permission_boundaries": contract["body"]["permission_boundaries"],
+                "git_delivery": contract["body"].get("git_delivery"),
+                "scope_exclusions": contract["body"].get("scope_exclusions"),
+            },
+            displayed,
+        )
+        self.assertEqual(
+            displayed,
+            client_actions.plan_for_approval(
+                {"displayed_plan": displayed, "needs": {"kind": "approve_plan", "token": g.token(contract)}}
+            ),
+        )
 
     def test_completed_legacy_discovery_recovers_using_its_saved_schema(self):
         draft = body()
@@ -2052,6 +2401,23 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("Keep Unicode Support", self.state["brief_feedback"][0]["text"])
         self.assertEqual("astra_discovery", self.state["next_stage"])
         self.assertFalse(g.approved(self.state))
+
+    def test_chat_approval_shows_the_decision_first_and_the_full_brief_on_details(self):
+        # Issue #2535: the chat's approval question follows the short approval screen; /details prints
+        # the full brief and asks again, and approval still binds to the plan shown.
+        self.draft()
+        self.state["contract_history"] = [copy.deepcopy(self.state["goal_contract"])]
+        self.state["contract_history"][0]["body"]["intended_outcome"] = "An earlier outcome"
+        out = io.StringIO()
+        with patch("builtins.input", side_effect=["/details", "y"]), contextlib.redirect_stdout(out):
+            self.assertTrue(runner.chat_checkpoint(self.state))
+        shown = out.getvalue()
+        details = shown.index("\nBuild brief r")
+        self.assertIn("Before you approve r", shown[:details])
+        self.assertNotIn("Contract delta:", shown[:details])
+        self.assertNotIn("Approval token:", shown[:details])
+        self.assertIn("Contract delta:", shown[details:])
+        self.assertTrue(g.approved(self.state))
 
     def test_chat_interruption_preserves_prior_answers_and_never_approves(self):
         draft = body(questions=True)
@@ -2555,6 +2921,22 @@ class GoalTests(unittest.TestCase):
             self.state["validation"]["end_to_end_result"] = flow
             self.assertFalse(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
 
+    def test_completion_names_pending_flow_when_local_criteria_all_pass(self):
+        self.approve()
+        current = self.validation()
+        self.state["validation"]["end_to_end_result"] = {
+            "status": "NOT_VERIFIED",
+            "summary": "Local tax checks pass; the coordinator's later real-code joint proof has not run.",
+            "evidence_refs": ["event:local-tax"],
+            "pending_human_criteria": [],
+        }
+        self.assertFalse(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
+        reason = completion_gate.rejection(self.state)
+        self.assertIn("end_to_end_flow", reason)
+        self.assertIn("NOT_VERIFIED", reason)
+        self.assertIn("coordinator's later real-code joint proof has not run", reason)
+        self.assertIn("revise the plan", reason)
+
     def test_end_to_end_evidence_cannot_cite_fabricated_events(self):
         self.approve()
         self.validation()
@@ -2631,6 +3013,24 @@ class GoalTests(unittest.TestCase):
         self.assertTrue(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
         self.state["validation"]["task_id"] = "previous-task"
         self.assertFalse(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
+
+
+class GoalFixtureIsolationTests(unittest.TestCase):
+    def test_fixture_runs_ignore_the_developers_provider_choice(self):
+        """A developer who sends new runs to Kilo still gets the built-in default in the fixture (#1933)."""
+        developer = tempfile.TemporaryDirectory()
+        self.addCleanup(developer.cleanup)
+        config = Path(developer.name) / "autocode" / "config.toml"
+        config.parent.mkdir()
+        config.write_text('default_provider = "kilocode"\n')
+        # Started before the fixture, so the fixture's own environment is stopped first.
+        outer = patch.dict(os.environ, {"XDG_CONFIG_HOME": developer.name, "AUTOCODE_PROVIDER": ""})
+        outer.start()
+        self.addCleanup(outer.stop)
+        self.assertEqual(("kilocode", f"default_provider in {config}"), providers.default_choice())
+        os.environ["AUTOCODE_PROVIDER"] = "kilocode"
+        GoalTests.setUp(self)
+        self.assertEqual(("opencode", "built-in default"), providers.default_choice())
 
 
 if __name__ == "__main__":

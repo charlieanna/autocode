@@ -19,6 +19,17 @@ import tests  # noqa: F401 - runtime import path
 
 
 class LaunchContainment(unittest.TestCase):
+    def test_unsupported_kilo_variant_is_a_transport_refusal_not_a_sandbox_failure(self):
+        from providers.kilocode import KiloEffortError
+
+        self.adapter.launch.side_effect = KiloEffortError("Unsupported medium; supported: high, low, max")
+        for writing in (False, True):
+            with self.subTest(writing=writing), self.assertRaises(util.Paused) as raised:
+                launch.prepare(**{**self.options, "allow_write": writing})
+            self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", raised.exception.status)
+            self.assertNotIn("sandbox", str(raised.exception))
+            self.assertNotIn("Restore qualified", str(raised.exception))
+
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -60,11 +71,99 @@ class LaunchContainment(unittest.TestCase):
         self.assertIn(str(self.options["run_dir"]), kwargs["containment"]["protected_paths"])
         self.assertNotIn(str(Path.home()), kwargs["containment"]["read_roots"])
 
-    def test_planning_and_command_preview_do_not_create_a_shell_boundary(self):
-        for changes in ({"planning": True}, {"enforce_tool_boundary": False}):
+    def test_command_preview_and_planning_report_recovery_do_not_create_a_shell_boundary(self):
+        for changes in (
+            {"enforce_tool_boundary": False},
+            {"planning": True, "planning_report_recovery": True},
+            {"planning": True, "enforce_tool_boundary": False},
+        ):
             with self.subTest(changes=changes):
                 launch.prepare(**{**self.options, **changes})
                 self.assertNotIn("containment", self.adapter.launch.call_args.kwargs)
+                self.assertNotIn("planning_shell", self.adapter.launch.call_args.kwargs)
+
+    def test_a_planner_gets_the_checkers_contained_shell_without_run_state(self):
+        # Owner decision 2026-10-21: every Planner has a shell. On OpenCode it is the kernel-contained one the
+        # read-only checkers use, and like native planning (#1250) it cannot read the run's private state.
+        _, _, _, worker = launch.prepare(**{**self.options, "planning": True, "role": "glm", "route_role": "glm"})
+        request = self.adapter.launch.call_args.kwargs["containment"]
+        self.assertEqual(str(self.options["run_dir"].resolve()), request["private_run"])
+        self.assertIn(str(self.options["run_dir"]), request["protected_paths"])
+        self.assertEqual([], request["tool_commands"])
+        self.assertEqual(self.policy, worker["tool_containment"])
+        self.assertTrue(self.adapter.launch.call_args.kwargs["planning"])
+
+    def test_a_kilo_planner_gets_the_kilo_checkers_shell_on_each_platform(self):
+        from providers.kilocode import KiloProvider
+
+        kilo = object.__new__(KiloProvider)
+        kilo.launch = mock.Mock(return_value=(["kilo", "run"], {}, {}))
+        options = {**self.options, "adapter": kilo, "planning": True, "role": "glm", "route_role": "glm"}
+        with mock.patch.object(launch.sys, "platform", "linux"):
+            _, _, _, worker = launch.prepare(**options)
+        request = kilo.launch.call_args.kwargs["containment"]
+        self.assertEqual(str(self.options["run_dir"].resolve()), request["private_run"])
+        self.assertNotIn("portable_shell", kilo.launch.call_args.kwargs)
+        self.assertTrue(worker["kilo_readonly_tools"])
+        with mock.patch.object(launch.sys, "platform", "darwin"):
+            _, _, _, worker = launch.prepare(**options)
+        self.assertNotIn("containment", kilo.launch.call_args.kwargs)
+        self.assertIs(True, kilo.launch.call_args.kwargs["portable_shell"])
+        self.assertTrue(worker["kilo_portable_shell"])
+        self.assertEqual(
+            "Kilo read tools and shell with edits denied; no kernel sandbox on macOS",
+            launch.stage_record(worker)["isolation"],
+        )
+        # Report recovery keeps every tool off, on either platform.
+        for platform in ("linux", "darwin"):
+            with self.subTest(platform=platform), mock.patch.object(launch.sys, "platform", platform):
+                _, _, _, worker = launch.prepare(**{**options, "planning_report_recovery": True})
+                self.assertNotIn("containment", kilo.launch.call_args.kwargs)
+                self.assertNotIn("portable_shell", kilo.launch.call_args.kwargs)
+                self.assertIn("all tools disabled", launch.stage_record(worker)["isolation"])
+
+    def test_a_planning_handoff_stays_compact_under_containment(self):
+        packet = {"stage": "astra_discovery", "joint_planning": True, "task": "x"}
+        for indent in (None, 2):
+            with self.subTest(indent=indent):
+                text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps(packet, indent=indent)
+                updated = launch.containment_prompt(text, {"tool_containment": self.policy})
+                handoff = updated.split("\nCURRENT HANDOFF DATA\n", 1)[1]
+                self.assertNotIn("\n", handoff)
+                self.assertEqual({**packet, "tool_containment": self.policy}, json.loads(handoff))
+
+    def test_execution_handoff_preserves_supplied_json_form_and_all_values(self):
+        for stage in ("terra", "sol", "astra_review", "write_acceptance_tests"):
+            packet = {
+                "stage": stage,
+                "goal_contract": {
+                    "body": {
+                        "acceptance_criteria": [
+                            {"id": "AC1", "criterion": 'Preserve café, "quotes" and\nnewlines', "human_review": False}
+                        ]
+                    }
+                },
+                "checks": [{"exit_code": 0, "evidence_refs": ["check:1"]}],
+                "permission_boundaries": ["No network"],
+                "nested": {"rows": [{"id": n, "values": [True, None, "x"]} for n in range(20)]},
+            }
+            for indented in (False, True):
+                with self.subTest(stage=stage, indented=indented):
+                    original = json.dumps(packet, indent=2) if indented else json.dumps(packet, separators=(",", ":"))
+                    text = "Original instructions\nCURRENT HANDOFF DATA\n" + original
+                    actual = launch.containment_prompt(text, {"tool_containment": self.policy}, stage=stage)
+                    handoff = actual.split("\nCURRENT HANDOFF DATA\n", 1)[1]
+                    self.assertEqual(indented, "\n" in handoff)
+                    expected = {**packet, "tool_containment": self.policy}
+                    if stage == "sol":
+                        expected["runner_regression_proof_current"] = False
+                    self.assertEqual(expected, json.loads(handoff))
+                    self.assertTrue(actual.startswith("Original instructions"))
+                    self.assertEqual(text, launch.containment_prompt(text, {}))
+
+    def test_a_writing_planner_never_gets_a_shell_boundary(self):
+        launch.prepare(**{**self.options, "planning": True, "allow_write": True, "sandbox": "workspace-write"})
+        self.assertNotIn("containment", self.adapter.launch.call_args.kwargs)
 
     def test_fresh_contained_session_does_not_change_the_event_protocol(self):
         _, _, _, worker = launch.prepare(**{**self.options, "session": "previous-session"})
@@ -92,7 +191,7 @@ class LaunchContainment(unittest.TestCase):
         for configured, changes, settings in (
             (True, {}, None),
             (True, {"allow_write": True}, None),
-            (False, {"planning": True}, None),
+            (False, {"planning": True, "planning_report_recovery": True}, None),  # report-only: no tools
             (False, {"enforce_tool_boundary": False}, None),
             (False, {"allow_write": True}, None),
             (False, {}, {"allow_uncontained_tools": True}),
@@ -155,7 +254,10 @@ class LaunchContainment(unittest.TestCase):
         _, _, _, planner = launch.prepare(
             **{**self.options, "planning": True}, settings={"allow_uncontained_tools": True}
         )
-        self.assertNotIn("uncontained_tools", launch.stage_record(planner))  # planning is never contained
+        # A planner's shell follows the same opt-out: OpenCode's own permissions, said on its stage record.
+        self.assertNotIn("containment", self.adapter.launch.call_args.kwargs)
+        self.assertIs(True, self.adapter.launch.call_args.kwargs["planning_shell"])
+        self.assertIs(True, launch.stage_record(planner)["uncontained_tools"])
 
     def test_without_the_saved_opt_out_the_stage_stays_contained(self):
         for settings in (None, {}, {"allow_uncontained_tools": "true"}, {"allow_uncontained_tools": 1}):
@@ -171,15 +273,22 @@ class LaunchContainment(unittest.TestCase):
         data = {"workspace": str(self.root), "old_receipt": ".autocode/evidence/accepted.json"}
         text = "Example --output .autocode/evidence/<unique-name>.json\nCURRENT HANDOFF DATA\n" + json.dumps(data)
         updated = launch.containment_prompt(text, {"tool_containment": self.policy})
-        parsed = json.loads(updated.split("\nCURRENT HANDOFF DATA\n")[1])
+        instructions, marker, handoff = updated.partition("\nCURRENT HANDOFF DATA\n")
+        self.assertEqual("\nCURRENT HANDOFF DATA\n", marker)
+        parsed = json.loads(handoff)
         self.assertEqual(data["old_receipt"], parsed["old_receipt"])
         self.assertEqual(self.policy, parsed["tool_containment"])
-        self.assertIn(self.policy["scratch"], updated)
-        self.assertNotIn("--output .autocode/evidence/<unique-name>.json", updated)
+        # A4 (#2113): the exact per-launch scratch path stays in the handoff only; the
+        # capture example names the handoff field as a token so instructions stay stable.
+        self.assertNotIn(self.policy["scratch"], instructions)
+        self.assertIn("--output <tool_containment.scratch>/evidence-<unique-name>.json", instructions)
+        self.assertNotIn("--output .autocode/evidence/<unique-name>.json", instructions)
 
     def test_every_capture_example_names_the_one_location_a_contained_stage_can_write(self):
         # Live self-build 2026-10-06: a contained Validator's prompt named the run directory (COMMON) and the
         # scratch (provider contract) for the same receipts; the sandbox lets it write only the scratch.
+        # A4 (#2113): both examples now name the handoff field as a token — the one location is still
+        # the only one named, and the exact per-launch path is never in the instruction bytes.
         import autocode_check_replay as check_replay
         import autocode_support as support
         from providers import opencode
@@ -194,10 +303,35 @@ class LaunchContainment(unittest.TestCase):
         )
         updated = launch.containment_prompt(prompt, {"tool_containment": self.policy})
         instructions = updated.split("\nCURRENT HANDOFF DATA\n")[0]
-        scratch_example = "--output " + self.policy["scratch"] + "/evidence-<unique-name>.json"
-        self.assertEqual(2, instructions.count(scratch_example))
+        token = "--output <tool_containment.scratch>/evidence-<unique-name>.json"
+        self.assertEqual(2, instructions.count(token))
         self.assertEqual(2, instructions.count("<unique-name>.json"))
+        self.assertNotIn(self.policy["scratch"], instructions)
         self.assertIn("replaces any other evidence or scratch directory named above", instructions)
+
+    def test_two_launch_scratch_paths_render_identical_instruction_text(self):
+        import autocode_check_replay as check_replay
+        import autocode_support as support
+        from providers import opencode
+
+        prompt = opencode.prompt_for_schema(
+            support.COMMON
+            + check_replay.VALIDATOR_NOTE
+            + "\nCURRENT HANDOFF DATA\n"
+            + json.dumps({"workspace": str(self.root)}),
+            {},
+            self.root / "events.jsonl",
+        )
+        rendered = []
+        for hexa in ("a" * 32, "b" * 32):
+            scratch = str(self.root / ".autocode" / ("tool-containment-" + hexa) / "scratch")
+            policy = {"version": 1, "workspace": str(self.root), "scratch": scratch}
+            updated = launch.containment_prompt(prompt, {"tool_containment": policy})
+            instructions, _, handoff = updated.partition("\nCURRENT HANDOFF DATA\n")
+            rendered.append(instructions)
+            self.assertEqual(scratch, json.loads(handoff)["tool_containment"]["scratch"])
+        self.assertEqual(rendered[0], rendered[1])
+        self.assertNotIn("tool-containment-", rendered[0])
 
     def test_changed_policy_is_a_prelaunch_hold_not_report_repair(self):
         with mock.patch.object(containment, "verify", side_effect=RuntimeError("changed policy")):
@@ -404,6 +538,8 @@ class TesterProofRequest(unittest.TestCase):
             if not boundary:
                 self.assertEqual(transform.call_args.args[0], sent)
         instruction, _, handoff = sent.rpartition("\nCURRENT HANDOFF DATA\n")
+        if boundary:
+            self.assertNotIn("\n", handoff, "Containment must not expand the compact stage request")
         return instruction, json.loads(handoff)
 
     def test_current_runner_proof_is_cited_not_claimed_as_tester_execution(self):

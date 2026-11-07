@@ -17,7 +17,9 @@ import time
 import unittest
 from pathlib import Path
 
+import autocode_dispatch as dispatch
 import autocode_process as processes
+import autocode_worker_lifeline as lifeline
 import build_product_fixtures as products
 from goal_fixtures import body
 
@@ -99,10 +101,25 @@ def plan(rows, payloads, checks, title):
 
 
 def independent():
+    # Each component that delivers code delivers the test that proves it (#2474); the packages'
+    # __init__.py files let the project suite discover those tests.
     files = {
-        "M1": {"server/health.py": "def health(): return {'status': 'ok'}\n"},
+        "M1": {
+            "server/__init__.py": "",
+            "server/health.py": "def health(): return {'status': 'ok'}\n",
+            "server/test_health.py": "import unittest\nfrom server.health import health\n\n\n"
+            "class HealthTests(unittest.TestCase):\n    def test_health_is_ok(self):\n"
+            "        self.assertEqual({'status': 'ok'}, health())\n",
+        },
         "M2": {"web/about/index.html": "<h1>About this app</h1>\n"},
-        "M3": {"cli/version.py": "print('1.0.0')\n"},
+        "M3": {
+            "cli/__init__.py": "",
+            "cli/version.py": "print('1.0.0')\n",
+            "cli/test_version.py": "import subprocess\nimport sys\nimport unittest\n\n\n"
+            "class VersionTests(unittest.TestCase):\n    def test_version_is_printed(self):\n"
+            "        result = subprocess.run([sys.executable, 'cli/version.py'], capture_output=True, text=True)\n"
+            "        self.assertEqual((0, '1.0.0\\n', ''), (result.returncode, result.stdout, result.stderr))\n",
+        },
     }
     return plan(
         [
@@ -126,18 +143,44 @@ def notes():
     listing = "from notes.storage import load\ndef listing(p): return '\\n'.join(load(p))\n"
     cli = "import sys\nfrom notes.add import add\nfrom notes.listing import listing\nif sys.argv[1]=='add': add(sys.argv[2],sys.argv[3])\nelif sys.argv[1]=='list': print(listing(sys.argv[2]))\nelse: raise SystemExit(2)\n"
     prefix = "import tempfile; from pathlib import Path; "
+    # Each milestone delivers the test that proves it (#2474); every mutant of its module fails one.
+    head = "import tempfile\nimport unittest\nfrom pathlib import Path\n"
+    tests = {
+        "test_storage.py": head + "from notes.storage import load, save\n\n\nclass StorageTests(unittest.TestCase):\n"
+        "    def test_saved_notes_reload_and_a_missing_file_is_empty(self):\n"
+        "        with tempfile.TemporaryDirectory() as folder:\n            p = Path(folder) / 'n'\n"
+        "            self.assertEqual([], load(p))\n            save(p, ['a', 'b'])\n"
+        "            self.assertEqual(['a', 'b'], load(p))\n",
+        "test_add.py": head + "from notes.add import add\nfrom notes.storage import load\n\n\n"
+        "class AddTests(unittest.TestCase):\n    def test_adds_notes_and_rejects_blank_ones(self):\n"
+        "        with tempfile.TemporaryDirectory() as folder:\n            p = Path(folder) / 'n'\n"
+        "            add(p, 'a')\n            add(p, 'b')\n            self.assertEqual(['a', 'b'], load(p))\n"
+        "            with self.assertRaises(ValueError):\n                add(p, '  ')\n"
+        "            self.assertEqual(['a', 'b'], load(p))\n",
+        "test_listing.py": head + "from notes.listing import listing\nfrom notes.storage import save\n\n\n"
+        "class ListingTests(unittest.TestCase):\n    def test_lists_notes_in_insertion_order(self):\n"
+        "        with tempfile.TemporaryDirectory() as folder:\n            p = Path(folder) / 'n'\n"
+        "            save(p, ['a', 'b'])\n            self.assertEqual('a\\nb', listing(p))\n",
+        "test_main.py": head + "import subprocess\nimport sys\n\n\nclass CliTests(unittest.TestCase):\n"
+        "    def test_add_then_list_and_unknown_commands_exit_2(self):\n"
+        "        with tempfile.TemporaryDirectory() as folder:\n            p = str(Path(folder) / 'n')\n"
+        "            subprocess.run([sys.executable, 'main.py', 'add', p, 'hello'], check=True)\n"
+        "            listed = subprocess.run([sys.executable, 'main.py', 'list', p], capture_output=True, text=True)\n"
+        "            self.assertEqual((0, 'hello\\n'), (listed.returncode, listed.stdout))\n"
+        "            self.assertEqual(2, subprocess.run([sys.executable, 'main.py', 'drop', p]).returncode)\n",
+    }
     return plan(
         [
-            ([], "Persist and reload notes as JSON", ["notes/storage.py"]),
-            (["M1"], "Add a note and reject empty input", ["notes/add.py"]),
-            (["M1"], "List stored notes in insertion order", ["notes/listing.py"]),
-            (["M2", "M3"], "CLI integrates add and list", ["main.py"]),
+            ([], "Persist and reload notes as JSON", ["notes/storage.py", "test_storage.py"]),
+            (["M1"], "Add a note and reject empty input", ["notes/add.py", "test_add.py"]),
+            (["M1"], "List stored notes in insertion order", ["notes/listing.py", "test_listing.py"]),
+            (["M2", "M3"], "CLI integrates add and list", ["main.py", "test_main.py"]),
         ],
         {
-            "M1": {"notes/storage.py": storage},
-            "M2": {"notes/add.py": add},
-            "M3": {"notes/listing.py": listing},
-            "M4": {"main.py": cli},
+            "M1": {"notes/storage.py": storage, "test_storage.py": tests["test_storage.py"]},
+            "M2": {"notes/add.py": add, "test_add.py": tests["test_add.py"]},
+            "M3": {"notes/listing.py": listing, "test_listing.py": tests["test_listing.py"]},
+            "M4": {"main.py": cli, "test_main.py": tests["test_main.py"]},
         },
         {
             "M1": prefix
@@ -215,7 +258,7 @@ class BuildBlackbox(unittest.TestCase):
     def command(self, unit, args):
         return [sys.executable, str(self.source / (unit + ".py")), "--workspace", str(self.project), *args]
 
-    def invoke(self, unit, args, code=0):
+    def invoke(self, unit, args, code=0, *, timeout=None):
         if (
             "--run-dir" in args
             and any(flag in args for flag in ("--answer", "--delegate"))
@@ -228,7 +271,7 @@ class BuildBlackbox(unittest.TestCase):
             current = human.current(json.loads((Path(args[args.index("--run-dir") + 1]) / "state.json").read_text()))
             if current:
                 args = [*args, "--resolver-token", current["request_token"]]
-        limit = 600 if self.env.get("BUILD_AUDIT_LIVE_CODEX") else 90
+        limit = timeout if timeout is not None else 600 if self.env.get("BUILD_AUDIT_LIVE_CODEX") else 90
         self.counter += 1
         receipt = self.root / f"cli-{self.counter}.json"
         started = time.monotonic()
@@ -293,6 +336,46 @@ class BuildBlackbox(unittest.TestCase):
             for e in map(json.loads, (self.root / "events.jsonl").read_text().splitlines())
             if e["event"] == kind and e["stage"] == stage
         ]
+
+    def settled_workers(self):
+        """(ready, problems) for every launched Builder, by the resume's own rules.
+
+        A Builder publishes its result before its process exits, and its keeper settles
+        only after that (#1183, #2478). A worker is ready only when its result reads
+        BUILT, the identities the saved row records (the worker, its tree, its keeper)
+        are gone, and the authenticated receipt settled adoptably. These are the exact
+        predicates autocode_dispatch applies on resume, so readiness here proves the
+        later resume adopts the work instead of pausing it.
+        """
+        batch = (self.state().get("orchestration_batch") or {}).get("workers") or []
+        ready, problems = [], []
+        for row in batch:
+            milestone = str(row.get("milestone_id", "?"))
+            record = row.get("supervision")
+            if not isinstance(record, dict):
+                problems.append(f"{milestone}: launched without a lifeline record")
+                continue
+            try:
+                result = json.loads((Path(row["run_dir"]) / "result.json").read_text())
+            except (KeyError, TypeError, OSError, ValueError):
+                problems.append(f"{milestone}: no readable completed result")
+                continue
+            status = result.get("status") if isinstance(result, dict) else None
+            settle = lifeline.settled(record)
+            running = dispatch.worker_alive(row)
+            pending = lifeline.pending(record)
+            if status == "BUILT" and not running and settle in lifeline.ADOPTABLE and not pending:
+                ready.append(f"{milestone}: {settle}")
+            else:
+                detail = [f"result {status or '?'}"]
+                if running:
+                    detail.append("worker, tree or keeper still runs")
+                if settle not in lifeline.ADOPTABLE:
+                    detail.append(f"keeper {settle}")
+                elif pending:
+                    detail.append(f"keeper {settle} still settling")
+                problems.append(f"{milestone}: " + ", ".join(detail))
+        return ready, problems
 
     def seed(self, spec=None, checker="gpt-5.6-sol", max_parallel=3, planner_extra=()):
         self.spec = spec or independent()
@@ -413,7 +496,7 @@ class BuildBlackbox(unittest.TestCase):
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
         handoff = self.events("decision", stage="astra_review")[-1]
         self.assertEqual("M2", handoff["next_task"]["milestone_id"])
-        self.assertEqual(["notes/storage.py"], handoff["affected_paths"])
+        self.assertEqual(["notes/storage.py", "test_storage.py"], handoff["affected_paths"])
 
         # M1 has already started; require both new Builder processes before either finishes.
         self.env["BUILD_AUDIT_OVERLAP"] = "3"
@@ -441,8 +524,8 @@ class BuildBlackbox(unittest.TestCase):
         self.candidate()
         last = self.events()[-1]
         self.assertEqual("M4", last["milestone"])
-        self.assertEqual(["main.py"], last["task_paths"])
-        self.assertEqual(["main.py"], last["affected_paths"])
+        self.assertEqual(["main.py", "test_main.py"], last["task_paths"])
+        self.assertEqual(["main.py", "test_main.py"], last["affected_paths"])
         self.assertTrue({"notes/add.py", "notes/listing.py"} <= set(last["inputs"]))
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
         # The completion owner requests one final read-only validation of all criteria.
@@ -612,13 +695,25 @@ class BuildBlackbox(unittest.TestCase):
             # Stop only this test-owned controller; its independently launched workers finish.
             process.send_signal(signal.SIGSTOP)
             (self.root / "release").touch()
+            # A completed Builder publishes its result before its process exits, and its
+            # keeper settles only after that (#1183). Killing the controller while either
+            # still runs lets the keeper's owner-loss SIGTERM overwrite completed work with
+            # a pause (#2478), so hold the kill until every launched worker is ready by the
+            # resume's own rules: BUILT result on disk, its recorded identities gone, its
+            # keeper settled. The controller stays stopped and never adopts the results:
+            # the crash then provably cannot interrupt completed work, only orphan it.
             deadline = time.monotonic() + 30
-            while (
-                len(list(self.project.glob(".autocode/builders/*/*/.autocode/runs/*/result.json"))) < 3
-                and time.monotonic() < deadline
-            ):
+            while time.monotonic() < deadline:
+                ready, problems = self.settled_workers()
+                if len(ready) == 3 and not problems:
+                    break
                 time.sleep(0.02)
-            self.assertEqual(3, len(list(self.project.glob(".autocode/builders/*/*/.autocode/runs/*/result.json"))))
+            else:
+                observation = {"ready": ready, "problems": problems}
+                (self.root / "crash-barrier.json").write_text(json.dumps(observation, indent=2))
+                self.fail(
+                    "Builders did not complete and settle before the controller crash: " + json.dumps(observation)
+                )
             process.kill()
             stdout, stderr = process.communicate(timeout=10)
             (self.root / "crashed-controller.log").write_text(stdout + stderr)

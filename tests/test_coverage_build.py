@@ -8,7 +8,9 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import autocode_changeset_store as changesets
 import autocode_regression as regression
 import autocode_verify as verify
 
@@ -87,6 +89,56 @@ class CoverageBuildProofTests(unittest.TestCase):
         proof = regression.prove(state, self.project.root, self.run_dir)
         self.assertEqual(verify.FAIL, proof["verdict"], proof)
         self.assertTrue(any("Only test files changed" in failure for failure in proof["failures"]), proof["failures"])
+
+    def coordinated_guard_state(self):
+        criterion = {"id": "C1", "criterion": "keep() returns 9", "verification_method": "guard: test_keep_is_nine"}
+        state = build_state(self.project, criterion)
+        state.update(workspace=str(self.project.root), run_dir=str(self.run_dir))
+        state["goal_contract"].update(approval_status="approved", hash="approved-guard-contract", revision=1)
+        state["goal_contract"]["body"]["task_kind"] = "bugfix"
+        environment = patch.dict("os.environ", {"AUTOCODE_HOME": str(self.run_dir / "catalog")})
+        environment.start()
+        self.addCleanup(environment.stop)
+        record = changesets.reserve(
+            source_workspace=self.project.root,
+            source_run_dir=self.run_dir,
+            target="producer",
+            workspace=self.run_dir / "producer",
+            brief="Own the actual product correction",
+        )
+        changesets.set_fields(record["id"], {"automatic_anchor": str(self.run_dir / "anchor")})
+        return state
+
+    def test_approved_automatic_member_guards_use_pass_before_and_after_without_a_permission_answer(self):
+        self.project.write({"test_keep.py": self.coverage_test(9, "")})
+        state = self.coordinated_guard_state()
+        self.assertTrue(regression.preserve_only(state))
+        proof = regression.prove(state, self.project.root, self.run_dir)
+        self.assertEqual(verify.PASS, proof["verdict"], (proof["failures"], proof["unverified"]))
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertEqual({"C1": ["test_keep.KeepTests.test_keep_is_nine"]}, proof["case_tests"])
+        self.assertIn("test_keep.KeepTests.test_keep_is_nine", proof["pass_to_pass"])
+        self.assertFalse(state.get("answers"), "Machinery cannot manufacture a permission answer")
+
+    def test_member_coverage_cannot_authorize_a_product_change_or_restore_case(self):
+        self.project.write(
+            {"test_keep.py": self.coverage_test(9, ""), "calc.py": CALC + "\ndef unrelated(): return 1\n"}
+        )
+        state = self.coordinated_guard_state()
+        # Isolate the regression verdict from Linux-only mutation capture.
+        with patch.object(regression.changed_code, "collect", return_value={}):
+            proof = regression.prove(state, self.project.root, self.run_dir)
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"] = "test: test_keep_is_nine"
+        self.assertFalse(regression.preserve_only(state))
+
+    def test_standalone_and_unapproved_bug_runs_do_not_get_member_coverage(self):
+        state = self.coordinated_guard_state()
+        state["goal_contract"]["approval_status"] = "draft"
+        self.assertFalse(regression.preserve_only(state))
+        state["goal_contract"]["approval_status"] = "approved"
+        changesets.set_fields(changesets.find(self.run_dir)["id"], {"automatic_anchor": None})
+        self.assertFalse(regression.preserve_only(state))
 
 
 if __name__ == "__main__":

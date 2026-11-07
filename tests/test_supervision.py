@@ -6,10 +6,12 @@ fixtures. No model, allowance, private run-state write or elapsed-time oracle.
 
 import contextlib
 import errno
+import io
 import json
 import os
 import select
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -614,6 +616,105 @@ signal.pause()
                     for fd in (control_r, control_w, ack_r, ack_w):
                         with contextlib.suppress(OSError):  # The admitted keeper closes its owned ends.
                             os.close(fd)
+
+    def dead_provider_metadata(self):
+        """Admission metadata whose provider already exited before arming.
+
+        A readiness byte holds the child deterministically live (blocked on
+        its stdin) while its identity is sampled, then the parent permits its
+        exit and returns from waitid(WNOWAIT): the child is a confirmed
+        zombie that is still unreaped, exactly like a bootstrap that died
+        waiting for its launch to be admitted while its parent still owns the
+        wait. Cleanup closes both pipe ends and reaps it even when sampling
+        fails.
+        """
+        import autocode_supervision_keeper as keeper
+
+        dead = subprocess.Popen(
+            [sys.executable, "-c", "import os; os.write(1, b'R'); os.read(0, 1)"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            start_new_session=True,
+        )
+        self.addCleanup(dead.wait, timeout=10)
+        self.addCleanup(dead.stdout.close)
+        self.addCleanup(dead.stdin.close)  # a closed stdin releases a still-blocked child
+        self.assertEqual(b"R", dead.stdout.read(1))
+        provider = supervision._identity(dead.pid)
+        dead.stdin.write(b"exit")
+        dead.stdin.flush()
+        os.waitid(os.P_PID, dead.pid, os.WEXITED | os.WNOWAIT)
+        self.assertFalse(processes.live_processes([provider]))
+        metadata = {
+            "schema": 1,
+            "nonce": "b" * 32,
+            "owner": supervision._identity(os.getpid()),
+            "keeper": supervision._identity(os.getpid()),
+            "provider": provider,
+            "receipt": str(self.root / "receipt.json"),
+            "started_at": "initial",
+        }
+        return keeper, metadata
+
+    @unittest.skipUnless(sys.platform == "linux", "requires the native provider session listener")
+    def test_dead_provider_before_its_listener_transfer_names_the_failed_transfer(self):
+        """A bootstrap that died without delivering its listener is refused by name.
+
+        A nested provider listener attempt inside an already-bound provider dies
+        in exactly this window: refused by the inherited filter, the bootstrap
+        exits before the transfer, so the keeper must report the failed listener
+        transfer itself rather than exiting before acknowledgement with no
+        cause, whatever the race order between the two processes was.
+        """
+        keeper, metadata = self.dead_provider_metadata()
+        import autocode_session_boundary as boundary
+
+        channel, peer = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        peer.close()  # the dead bootstrap's end: no descriptor will ever arrive
+        callback, callback_peer = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        control_r, control_w = os.pipe()
+        ack_r, ack_w = os.pipe()
+        try:
+            packet = {
+                "metadata": metadata,
+                "deadline": None,
+                "timing": keeper_timing(None),
+                "cleanup_policy": "freeze_tree",
+                "session_socket": channel.fileno(),
+                "session_callback": callback.fileno(),
+            }
+            os.write(control_w, (json.dumps(packet) + "\n").encode())
+            with patch.object(keeper.boundary, "guardian_harden"):
+                with self.assertRaisesRegex(boundary.BoundaryError, "listener descriptor transfer"):
+                    keeper.main(control_r, ack_w)
+            self.assertFalse(select.select([ack_r], [], [], 0)[0])
+            self.assertFalse((self.root / "receipt.json").exists())
+        finally:
+            for fd in (control_r, control_w, ack_r, ack_w):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+            for sock in (channel, callback, callback_peer):
+                with contextlib.suppress(OSError):  # the keeper closed the channel it received
+                    sock.close()
+
+    def test_dead_provider_refusal_names_its_cause_on_keeper_stderr(self):
+        """A pre-admission provider death never leaves the keeper exit silent (#815)."""
+        keeper, metadata = self.dead_provider_metadata()
+        control_r, control_w = os.pipe()
+        ack_r, ack_w = os.pipe()
+        captured = io.StringIO()
+        try:
+            packet = {"metadata": metadata, "deadline": None, "timing": keeper_timing(None)}
+            os.write(control_w, (json.dumps(packet) + "\n").encode())
+            with contextlib.redirect_stderr(captured):
+                self.assertEqual(2, keeper.main(control_r, ack_w))
+            self.assertIn("Provider exited before keeper admission", captured.getvalue())
+            self.assertFalse(select.select([ack_r], [], [], 0)[0])
+            self.assertFalse((self.root / "receipt.json").exists())
+        finally:
+            for fd in (control_r, control_w, ack_r, ack_w):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
 
     def test_nonce_or_identity_tampering_is_unknown(self):
         with supervision.launch(
@@ -2276,6 +2377,97 @@ class KeeperStderrCaptureTests(unittest.TestCase):
         retained = list(self.root.glob("keeper-stderr-*.log"))
         self.assertEqual(1, len(retained), retained)
         self.assertIn("keeper unimportable", retained[0].read_text())
+
+
+class SampleCadenceTests(unittest.TestCase):
+    """The keeper's sample wait backs off while its tree stays quiet (#2708)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="supervision-cadence-")
+        self.root = Path(self.temp.name)
+        self.addCleanup(self.temp.cleanup)
+
+    def test_the_tick_doubles_while_quiet_and_resets_when_activity_returns(self):
+        import autocode_supervision_keeper as keeper
+
+        tick = 0.0
+        waits = [tick := keeper.next_sample_tick(tick, activity=False) for _ in range(6)]
+        self.assertEqual([0.05, 0.1, 0.2, 0.4, 0.5, 0.5], waits)
+        self.assertEqual(0.05, keeper.next_sample_tick(0.5, activity=True))
+        self.assertEqual(0.05, keeper.next_sample_tick(0.05, activity=True))
+
+    def test_a_quiet_keeper_samples_the_tree_far_below_the_base_rate(self):
+        import autocode_supervision_keeper as keeper
+
+        provider = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            start_new_session=True,
+        )
+        self.addCleanup(provider.wait, timeout=10)
+        self.addCleanup(provider.kill)
+        metadata = {
+            "schema": 1,
+            "nonce": "c" * 32,
+            "owner": supervision._identity(os.getpid()),
+            "keeper": supervision._identity(os.getpid()),
+            "provider": supervision._identity(provider.pid),
+            "receipt": str(self.root / "receipt.json"),
+            "started_at": "initial",
+        }
+        control_r, control_w = os.pipe()
+        ack_r, ack_w = os.pipe()
+        calls = []
+        elapsed = [0.0]
+        sampling = [True]
+        real_wait = threading.Event.wait
+
+        def advance_quiet_clock(event, timeout=None):
+            if threading.current_thread() is thread and sampling[0] and timeout is not None:
+                elapsed[0] += timeout
+                return event.is_set()
+            return real_wait(event, timeout)
+
+        def counting(tree, **kwargs):
+            if sampling[0] and elapsed[0] >= 2.6:
+                sampling[0] = False
+                return []  # End the simulated quiet interval; normal cleanup still runs.
+            if sampling[0]:
+                calls.append(elapsed[0])
+            return real_sample(tree, **kwargs)
+
+        real_sample = keeper.processes.settled_sample
+
+        def run():
+            with (
+                patch.object(keeper.processes, "settled_sample", counting),
+                patch.object(threading.Event, "wait", advance_quiet_clock),
+            ):
+                result.append(keeper.main(control_r, ack_w))
+
+        result = []
+        try:
+            packet = {
+                "metadata": metadata,
+                "deadline": None,
+                "timing": keeper_timing(None),
+                "cleanup_policy": "freeze_tree",
+            }
+            os.write(control_w, (json.dumps(packet) + "\n").encode())
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            thread.join(timeout=15)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual([0], result)
+            self.assertGreaterEqual(elapsed[0], 2.6)
+            self.assertGreater(len(calls), 1)
+            # Shutdown intentionally samples more frequently; count only the quiet interval.
+            # At the base tick this window holds ~52 whole-host enumerations; the graded
+            # tick reaches its 0.5s cap after ~1.25s, so a quiet keeper stays under a dozen.
+            self.assertLessEqual(len(calls), 12, calls)
+        finally:
+            for fd in (control_r, control_w, ack_r, ack_w):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
 
 
 if __name__ == "__main__":

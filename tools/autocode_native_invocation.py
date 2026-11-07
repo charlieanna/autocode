@@ -12,22 +12,36 @@ if TYPE_CHECKING:
 import sys
 
 try:
+    from . import autocode_capability_startup as capability_startup
+    from . import autocode_connected_engine as connected_engine
     from . import autocode_controller_owner as controller_owner
     from . import autocode_native_calls as native_calls
     from . import autocode_native_launch as native_launch
     from . import autocode_native_stage_recovery as stage_recovery
+    from . import autocode_run_destination as run_destination
+    from . import autocode_source_host as source_host
+    from . import autocode_stage_choices as stage_choices
     from . import autocode_visual_profile as native_profile
+    from . import autocode_worker_binding as worker_binding
 except ImportError:
+    import autocode_capability_startup as capability_startup
+    import autocode_connected_engine as connected_engine
     import autocode_controller_owner as controller_owner
     import autocode_native_calls as native_calls
     import autocode_native_launch as native_launch
     import autocode_native_stage_recovery as stage_recovery
+    import autocode_run_destination as run_destination
+    import autocode_source_host as source_host
+    import autocode_stage_choices as stage_choices
     import autocode_visual_profile as native_profile
+    import autocode_worker_binding as worker_binding
 
 
 def main(base, unit=None):
     """Restore the invocation's provider and output streams before returning to the caller."""
+    capability_startup.prepare()
     launched_at = base.now()
+    source_host.install()  # opt-in warm snapshots (#1707)
     saved_opencode = base.opencode
     saved_argv = sys.argv
     try:
@@ -55,14 +69,16 @@ def main_body(base, unit=None, *, launched_at=None):
     handled = subcommands.dispatch(sys.argv[1:])
     if handled is not None:
         return handled
-    if sys.argv[1:2] == ["capture"]:
-        return base.capture_command(sys.argv[2:])
-    if sys.argv[1:2] == ["registry"]:
-        return base.registry.cli(sys.argv[2:])
-    if sys.argv[1:2] == ["intervention"]:
-        return base.interventions.cli(sys.argv[2:])
+    builtins = {"capture": base.capture_command, "registry": base.registry.cli, "intervention": base.interventions.cli}
+    if sys.argv[1:2] and sys.argv[1] in builtins:
+        rest, entry = sys.argv[2:], builtins[sys.argv[1]]
+        return subcommands.as_program(sys.argv[1], lambda: entry(rest), rest)
     args, parser = base.cli_args.parse(unit, sys.argv[1:], base.opencode.DEFAULT_MODELS)
     args._native_action_argv = tuple(sys.argv[1:])
+    if args.worker_receipt:
+        if sys.argv[-2:] != ["--worker-receipt", str(args.worker_receipt)]:
+            parser.error("The service receipt must be the final internal argument")
+        args._worker_context = worker_binding.load_entry(args.worker_receipt, sys.argv[1:-2])
     base.json_output.begin(args)
     args._interaction_launched_at = launched_at or base.now()
     if any(text is not None and not text.strip() for text in (args.feedback, args.follow_up)):
@@ -84,10 +100,21 @@ def resolve_and_run(base, args, parser, *, failure_routing=True):
             "PAUSED_VISUAL_EVIDENCE",
             "Native initial planning cannot use a preflight or generated handoff before its original owned origin",
         )
-    resolved = base.run_setup.resolve(base, args, parser)
-    if isinstance(resolved, int):
-        return resolved
-    return run(base, args, parser, resolved, failure_routing=failure_routing)
+    try:
+        resolved = base.run_setup.resolve(base, args, parser)
+        if isinstance(resolved, int):
+            return resolved
+        return run(base, args, parser, resolved, failure_routing=failure_routing)
+    except BaseException:
+        fresh = getattr(args, "_fresh_task_worktree", None)
+        if base.task_workspaces.discard_unused(fresh):
+            print(f"Removed the unused task worktree and branch {fresh['branch']}; no run was saved.", file=sys.stderr)
+        # An in-place launch reserved and locked its run directory before the refusal: without a checkpoint
+        # it is only a "cannot be read" row in every run listing.
+        unsaved = getattr(args, "_fresh_run_dir", None)
+        if run_destination.discard_unsaved(unsaved):
+            print(f"Removed the empty run directory {unsaved}; no run was saved.", file=sys.stderr)
+        raise
 
 
 def run(base, args, parser, resolved, *, failure_routing=True):
@@ -120,10 +147,15 @@ def run(base, args, parser, resolved, *, failure_routing=True):
             ):
                 raise base.support.Paused("PAUSED_VISUAL_EVIDENCE", "Native input changed before locked invocation")
             state = locked
+        try:
+            worker_binding.guard(args, state, run_dir, workspace)
+        except ValueError as error:
+            parser.error(str(error))
         if intent is None:
-            if args.run_dir:
-                controller_owner.reconcile(state, run_dir, workspace, base.write_json)
-            select_provider(base, args, parser, state, workspace)
+            if getattr(args, "reconcile_only", None) is None:
+                if args.run_dir:
+                    controller_owner.reconcile(state, run_dir, workspace, base.write_json)
+                select_provider(base, args, parser, state, workspace)
             return base.run_setup.run_locked(
                 base, args, parser, state, state_path, run_dir, workspace, failure_routing=failure_routing
             )
@@ -187,14 +219,24 @@ def select_provider(base, args, parser, state: "RunState", workspace):
                 import autocode_replay_transport as replay_transport
             base.opencode = replay_transport.facade(args, state)
         else:
+            # A new run nobody routed takes the connected backend when OpenCode is absent (#2049).
+            connected_engine.apply(args, state, workspace)
             selected = base.autocode_providers.select(
                 args.provider, saved, default="opencode" if args.engine == "codex" else None
             )
             base.opencode = base.autocode_providers.resolve(selected)
+            if not (state.get("settings") or state.get("sessions") or state.get("history")):
+                # A new run takes the stages the person chose for this backend (owner decision 2026-10-30).
+                stage_choices.apply(args, "codex" if args.engine == "codex" else selected, say=_notice)
         if not args.run_dir:
             args._model_inventory = base.InvocationInventory(base.opencode, workspace)
     except (RuntimeError, ValueError) as error:
         parser.error(str(error))
+
+
+def _notice(line):
+    # stderr, so --json output and captured reports stay what they were.
+    print(line, file=sys.stderr, flush=True)
 
 
 def dispatch_guard(runtime, state: "RunState", stage):

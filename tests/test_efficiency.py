@@ -3,6 +3,7 @@
 import json
 import tempfile
 import unittest
+import warnings
 from copy import deepcopy
 from pathlib import Path
 from unittest import mock
@@ -296,6 +297,28 @@ class OutcomeTests(unittest.TestCase):
         self.assertTrue(all(row["accepted"] is None for row in after["visual"]["cases"]))
         self.assertEqual(original["validation"]["design_results"], state["validation"]["design_results"])
         self.assertIsNone(after["visual"]["cases"][0]["first_accepted_at"])
+
+    def test_cost_per_accepted_task_uses_the_runs_spend_once_every_stage_is_priced(self):
+        # #1925: a coding-plan run reports no cost, so reported_usd per accepted task was always null.
+        import autocode_prices as prices
+
+        tokens = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+        priced = attempt(model="zai-coding-plan/glm-5.3", metrics={"provider_tokens": tokens})
+        units = efficiency.summary({"status": "TASK_COMPLETE", "stages": [priced]}, completion_current=True)[
+            "unit_metrics"
+        ]
+        self.assertIsNone(units["reported_usd"]["value"])
+        self.assertAlmostEqual(prices.estimate("zai-coding-plan/glm-5.3", tokens), units["spent_usd"]["value"])
+        self.assertEqual(1, units["spent_usd"]["denominator"])
+        unpriced = {"status": "TASK_COMPLETE", "stages": [priced, attempt(identity="two")]}
+        units = efficiency.summary(unpriced, completion_current=True)["unit_metrics"]
+        self.assertIsNone(units["spent_usd"]["value"])
+        self.assertIn("Cost coverage is incomplete", units["spent_usd"]["reason"])
+        units = efficiency.summary({"status": "TASK_COMPLETE", "stages": [priced]}, completion_current=False)[
+            "unit_metrics"
+        ]
+        self.assertIsNone(units["spent_usd"]["value"])
+        self.assertEqual("No currently verified delivery", units["spent_usd"]["reason"])
 
     def test_generic_completion_is_available_but_pass_review_is_not_taskrun_done(self):
         for status, expected in (("PASS", False), ("RUNNING", False), ("TASK_COMPLETE", True), ("COMPLETE", True)):
@@ -831,6 +854,35 @@ class TimingAndProvenanceTests(unittest.TestCase):
         self.assertEqual(0, measured["repeats"]["redundant_checks_observed"])
         self.assertEqual(5, measured["by_category"]["functional_proof"]["summed_execution_seconds"])
 
+    def test_a_reexecuted_obligation_is_a_repeat_with_its_reason_and_keeps_its_time(self):
+        # #1910: `repeat` was accepted but never emitted, so `repeats.observed` was always 0.
+        state, repeated = {}, self.replay("execute")
+        repeated["checks"][0]["scheduling"].update(reason="mandatory_approved_execution", previous_attempt_id="runner0")
+        efficiency.observe_replay(state, repeated, attempt_id="validator-events")
+        measured = efficiency.summary(state)
+        self.assertEqual(1, measured["repeats"]["observed"])
+        self.assertEqual(1, measured["repeats"]["by_reason"]["independent_obligation"])
+        self.assertEqual(0, measured["repeats"]["redundant_checks_observed"])
+        self.assertEqual(5, measured["time"]["summed_execution_seconds"])
+        self.assertEqual("runner0", state["efficiency_observations"][0]["provenance"]["previous_attempt_id"])
+        first = {}
+        efficiency.observe_replay(first, self.replay("execute"), attempt_id="validator-events")
+        self.assertEqual(0, efficiency.summary(first)["repeats"]["observed"])
+
+    def test_reusing_a_repeated_execution_imports_it_once_without_a_conflict(self):
+        state = {}
+        repeated, reuse = self.replay("execute"), self.replay("reuse")
+        repeated["checks"][0]["scheduling"]["previous_attempt_id"] = "runner0"
+        reuse["checks"][0]["scheduling"]["original_previous_attempt_id"] = "runner0"
+        efficiency.observe_replay(state, repeated, attempt_id="validator-events")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            efficiency.observe_replay(state, reuse, attempt_id="validator-events")
+        measured = efficiency.summary(state)
+        self.assertEqual(1, measured["repeats"]["observed"])
+        self.assertEqual(1, measured["repeats"]["reused_observed"])
+        self.assertNotIn("conflict", [row["kind"] for row in state["efficiency_observations"]])
+
     def test_waiting_is_only_recorded_when_observed_not_inferred_from_stage_gaps(self):
         state = {"stages": [attempt(start=0, end=10), attempt(identity="two", start=20, end=30)]}
         before = efficiency.summary(state)
@@ -848,6 +900,34 @@ class TimingAndProvenanceTests(unittest.TestCase):
         self.assertEqual(30, after["time"]["wall_union_seconds"])
         self.assertEqual(20, after["time"]["summed_execution_seconds"])
         self.assertEqual(10, after["time"]["exclusive_wall_seconds_by_category"]["waiting"])
+
+    def test_time_waiting_for_the_person_comes_from_the_requests_they_answered(self):
+        # #1926: the waiting category had no emitter, so time waiting for a person was never measured.
+        def request(status, issued, answered=None, actor="user_cli"):
+            entry = {"status": status, "issued_at": issued, "identity": {"proposal": {"scope": "goal_approval"}}}
+            if answered is not None:
+                entry["response"] = {"actor": actor, "at": answered}
+            return entry
+
+        state = {
+            "stages": [attempt(start=0, end=10), attempt(identity="two", start=610, end=620)],
+            "resolver": {
+                "human_escalations": {
+                    "answered": request("consumed", 10, 610),
+                    "superseded": request("superseded", 700),
+                    "pending": request("pending", 800),
+                    "not a person": request("consumed", 900, 950, actor="runner"),
+                }
+            },
+        }
+        measured = efficiency.summary(state)
+        self.assertEqual(600, measured["time"]["exclusive_wall_seconds_by_category"]["waiting"])
+        self.assertEqual(20, measured["time"]["summed_execution_seconds"])
+        self.assertEqual(620, measured["time"]["wall_union_seconds"])
+        self.assertNotIn("waiting", measured["attribution"]["uninstrumented_categories"])
+        self.assertEqual(
+            ["waiting:answered"], [row["event_id"] for row in measured["observations"] if row["category"] == "waiting"]
+        )
 
     def test_missing_original_replay_interval_is_unknown_not_zero(self):
         state, replay = {}, self.replay("reuse")

@@ -157,6 +157,7 @@ class GoalFileCliTests(unittest.TestCase):
         goal = plan_file.goal_hash(body)
         result = self.autocode(driver, "--goal-file", str(path))
         self.assertEqual(0, result.returncode, result.stderr[-2000:])
+        self.assertIn("Review it and approve it in chat: autocode chat --workspace ", result.stdout)  # (#1731)
         revision = shown["goal_contract"]["revision"] + 1
         self.assertIn(
             f"Loaded the plan in {path} (goal hash {goal}) as plan revision {revision}; it is not approved.",

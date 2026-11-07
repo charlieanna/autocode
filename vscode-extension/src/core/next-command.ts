@@ -10,7 +10,7 @@
  * No VS Code API and no Node built-ins, so it is unit-testable in-process.
  */
 
-import type { IntegerCommandInput, StatusView } from "./view";
+import type { ChangesetSummary, EffortNeed, IntegerCommandInput, StatusView } from "./view";
 
 export class ClientGap extends Error {
   constructor(message: string) {
@@ -129,41 +129,92 @@ export function parseNamedCommand(
 export interface OpenDecision {
   questionId: string;
   placeholder: string;
-  kind: "answer" | "model" | "integer";
+  kind: "answer" | "model" | "effort" | "integer";
   input?: IntegerCommandInput;
 }
 
-/** Validate a closed typed slot the core names; no arbitrary N or extra authority. */
-export function commandInputs(view: StatusView, named: NamedCommand): IntegerCommandInput[] {
-  const rows = view.needs?.command_inputs;
-  if (rows === undefined) return [];
-  const input = Array.isArray(rows) && rows.length === 1 ? rows[0] : undefined;
+/** A person's words for `QUESTION=PLACEHOLDER`, and the decision each is (autocode_client_actions.PLACEHOLDERS). */
+const PLACEHOLDERS = new Map<string, "answer" | "model" | "effort">([["ANSWER", "answer"], ["MODEL", "model"], ["EFFORT", "effort"]]);
+
+/**
+ * The numbers a person may type into a core-named command (autocode_command_inputs, #2044): the flag,
+ * the row id and label the core gives it, the key `used` is reported under, and whether the saved
+ * current value can be fractional. The same table as tools/autocode_client_actions.INTEGER_INPUTS.
+ */
+const INTEGER_INPUTS: Record<string, [string, string, "used" | "elapsed", boolean]> = {
+  "--max-seconds": ["max_seconds", "Total active time (seconds)", "elapsed", true],
+  "--max-cost-usd": ["max_cost_usd", "Cost cap (whole USD)", "used", true],
+  "--max-iterations": ["max_iterations", "Total iterations", "used", false],
+  "--max-milestone-seconds": ["max_milestone_seconds", "Milestone active time (seconds)", "used", true],
+  "--max-milestone-replans": ["max_milestone_replans", "Milestone replans", "used", false],
+  "--no-progress-limit": ["no_progress_limit", "Unchanged implementation batches allowed", "used", false],
+  "--planning-review-call-limit": ["planning_review_call_limit", "Total plan-review calls", "used", false],
+  "--grant-recovery": ["grant_recovery", "Additional recoveries", "used", false],
+};
+
+function count(value: unknown, fractional: boolean): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value < Number.MAX_SAFE_INTEGER
+    && (fractional || Number.isInteger(value));
+}
+
+/** `input` when it is a closed number offer for exactly `named`; otherwise a gap. */
+export function checkInput(view: StatusView, input: IntegerCommandInput | undefined, named: NamedCommand): IntegerCommandInput {
+  const gap = () => new ClientGap("Unsupported or stale numeric recovery command from AutoCode");
+  const known = input && typeof input === "object" ? INTEGER_INPUTS[input.flag] : undefined;
+  if (!input || !known) throw gap();
+  const [id, label, usedKey, fractional] = known;
+  const row = input as unknown as Record<string, unknown>;
+  const current = row.current, used = row[usedKey];
+  const wholeCurrent = fractional && input.flag !== "--max-seconds";
+  const bounded = Number.isSafeInteger(input.minimum) && Number.isSafeInteger(input.maximum)
+    && input.minimum >= 1 && input.minimum <= input.maximum;
+  const limits = input.flag === "--grant-recovery"
+    ? bounded && Number.isSafeInteger(used) && (used as number) >= 1 && input.minimum === 1 && input.maximum === used
+    : bounded && count(used, fractional) && count(current, wholeCurrent) && input.maximum === Number.MAX_SAFE_INTEGER
+      && input.minimum === Math.floor(Math.max(current, used)) + 1;
+  const prefix = input.arg_index === 2 ? ["--resume-paused"] : [];
+  const indexes = input.flag === "--planning-review-call-limit" ? [1, 2] : [2];
   const token = view.recovery?.token;
-  const same = (argv: string[]) => JSON.stringify(named.argv) === JSON.stringify(argv);
-  const time = input?.id === "max_seconds" && view.status === "PAUSED_TIME_LIMIT" && view.needs?.kind === "resume"
-    && same(["--resume-paused", "--max-seconds", "N", "--expected-recovery-token", "-"])
-    && input.flag === "--max-seconds" && input.arg_index === 2 && input.label === "Total active time (seconds)"
-    && typeof input.elapsed === "number" && Number.isFinite(input.elapsed) && input.elapsed >= 0 && input.elapsed < Number.MAX_SAFE_INTEGER
-    && input.minimum === Math.floor(Math.max(input.current, input.elapsed)) + 1;
-  const planning = input?.id === "planning_review_call_limit" && view.status === "PAUSED_PLANNING_BUDGET" && view.needs?.kind === "planning_budget"
-    && input.flag === "--planning-review-call-limit" && input.label === "Total plan-review calls" && input.current >= 2
-    && Number.isSafeInteger(input.used) && input.used >= input.current && input.used < Number.MAX_SAFE_INTEGER
-    && input.minimum === Math.max(input.current, input.used) + 1
-    && ((input.arg_index === 2 && same(["--resume-paused", "--planning-review-call-limit", "N", "--expected-recovery-token", "-"]))
-      || (input.arg_index === 1 && same(["--planning-review-call-limit", "N", "--expected-recovery-token", "-"])));
-  const grant = input?.id === "grant_recovery" && view.status === "PAUSED_TIMEOUT_RECOVERY" && view.needs?.kind === "resume"
-    && input.flag === "--grant-recovery" && input.arg_index === 2 && input.label === "Additional recoveries"
-    && same(["--resume-paused", "--grant-recovery", "N", "--expected-recovery-token", "-"])
-    && Number.isSafeInteger(input.used) && input.used >= 1 && input.minimum === 1 && input.maximum === input.used;
-  if (!input || (!time && !planning && !grant) || view.needs?.new_run_required || view.needs?.edit_required
+  if (!limits || input.id !== id || input.label !== label || input.kind !== "integer" || input.placeholder !== "N"
+    || !indexes.includes(input.arg_index) || !count(current, wholeCurrent)
+    || (current === 0 && input.flag !== "--max-iterations")
+    || view.needs?.new_run_required || view.needs?.edit_required
     || typeof token !== "string" || !token
     || Object.keys(named.env).length !== 1 || named.env.AUTOCODE_EXPECTED_RECOVERY_TOKEN !== token
-    || input.kind !== "integer" || input.placeholder !== "N"
-    || !Number.isSafeInteger(input.current) || input.current <= 0 || input.current >= Number.MAX_SAFE_INTEGER
-    || (!grant && input.maximum !== Number.MAX_SAFE_INTEGER)) {
+    || JSON.stringify(named.argv) !== JSON.stringify([...prefix, input.flag, "N", "--expected-recovery-token", "-"])) {
+    throw gap();
+  }
+  return input;
+}
+
+function offered(view: StatusView): IntegerCommandInput | null {
+  const rows = view.needs?.command_inputs;
+  if (rows === undefined) return null;
+  if (!Array.isArray(rows) || rows.length !== 1 || !rows[0] || typeof rows[0] !== "object") {
     throw new ClientGap("Unsupported or stale numeric recovery command from AutoCode");
   }
-  return [input];
+  return rows[0];
+}
+
+/** Validate the closed typed slot next_command leaves open; a row naming its own command is a separate offer. */
+export function commandInputs(view: StatusView, named: NamedCommand): IntegerCommandInput[] {
+  const input = offered(view);
+  if (!input || input.command !== undefined) return [];
+  return [checkInput(view, input, named)];
+}
+
+/** The core's separate raise of the bound holding the run, when next_command is not that raise (#2044). */
+export function boundOffer(
+  view: StatusView,
+  own: { runDir: string; workspace: string },
+): { input: IntegerCommandInput; named: NamedCommand } | null {
+  const input = offered(view);
+  if (!input || input.command === undefined) return null;
+  if (typeof input.command !== "string" || !input.command) {
+    throw new ClientGap("Unsupported or stale numeric recovery command from AutoCode");
+  }
+  const named = parseNamedCommand(input.command, own);
+  return { input: checkInput(view, input, named), named };
 }
 
 /** Digits supplied by the person, within the advertised finite integer bounds. */
@@ -180,8 +231,9 @@ export function openDecisions(argv: string[], inputs: IntegerCommandInput[] = []
   const found: OpenDecision[] = inputs.map((input) => ({ questionId: input.id, placeholder: input.placeholder, kind: "integer", input }));
   for (const word of argv) {
     const [question, separator, placeholder] = splitOnce(word, "=");
-    if (!separator || (placeholder !== "ANSWER" && placeholder !== "MODEL")) continue;
-    found.push({ questionId: question, placeholder, kind: placeholder === "MODEL" ? "model" : "answer" });
+    const kind = separator ? PLACEHOLDERS.get(placeholder) : undefined;
+    if (!kind) continue;
+    found.push({ questionId: question, placeholder, kind });
   }
   return found;
 }
@@ -197,12 +249,18 @@ export function findUnsupplied(argv: string[], inputs: IntegerCommandInput[] = [
 }
 
 /**
- * Replace the `QUESTION=ANSWER` / `QUESTION=MODEL` placeholders with a person's words.
+ * Replace the `QUESTION=ANSWER` / `QUESTION=MODEL` / `QUESTION=EFFORT` placeholders with a person's words.
  *
  * A placeholder the view cannot supply is a gap: `answers` only ever carries
  * what a person chose, so a client never invents a decision to get past it.
+ * An effort is one of the levels `effort` (the view's `needs.effort`) declares.
  */
-export function applyDecisions(argv: string[], answers: Record<string, string>, inputs: IntegerCommandInput[] = []): string[] {
+export function applyDecisions(
+  argv: string[],
+  answers: Record<string, string>,
+  inputs: IntegerCommandInput[] = [],
+  effort?: EffortNeed,
+): string[] {
   return argv.map((word, index) => {
     const input = inputs.find((row) => row.arg_index === index && row.placeholder === word);
     if (input) return integerValue(answers[input.id], input);
@@ -210,13 +268,31 @@ export function applyDecisions(argv: string[], answers: Record<string, string>, 
       throw new ClientGap(`the command leaves ${word} open, which the status view does not supply`);
     }
     const [question, separator, placeholder] = splitOnce(word, "=");
-    if (!separator || (placeholder !== "ANSWER" && placeholder !== "MODEL")) return word;
+    if (!separator || !PLACEHOLDERS.has(placeholder)) return word;
     const value = answers[question];
     if (value === undefined) {
       throw new ClientGap(`${question} is a decision for a person; none was given`);
     }
+    if (placeholder === "EFFORT") return `${question}=${effortValue(effort, question, value)}`;
     return `${question}=${value}`;
   });
+}
+
+/** The levels an `effort-ROLE=EFFORT` slot may take: the ones its model declares (#2057). */
+export function effortLevels(effort: EffortNeed | undefined, question: string): string[] {
+  const declared = effort?.declared;
+  if (effort?.question_id !== question || !Array.isArray(declared) || !declared.length || !declared.every((level) => typeof level === "string" && level)) {
+    throw new ClientGap(`${question} asks for an effort the status view does not describe`);
+  }
+  return [...declared];
+}
+
+/** A level a person chose, one its model declares. */
+export function effortValue(effort: EffortNeed | undefined, question: string, value: string): string {
+  const levels = effortLevels(effort, question);
+  const chosen = value.trim().toLowerCase();
+  if (!levels.includes(chosen)) throw new ClientGap(`Choose one of ${levels.join(", ")}`);
+  return chosen;
 }
 
 /** Whether the command continues the run, so it carries the client's options. */
@@ -252,4 +328,35 @@ function splitOnce(text: string, separator: string): [string, boolean, string] {
   const index = text.indexOf(separator);
   if (index < 0) return [text, false, ""];
   return [text.slice(0, index), true, text.slice(index + 1)];
+}
+
+/**
+ * `changeset status --json` for a run whose view lists linked runs, or null when it is in no
+ * change set (owner decision 2026-10-25, #2066). Mirrors `autocode_client_actions.changeset_status`.
+ */
+export function changesetStatusArgs(view: StatusView, own: { runDir: string }): string[] | null {
+  if (!view.scope?.linked?.length) return null;
+  return ["changeset", "status", "--run-dir", view.run_dir || own.runDir, "--json"];
+}
+
+/**
+ * The change set's named set approval or joint check, as arguments after `autocode`, or a gap.
+ * The approval carries the `set_token` of the plans the summary shows, so taking it approves only
+ * the plans a person read. Mirrors `autocode_client_actions.changeset_action`.
+ */
+export function changesetAction(summary: ChangesetSummary, key: "approval" | "verification"): string[] {
+  const section = summary[key];
+  const source = summary.runs?.[0]?.run_dir;
+  if (!section?.next_command?.length) {
+    throw new ClientGap(`AutoCode offers no ${key === "approval" ? "set approval" : "joint check"} right now`);
+  }
+  const token = summary.approval?.set_token;
+  const expected = key === "approval"
+    ? ["autocode", "changeset", "approve", "--run-dir", String(source), "--set-token", String(token)]
+    : ["autocode", "changeset", "verify", "--run-dir", String(source)];
+  const named = section.next_command;
+  if (!source || (key === "approval" && !token) || named.length !== expected.length || named.some((word, i) => word !== expected[i])) {
+    throw new ClientGap(`Unsupported change-set ${key} action from AutoCode`);
+  }
+  return expected.slice(1);
 }

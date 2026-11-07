@@ -40,5 +40,5 @@ def check(project, scenario, run=None):
                 str(sorted(cited)),
             )
         )
-    checks += run_checks(run, workflow="build", no_build=True, no_requirements=True)
+    checks += run_checks(run, workflow="build", no_build=True, after_requirements="check_design")
     return checks

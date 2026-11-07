@@ -16,9 +16,10 @@ holds, so it stays None. Whether that account is connected, and whether it may b
 the model preflight's answer (autocode_model_preflight), never this record's.
 
 ``reasoning_effort`` is the level a launch passes; None means the model's own default.
-The separate ``settings.effort_origins.plan_reviewer`` records an explicit effort
-choice versus the runner/selector default. Configure owns this map; the planning
-policy reads it. Unknown legacy effort provenance never means a default.
+The separate ``settings.effort_origins.<role>`` (every role of a new run) records an
+explicit effort choice versus the runner/selector default. Configure owns this map; the
+planning policy and the launch-boundary effort fit read it. Unknown legacy effort
+provenance never means a default.
 
 ``origin`` is why the route is what it is, read from the record that moved it, the newest
 cause first: a model named at a quota stop, the Builder's stronger attempt, a ladder climb,
@@ -59,6 +60,10 @@ CATALOGUE_REPLACEMENT = "catalogue_replacement"
 # The automatic selector's own choice (#1426 step 7, autocode_route_selector)
 AUTO_SELECTED = "auto_selected"
 CONFIGURED_ORIGINS = (USER_EXPLICIT, SINGLE_MODEL, RUNNER_DEFAULT, CATALOGUE_REPLACEMENT, AUTO_SELECTED)
+# An effort taken from the person's saved stage choices (autocode_stage_choices): their level, which the
+# review stages treat as a ceiling (autocode_review_effort, owner decision 2026-11-05). Only an effort
+# origin; the route's own origin stays ``user_explicit``.
+STAGE_CHOICE = "stage_choice"
 # A flag that also names another role's route, so that route is the person's choice too
 # (autocode_configure.configure_joint). tests/test_role_route.py pins the pairing.
 ALSO_NAMED_BY = {"requirements": ("glm_model",)}
@@ -69,6 +74,51 @@ def account(model):
     if not isinstance(model, str) or "/" not in model:
         return None
     return model.split("/", 1)[0] or None
+
+
+# How a provider prefix bills. OpenAI depends on how OpenCode signs in (see ``plan``).
+PLANS = {
+    "zai-coding-plan": ("Z.AI Coding Plan", "subscription"),
+    "github-copilot": ("GitHub Copilot", "subscription"),
+    "zai": ("Z.AI API", "pay per token"),
+    "opencode": ("OpenCode Zen", "pay per token"),
+    "kilo": ("Kilo Gateway", "pay per token"),
+}
+BILLING_KINDS = ("subscription", "pay per token")
+
+
+def plan(model: str, openai_auth: str | None = None) -> tuple[str, str | None]:
+    """(plan, billing) for display; authentication never bans a model."""
+    provider = model.split("/", 1)[0]
+    if provider != "openai":
+        return PLANS.get(provider, (provider, None))
+    if openai_auth == "oauth":
+        return "ChatGPT login", "subscription"
+    if openai_auth == "api":
+        return "OpenAI via api", "pay per token"
+    return "OpenAI", None
+
+
+def billing(model, settings=None):
+    """How a stage's model bills: "subscription", "pay per token", or None when unknown (#1924).
+
+    An automatically selected run saved the billing discovery found for each permitted candidate
+    (``route_selection["candidates"]``); otherwise the model ID's account decides. An OpenAI model's
+    billing depends on its login, which a saved run does not otherwise record, so it stays None.
+    """
+    if not isinstance(model, str) or not model:
+        return None
+    selection = (settings or {}).get("route_selection") if isinstance(settings, dict) else None
+    saved = (selection or {}).get("candidates") if isinstance(selection, dict) else None
+    for candidates in saved.values() if isinstance(saved, dict) else ():
+        for candidate in candidates if isinstance(candidates, list) else ():
+            if (
+                isinstance(candidate, dict)
+                and candidate.get("model") == model
+                and candidate.get("billing") in BILLING_KINDS
+            ):
+                return candidate["billing"]
+    return plan(model)[1] if "/" in model else None
 
 
 def engine(settings, role):
@@ -190,31 +240,45 @@ def _named(args, role, models) -> bool:
     )
 
 
-def record_reviewer_effort(args, settings, *, fresh):
-    """Record effort choice independently of model pins; a resume preserves unknown history.
+def record_efforts(args, settings, *, fresh):
+    """Every configured role's effort provenance, for the launch-boundary fit (#2057).
 
-    Project effort settings arrive on args like their CLI flags. A global effort
-    counts only when the reviewer actually uses it. Old saved routes keep no
-    inferred provenance: their existing effort must survive an upgrade.
+    A role's own flag names it, the global flag names every role that uses it, and a fresh
+    run's remaining roles were the runner's or selector's choice. A level the saved stage
+    choices supplied (``args.stage_choice_efforts``, autocode_stage_choices.apply) is the
+    person's ``stage_choice``. A saved run keeps unknown provenance, so its existing effort is
+    never moved.
     """
-    route = (settings.get("roles") or {}).get("plan_reviewer")
+    for role in sorted((settings or {}).get("roles") or {}):
+        _record_effort(args, settings, role, fresh=fresh)
+
+
+def _record_effort(args, settings, role, *, fresh):
+    route = (settings.get("roles") or {}).get(role)
     if not isinstance(route, dict):
         return
-    named = getattr(args, "plan_reviewer_reasoning_effort", None)
+    named = getattr(args, f"{role}_reasoning_effort", None)
     global_effort = getattr(args, "reasoning_effort", None)
-    if named is not None or global_effort is not None and route.get("reasoning_effort") == global_effort:
+    if named is not None and role in (getattr(args, "stage_choice_efforts", None) or ()):
+        chosen = STAGE_CHOICE
+    elif named is not None or global_effort is not None and route.get("reasoning_effort") == global_effort:
         chosen = USER_EXPLICIT
     elif fresh:
-        selected = ((settings.get("route_selection") or {}).get("routes") or {}).get("plan_reviewer") or {}
+        selected = ((settings.get("route_selection") or {}).get("routes") or {}).get(role) or {}
         chosen = AUTO_SELECTED if selected.get("origin") == AUTO_SELECTED else RUNNER_DEFAULT
     else:
         return
-    settings.setdefault("effort_origins", {})["plan_reviewer"] = chosen
+    settings.setdefault("effort_origins", {})[role] = chosen
 
 
 def reviewer_effort_can_reduce(settings):
     """Only a recorded automatic/default effort may be tiered; unknown saved choices stay."""
-    return (settings.get("effort_origins") or {}).get("plan_reviewer") in (RUNNER_DEFAULT, AUTO_SELECTED)
+    return effort_can_reduce(settings, "plan_reviewer")
+
+
+def effort_can_reduce(settings, role):
+    """True only when the role's effort was recorded as the runner's or selector's, never a person's or unknown."""
+    return (settings.get("effort_origins") or {}).get(role) in (RUNNER_DEFAULT, AUTO_SELECTED)
 
 
 def _rows(values):

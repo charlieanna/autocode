@@ -10,7 +10,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import autocode_builder_failure as builder_failure
 import autocode_retained_work as retained_work
 import autocode_util as util
 
@@ -115,6 +117,99 @@ class RetainedWorkTests(unittest.TestCase):
         self.assertIsNone(retained_work.fresh_candidate(state, retry, "changed-again"))
         Path(state["stages"][0]["before_ref"]).unlink()
         self.assertIsNone(retained_work.fresh_candidate(state, retry, "r1"))
+
+    def reapproved_assignment(self):
+        state, retry = self.repaired_assignment()
+        events, history = [], []
+        for revision in (1, 2):
+            contract = {
+                "task_id": "goal",
+                "revision": revision,
+                "body": {
+                    "open_blocking_questions": [],
+                    "permission_boundaries": ["Only src/"],
+                    "constraints": ["Keep tests"],
+                    "acceptance_criteria": [{"id": "C1", "criterion": "Source works"}],
+                },
+                "origin": "agent_plan",
+            }
+            contract["hash"] = util.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+            event = {"kind": "goal_approval", "actor": "user_cli", "token": f"r{revision}:{contract['hash']}"}
+            contract.update(approval_status="approved", approval_event=event)
+            events.append(event)
+            history.append(contract)
+        state.update(goal_contract=history[1], contract_history=history[:1], user_events=events, turns=[])
+        state["task_archive"][0].update(contract_hash=history[0]["hash"], acceptance_criteria=["C1"])
+        state["current_task"].update(contract_hash=history[1]["hash"], acceptance_criteria=["C1"])
+        return state, retry
+
+    def test_reapproved_same_scope_retains_real_candidate_only_for_fresh_review(self):
+        state, retry = self.reapproved_assignment()
+        before = copy.deepcopy(state)
+        result = retained_work.fresh_candidate(state, retry, "r1")
+        self.assertEqual(
+            {"source_revision": "r1", "retained_paths": ["src/new.go"], "origin_task_id": "task-1"}, result
+        )
+        self.assertEqual(before, state)
+        state["contract_history"][0].update(approval_status="draft", approval_event=None)
+        self.assertEqual(result, retained_work.fresh_candidate(state, retry, "r1"))
+
+    def test_reapproval_cannot_borrow_unapproved_changed_or_other_turn_work(self):
+        state, retry = self.reapproved_assignment()
+        controls = [
+            lambda s: s["user_events"].pop(0),
+            lambda s: s["goal_contract"].update(approval_status="draft"),
+            lambda s: s["task_archive"][0].update(acceptance_criteria=["C2"]),
+            lambda s: s["task_archive"][0].update(affected_paths=["elsewhere"]),
+            lambda s: s["task_archive"][0].update(milestone_id="M2"),
+            lambda s: s["task_archive"][0].update(rolled_back=True),
+            lambda s: s["contract_history"][0]["body"].update(permission_boundaries=["Other scope"]),
+            lambda s: s.update(turns=[{"event_id": "absent-turn"}]),
+        ]
+        for change in controls:
+            modified = copy.deepcopy(state)
+            change(modified)
+            self.assertIsNone(retained_work.fresh_candidate(modified, retry, "r1"))
+        self.assertIsNone(retained_work.fresh_candidate(state, retry, "changed-source"))
+
+    def held_reapproval(self):
+        state, retry = self.reapproved_assignment()
+        output = self.dir / "builder-02.json"
+        output.write_text("{}")
+        retry.update(output=str(output.resolve()), exit_code=0)
+        state["stages"].append(retry)
+        evidence = builder_failure.evidence(state, retry)
+        builder_failure.hold(
+            state,
+            evidence,
+            "PAUSED_BUILDER_CLASSIFICATION",
+            "Builder completed an implementation attempt without source changes",
+        )
+        state["status"] = "RUNNING"  # The caller has explicitly resumed the saved pause.
+        return state, retry
+
+    def test_explicit_resume_retires_only_the_proven_reapproval_no_change_hold(self):
+        state, retry = self.held_reapproval()
+        before = copy.deepcopy(state)
+        with patch.object(builder_failure.source_scope, "snapshot", return_value={"revision": "r1"}):
+            builder_failure.dispatch_guard(state, "terra", self.workspace)
+        before.pop("builder_failure_hold")
+        self.assertEqual(before, state, "retire only the hold; keep all history, limits and proof requirements")
+
+    def test_corrupt_evidence_other_holds_or_pending_ownership_do_not_release(self):
+        for change in (
+            lambda s, r: s["builder_failure_hold"].update(reason="Provider refused"),
+            lambda s, r: s.update(active_stage="owned-stage"),
+            lambda s, r: s.update(status="PAUSED_BUILDER_CLASSIFICATION"),
+            lambda s, r: s["builder_failure_hold"].update(classification_retry={"pending": True}),
+            lambda s, r: Path(r["output"]).write_text("corrupted"),
+        ):
+            state, retry = self.held_reapproval()
+            change(state, retry)
+            with patch.object(builder_failure.source_scope, "snapshot", return_value={"revision": "r1"}):
+                with self.assertRaises(builder_failure.util.Paused):
+                    builder_failure.dispatch_guard(state, "terra", self.workspace)
+            self.assertIn("builder_failure_hold", state)
 
     def test_repair_does_not_hide_an_earlier_out_of_scope_edit(self):
         state, retry = self.repaired_assignment()

@@ -100,6 +100,9 @@ class DashboardIntegrationTests(unittest.TestCase):
             # via subprocess; pin the seams so "no astra call" stays exact.
             patch.object(retry, "_binding", return_value="synthetic-binding"),
             patch.object(retry, "_index", return_value="synthetic-index"),
+            # Launch provenance also reads Git locally; the global Popen mock
+            # must keep measuring provider admission, independent of cache warmth.
+            patch.object(runner.util, "runner_identity", return_value={"path": "/fixture/runtime", "commit": "a" * 40}),
         ):
             with self.assertRaises(support.Paused):
                 runner.run_role(

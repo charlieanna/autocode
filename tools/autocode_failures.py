@@ -20,13 +20,33 @@ import re
 from pathlib import Path
 
 try:
+    from . import autocode_planning_advice as recovery_binding
     from . import autocode_util as util
 except ImportError:
+    import autocode_planning_advice as recovery_binding
     import autocode_util as util
 
 
 REPEAT_THRESHOLD = 3
 PROBE_BYTES = 262_144
+
+
+def admitted_retry(entry, authorization):
+    """Match an invocation's consumed resume grant; saved audit is never credit.
+
+    Request preparation is read-only. Final launch admission consumes the
+    separate novelty credit, so this does not authorize a second execution.
+    """
+    return bool(
+        authorization
+        and authorization.get("consumed") is True
+        and not authorization.get("_novelty_consumed")
+        and authorization.get("failure_key") == key(entry["identity"])
+        and authorization.get("identity") == entry["identity"]
+        and type(authorization.get("count")) is int
+        and authorization["count"] == entry["count"]
+        and authorization.get("source_revision") == entry["identity"]["artifact_hash"]
+    )
 
 
 def identity(record, error):
@@ -144,6 +164,7 @@ def record(state: RunState, stage_record, error, at):
             signature=mark,
             streak=entry["streak"] + 1 if continues else 1,
             stage_index=len(state.get("stages") or []),
+            **recovery_binding.binding(state, selected["stage"]),
         )
         stage_record["failure_signature"] = mark
         if stalled(entry) and "output_probe" not in entry:
@@ -154,6 +175,46 @@ def record(state: RunState, stage_record, error, at):
                 other["streak"] = 0
     stage_record["failure_key"] = failure_key
     return entry
+
+
+def recent_rejection(state: RunState, stage):
+    """The latest rejection of ``stage`` that no later outcome of that stage has ended.
+
+    A resumed run re-enters the same stage with the same handoff. Without the saved error the
+    fresh request repeats the rejected attempt: a live planning revision spent three revise calls looping between two
+    refusals. This reads the ledger only; it writes nothing and changes no retry decision.
+    """
+    entries = [
+        entry
+        for entry in (state.get("failure_history") or {}).values()
+        if (entry.get("identity") or {}).get("stage") == stage
+        and entry.get("count")
+        and recovery_binding.applies(state, entry, stage)
+    ]
+    if not entries:
+        return None
+    entry = max(entries, key=lambda row: row.get("last_seen") or "")
+    for row in (state.get("stages") or [])[entry.get("stage_index", 0) :]:
+        if _owner(row) != stage or row.get("runner_owned"):
+            continue
+        if row.get("failure_attempt") in entry.get("attempts", []):
+            continue
+        return None  # a later outcome for this stage ended the rejection episode
+    return entry
+
+
+def episode(state: RunState, stage) -> dict | None:
+    """The failure run ``stage`` is in now, for the status view (``progress.retry``): how many
+    attempts in a row have failed the same way and how many such failures stop the stage.
+
+    Display facts from the ledger alone: ``failures`` is the streak the newest unresolved failure of
+    the stage carries, ``limit`` is ``REPEAT_THRESHOLD``. None once a later outcome of the stage
+    ends the run of failures, or when it never failed. Reads nothing else and grants no retry."""
+    entry = recent_rejection(state, stage)
+    if not entry:
+        return None
+    streak = entry.get("streak", entry.get("count", 0))
+    return {"failures": streak if type(streak) is int and streak > 0 else 0, "limit": REPEAT_THRESHOLD}
 
 
 def repeated(state: RunState, stage_record):

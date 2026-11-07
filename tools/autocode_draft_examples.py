@@ -1,4 +1,4 @@
-"""Numeric stdout corrections in model-written, never-approved draft examples.
+"""Validation and numeric stdout corrections for model-written draft examples.
 
 The receipt is saved in the existing contract's declared_changes/history. The
 revision guard reads it, and review_notes displays it at final plan approval.
@@ -29,6 +29,40 @@ RECEIPT_SCHEMA = {
     "properties": {key: {"type": "string"} for key in ("concern_id", "before", "after")},
 }
 RULE = prompts.get("fragments/draft-examples/rule.md")
+QUOTED_OUTPUT = re.compile(r"""\b(?:returns?|writes?|prints?)\s+(?:exactly\s+)?(['"])""")
+
+
+def _unterminated_output(text):
+    for opening in QUOTED_OUTPUT.finditer(text):
+        quote = opening[1]
+        rest = text[opening.end() :]
+        if "\\n" not in rest or not re.search(rf"\\{quote}(?=\s|[.,;)]|$)", rest):
+            continue
+        # Backslashes escape one character. A genuine closing quote may still
+        # follow an escaped apostrophe or a literal trailing backslash.
+        if not re.match(rf"(?:[^{quote}\\]|\\[\s\S])*{quote}", rest):
+            return True
+    return False
+
+
+def refuse_unterminated_outputs(body, previous):
+    """Send a newly written ambiguous output literal back to the draft author."""
+    retained = {(row["id"], row["criterion"]) for row in previous.get("acceptance_criteria", [])}
+    errors = [
+        f"Criterion {row['id']} has an unterminated exact-output literal"
+        for row in body.get("acceptance_criteria", [])
+        if (row["id"], row["criterion"]) not in retained and _unterminated_output(row["criterion"])
+    ]
+    errors.extend(
+        f"End-to-end step {index} has an unterminated exact-output literal"
+        for index, text in enumerate(body.get("end_to_end_flow", []), start=1)
+        if text not in previous.get("end_to_end_flow", []) and _unterminated_output(text)
+    )
+    if errors:
+        raise ValueError(
+            ". ".join(errors)
+            + ". Copy the exact result from the source or rule into a closed literal, including any terminal newline."
+        )
 
 
 def spelling(text):
@@ -119,6 +153,30 @@ def layout_padding(before, after):
     )
 
 
+def quoted_line_padding(text, revised, before, after, sources):
+    """Accept the same explicit stdout assertion written as a list of quoted lines."""
+    old, new = spelling(before), spelling(after)
+    spaces = re.compile(r"(?<=\S) +(?=\S)")
+    if not old.endswith("\n") or spaces.sub(" ", old) != spaces.sub(" ", new) or "`" in after:
+        return False
+    lines = old[:-1].split("\n")
+    if len(lines) < 2 or any(
+        a != b and user_literal(a, sources) for a, b in zip(lines, new[:-1].split("\n"), strict=True)
+    ):
+        return False
+    count = str(len(lines))
+    names = ("two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+    if len(lines) <= len(names) + 1:
+        count += "|" + names[len(lines) - 2]
+    quoted = ", ".join(json.dumps(line, ensure_ascii=False) for line in lines)
+    pattern = rf"\bstdout is exactly the (?:{count}) lines {re.escape(quoted)}, each followed by a newline\b"
+    matches = list(re.finditer(pattern, text))
+    if len(matches) != 1 or user_literal(quoted, sources):
+        return False
+    match = matches[0]
+    return revised == text[: match.start()] + f"it writes exactly `{after}` to stdout" + text[match.end() :]
+
+
 def user_protected(state: RunState, row, user_basis):
     approvals = {e.get("token") for e in state.get("user_events", []) if e.get("kind") == "goal_approval"}
     for revision in [*(state.get("contract_history") or []), state.get("goal_contract") or {}]:
@@ -183,14 +241,18 @@ def corrections(state: RunState, before, after, changes, user_basis):
             continue
         literal = "`" + previous + "`"
         text = old[cid]["criterion"]
-        if text.count(literal) != 1 or user_literal(previous, sources):
+        if user_literal(previous, sources):
             continue
-        start = text.index(literal)
-        if (
-            not re.search(r"\b(?:writes?|prints?)\s+(?:exactly\s+)?$", text[:start], re.I)
-            or not re.match(r"\s+(?:to\s+)?stdout\b", text[start + len(literal) :], re.I)
-            or new[cid]["criterion"] != text.replace(literal, "`" + replacement + "`")
-        ):
+        revised = new[cid]["criterion"]
+        prefix, separator, suffix = text.partition(literal)
+        canonical = (
+            separator
+            and literal not in suffix
+            and re.search(r"\b(?:writes?|prints?)\s+(?:exactly\s+)?$", prefix, re.I)
+            and re.match(r"\s+(?:to\s+)?stdout\b", suffix, re.I)
+            and revised == prefix + "`" + replacement + "`" + suffix
+        )
+        if not canonical and not quoted_line_padding(text, revised, previous, replacement, sources):
             continue
         for concern in review.get("concerns", []):
             evidence = " ".join(strings(concern))

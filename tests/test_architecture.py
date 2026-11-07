@@ -49,6 +49,8 @@ TANGLED: frozenset[str] = frozenset()
 # tree for it and diffs product files through the staged tree, which raised autocode_verify.py.
 # 2026-10-15: the pinned pytest policy reader moved beside the current one in autocode_test_root, and a
 # package's suite (#711) is detected and run through autocode_package_scope, which lowered autocode_verify.py.
+# 2026-11-06: a proof leaves out a spec-first wave's tests for members not built yet (autocode_pending_tests);
+# verify() takes the files to withhold and drops them from the change: autocode_verify.py +2, verify() +3.
 # 2026-10-16: queuing a report-only repair moved to autocode_report_repair_queue (#1257).
 # 2026-10-16: annotating commit_boundary_candidate's state as RunState (#695) pushed its signature past
 # the line length, and ruff format wrapped it onto three lines: autocode.py +2, no new behavior.
@@ -56,20 +58,43 @@ TANGLED: frozenset[str] = frozenset()
 # autocode_configure._auto_select.
 # 2026-10-17: stamping open escalations on --accept-completion (#612) added route_ladder import and
 # record_outcome call: autocode.py +3.
+# 2026-10-26: adopting a bound launch's report identity (#2135) lives in autocode_report_identity; its
+# import and one call in load_stage_report raised autocode.py by 1.
 MAX_LINES = {
-    "autocode.py": 2008,
+    "autocode.py": 1830,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
-    "autopilot.py": 1513,
+    "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1028,
-    "autocode_verify.py": 3333,
+    "autocode_verify.py": 3012,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
 # steps moved out (#1052): a new flag's action goes in its family's step, not in handle().
 # 2026-10-11: --program-guidance raised build_parser() (#866); splitting it is the next step.
-MAX_FUNCTION_LINES = {("autocode_run_actions.py", "handle"): 9, ("autocode_args.py", "build_parser"): 539}
+# 2026-11-05: the five largest core functions are held at their size (#2753) and shrink as fixes touch them.
+# _apply_result was 403 lines; its user-request, REWORK, slice-checkpoint and Builder-failure routes moved to
+# autocode_decision_routes.
+# run_role was 648 lines; its native environment, replay context, visual launch, launch admission, activity
+# reporter, exit stop and after-stage evidence moved to autocode_role_launch.
+# verify was 587 lines; its regression proof and suite preservation became _prove_regression and _preserve_suite,
+# and the two judgments moved to autocode_verify_judgment.
+# autocode_configure.configure was 583 lines; its new-run refusals, Figma checks, joint-planning choice, saved-run
+# settings, history routes, milestone checkpoints and limits became functions of their own.
+# autocode_tool_containment.configure was 439 lines; its debug call, shell, private-read, footprint and toolchain
+# probes and its conformance record became module functions.
+MAX_FUNCTION_LINES = {
+    ("autocode_run_actions.py", "handle"): 9,
+    ("autocode_args.py", "build_parser"): 539,
+    ("autocode.py", "run_role"): 527,
+    ("autocode_verify.py", "verify"): 334,
+    ("autocode_verify.py", "_preserve_suite"): 219,
+    ("autocode_configure.py", "configure"): 291,
+    ("autocode_configure.py", "_configure_saved"): 164,
+    ("autocode_tool_containment.py", "configure"): 189,
+    ("autopilot.py", "_apply_result"): 281,
+}
 
 # Modules that still write run ``status`` directly instead of going through autocode_run_status
 # (#1071). The paused phase is already owned outright (tests/test_run_status.py); this ratchet
@@ -111,9 +136,6 @@ STATUS_WRITERS = frozenset(
         "autocode_planning_clarification",
         "autocode_planning_cycle",
         "autocode_preflight_unittest",
-        "autocode_program",
-        "autocode_program_children",
-        "autocode_program_guidance",
         "autocode_recovery_inputs",
         "autocode_recovery_progress",
         "autocode_repair_handoff",
@@ -379,14 +401,10 @@ def _atomic_state_json_lines(source: str) -> list[int]:
 
 
 def direct_state_json_writers() -> set[str]:
-    """Modules that write a literal state.json with atomic_json instead of the status owner.
-
-    autocode_program's state.json is the cross-run program document, not run
-    state, so it is named here rather than routed through autocode_status.
-    """
+    """Modules that write a literal state.json with atomic_json instead of the status owner."""
     writers = set()
     for name, path in source_modules().items():
-        if name in ("autocode_status", "autocode_program"):
+        if name == "autocode_status":
             continue
         if _atomic_state_json_lines(path.read_text(encoding="utf-8")):
             writers.add(name)
@@ -582,6 +600,32 @@ class ArchitectureTests(unittest.TestCase):
     def test_the_shared_helpers_import_nothing_from_autocode(self):
         # autocode_util is the bottom layer; one AutoCode import would drag its 18 users back into the cycle.
         self.assertEqual(set(), import_graph()["autocode_util"])
+
+    def test_the_effort_fit_rule_lives_in_one_module(self):
+        # #2057: every derived effort is fitted by one function, so a new tier is not a new place to forget.
+        definitions = {
+            name
+            for name, path in source_modules().items()
+            if any(
+                isinstance(node, ast.FunctionDef) and node.name == "nearest"
+                for node in ast.parse(path.read_text(encoding="utf-8")).body
+            )
+        }
+        self.assertEqual({"autocode_route_fit"}, definitions)
+
+    def test_every_stage_launch_fits_its_effort_at_the_one_boundary(self):
+        # #2057: the fit is called in run_role, before the request is built, for every path.
+        tree = ast.parse((TOOLS / "autocode.py").read_text(encoding="utf-8"))
+        run_role = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "run_role")
+        calls = [
+            node.func.attr
+            for node in ast.walk(run_role)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "route_fit"
+        ]
+        self.assertIn("launch", calls, "run_role must fit the effort it launches")
 
     def test_star_import_shims_preserve_consumer_compatibility_exports(self):
         for prefix in ("", "autocode_cli."):

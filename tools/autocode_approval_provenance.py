@@ -215,8 +215,9 @@ def acknowledge(state: RunState, pause_status: str | None, called: dict, *, at: 
     return True
 
 
-def _row(kind, at, actor, provenance, *, contract_token=None, criterion=None, pause_status=None) -> dict:
+def _row(kind, at, actor, provenance, *, contract_token=None, criterion=None, pause_status=None, source=None) -> dict:
     return {
+        "source": source,  # "skip_to_build": chosen when the run started, not typed at this plan (#1731)
         "kind": kind,
         "at": at,
         "actor": actor,
@@ -248,6 +249,7 @@ def view(state: RunState) -> list[dict]:
                     event.get("provenance"),
                     contract_token=event.get("token") if kind == "plan" else None,
                     criterion=event.get("criterion") if kind == "review" else None,
+                    source=event.get("source"),
                 )
             )
     seen = set()
@@ -281,6 +283,8 @@ def _who(row: dict) -> str:
     name, email = provenance["git_user_name"], provenance["git_user_email"]
     who = " ".join(part for part in (name, f"<{email}>" if email else None) if part) or "a Git user with no name set"
     text = f"by {who} on {provenance['host'] or 'an unnamed host'} via `{provenance['command']}`"
+    if row.get("source") == "skip_to_build":
+        text += ", automatically, as --skip-to-build asked when the run started"
     if provenance["claimed_as"]:
         text += f", who gave the name {provenance['claimed_as']!r} (a claim, not verified)"
     return text

@@ -1,11 +1,21 @@
 """Spec-first runs (#1200): the user confirms what Requirements understood before any plan exists.
 
-Opt-in per new run (``--spec-first``, saved as ``settings.spec_first``). On the default flow
-requirements_gather goes straight to astra_discovery, and a run with no open question never shows
+Opt-in per new run (``--spec-first``, saved as ``settings.spec_first``). On the default flow a
+complete handoff goes straight to astra_discovery, and a run with no open question never shows
 the user its requirements until goal approval. With the setting, every accepted handoff stops the
 run with one runner-written question beside the handoff's own open questions: answer ``plan`` to
 start planning, or say what to change and Requirements runs again with that answer in its
 saved_answers. The question id carries the handoff's digest, so a new handoff asks again.
+The question says what approving starts for the job Requirements named (``job``, #1846): a plan for
+a build, an investigation for a bug, the review or the design work for those. A question the Analyst
+answers is never asked to be approved (autocode_requirements_chat.answer_now).
+
+On every flow, a handoff that has only questions so far (``questions_only``: open questions and no
+behaviors or acceptance tests yet, as the Requirements prompt asks while a vague request is still
+being clarified) stops the run the same way with the handoff's own questions, and Requirements runs
+again with the answers. Before that, the default flow refused such a handoff as invalid output: a
+live ``program plan`` on "build an adaptive learning engine" asked three good questions and stalled
+until a person resumed it.
 
 Published through the ordinary clarification request, like the bug Investigator's questions
 (autocode_bug_questions): resolver_human admits these exact questions with ``accepts``. Imports
@@ -23,8 +33,10 @@ import argparse
 from pathlib import Path
 
 try:
+    from . import autocode_scope_question as scope_question
     from . import autocode_util as util
 except ImportError:
+    import autocode_scope_question as scope_question
     import autocode_util as util
 
 SETTING = "spec_first"
@@ -66,6 +78,49 @@ def _report(state: RunState) -> dict:
     return (state.get("requirements_handoff") or {}).get("report") or {}
 
 
+# The jobs that build nothing (autocode_workflows.WORKFLOWS), named here so this module imports only util.
+READ_ONLY_JOBS = ("review", "design", "discuss")
+JOBS = ("build", "bugfix", *READ_ONLY_JOBS)
+
+
+def job(state: RunState, report: dict | None = None) -> str | None:
+    """The job this run is for: the recognized or pinned kind, else the one Requirements named (#1846)."""
+    known = (state.get("workflow") or {}).get("kind")
+    if known:
+        return known
+    named = (_report(state) if report is None else report).get("job")
+    return named if named in JOBS else None
+
+
+def builds_code(kind: str | None) -> bool:
+    """Whether a job needs behaviors and acceptance tests; an unknown job is held to a build's handoff."""
+    return kind not in READ_ONLY_JOBS
+
+
+def confirmation_job(state: RunState) -> str | None:
+    """What the understanding confirmation starts, preserving historical offers."""
+    kind = job(state)
+    if kind == "bugfix" and (state.get("settings") or {}).get("implementation_flow") == "standard":
+        return "build"
+    return kind
+
+
+# What approving the understanding starts, by job; anything not listed is planned as a build.
+CONFIRMATION = {
+    "bugfix": "Approve this understanding to investigate the bug and prepare a reviewed fix plan, "
+    "or tell me what to change.",
+    "review": "Approve this understanding to start the review, or tell me what to change. The review changes no files.",
+    "design": "Approve this understanding to start the design work, or tell me what to change. Nothing is built.",
+}
+
+
+def questions_only(report: dict) -> bool:
+    """A report with open questions and no behaviors or acceptance tests yet: Requirements is still clarifying."""
+    return bool(report.get("open_questions")) and not (
+        report.get("required_behaviors") and report.get("acceptance_tests")
+    )
+
+
 def _lines(title: str, rows) -> list[str]:
     rows = [str(row).strip() for row in rows or [] if str(row).strip()]
     if not rows:
@@ -81,6 +136,11 @@ def review_question(state: RunState) -> dict:
     assumptions = [
         row.get("text", row) if isinstance(row, dict) else row for row in report.get("proposed_assumptions") or []
     ]
+    # ignored_statements also carries procedural source text and headings, not
+    # only excluded work. Its treatment is explained by the saved summary.
+    statements = report.get("ignored_statements") or []
+    notes = str(report.get("summary") or "").strip() if statements else ""
+    kind = confirmation_job(state)
     text = "\n".join(
         [
             "Here’s what I understand. Does this match what you want?",
@@ -89,10 +149,13 @@ def review_question(state: RunState) -> dict:
             *_lines("Behaviors", report.get("required_behaviors")),
             *_lines("Acceptance examples", report.get("acceptance_tests")),
             *_lines("Constraints", report.get("constraints")),
-            *_lines("Left out", report.get("ignored_statements")),
+            *_lines("Other source statements", statements),
+            *(["", f"Notes: {notes}"] if notes else []),
             *_lines("Assumptions", assumptions),
             "",
-            "Approve this understanding to prepare a reviewed plan, or tell me what to change.",
+            CONFIRMATION.get(
+                kind or "", "Approve this understanding to prepare a reviewed plan, or tell me what to change."
+            ),
         ]
     )
     return {
@@ -100,7 +163,9 @@ def review_question(state: RunState) -> dict:
         # unchanged still asks again under a new id (an answered id cannot be answered twice).
         "id": PREFIX + util.digest({"report": report, "round": len(state.get("requirements_history") or [])})[:16],
         "question": text,
-        "why": "Spec-first run: nothing is planned until you confirm what Requirements understood.",
+        "why": "Spec-first run: nothing "
+        + ("is planned" if builds_code(job(state)) else "starts")
+        + " until you confirm what Requirements understood.",
         # Free text, not a label: a correction is an answer too (options would only accept their labels).
         "options": [],
         "proposed_default": APPROVE,
@@ -111,14 +176,55 @@ def review_question(state: RunState) -> dict:
 
 
 def questions(state: RunState) -> list[dict]:
-    """The handoff's unanswered open questions, then the review question; [] when there is nothing to confirm."""
-    if not enabled(state) or not state.get("requirements_handoff") or state.get("goal_contract"):
-        return []
+    """The handoff's unanswered open questions, then (spec-first) the review question; [] when nothing waits."""
     answered = state.get("answers") or {}
+    unresolved = [row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered]
+    if not state.get("goal_contract") and unresolved and (enabled(state) or questions_only(_report(state))):
+        # Clarify the requested outcome before choosing where its work belongs.
+        # This answers no scope question and leaves all discovered parts intact.
+        return unresolved
+    try:
+        from . import autocode_catalog_context as source_catalog
+        from . import autocode_coordination_context as coordination
+    except ImportError:
+        import autocode_catalog_context as source_catalog
+        import autocode_coordination_context as coordination
+    if (
+        state.get("requirements_handoff")
+        and not state.get("goal_contract")
+        and enabled(state)
+        and job(state) == "bugfix"
+        and not coordination.joint_planning(state)
+        and not coordination.context(state)
+        and source_catalog.context(state)
+    ):
+        # The catalog permits read-only diagnosis, not skipping the source's
+        # requested confirmation. Members inherit that confirmed task intent.
+        review = review_question(state)
+        answer = answered.get(review["id"])
+        if not answer:
+            return [review]
+        if answer.get("text", "").strip().lower() != APPROVE:
+            return []  # after_answers sends the correction back to Requirements
+    # Work that belongs to another repository is settled with the person before any plan, on every flow (#2066).
+    scope = scope_question.question(state)
+    if scope:
+        return [scope]
+    if not state.get("requirements_handoff") or state.get("goal_contract"):
+        return []
+    if coordination.joint_planning(state) or (
+        job(state) == "bugfix" and (coordination.context(state) or source_catalog.context(state))
+    ):
+        # The complete repository and joint plans carry clear requirements
+        # into the single approval. Business questions still need answers.
+        return unresolved
+    if not enabled(state):
+        # The default flow stops only while Requirements is still clarifying. A complete handoff with open
+        # questions goes to the Planner, whose draft carries them (autocode_planning_clarification).
+        return unresolved if questions_only(_report(state)) else []
     review = review_question(state)
     if review["id"] in answered:
         return []
-    unresolved = [row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered]
     # Establish the requested outcome before offering to plan anything.
     return unresolved or [review]
 
@@ -137,7 +243,7 @@ def wait(state: RunState, record: dict, queue) -> None:
 
 
 def accepts(state: RunState, proposal: dict) -> bool:
-    """Only this run's own review questions, for the current handoff, before any contract exists."""
+    """Only this run's current review questions, including new scope on a retained contract."""
     rows = proposal.get("questions") or []
     declared = questions(state)
     return (
@@ -149,15 +255,29 @@ def accepts(state: RunState, proposal: dict) -> bool:
     )
 
 
-def after_answers(state: RunState) -> None:
-    """A review answer other than 'plan' is new requirements input: Requirements runs again, not the Planner."""
-    if not enabled(state) or state.get("goal_contract") or state.get("pending_questions"):
+def recover_scope(state: RunState, queue) -> None:
+    """A guarded legacy/resumed execution returns to the same public scope decision."""
+    if state.get("status") != "PAUSED_SCOPE_DECISION" or not scope_question.question(state):
         return
-    answer = (
-        (state.get("answers") or {}).get(review_question(state)["id"]) if state.get("requirements_handoff") else None
-    )
-    needs_refresh = (answer and answer.get("text", "").strip().lower() != APPROVE) or (
-        not answer and bool(_report(state).get("open_questions"))
-    )
+    record = (state.get("workspace_scope") or {}).get("origin") or state.get("requirements_handoff") or {}
+    wait(state, record, queue)
+
+
+def after_answers(state: RunState, *, queue=None) -> None:
+    """A review answer other than 'plan', or the answers to a questions-only handoff, are new requirements
+    input: Requirements runs again, not the Planner."""
+    if state.get("goal_contract") or state.get("pending_questions") or not state.get("requirements_handoff"):
+        return
+    if enabled(state):
+        answer = (state.get("answers") or {}).get(review_question(state)["id"])
+        needs_refresh = (answer and answer.get("text", "").strip().lower() != APPROVE) or (
+            not answer and bool(_report(state).get("open_questions"))
+        )
+    else:
+        needs_refresh = questions_only(_report(state))
     if needs_refresh and state.get("next_stage") == NEXT:
         state.update({"next_stage": STAGE, "phase": "DISCOVERING"})
+    elif queue is not None and state.get("next_stage") == NEXT and questions(state):
+        # Confirmation establishes intent; it cannot settle an independent
+        # repository assignment or business question before the Planner.
+        wait(state, state["requirements_handoff"], queue)

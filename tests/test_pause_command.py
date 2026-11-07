@@ -55,7 +55,10 @@ class PauseViewTests(unittest.TestCase):
                 view = run_view.view({"status": status, "settings": {}})
                 self.assertIsNone(view["pause_category"])
                 self.assertIsNone(view["pause_category_label"])
-                self.assertIsNone(view["next_command"])
+                if status == "RUNNING":
+                    self.assertEqual("autocode --run-dir RUN_DIR --no-chat", view["next_command"])
+                else:
+                    self.assertIsNone(view["next_command"])
 
 
 class PauseCommandTests(unittest.TestCase):
@@ -83,6 +86,20 @@ class PauseCommandTests(unittest.TestCase):
         self.assertEqual(token, args.resolver_token)
         self.assertNotIn(token, argv)
         self.assertEqual(Path("/tmp/run with spaces"), args.run_dir)
+
+    def test_core_named_deterministic_recovery_is_a_continue_action(self):
+        text = self.command(
+            {
+                "kind": "continue",
+                "abandon_stage": "001/requirements-gather-01",
+                "action": "--abandon-stage 001/requirements-gather-01 then --resume-paused",
+            }
+        )
+        _, argv = self.parse(text)
+        self.assertEqual(
+            ["--run-dir", "/tmp/run with spaces", "--abandon-stage", "001/requirements-gather-01"],
+            argv,
+        )
 
     def test_operational_request_uses_its_response_consumer(self):
         text = self.command(

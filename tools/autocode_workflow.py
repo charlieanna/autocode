@@ -22,17 +22,21 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_changed_code_rework as changed_code_rework
     from . import autocode_completion as completion_gate
     from . import autocode_design_coverage as design_coverage
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
+    from . import autocode_review_routing as review_routing
     from . import autocode_run_status as run_status
     from . import autocode_support as support
 except ImportError:
+    import autocode_changed_code_rework as changed_code_rework
     import autocode_completion as completion_gate
     import autocode_design_coverage as design_coverage
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
+    import autocode_review_routing as review_routing
     import autocode_run_status as run_status
     import autocode_support as support
 
@@ -71,6 +75,18 @@ def guard(state: RunState):
         return
     policy = state["settings"]["workflow"]
     event = policy.get("approval_event", {})
+    if policy.get("approval_basis") == "goal":
+        contract = state.get("goal_contract") or {}
+        if (
+            policy.get("mode") != review_routing.MODE
+            or state["settings"].get(review_routing.SETTING) != "combined"
+            or not goals.approved(state)
+            or event != contract.get("approval_event")
+            or event not in state.get("user_events", [])
+            or review_routing.POLICY not in (contract.get("body") or {}).get("constraints", [])
+        ):
+            raise support.Paused("PAUSED_WORKFLOW_APPROVAL", "Combined review needs the exact approved plan")
+        return
     if (
         event.get("kind") != "workflow_approval"
         or event.get("actor") != "user"
@@ -131,6 +147,10 @@ def activate_final(state: RunState, *, approval_source):
 def implementation_schema(schema_dir):
     schema = goals.role_schema(support.read(schema_dir / "v2/terra-report.schema.json"), "terra")
     review = goals.role_schema(support.read(schema_dir / "v2/sol-report.schema.json"), "sol")
+    # A Builder self-assessment cannot issue independent changed-line reasons.
+    # Remove the field before the strict provider schema is made, not only in
+    # the prompt projection: final-only Builders use this canonical schema.
+    review["properties"].pop("changed_code_exceptions", None)
     schema["properties"]["continuation"] = goals.obj(
         {
             "action": {
@@ -380,6 +400,11 @@ def apply_checkpoint(runner, state: RunState, value, record, workspace, run_dir)
     runner._apply_result(state, "sol", validation, record, workspace, run_dir)
     cast(dict, state["validation"])["reviewer_role"] = "astra"
     cast(dict, state["validation"])["final_audit"] = final_only(state)
+    if changed_code_rework.queued(state, record):
+        state["stages"] = state.get("stages", [])[:stages]
+        state["history"] = state.get("history", [])[:history]
+        runner.save_record(state, record)
+        return
     if consult["requested"]:
         goals.execution_guard(state, decision)
         if support.criteria_definition(decision["acceptance_criteria"]) != support.criteria_definition(

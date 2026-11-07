@@ -101,6 +101,19 @@ class ReportRetryPolicyTests(unittest.TestCase):
                     self.assertNotIn("retry_report", actions)
                     self.assertNotIn("retry_failed_stage", actions)
 
+    def test_an_explained_rejection_keeps_its_exact_retry(self):
+        # The event-check rejection now says which call the cited command ran inside; the retry it offered stays.
+        state = self.state()
+        explained = (
+            "Check is not supported by an exact executed Validator event: it ran only inside "
+            "`node node_modules/vitest/vitest.mjs run 2>&1 | tail -15`, joined with other commands or piped into a filter"
+        )
+        state["pending_report_repair"]["error"] = explained
+        self.assertEqual("--resume-paused --retry-report 001/repair-01", run_view.needs(state)["action"])
+        self.assertTrue(retry.retryable(explained))
+        self.assertFalse(retry.retryable("Check is not supported by an exact executed Validator eventually"))
+        self.assertFalse(retry.retryable(None))
+
     def test_fresh_attempt_stopped_before_any_repair_names_itself(self):
         # An explicit retry that fails the same way is stopped by the bound before a correction or repair runs.
         state = self.state()

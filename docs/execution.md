@@ -133,8 +133,13 @@ permission boundaries still appear a second time there.
 
 Report sources are limited to 128 KiB each and the runner-supplied repair prompt to
 256 KiB, including provider-added schema/instructions. Missing, empty, or oversized
-inputs pause as `PAUSED_REPORT_REPAIR_INPUT` before another provider call, without
-charging a repair attempt. Full originals remain available for inspection; report
+inputs make the repair unlaunchable before another provider call, without charging a
+repair attempt. Such a repair is spent: the runner archives it, keeps the rejected
+reports, and starts a fresh attempt of the stage itself, without asking anyone. A
+stage whose repair could not launch three times on unchanged source pauses as
+`PAUSED_REPEATED_FAILURE` instead, and the Investigator diagnoses it. Only a repair the
+runner cannot restart this way (a native planning call) still pauses as
+`PAUSED_REPORT_REPAIR_INPUT`. Full originals remain available for inspection; report
 content is never silently truncated to satisfy the limit. Old pending OpenCode
 checkpoints with missing report files can materialize their terminal response locally
 from intact, pinned events instead of making the model search the log.
@@ -408,8 +413,8 @@ before a PASS is accepted, the runner requires its own current execution of each
   claim: a check that needs a server or other setup starts and stops it itself,
   for example with a script in the repository.
 - **What is refused.** A check that runs `git status` is refused before anything
-  runs: it reads the working tree's state, not the product, and a program re-runs
-  checks after the work is committed and merged, where it lists nothing
+  runs: it reads the working tree's state, not the product, and once the work is
+  committed and merged it lists nothing
   ([bug note](bugs/2026-10-06-replay-uncommitted-git-state.md)). So a new plan
   that names `git status` is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
@@ -636,6 +641,20 @@ look like one. On Windows, where a file's times can be set back and `st_ctime` i
 creation time, every snapshot rereads every file. The hashes and source revisions are
 the same as before.
 
+Those hashes live only in the memory of one AutoCode process (never in a file a stage
+could rewrite), so every new process reads the whole workspace once: 2.5–3 s on a
+13.6k-file project, and a chat starts a new process for each turn, each saved message
+and each status refresh. With `AUTOCODE_SOURCE_HOST=1` in the environment of the
+AutoCode process, `--status` and every other command ask a long-lived per-user helper
+(`autocode_source_host`) for the snapshot instead. The helper runs the same snapshot
+function with its own in-memory hashes and answers over a private Unix socket in a
+`0700` folder under the temporary directory; the answer is identical, and nothing is
+written to disk. One helper serves one code version and one Git environment, and it
+exits after 30 idle minutes. A process that finds no helper starts one and takes its
+own snapshot that time; a helper that fails or answers slowly is not asked again by
+that process. On the 13.6k-file project a status refresh drops from 1.5–3 s to about
+0.45 s. The setting is off by default while it is proven in live chats (#1707).
+
 Logical phases are `DISCOVERING`, `AWAITING_GOAL_APPROVAL`, `READY_TO_EXECUTE`,
 `EXECUTING`, `WAITING_FOR_USER`, `COMPLETE`, and `PAUSED_OR_BLOCKED`. While an initial
 interview awaits answers its phase is DISCOVERING and its status is WAITING_FOR_USER.
@@ -698,21 +717,18 @@ identity, host, command and any `--as` name, marked as a claim. A record saved w
 says it was not recorded, a workflow-policy approval says no person made it, and a run with none says
 `None recorded`. When the table names an approver, the report's "Not verified" list adds that
 approver identity is recorded as given; it also counts any records saved without a recorded
-approver. Because `autocode-issue pr` wraps that `evidence.md` exactly
+approver. Because `autocode issue pr` wraps that `evidence.md` exactly
 ([Issues](issues.md#what-it-does)), the pull request body lists the approvals too. A completed
-program's or components run's report lists its child runs' approvals, each with the child it
-came from, in the same way; the program agreement (`autocode program approve`) records no
-approver and is not among them, and neither are the approvals of a plan run the program was
-derived from ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
+components run's report lists its child runs' approvals, each with the child it came from, in
+the same way ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
 
 The scenario harness checks this record from outside on each task run a scenario completes,
-including a program's or a components run's own task runs (a program's plan run once its plan
-is approved). It reads `approvals` from that run's final `--status --json`, and each row a
+including a components run's own task runs. It reads `approvals` from that run's final `--status --json`, and each row a
 person made must name the scenario's person, the host and a command of option names only. Each
 plan and review approval the harness gave a run must also be listed among that run's own rows,
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
-In a program or components scenario each such gate names the task run it was given to, so an
-approval listed only in another workstream's run fails
+In a components scenario each such gate names the task run it was given to, so an
+approval listed only in another component's run fails
 ([scenarios/README.md](../scenarios/README.md)).
 
 #### Required approver
@@ -765,11 +781,9 @@ Not covered:
   replay re-applies the recorded run's own plan and review decisions through `TaskRun`, with
   no person approving, and keeps the recording's settings; checking those decisions against
   whoever runs the replay would refuse every replay a listed approver did not run.
-- `autocode program` and `autocode components`. Each child run reads `require-approver` from
-  its own Git worktree, checked out at a commit, so only a committed `.autocode/config.toml`
-  (or `pyproject.toml`) reaches it: an uncommitted change to the file in the project checkout
-  does not. `autocode program approve`, which approves the program's agreement, is never
-  checked.
+- `autocode components`. Each child run reads `require-approver` from its own Git worktree,
+  checked out at a commit, so only a committed `.autocode/config.toml` (or `pyproject.toml`)
+  reaches it: an uncommitted change to the file in the project checkout does not.
 
 ## Timeouts and watchdog
 
@@ -783,6 +797,18 @@ tool execution and total stage runtime:
 | `--max-tool-seconds` | `1800` | Stop a tool that exceeds its fixed deadline, including a quiet test command. Output and repeated starts do not extend this deadline. |
 | `--max-stage-seconds` | `3600` | Hard cap for the entire stage, enforced even while activity continues. |
 | `--max-seconds` | `43200` | Total active provider time for the run (its model attempts' durations added together), checked at stage boundaries and, when you set it, before an attempt on a stronger route (below). |
+
+The bug Investigator has one more stop, a reproduction-first budget (#1902). The runner reads
+the stage's own event stream, with no model, and counts completed source-reading and searching
+calls (file reads, `grep`, `find`, `cat`, `git log` and similar) until the first reproduction
+attempt: a command that runs code or tests, or a write in the scratch copy. When
+`limits.investigation_exploration_budget` such calls (default `30`; `0` disables; saved settings
+only, there is no flag yet) pass with no attempt, the stage stops early with the reason
+`Stopped after N source-exploration calls without attempting a reproduction`. It is a stage
+timeout (`PAUSED_PROVIDER_TIMEOUT`, then the usual `PAUSED_JOB_FAILURE` retry question), and the
+exact retry's handoff lists what the stopped attempt read (`explored_paths`,
+`reproduction_attempts`, `stop_kind`) as unverified leads. A command the classifier does not
+recognize counts as neither kind, so a miss delays this stop and never causes one.
 
 Each flag accepts `0` to disable that limit. The iteration ceiling has no new-run
 default; the two time limits above bound a run's spend instead, and Resolver may
@@ -844,7 +870,11 @@ is the runner default or was set explicitly, and how to change it (`autocode res
 --max-idle-seconds N`). Once the automatic recovery allowance is spent, the new
 limit is saved but no provider launches until `--grant-recovery N` is also given.
 Routes of a model family that reasons in long silent blocks run under a higher default:
-MiMo routes get 900 seconds when the limit is the runner default (`autocode_idle_policy`).
+MiMo routes get 900 seconds when the limit is the runner default (`autocode_idle_policy`), and so
+do the Requirements, Planner and Plan Reviewer launches at 600 seconds: those stages return one
+report and emit nothing before it, and live Planner calls for a large plan took 300 to 340 seconds.
+A MiMo Planner gets 900. A limit you set is used as given, the saved setting is never rewritten,
+and the stop text names the floor that applied.
 Native deltas count when the provider exposes them; wholly silent reasoning intervals
 still use the configured inactivity limit. An explicit `--max-idle-seconds` is always
 used as given, and the saved setting is not rewritten.
@@ -888,29 +918,38 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
 - **When it pauses.** The cap is checked at every stage boundary, right after the active-time limit,
   before anything launches. Once the spend reaches the cap the run stops with `PAUSED_COST_LIMIT`, in
   the *your decision* category, and AutoResolver publishes the usual operational request naming the
-  spend and the cap. Stages already running finish first, so a run can end above its cap by up to one
-  stage, or by one parallel batch: workers are charged when the parent accounts their batch.
+  spend and the cap. Stages already running finish first, so a run can end above its cap by a stage it
+  could not price (below), or by one parallel batch: workers are charged when the parent accounts their batch.
+- **Before an attempt the run can price.** Every attempt of a job that already ran in this run is priced
+  before it launches: the job's last attempt's recorded tokens at the saved route's rate. If the spend so far
+  plus that projection would pass the cap, the run stops with `PAUSED_COST_LIMIT` before the attempt starts,
+  and the stop names the job, its model and effort, the tokens behind the projection and the attempt they came
+  from, the spend, the total and the cap to resume with, for example `The next Builder attempt (gpt-6-sol at
+  high effort) did not launch: projected at $0.42, the last Builder attempt's 61,200 input and 9,800 output
+  tokens at gpt-6-sol's price, it would take the spend from $4.80 to $5.22, past the $5.00 cost cap ... resume
+  with --max-cost-usd 5.22 or more`. So a run under a cap never launches a stage it can price past the cap: before
+  it, the ledger could go from $1.81 to $2.96 inside one stage under a $2.00 cap, and only then pause. A job's
+  first attempt has no projection, nor does an attempt whose job's last attempt recorded no token counts or whose
+  model has no rate: those launch, and the stage-boundary check governs them. The projection is an estimate,
+  not a bound: the next attempt can use more or fewer tokens than the one it follows.
 - **Before an attempt on a stronger route.** Two kinds of climb move a struggling role to a stronger route: a
   milestone's Builder escalating to its stronger model (see [Builder retry policy](models.md#builder-retry-policy)),
   and a role climbing one rung of its effort ladder after it struggled, such as the Tester going from GPT-6 Sol
-  High to XHigh (see [Models](models.md#default-models)). The first attempt on the stronger route is priced
-  before it launches: the role's last attempt's recorded tokens at the stronger route's rate. If the spend so
-  far plus that projection would pass the cap, the run stops with `PAUSED_COST_LIMIT` before the attempt
-  starts, and the stop names the job, the rung or model and effort, the tokens behind the projection, the
-  spend, the total and the cap to resume with, for example `The Tester's climb to GPT-6 Sol Max (gpt-6-sol at
-  max effort) did not launch: projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the
-  $5.00 cost cap ... resume with --max-cost-usd 5.22 or more`. The projection is an estimate, not a bound:
-  a higher effort can use more tokens than the attempt it follows, and an effort climb on the same model is
-  priced like one more attempt on that model. Without a cap, a rate for the stronger model or token counts for
-  the last attempt there is no projection and nothing pauses here; once the stronger attempt has launched, the
-  stage-boundary check governs it. A parallel Builder sees only its own spend, so this check runs in the
-  serial run only; a parallel batch whose Builders would start on a climbed Builder route is not priced
-  before it launches, and the stage-boundary check governs it. The same attempt is also checked against an
-  active-time budget you set, after this check ([Timeouts and watchdog](#timeouts-and-watchdog)).
+  High to XHigh (see [Models](models.md#default-models)). The first attempt on the stronger route is priced the
+  same way, at the stronger route's rate, and its stop names the rung: `The Tester's climb to GPT-6 Sol Max
+  (gpt-6-sol at max effort) did not launch: projected at $0.42, ... it would take the spend from $4.80 to $5.22,
+  past the $5.00 cost cap ... resume with --max-cost-usd 5.22 or more`. A higher effort can use more tokens
+  than the attempt it follows, and an effort climb on the same model is priced like one more attempt on that
+  model. Once the stronger attempt has launched, the stage-boundary check governs it. A parallel Builder sees
+  only its own spend, so both checks run in the serial run only; a parallel batch whose Builders would start on
+  a climbed Builder route is not priced before it launches, and the stage-boundary check governs it. A climbed
+  attempt is also checked against an active-time budget you set, after the cost check ([Timeouts and
+  watchdog](#timeouts-and-watchdog)); an ordinary next attempt is not, and the stage-boundary check governs
+  its time.
 - **How it continues.** Only you decide: `autocode resume --max-cost-usd M` (or `--resume-paused
-  --max-cost-usd M`) with `M` above the spend, or `0` for no cap. After a stop before an attempt on a
-  stronger route, `M` must be at least the cap that stop names, or the run pauses again before the attempt.
-  The climb itself stays saved, so raising the cap lets that same attempt launch.
+  --max-cost-usd M`) with `M` above the spend, or `0` for no cap. After a stop before a priced attempt, `M`
+  must be at least the cap that stop names, or the run pauses again before the attempt. The route, and a
+  climb, stay saved, so raising the cap lets that same attempt launch.
   Restating a saved cap that is still above the spend acknowledges it too; restating an exhausted
   cap, a plain resume, information alone or any other setting does not, and the run stays paused.
   AutoCode never raises this cap itself: it is not a runner default, `--autoresolver-managed-limits`
@@ -946,6 +985,15 @@ the package, checked before each Tester and Completion Reviewer dispatch (not
 before the Code Reviewer, Designer or Design Reviewer) and by
 `--accept-completion`, and closes it when a later check finds no such change
 ([Monorepo packages](workflow.md#monorepo-packages)).
+When the regression proof owed for completion does not pass on the source about to
+be judged, it raises one naming the proof's reasons, checked before each Tester and
+Completion Reviewer dispatch (`tools/autocode_proof_findings.py`, #2475). It closes
+the finding when the proof passes on a source the finding has not failed on. A
+Completion Reviewer that asks to complete while it is open is sent back once for
+that source to review again; a second request pauses `PAUSED_COMPLETION_REVIEW`,
+which the Investigator takes. The completion gate no longer stops for the person
+to resume an unproven change. Runs with a workflow reviewer routing keep the
+completion gate as before.
 With milestone checkpoints, each finding also records the
 milestone criteria it was raised under, and a report closes it only if that report
 reviewed all of those criteria. A validation of different work, or a report-only
@@ -990,7 +1038,7 @@ and records what AutoCode itself did, one JSON object per event:
 
 | Event | Recorded |
 | --- | --- |
-| `invocation` | Program, flag names (never values), and caller: `unattended` through `autocode-unattended`, otherwise `direct`. Written by any command that saves the run. |
+| `invocation` | Program, flag names (never values), and caller: `unattended` through `autocode unattended`, otherwise `direct`. Written by any command that saves the run. |
 | `transition` | Status, phase, next stage, iteration, task ID, which of those changed, and the runner's stop reason (up to 500 characters) when the status changed. |
 | `stage_started` / `stage_finished` | Stage, role, route role, iteration, engine, model, task ID, times, duration, exit code, timeout, rejection, number of changed files, token counts. |
 | `findings` | Counts by status and severity. |
@@ -1003,7 +1051,7 @@ per-stage artifacts. Nothing is trimmed, unlike `progress_messages` in
 `state.json`. Only saves that change the run add lines, so read-only commands such
 as `--status` add none. A failure to append never fails the checkpoint.
 
-`autocode-unattended --analyze` summarizes the log (calls by caller, stages, stops,
+`autocode unattended --analyze` summarizes the log (calls by caller, stages, stops,
 operator decisions) and `--out` copies it. Runs saved before this log existed have
 no `activity.jsonl`; their log starts with the next save.
 
@@ -1031,17 +1079,27 @@ Builder stage also counts as an unchanged implementation batch; recoveries of
 planning and review stages do not, and unchanged batches never spend the recovery
 ceiling below. Consecutive timeouts without an accepted stage also
 pause at that configured limit for every role, including the Plan Reviewer and Tester.
-A successful stage resets the consecutive-timeout counter. A separate ceiling of
-three automatic recoveries covers timeouts and provider-capacity failures. External-directory
+A valid saved provider stage resets both the consecutive-timeout counter and the
+three-recovery failure streak (#1820). Failed, rejected, interrupted and runner-only
+reports do not renew the streak. Timeouts, startup failures and recoverable network
+failures still have their bounded recovery paths. External-directory
 denials have their own accounting instead: a denial retry never consumes the
 timeout-recovery budget, repeats of the same denied operation hold after one
 workspace-only retry, and distinct denials hold at their own ceiling of three
-recoveries without an accepted stage. Accepted
-intermediate reports and milestone-budget extensions do not reset these ceilings.
-Inspect the saved cause and adjust limits as needed; explicit `--resume-paused`
-acknowledges `PAUSED_TIMEOUT_RECOVERY` and resets recovery counters while retaining
-history. Setting `--no-progress-limit 0` disables the unchanged-batch limit, but
-never disables the three-recovery safety ceiling.
+recoveries without an accepted stage. Milestone-budget extensions do not renew
+recovery. A valid saved stage preserves every failed attempt, token, cost and time
+record; it does not extend any run limit, change a route or approve a plan.
+Three recovery failures without a valid saved stage still stop. A grant remains
+available after inspecting an actually exhausted streak; ordinary resume never
+grants more attempts to an unchanged failure.
+
+Older runs may already be held by the former run-wide counter even after successful
+stages. When the retained recovery/grant ledger balances and proves intervening
+success, status offers ordinary Resume. The core rechecks that request under its
+lock, corrects only the streak and retains a correction receipt, without a slot
+grant. Inconsistent or incomplete history stays held. Every other admission gate,
+including explicit time/cost limits, unchanged-failure holds and plan approval,
+still applies. Setting `--no-progress-limit 0` never disables the streak bound.
 A run held at `PAUSED_NO_PROGRESS` keeps its count. `--resume-paused
 --no-progress-limit N` acknowledges that pause when N is above the count, or `0`;
 an N at or below the count holds without launching the Builder. Information alone
@@ -1125,7 +1183,7 @@ receive the bounded automatic recovery above; other uncertain responses need ins
 first.
 
 An execution report whose two read-only repairs are exhausted, or whose repair
-cannot launch (`PAUSED_REPORT_REPAIR_INPUT`), can be retried with
+cannot launch and was not restarted automatically (`PAUSED_REPORT_REPAIR_INPUT`), can be retried with
 `--resume-paused`. If the same Validator report fails repeatedly, the failure
 guard may stop recovery earlier: the cheap serialization correction contributes
 to that guard but does not spend a full repair attempt. After correcting the
@@ -1148,7 +1206,10 @@ never applied stays paused instead, and its message names the `--abandon-stage`
 step. `--accept-completion` refuses a validation of another source, goal
 revision or task and says so; resume to re-validate first. A transport-change pause
 can be resumed with `--resume-paused --accept-transport-change` after Autocode checks
-that the current OpenCode models and subscription routes are available.
+that the current OpenCode models and subscription routes are available. A configured
+command tool's config read from another path with the same bytes, as when a run is resumed
+from another AutoCode checkout, is not a transport change: the run continues, keeps its
+saved identity, and records the move once in `configuration_changes`.
 
 To retain partial edits and set aside a stopped attempt manually:
 
@@ -1186,8 +1247,9 @@ returned no review, so its call is given back before the next attempt (see
 review earns a refund or a recovery call, never both. A review call admitted under
 this refund policy (since 2026-09-29) is always given back when it fails, so Resolver
 reserves no planning recovery calls for such calls. Repeated silence stops instead
-at the ceiling of three automatic recoveries above (`PAUSED_TIMEOUT_RECOVERY`), where
-`--grant-recovery N` authorizes more. The one-use reviewer route fallback needs a
+at the ceiling of three automatic recoveries above (`PAUSED_TIMEOUT_RECOVERY`). The
+Investigator diagnoses that stop first and may grant one more recovery itself; only when it
+pauses does `--grant-recovery N` authorize more. The one-use reviewer route fallback needs a
 recovery-funded second silent attempt, so it does not arise from such calls either.
 
 Review calls admitted before that policy stay charged. For their proven
@@ -1310,16 +1372,45 @@ Investigator recommends a retry, that retry admits the Builder until one attempt
 returns a result, as an accepted operational diagnosis's does; a spent diagnosis
 retry does not hide it. An investigation of a novelty hold grants nothing.
 
-The explicit `--resume-paused --retry-failed-stage` control can authorize one
-scoped retry of a recorded hold under the existing limits. It retains previous
-attempts and evidence; ordinary resume is not that authorization. Unlike a
-diagnosis's retry, it is spent by the attempt it admits even if that attempt
-times out, and so is a `--retry-builder` grant. The grant does not carry over to
+When the same incident repeats with nothing new (no bounded correction, no
+changed input, no unspent grant), the hold is still raised, but the stage loop's
+recovery chain settles it (`autocode_resolver_recovery.recover_no_progress`,
+#2485): AutoCode records the one scoped retry grant a person used to give with
+`--retry-failed-stage` itself (an `actor: autocode` entry in
+`failure_retry_authorizations`, bound to the packet and the hold's binding), and
+the next dispatch spends it under the existing limits; the dispatch receipt names
+the grant kind `automatic`. A person is never asked to authorize it. If the same
+hold comes back after that retry, nothing automatic is left: the run ends there
+with a finished, failed outcome recorded as a stop receipt AutoCode applied
+itself (`autocode_stop.end`), and the status view shows "AutoCode could not
+finish this task" with the reason and the incident's evidence packet
+(`recovery.outcome`), as it shows a person's own stop. The run launches no
+further stages and offers no retry flag, packet path or token. A hold for another
+reason (a diagnosis without a causal question, a known cause that needs its
+deterministic correction, an unreconciled attempt), or one whose source, settings
+or scope no longer match, still waits as before, and the explicit
+`--resume-paused --retry-failed-stage` control can authorize one scoped retry of
+such a recorded hold under the existing limits. It retains previous attempts and
+evidence; ordinary resume is not that authorization. Unlike a diagnosis's retry,
+it is spent by the attempt it admits even if that attempt times out, and so is a
+`--retry-builder` grant. The grant does not carry over to
 the automatic recovery that follows. A relaunch of the same stage is admitted or
 held by novelty as it would be without the grant; a Builder timeout outside
 final-audit-only routing goes to the Completion Reviewer instead.
 Permission, product and scope decisions still require their existing bound human
 controls.
+
+The Builder retry policy settles its own ladder the same way (#2597). The
+ordinary retries and the stronger attempt stay automatic; when the ladder is
+spent — the stronger attempt failed, the provider offers no stronger Builder
+model, or that model would be checked by its own model — the run ends there with
+the same recorded outcome (`autocode_stop.end`): "AutoCode could not finish this
+task" with the reason (the milestone, the failing incident and the evidence
+ledger's novelty note) and the incident's evidence packet. The reason names no
+CLI flag and no provider-config key; a route or cost choice about the next run
+stays the person's, made before the run starts. `PAUSED_BUILDER_RETRY_LIMIT`
+occurs only in saved runs from before this change; they keep the Investigator's
+diagnosis and the explicit `--resume-paused --retry-builder` operator flag.
 
 ### Budget ownership and human escalation
 
@@ -1404,7 +1495,8 @@ recovery flag) consumes it, without a provider call:
   evaluation; Resolver asks a fresh request for it the same way.
 - If the stop needs an operator control that information cannot supply (a spent
   automatic-recovery allowance, a reached time, iteration, milestone or
-  no-progress bound, a repeated failure, a Builder retry limit, a stopped
+  no-progress bound, a repeated failure, a Builder retry limit (saved runs only:
+  a new run ends with a recorded could-not-finish outcome instead), a stopped
   parallel member, a parallel member stopped on its quota or by its
   provider's content filter, a stalled milestone, spent report-only repairs, an
   unreconciled attempt), the run stays paused. A member stopped on its model
@@ -1451,7 +1543,10 @@ cannot be guaranteed resolvable; automatic recovery is bounded rather than infin
 ## Native tool containment
 
 The Plan Reviewer and Tester use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
-Built-in OpenCode execution launches in this checkout additionally require a
+Every Planner has a shell (owner decision 2026-10-21) so it can compute the values its examples state:
+Codex's read-only sandbox, Claude Code's `Bash`, and on OpenCode and Kilo the same contained shell the
+read-only checkers get, which also cannot read the run's private state. A planning report recovery has no tools.
+Built-in OpenCode launches in this checkout, planning included, additionally require a
 qualified kernel shell boundary on OpenCode 1.18.33: macOS Seatbelt
 (`/usr/bin/sandbox-exec`) or, on Linux, bubblewrap (`/usr/bin/bwrap`, see
 [below](#linux-bubblewrap-boundary)). Each launch uses a
@@ -1486,8 +1581,8 @@ ways on:
 
 - Use the qualified setup.
 - Add `--allow-uncontained-tools` to the new run or to the resume. The Builder,
-  Validator, Completion Reviewer, Resolver, Investigator and workflow-job stages
-  then launch with OpenCode's own permission checks and the workspace snapshot
+  Validator, Completion Reviewer, Resolver, Investigator, workflow-job and planning stages
+  (the Planner's shell keeps edits denied) then launch with OpenCode's own permission checks and the workspace snapshot
   checks only, with no kernel containment and no boundary prompt. The choice is
   saved with the run (it is not repeated on later resumes) and recorded as an
   `uncontained_tools_accepted` user event with the time and reason. Each such stage record says
@@ -1527,10 +1622,11 @@ task worktrees), `arena` (`autocode arena` attempts and their runs), `builders`
 archives), `conversation-handoffs` (requirements conversation handoffs),
 `conversation-starts` (conversation start markers), `investigation` (bug
 investigation workspaces), `issues` (`autocode issue` worktrees and their runs),
-`programs`, `pull-reviews` (`autocode review-pr` checkouts and their runs),
+`programs` (state an `autocode program` left; that command is archived on the
+`archive/program` branch), `pull-reviews` (`autocode review-pr` checkouts and their runs),
 `registry` (the run registry), `replay` (replay recordings), `task-flows`,
-`verification` (`autocode verify` checkouts and reports) and `worktrees` (task and
-program worktrees). The list is not every place a run can be kept: a run kept
+`verification` (`autocode verify` checkouts and reports) and `worktrees` (task
+worktrees, and any an archived program made). The list is not every place a run can be kept: a run kept
 elsewhere in the workspace (an `--out` or `--arena` directory outside these
 stores, or another `.autocode` directory) is not denied. Each store that exists
 when the launch is prepared is denied. The launch creates none of them: the only

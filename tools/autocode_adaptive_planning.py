@@ -7,11 +7,12 @@ saved run keeps its planning flow. Without it the build pipeline is the fixed on
 requirements, draft, challenge, revise, finalize. With it, each decision is made by
 the first stage that has the evidence:
 
-- Clarity, from the request text, at recognition. A build request the recognizer
-  calls ``clear`` skips the Requirements stage; the Planner takes the requirements
-  from the request itself. A follow-up with a saved requirements handoff refreshes
-  that handoff first, so the new request is not bound to the previous request's IDs.
-  Clarity is a property of the text, so the recognizer, which reads no files, can judge it.
+- Clarity no longer skips anything. Requirements is the first stage of every run and
+  follow-up turn (owner decision 2026-10-22, #1860), so a build request judged ``clear``
+  is gathered like any other. The judgment is still made, by the stage that names the
+  job: Requirements, by the recognizer's rule (``requirements_judge_clarity``), or the
+  recognizer where it still runs. It keeps a small clear brief's Plan Reviewer at
+  reduced depth (units.autoplanner.review_depth_reduced, #1564).
 - Convergence, from the Plan Reviewer. The Planner's draft carries its initial_task,
   so a first review with no blocking concern approves an ordinary draft as written and it
   goes to the user. Progressive delegations retain revision and final independent review.
@@ -32,11 +33,11 @@ build plan, and the Validator and Completion Owner still judge the work.
 This module is pure. It imports nothing from the runner; callers pass state in.
 
 State keys written by callers from these decisions:
-    workflow.clarity: "clear" | "vague", saved by autocode_workflows.apply. Evidence of why
-        Requirements was skipped; nothing in tools/ branches on it after recognition.
-        scenarios/harness/plan_compare.py reads it from state.json.
-    workflow.requirements_skipped: whether that clarity sent the turn straight to the Planner,
-        saved by autocode_workflows.apply where clarity decides it.
+    workflow.clarity: "clear" | "vague", saved by autocode_workflows.apply. Read by
+        units.autoplanner.review_depth_reduced and, from state.json, by
+        scenarios/harness/plan_compare.py.
+    workflow.requirements_skipped: whether clarity sent the turn straight to the Planner. Written
+        only by runs from before 2026-10-22; the status view still shows a saved value.
     planning.adaptive: {"size", "signals", "review_limit", "challenges", "approved_at",
         "final_stage"}, saved by units.autoplanner.after_challenge. Read by
         units.autoplanner.after_revise (challenges), autocode_resolver_human._decision
@@ -59,9 +60,11 @@ if TYPE_CHECKING:
 try:
     from . import autocode_prompts as prompts
     from . import autocode_roles as roles
+    from . import autocode_run_status as run_status
 except ImportError:
     import autocode_prompts as prompts
     import autocode_roles as roles
+    import autocode_run_status as run_status
 
 
 import copy
@@ -75,6 +78,9 @@ LARGE_PLAN_REVIEW_LIMIT = 3
 MAX_CHALLENGES = 3
 
 RECOGNIZER_RULE = prompts.get("fragments/adaptive-planning/recognizer-rule.md")
+
+# Requirements names the job instead of the recognizer (#1846, #1860), so it judges clarity too.
+REQUIREMENTS_CLARITY_RULE = prompts.get("fragments/adaptive-planning/requirements-clarity-rule.md")
 
 PLANNER_RULE = prompts.get("fragments/adaptive-planning/planner-rule.md")
 
@@ -90,6 +96,8 @@ RERUN_RULE = prompts.get("fragments/adaptive-planning/rerun-rule.md")
 FEEDBACK_TRACE_RULE = prompts.get("fragments/adaptive-planning/feedback-trace-rule.md")
 
 FEEDBACK_REVIEW_RULE = prompts.get("fragments/adaptive-planning/feedback-review-rule.md")
+# A review approved the draft, but the runner could not install it (autoplanner.after_challenge, #1630).
+APPROVAL_REFUSED_RULE = prompts.get("fragments/adaptive-planning/approval-refused-rule.md")
 FEEDBACK = "revises_plan"
 
 
@@ -120,6 +128,17 @@ def recognizer_rule(state: RunState) -> str:
     return RECOGNIZER_RULE if enabled(state) else ""
 
 
+def requirements_judge_clarity(state: RunState) -> bool:
+    """Whether Requirements reports clarity: in an adaptive run, while it names the job (#1846, #1860).
+
+    The recognizer judged clarity before; Requirements is now the first stage of every run and names
+    the job instead, so it judges clarity by the same rule. Without it units.autoplanner.review_depth_reduced
+    never saw a small clear brief. A known job (pinned with --workflow, or named earlier in the turn) is
+    not judged again."""
+    workflow = state.get("workflow")
+    return enabled(state) and isinstance(workflow, dict) and workflow.get("kind") is None
+
+
 def recognizer_schema(state: RunState, base: dict) -> dict:
     """The recognizer's report schema; adaptive runs also report clarity."""
     if not enabled(state):
@@ -127,21 +146,6 @@ def recognizer_schema(state: RunState, base: dict) -> dict:
     schema = copy.deepcopy(base)
     schema["properties"]["clarity"] = {"type": "string", "enum": list(CLARITY)}
     return schema
-
-
-def entry_stage(state: RunState, value: dict, then: str, planner_stage: str) -> str:
-    """Skip Requirements for clarity only when no prior-turn handoff needs refreshing."""
-    refresh_follow_up = bool(state.get("turns") and state.get("requirements_handoff"))
-    if (
-        enabled(state)
-        and value.get("workflow") == "build"
-        and value.get("clarity") == "clear"
-        and then == "requirements_gather"
-        and not refresh_follow_up
-        and not (state.get("settings") or {}).get("spec_first")  # #1200: the user confirms Requirements first
-    ):
-        return planner_stage
-    return then
 
 
 def report_schema(state: RunState, stage: str, base: dict, planning_body: dict) -> dict:
@@ -168,11 +172,14 @@ def prompt_rule(state: RunState, stage: str) -> str:
             + (RERUN_RULE if can_rerun(state) else "")
         )
     if stage == "glm_revise":
-        return PLANNER_RULE + (FEEDBACK_TRACE_RULE if feedback else "")
+        refused = ((state.get("planning") or {}).get("adaptive") or {}).get("approval_refused")
+        return PLANNER_RULE + (FEEDBACK_TRACE_RULE if feedback else "") + (APPROVAL_REFUSED_RULE if refused else "")
     if stage == "astra_challenge":
         return REVIEW_RULE + (FEEDBACK_REVIEW_RULE if feedback else "")
     if stage == "astra_finalize":
         return FEEDBACK_TRACE_RULE if feedback else ""
+    if stage == "requirements_gather" and requirements_judge_clarity(state):
+        return REQUIREMENTS_CLARITY_RULE
     return ""
 
 
@@ -183,14 +190,20 @@ def _handoff(state: RunState) -> str:
 
 def feedback_marker(state: RunState) -> dict:
     """What to save on a brief_feedback event given now: {FEEDBACK: ...} when it revises the plan the user was
-    shown (an adaptive run, on the default joint-planning flow, waiting for approval of a complete plan), else {}.
+    shown (an adaptive run, on the default joint-planning flow, waiting for approval or at the approved
+    acceptance-test hold), else {}. A correction revokes approval in the caller; it does not discard the
+    stable requirements. The Planner can still return a genuine requirements change to Requirements.
     Feedback while questions are open, or queued during execution, keeps the full pipeline."""
     settings = state.get("settings") or {}
     if (
         enabled(state)
         and settings.get("joint_planning")
         and roles.planning_flow(settings) != "v2"
-        and state.get("status") == "AWAITING_GOAL_APPROVAL"
+        and (
+            state.get("status") == "AWAITING_GOAL_APPROVAL"
+            or state.get("status") == "PAUSED_ACCEPTANCE_TESTS"
+            and (state.get("goal_contract") or {}).get("approval_status") == "approved"
+        )
         and (state.get("goal_contract") or {}).get("body")
     ):
         return {FEEDBACK: {"requirements_handoff": _handoff(state)}}
@@ -200,6 +213,12 @@ def feedback_marker(state: RunState) -> dict:
 def feedback_stage(event: dict, default: str) -> str:
     """The first stage after a brief_feedback event: the Planner when the feedback revises the shown plan."""
     return "astra_discovery" if event.get(FEEDBACK) else default
+
+
+def feedback_pause_reason(event: dict) -> str:
+    """Explain the saved feedback checkpoint using the same plan-revision marker as its route."""
+    stage = "Planner revision" if event.get(FEEDBACK) else "Requirements discovery"
+    return f"{run_status.APPLIED_FEEDBACK_PREFIX} explicitly continue to {stage}."
 
 
 def feedback_requirements(state: RunState) -> list[dict]:
@@ -305,6 +324,7 @@ def view(state: RunState) -> dict:
     workflow = mapping(state.get("workflow"))
     record = mapping(mapping(state.get("planning")).get("adaptive"))
     limit, challenges = record.get("review_limit"), record.get("challenges")
+    uncited = mapping(state.get("planning")).get("uncited_sentences")
     return {
         "adaptive": bool(mapping(state.get("settings")).get(SETTING)),
         "clarity": workflow.get("clarity") if workflow.get("clarity") in CLARITY else None,
@@ -316,4 +336,5 @@ def view(state: RunState) -> dict:
         "review_limit": limit if type(limit) is int else None,
         "challenges": challenges if type(challenges) is int else 0,
         "approved_early": bool(record.get("approved_at")),
+        "uncited_sentences": len(uncited) if isinstance(uncited, list) else 0,
     }

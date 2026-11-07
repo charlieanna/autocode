@@ -10,9 +10,11 @@ Strict tool containment stays qualified only for the pinned 1.x release.
 from __future__ import annotations
 
 try:
+    from .. import autocode_changed_code_review as changed_code_review
     from .. import autocode_native_locators as native_locators
     from .. import autocode_prompts as prompts
 except ImportError:
+    import autocode_changed_code_review as changed_code_review
     import autocode_native_locators as native_locators
     import autocode_prompts as prompts
 
@@ -216,7 +218,10 @@ def _probe_version(workspace, *, env=None):
     cwd = workspace if env is not None else None
     executable = env_prep.resolve_executable("opencode", effective, cwd=cwd, allow_default_path=env is None)
     if not executable:
-        raise RuntimeError("OpenCode is not on PATH; no provider request was launched")
+        raise RuntimeError(
+            "OpenCode is not on PATH; no provider request was launched. Run `autocode setup` to connect Claude "
+            "Code, Codex, OpenCode or Kilo; an installed Claude Code or Codex runs with --engine claude or --engine codex"
+        )
     try:
         result = env_prep.preflight_run(
             [executable, "--version"], effective, cwd=cwd, capture_output=True, text=True, timeout=15
@@ -277,7 +282,13 @@ def transport_drift(current, checkpoint):
                 if hashlib.sha256(raw).hexdigest() == previous and _inert_native_config(raw):
                     checkpoint["config_hashes"][name] = None
     if checkpoint.get("identity_version", 1) >= 2:
-        return current != checkpoint
+        current_normalized = copy.deepcopy(current)
+        checkpoint_normalized = copy.deepcopy(checkpoint)
+        for identity in (current_normalized, checkpoint_normalized):
+            config_hashes = identity.get("config_hashes", {})
+            if config_hashes:
+                identity["config_hashes"] = {k: v for k, v in config_hashes.items() if v is not None}
+        return current_normalized != checkpoint_normalized
     # Old checkpoints did not record every config source. Check every identity
     # field they *did* record before establishing the expanded baseline.
     for key in ("engine", "executable", "version"):
@@ -428,6 +439,7 @@ def launch(
     sandbox=None,
     env=None,
     containment=None,
+    planning_shell=False,
     opencode_version=None,
     isolation=None,
     image_preparation=None,
@@ -472,9 +484,10 @@ def launch(
     permissions = {"task": "deny", "question": "deny", "plan_enter": "deny", "plan_exit": "deny"}
     if not allow_write:
         permissions["edit"] = "deny"
-    if planning and isolation is None:
-        # An explicit read-tools-only planning agent: no shell, delegation, MCP,
-        # plugins' tools or edit escape hatch. The runner persists its report.
+    if planning and isolation is None and containment is None:
+        # An explicit read-tools-only planning agent: no delegation, MCP, plugins' tools or edit escape hatch.
+        # Its shell is the kernel-contained one (containment, which narrows the agent to bash itself) or, when the
+        # person accepted uncontained tools, OpenCode's own (planning_shell). The runner persists its report.
         permissions = {
             "*": "deny",
             "read": "allow",
@@ -482,7 +495,7 @@ def launch(
             "grep": "allow",
             "list": "allow",
             "edit": "deny",
-            "bash": "deny",
+            "bash": "allow" if planning_shell else "deny",
             "task": "deny",
             "question": "deny",
             "external_directory": "deny",
@@ -591,10 +604,30 @@ def launch(
 
 
 def prompt_for_schema(prompt, schema, events):
+    schema = changed_code_review.prompt_order(schema)
+    properties = schema.get("properties", {})
+    if "assistant_reply" in properties and not any(
+        name in properties for name in ("checks", "criterion_results", "commands_run", "evidence_refs")
+    ):
+        instructions = prompts.get("fragments/provider-opencode/conversation-output.md").format(events=events)
+        instructions += "\n" + json.dumps(schema, separators=(",", ":")) + "\n"
+        return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
+    if tool_handoff.planning_packet(prompt):
+        instructions = prompts.get("fragments/provider-opencode/planning-output.md")
+        instructions += "\n" + json.dumps(schema, separators=(",", ":")) + "\n"
+        return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
+    # A standalone code review reports findings and tests_run, not build
+    # acceptance checks. Do not inject a different job's receipt protocol.
+    review_fields = {"change_under_review", "change_patch", "findings", "delivered_tests", "tests_run"}
+    evidence_fields = {"checks", "criterion_results", "commands_run", "evidence_refs"}
+    if review_fields <= properties.keys() and not evidence_fields.intersection(properties):
+        instructions = prompts.get("fragments/provider-opencode/review-output.md").format(events=events)
+        instructions += "\n" + json.dumps(schema, separators=(",", ":")) + "\n"
+        return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
     prompt = tool_handoff.with_capture_command(prompt)
+    prompt = tool_handoff.with_stage_events_log(prompt, events)
     instructions = (
         prompts.get("fragments/provider-opencode/prompt-for-schema-02.md")
-        + str(events)
         + prompts.get("fragments/provider-opencode/prompt-for-schema.md")
         + json.dumps(schema, separators=(",", ":"))
         + "\n"
@@ -616,6 +649,41 @@ def raw_events(path):
     return rows
 
 
+def _duplicate_empty_machine_resolutions(final):
+    """Recover only the observed redundant empty parameter after one complete JSON report (#2452)."""
+    suffix = '<parameter name="machine_resolutions">[]</parameter>'
+    if not final.startswith("{") or not final.endswith(suffix):
+        return None
+
+    def unique_object(pairs):
+        result = {}
+        for name, value in pairs:
+            if name in result:
+                raise ValueError("Duplicate report key")
+            result[name] = value
+        return result
+
+    def non_json_constant(_value):
+        raise ValueError("Non-JSON report constant")
+
+    try:
+        report, end = json.JSONDecoder(object_pairs_hook=unique_object, parse_constant=non_json_constant).raw_decode(
+            final
+        )
+    except ValueError:
+        return None
+    if (
+        final[end:].strip() != suffix
+        or not isinstance(report, dict)
+        or type(report.get("machine_resolutions")) is not list
+        or report["machine_resolutions"]
+    ):
+        return None
+    # The suffix contributes no data: the complete object already names exactly that empty field.
+    # Do not fill absent fields, choose between conflicting values or rewrite any report content.
+    return report
+
+
 def _trailing_report(final, *, copies=1):
     """Recover a reply of prose followed by the complete JSON report and nothing else.
 
@@ -624,7 +692,9 @@ def _trailing_report(final, *, copies=1):
     and was repaired at full cost). Accept any prose lead without a code fence as long
     as the message ENDS with one complete JSON object, so a fragment quoted inside an
     explanation or a second object is never taken for the report. Report-only repairs
-    (``copies=2``) also accept the same object repeated twice. Every recovered report is
+    (``copies=2``) also accept the same object repeated twice, or one complete
+    object followed by exactly one redundant closing brace. No content is invented
+    or selected between conflicting reports. Every recovered report is
     still validated against the stage's schema by the runner."""
     start = final.find("{")
     if start < 0 or "```" in final[:start]:
@@ -641,6 +711,10 @@ def _trailing_report(final, *, copies=1):
             return None
         reports.append(report)
         remaining = remaining[end:].strip()
+        if copies == 2 and len(reports) == 1 and remaining == "}":
+            # A completed report-only MiMo repair repeated its final delimiter (#1747).
+            # The complete object is unambiguous; raw response/event bytes stay retained.
+            remaining = ""
     if remaining or not reports or any(report != reports[0] for report in reports[1:]):
         return None
     return reports[0]
@@ -668,6 +742,9 @@ def final_report(path, *, recover_wrapped=False, response_path=None):
     try:
         report = json.loads(final)
     except ValueError:
+        report = _duplicate_empty_machine_resolutions(final)
+        if report is not None:
+            return report  # Raw terminal response was captured above; ordinary runner validation still follows.
         # OpenCode can emit commentary and the final report as distinct text
         # parts under the same completed message. Accept the final complete JSON
         # part only when there is exactly one JSON-object part in that message.

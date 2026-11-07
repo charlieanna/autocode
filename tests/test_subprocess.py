@@ -146,7 +146,11 @@ class SubprocessFlow(unittest.TestCase):
         self.launch(["Build greeting and goodbye", "--chat"], 0, answers="CLI\nyes\n")
         run, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])
-        execution = [r["stage"] for r in state["stages"] if r["stage"] not in ("recognize_workflow", "astra_discovery")]
+        execution = [
+            r["stage"]
+            for r in state["stages"]
+            if r["stage"] not in ("recognize_workflow", "astra_discovery") and not r.get("runner_owned")
+        ]
         self.assertEqual(["astra_plan", "terra", "sol", "astra_review", "terra", "sol", "astra_review"], execution)
         self.assertEqual({"M1", "M2"}, {r["id"] for r in state["milestone_progress"].values() if r["accepted"]})
         first = next(r for r in state["milestone_progress"].values() if r["id"] == "M1")
@@ -161,24 +165,27 @@ class SubprocessFlow(unittest.TestCase):
         self.env["AUTOCODE_FIXTURE_MODE"] = "stalled"
         # Keep this a pure execution-budget fixture; default replan holds have public CLI coverage.
         self.launch(["Build greeting", "--max-milestone-stalled-reviews", "0", "--chat"], 2, answers="CLI\nyes\n")
-        run, state = self.saved()
+        run = next((self.project / ".autocode/runs").iterdir())
         status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
         self.assertIsNone(status["milestone_checkpoint"]["limits"]["stalled_reviews"])
         self.assertFalse(status["milestone_checkpoint"]["current"]["needs_replan"])
-        # Identical defects need real operator grants before consuming the
-        # remaining configured escalation, rather than fresh-session retries.
-        for _ in range(2):
-            if state["status"] == "PAUSED_BUILDER_RETRY_LIMIT":
-                break
-            self.assertIn("No causal progress", state["stop_reason"])
-            before = [row for row in state["stages"] if not row.get("runner_owned")]
-            self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
-            self.assertEqual(before, [row for row in self.saved()[1]["stages"] if not row.get("runner_owned")])
-            self.launch(["--run-dir", str(run), "--resume-paused", "--retry-failed-stage", "--no-chat"], 2)
-            _, state = self.saved()
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
-        self.assertEqual(["retry", "escalate", "pause"], [r["action"] for r in state["builder_retry_decisions"]])
-        self.assertEqual(3, sum(r["stage"] == "terra" for r in state["stages"]))
+        view = status["view"]
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertEqual("could_not_finish", view["recovery"]["outcome"]["result"])
+        self.assertEqual(3, view["recovery"]["outcome"]["evidence"]["attempt"])
+        attempts = view["usage"]["accounting"]["attempts"]
+        builders = [row for row in attempts if row["stage"] == "terra"]
+        self.assertEqual(["gpt-5.6-terra", "gpt-5.6-terra", "gpt-6-sol"], [row["model"] for row in builders])
+        self.assertIsNone(view["next_command"], "an exhausted run must not offer another attempt")
+        self.assertTrue(all(not action.get("next_command") for action in view["recovery"]["actions"]))
+        # Reopening and obsolete retry flags cannot spend another model call.
+        for flags in ([], ["--resume-paused"], ["--resume-paused", "--retry-failed-stage"]):
+            self.launch(["--run-dir", str(run), "--no-chat", *flags], 2)
+            reopened = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
+            self.assertEqual("PAUSED_INTERVENTION", reopened["status"])
+            self.assertEqual(view["recovery"]["outcome"], reopened["recovery"]["outcome"])
+            self.assertEqual(attempts, reopened["usage"]["accounting"]["attempts"])
+            self.assertEqual(view["cost"], reopened["cost"])
 
     def test_queued_checkpoint_migration_preserves_work_and_never_launches_on_activation(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
@@ -217,10 +224,11 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(["FAIL"], [row["validation"]["verdict"] for row in state["validation_archive"]])
         self.assertIn("Keep Unicode support", state["goal_contract"]["body"]["constraints"])
         self.assertEqual(1, sum(e["kind"] == "goal_approval" for e in state["user_events"]))
-        # The Validator's failing finding and the Plan Reviewer's structured REWORK finding share one ledger,
-        # were linked to the correction task, and were closed by the reviewers' next reports.
+        # The Validator's failing finding, the Plan Reviewer's structured REWORK finding and the runner's
+        # proof finding (the first attempt's untested lines, #2474) share one ledger, were linked to the
+        # correction task, and were closed by the reviewers' next reports and the passing proof.
         ledger = state["findings_ledger"]
-        self.assertEqual({"sol", "astra"}, {row["source"] for row in ledger})
+        self.assertEqual({"sol", "astra", "runner"}, {row["source"] for row in ledger})
         self.assertTrue(all(row["status"] == "resolved" and row["resolved_in"] for row in ledger))
         rework_task = [
             t for t in [*state.get("task_archive", []), state["current_task"]] if t.get("decision") == "REWORK"
@@ -233,7 +241,7 @@ class SubprocessFlow(unittest.TestCase):
             ]
         ).read_text()
         handoff = json.loads(rework_prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
-        self.assertEqual({"sol", "astra"}, {row["source"] for row in handoff["open_findings"]})
+        self.assertEqual({"sol", "astra", "runner"}, {row["source"] for row in handoff["open_findings"]})
         self.assertIn("Acceptance evidence:", result.stdout)
         self.assertIn("End-to-end flow: PASS", result.stdout)
         executed = [
@@ -372,7 +380,9 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(stage_count, len(paused["stages"]))
         self.launch([*args, "--resume-paused"], 0)
         _, final = self.saved()
-        self.assertEqual(["sol", "astra_review"], [r["stage"] for r in final["stages"][stage_count:]])
+        self.assertEqual(
+            ["sol", "astra_review"], [r["stage"] for r in final["stages"][stage_count:] if not r.get("runner_owned")]
+        )
         evidence = Path(next(iter(final["validation"]["evidence_hashes"])))
         # Deliberate external corruption bypasses the normal read-only event log guard.
         evidence.chmod(evidence.stat().st_mode | 0o200)

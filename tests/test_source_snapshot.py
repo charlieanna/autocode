@@ -1,6 +1,7 @@
 """Real Git controls for explicitly selected ignored source deliverables."""
 
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -186,6 +187,54 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
         document.write_text("Edited deliverable\n")
         self.assertNotEqual(exact["revision"], source.snapshot(self.root, paths=exact["source_paths"])["revision"])
         self.assertEqual(util.snapshot(self.root)["revision"], before["revision"])
+
+    def test_copied_input_identity_uses_nested_bytes_and_refuses_a_changed_input_or_parent_link(self):
+        nested = self.nested_repository()
+        expected = source.inventory(self.root)
+        self.assertIn("module/code.py", expected)
+        copied = self.root / ".autocode/flat-inputs"
+        copied.mkdir(parents=True)
+        for name in expected:
+            target = copied / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.root / name, target)
+        self.assertFalse((copied / "module/.git").exists())
+        self.assertEqual(expected, source.copied_files(copied, expected))
+        (copied / "module/code.py").write_text("value = 2\n")
+        self.assertNotEqual(expected, source.copied_files(copied, expected))
+        shutil.rmtree(copied / "module")
+        (copied / "module").symlink_to(nested, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlinked parent"):
+            source.copied_files(copied, expected)
+        with self.assertRaises(ValueError):
+            source.copied_files(copied, ["../outside"])
+
+    def test_untracked_nested_repository_inventory_has_canonical_paths(self):
+        nested = self.root / "untracked"
+        nested.mkdir()
+        subprocess.run(["git", "init", "-q", str(nested)], check=True)
+        (nested / "code.py").write_text("value = 1\n")
+        subprocess.run(["git", "-C", str(nested), "add", "."], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(nested),
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=t@example.invalid",
+                "commit",
+                "-qm",
+                "Nested input",
+            ],
+            check=True,
+        )
+        self.assertIn("untracked/", source.snapshot(self.root)["files"])
+        inputs = source.inventory(self.root)
+        self.assertIn("untracked/code.py", inputs)
+        self.assertFalse(any("//" in name for name in inputs))
+        self.assertEqual(inputs, source.copied_files(self.root, inputs))
 
     def test_nested_selected_deliverable_reaches_copy_diff_and_clean_replay(self):
         import shlex

@@ -1,5 +1,6 @@
 """Issue to pull request: autocode_github and the autocode-issue CLI. See docs/issues.md."""
 
+import argparse
 import contextlib
 import io
 import json
@@ -86,6 +87,23 @@ class ClientTests(unittest.TestCase):
         with self.assertRaisesRegex(github.GitHubError, "GITHUB_TOKEN"):
             client.open_pull_request("acme", "widgets", head="b", base="main", title="t", body="b")
         self.assertEqual([], calls)
+
+    def test_open_issues_reads_one_label_and_skips_pull_requests(self):
+        client, calls = self.client([(200, [{"number": 7, "state": "open"}, {"number": 8, "pull_request": {}}])])
+        rows = client.open_issues("acme", "widgets", "autocode")
+        self.assertEqual([{"number": 7, "state": "open"}], rows)
+        self.assertEqual(
+            "https://api.example/repos/acme/widgets/issues?labels=autocode&state=open&per_page=100", calls[0][1]
+        )
+
+    def test_an_issue_comment_needs_a_token_and_carries_the_body(self):
+        client, calls = self.client([(201, {"id": 51})])
+        created = client.issue_comment(REF, "taken")
+        self.assertEqual({"id": 51}, created)
+        self.assertEqual({"body": "taken"}, calls[0][3])
+        client, _ = self.client([], token="")
+        with self.assertRaisesRegex(github.GitHubError, "GITHUB_TOKEN"):
+            client.issue_comment(REF, "taken")
 
 
 class BriefTests(unittest.TestCase):
@@ -257,6 +275,42 @@ class NextStepsTests(unittest.TestCase):
                     f"  Once the cause is resolved: {command} --workspace /p --run-dir /p/.autocode/runs/run-1",
                     issue_cli.next_steps(self.RECORD, view)[-1],
                 )
+
+    def test_every_wait_for_the_person_offers_the_runs_chat_first(self):
+        # Chat everywhere (#1731): the conversation comes first; the one-shot commands stay for scripts.
+        chat = "  Talk it through in chat: autocode chat --workspace /p --run-dir /p/.autocode/runs/run-1"
+        for need in (
+            {"kind": "approve_plan", "token": "r1:abc"},
+            {"kind": "answer", "questions": [{"id": "Q1", "question": "Which?"}]},
+            {"kind": "review", "criteria": ["C1"], "token": "t"},
+            {"kind": "planning_budget", "reason": "spent"},
+        ):
+            with self.subTest(kind=need["kind"]):
+                steps = issue_cli.next_steps(self.RECORD, {"status": "X", "done": False, "needs": need})
+                self.assertEqual(chat, steps[1])
+
+    def test_a_terminal_waiting_run_continues_in_chat_and_reports_what_the_chat_left(self):
+        record = {**self.RECORD, "run_dir": "/p/.autocode/runs/run-1"}
+        waiting = {"status": "AWAITING_GOAL_APPROVAL", "done": False, "needs": {"kind": "approve_plan"}}
+        after = {"status": "TASK_COMPLETE", "done": True}
+        with (
+            patch.object(issue_cli.subprocess, "run") as run,
+            patch.object(issue_cli, "task_run") as task_run,
+        ):
+            task_run.return_value.status.return_value = after
+            self.assertEqual(after, issue_cli.converse(argparse.Namespace(chat=True), record, waiting))
+            self.assertEqual(
+                [*issue_cli.AUTOCODE, "chat", "--workspace", "/p", "--run-dir", "/p/.autocode/runs/run-1"],
+                run.call_args.args[0],
+            )
+            run.reset_mock()
+            for args, view in (
+                (argparse.Namespace(chat=False), waiting),  # --no-chat
+                (argparse.Namespace(chat=True), after),  # nothing to talk about
+                (argparse.Namespace(chat=True), {**waiting, "needs": {"kind": "continue"}}),
+            ):
+                self.assertEqual(view, issue_cli.converse(args, record, view))
+            run.assert_not_called()
 
     def test_plan_correction_omits_an_unavailable_feedback_command(self):
         for feedback in (None, "--feedback TEXT"):
@@ -458,7 +512,7 @@ class IssueCliTests(unittest.TestCase):
         started = self.cli("start", "#7", "--issue-file", str(self.issue_file), "--", *self.options)
         self.assertEqual(0, started.returncode, started.stderr)
         self.assertIn(
-            "Or have it reviewed in a pull request: autocode-issue plan acme/widgets#7 --open", started.stdout
+            "Or have it reviewed in a pull request: autocode issue plan acme/widgets#7 --open", started.stdout
         )
         record = self.saved_record()
         worktree = Path(record["worktree"])
@@ -576,7 +630,7 @@ class IssueCliTests(unittest.TestCase):
         self.assertEqual("approve_plan", needs["kind"])
         self.assertFalse(needs["token"].startswith(f"r{plan.revision}:"))
         self.assertIn(
-            "Or have it reviewed in a new pull request: autocode-issue plan acme/widgets#7 --open", reviewed.stdout
+            "Or have it reviewed in a new pull request: autocode issue plan acme/widgets#7 --open", reviewed.stdout
         )
         self.assertNotIn("--goal-file", reviewed.stdout)
         renewed = self.cli("plan", "#7", "--open")

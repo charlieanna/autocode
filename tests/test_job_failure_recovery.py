@@ -39,6 +39,8 @@ if sys.argv[1:]==['--version']:
 sys.stdin.read()
 with Path(os.environ['JOB_CALLS']).open('a') as f:f.write('request\n')
 mode=os.environ['JOB_MODE']
+# JOB_TIMEOUTS=N: the first N requests time out, later ones succeed (#2605).
+if os.environ.get('JOB_TIMEOUTS') and len(Path(os.environ['JOB_CALLS']).read_text().splitlines())>int(os.environ['JOB_TIMEOUTS']):mode='success'
 if mode=='lock':print('Error: database is locked',flush=True);raise SystemExit(42)
 if mode=='filtered':print(Path(os.environ['JOB_REPLAY']).read_text(),end='',flush=True);raise SystemExit(0)
 print(json.dumps({'type':'thread.started','thread_id':str(uuid.uuid4())}),flush=True)
@@ -63,6 +65,10 @@ WRAPPER = r"""import json,os,sys
 from pathlib import Path
 sys.path.insert(0,os.environ['JOB_RUNTIME']+'/tools')
 import autocode
+if os.environ.get('JOB_LEGACY_BUGFIX'):
+ sys.path.insert(0,os.environ['JOB_RUNTIME'])
+ from tests.legacy_bugfix_fixture import install
+ install(autocode)
 try:import autocode_job_source as source
 except ImportError:source=None
 mode=os.environ['JOB_MODE']
@@ -72,7 +78,12 @@ if os.environ.get('JOB_TRANSPORT'):
  configure=autocode.configure
  def selected_transport(*args,**kwargs):
   selected=configure(*args,**kwargs)
-  selected['transport_identities']={'codex':{'fixture':os.environ['JOB_TRANSPORT']}}
+  identity={'fixture':os.environ['JOB_TRANSPORT']}
+  if os.environ.get('JOB_TRANSPORT_PATH'):
+   identity={'engine':'fixturetool','identity_version':1,'executable':'/fixture/tool',
+    'version':'1.0','config_path':os.environ['JOB_TRANSPORT_PATH'],
+    'config_sha256':os.environ.get('JOB_TRANSPORT_HASH','a'*64)}
+  selected['transport_identities']={'codex':identity}
   return selected
  autocode.configure=selected_transport
 import autocode_provider_recovery as provider_recovery
@@ -88,8 +99,12 @@ if mode=='abandon':
   except autocode.support.Paused:os._exit(0)
  autocode.run_role=crash
 if mode not in ('success','terminal','abandon','exit42','capacity','rate','external','lock','filtered'):
+ real_deadline=autocode.processes.wait_for_stage
  def deadline(child, seconds, checkpoint, *, activity=None, **kwargs):
-  code=child.wait(timeout=10);checkpoint([])
+  code=child.wait(timeout=10)
+  if os.environ.get('JOB_TIMEOUTS') and len(Path(os.environ['JOB_CALLS']).read_text().splitlines())>int(os.environ['JOB_TIMEOUTS']):
+   return real_deadline(child, seconds, checkpoint, activity=activity, **kwargs)
+  checkpoint([])
   if mode=='cleanup':raise autocode.processes.ProcessError('injected cleanup cannot be proved')
   if mode=='idle':
    # Move the real monitor run_role built past its limit: its own reason is the stop reason.
@@ -186,6 +201,9 @@ class JobHarness(unittest.TestCase):
         self.env = {
             "PATH": str(bindir) + os.pathsep + os.environ["PATH"],
             "AUTOCODE_HOME": str(root / "registry"),
+            # An empty config home, so the CLI never reads the developer's default_provider (#1933).
+            "XDG_CONFIG_HOME": str(root / "config"),
+            "AUTOCODE_PROVIDER": "",
             "PYTHONDONTWRITEBYTECODE": "1",
             "JOB_RUNTIME": str(RUNTIME),
             "JOB_CALLS": str(self.calls),
@@ -199,8 +217,10 @@ class JobHarness(unittest.TestCase):
             "gpt-6-sol",
             "--max-stage-seconds",
             "900",
+            # No room under the run's total time to extend a stopped job's deadline (#2605), so a
+            # timed-out job still pauses for the exact retry these cases exercise.
             "--max-seconds",
-            "1200",
+            "900",
             "--max-idle-seconds",
             "0",
             "--max-tool-seconds",
@@ -209,6 +229,8 @@ class JobHarness(unittest.TestCase):
 
     def start(self, mode="timeout", workflow="review"):
         self.env["JOB_MODE"] = mode
+        if workflow == "bugfix":
+            self.env["JOB_LEGACY_BUGFIX"] = "1"
         return TaskRun.start(
             self.workspace,
             "Review pr-double.patch against calc.py for built-in integer equivalence.",
@@ -232,6 +254,62 @@ class JobHarness(unittest.TestCase):
         self.assertTrue(view["needs"]["job_retry_token"])
         self.assertEqual(1, self.count())
         return view["needs"]
+
+
+class JobDeadlineExtensionTests(JobHarness):
+    """#2605: a job's hard stage deadline is AutoCode's to settle, on the same model, inside the run's caps."""
+
+    def roomy(self, timeouts=None):
+        options = list(self.options)
+        options[options.index("--max-seconds") + 1] = "5000"
+        self.options = tuple(options)
+        if timeouts is not None:
+            self.env["JOB_TIMEOUTS"] = str(timeouts)
+
+    def limits(self, run):
+        """The run's saved limits, from the status document's settings."""
+        shown = subprocess.run(
+            [*run.command, "--run-dir", str(run.run_dir), "--status", "--json"],
+            env=run.env,
+            cwd=run.cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, shown.returncode, shown.stderr)
+        return json.loads(shown.stdout)["settings"]["limits"]
+
+    def test_a_timed_out_job_retries_on_a_longer_deadline_and_completes_without_a_question(self):
+        self.roomy(timeouts=1)
+        run = self.start()
+        view = run.status()
+        self.assertTrue(view["done"], view.get("needs"))
+        self.assertEqual(2, self.count())
+        # #2823: the longer deadline was the retry's own; the run keeps the limit the person set.
+        self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
+        self.assertEqual(5000, self.limits(run)["max_seconds"])
+
+    def test_extensions_stop_at_two_and_the_job_then_pauses_for_its_exact_retry(self):
+        self.roomy()
+        run = self.start()
+        view = run.status()
+        self.assertEqual("PAUSED_JOB_FAILURE", view["status"], view)
+        self.assertEqual(3, self.count())
+        # Each retry ran on its own doubled deadline (900, 1800, 3600); the run's limit is unchanged (#2823).
+        self.assertIn("3600-second", view["needs"]["reason"])
+        self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
+        self.assertTrue(view["needs"]["job_retry_token"])
+        # The exact retry keeps the last deadline the job ran on, not the run's shorter one.
+        again = run.retry_job(view["needs"]["job_retry_token"])
+        self.assertEqual("PAUSED_JOB_FAILURE", again["status"], again)
+        self.assertEqual(4, self.count())
+        self.assertIn("3600-second", again["needs"]["reason"])
+        self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
+
+    def test_no_extension_without_room_under_the_total_time_cap(self):
+        run = self.start()
+        self.paused(run)
+        self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
 
 
 class JobFailureTaskRunTests(JobHarness):
@@ -387,6 +465,20 @@ class JobFailureTaskRunTests(JobHarness):
         )
         self.assertIn("--answer route-sol=MODEL", need["reason"])
 
+    def test_a_compacted_context_at_a_clean_exit_names_the_stop_and_refuses_the_report(self):
+        """The Kilo overflow log (#1942): the provider compacted and wrote a report, then exited 0."""
+        self.env["JOB_REPLAY"] = str(HERE / "tools" / "fixtures" / "kilo-context-overflow-run.jsonl")
+        need = self.paused(self.start("filtered"))
+        self.assertTrue(
+            need["reason"].startswith(
+                "Code Reviewer: the request exceeded the model's context window on gpt-6-sol (ContextOverflowError"
+            ),
+            need["reason"],
+        )
+        self.assertIn("a request held 2422 tokens after the previous one held 533595", need["reason"])
+        self.assertIn("--answer route-sol=MODEL", need["reason"])
+        self.assertFalse((self.workspace / "review/findings.json").exists())
+
     def test_t7_successful_read_only_review_completion_preserved(self):
         run = self.start("success")
         view = run.status()
@@ -403,8 +495,12 @@ class JobFailureTaskRunTests(JobHarness):
         self.paused(run)
 
     def test_ac15_retry_rejects_model_effort_and_limit_changes(self):
+        # Make "high" a real change rather than depending on an earlier rejected
+        # model flag having silently mutated the checkpoint.
+        self.options = (*self.options, "--sol-reasoning-effort", "medium")
         run = self.start()
         token = self.paused(run)["job_retry_token"]
+        held = run.status()
         for flags in (
             ("--sol-model", "gpt-6-astra"),
             ("--sol-reasoning-effort", "high"),
@@ -417,12 +513,34 @@ class JobFailureTaskRunTests(JobHarness):
                 with self.assertRaisesRegex(TaskRunError, "configuration|limits"):
                     changed.retry_job(token)
                 self.assertEqual(1, self.count())
+                after = run.status()
+                for field in ("needs", "routes", "usage"):
+                    self.assertEqual(held[field], after[field], field)
 
     def test_saved_joint_transport_change_invalidates_retry(self):
         self.env["JOB_TRANSPORT"] = "original"
         run = self.start()
         token = self.paused(run)["job_retry_token"]
         run.env.update(JOB_TRANSPORT="changed", JOB_MODE="success")
+        with self.assertRaisesRegex(TaskRunError, "configuration|limits"):
+            run.retry_job(token)
+        self.assertEqual(1, self.count())
+
+    def test_byte_identical_relocated_transport_retries_once_through_cli(self):
+        self.env.update(JOB_TRANSPORT="configured", JOB_TRANSPORT_PATH="/old/install/provider.toml")
+        run = self.start()
+        token = self.paused(run)["job_retry_token"]
+        run.env.update(JOB_TRANSPORT_PATH="/new/install/provider.toml", JOB_MODE="success")
+        after = run.retry_job(token)
+        self.assertTrue(after["done"], after)
+        self.assertEqual(2, self.count())
+        self.assertEqual(ORIGINAL, (self.workspace / "calc.py").read_text())
+
+    def test_relocated_transport_with_different_bytes_still_rejects_retry(self):
+        self.env.update(JOB_TRANSPORT="configured", JOB_TRANSPORT_PATH="/old/install/provider.toml")
+        run = self.start()
+        token = self.paused(run)["job_retry_token"]
+        run.env.update(JOB_TRANSPORT_PATH="/new/install/provider.toml", JOB_TRANSPORT_HASH="b" * 64)
         with self.assertRaisesRegex(TaskRunError, "configuration|limits"):
             run.retry_job(token)
         self.assertEqual(1, self.count())

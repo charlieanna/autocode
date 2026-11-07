@@ -60,6 +60,7 @@ STATUSES = (
     "PAUSED_NO_PROGRESS",
     "PAUSED_CONTENT_FILTER",
     "PAUSED_OUTPUT_CAP",
+    "PAUSED_CONTEXT_WINDOW",
 )
 # One of each kind of handling, for the variants that are not the reported ones: the planning guard,
 # the planning budget (plan feedback acknowledges it), provider stops, reassertable and other bounds.
@@ -770,6 +771,12 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                     self.answer(state)
                 code, stages, output = self.invoke("--resume-paused", *flag, env=STOP_AT_TESTER)
                 self.assertTrue(stages, f"raising the exhausted bound must admit the next stage:\n{output}")
+                # The raise is the run's own record, as `autocode events` promises (#2412).
+                [raised] = [row for row in self.saved()["user_events"] if row.get("kind") == "limit_change"]
+                self.assertEqual("user_cli", raised["actor"])
+                self.assertEqual(flag[0], raised["flag"])
+                self.assertEqual(float(flag[1]), float(raised["value"]))
+                self.assertIn("previous", raised)
 
 
 class OrdinaryGateTests(unittest.TestCase):

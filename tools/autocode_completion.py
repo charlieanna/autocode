@@ -72,8 +72,12 @@ def rejection(state: RunState) -> str:
         missing = ", ".join(design_coverage.gaps(state)) or "changed or unbound design evidence"
         return f"{REFUSED}. Design coverage needs fresh independent evidence for: {missing}."
     validation = state.get("validation") or {}
-    results = {row["id"]: row.get("status") for row in validation.get("criterion_results", [])}
-    gaps = [row["id"] for row in state.get("acceptance_criteria", []) if results.get(row["id"]) != "PASS"]
+    results = {row["id"]: row for row in validation.get("criterion_results", [])}
+    gaps = [
+        row["id"]
+        for row in state.get("acceptance_criteria", [])
+        if results.get(row["id"], {}).get("status") != "PASS" or not results.get(row["id"], {}).get("evidence_refs")
+    ]
     # A failed validation never ran the runner's observations (#451): name its failed criteria first.
     if not (gaps and validation.get("verdict") != "PASS"):
         if not brief_evidence.ready(state, validation.get("source_revision")):
@@ -87,10 +91,25 @@ def rejection(state: RunState) -> str:
                 )
             return f"{REFUSED}. Source-declared lifecycle promises need fresh, intact runner process-recovery proof."
     if not gaps:
+        flow = validation.get("end_to_end_result") or {}
+        if (
+            "end_to_end_flow" in ((state.get("goal_contract") or {}).get("body") or {})
+            and not flow.get("pending_human_criteria")
+            and (flow.get("status") != "PASS" or not flow.get("evidence_refs") or not flow.get("summary", "").strip())
+        ):
+            detail = str(flow.get("summary") or "No independent flow evidence was supplied.").strip()
+            return (
+                f"{REFUSED}. The approved end_to_end_flow is {flow.get('status') or 'missing'} "
+                f"or lacks independent evidence: {detail} "
+                "Revalidate the approved flow; if it incorrectly assigns a later coordinator-owned step to this "
+                "member, revise the plan through the normal approval gate while retaining that joint obligation. "
+                "Local criteria alone cannot discharge the approved flow."
+            )
         return REFUSED
     return (
         f"{REFUSED}. The latest validation has no passing result for {', '.join(gaps)}; completion needs one "
-        "validation that passes every criterion on the current source. Request CONTINUE with a next_task of "
+        "validation that passes every criterion on the current source with nonempty evidence_refs for each PASS. "
+        "Request CONTINUE with a next_task of "
         "kind=validate that lists every criterion (in a milestone run, on the current milestone: a validate "
         "task may recheck accepted milestones' criteria)."
     )
@@ -157,7 +176,13 @@ def completion_ready(
         from . import autocode_regression as regression
     except ImportError:
         import autocode_regression as regression
-    if not regression.complete(state, current["revision"], all_due=True):
+    if not regression.complete(
+        state,
+        current["revision"],
+        all_due=True,
+        require_changed_code=require_independent,
+        include_changed_code=require_independent,
+    ):
         return False  # a bug fix needs the runner's passing regression proof for this exact source
     return all(Path(p).is_file() and file_hash(p) == h for p, h in pins.items())
 

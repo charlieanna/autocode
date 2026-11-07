@@ -161,16 +161,16 @@ def compare(baseline, candidate):
 def parser() -> argparse.ArgumentParser:
     """The arguments `autocode compare-baseline` reads; `autocode completion` reads them too."""
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("baseline", type=Path)
-    result.add_argument("candidate", type=Path)
-    result.add_argument("--baseline-root", type=Path)
-    result.add_argument("--candidate-root", type=Path)
+    result.add_argument("baseline", type=Path, help="Baseline Vitest failure evidence")
+    result.add_argument("candidate", type=Path, help="Candidate Vitest failure evidence")
+    result.add_argument("--baseline-root", type=Path, help="Source root the baseline evidence was taken in")
+    result.add_argument("--candidate-root", type=Path, help="Source root the candidate evidence was taken in")
     result.add_argument(
         "--normalize-dependency-prefixes",
         action="store_true",
         help="For equivalent dependencies only: remove relative directory prefixes before node_modules in stack frames",
     )
-    result.add_argument("--output", type=Path, required=True)
+    result.add_argument("--output", type=Path, required=True, help="Where to write the comparison result")
     return result
 
 

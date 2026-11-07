@@ -10,6 +10,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import goal_fixtures  # tests/__init__.py puts tools/ on sys.path
+
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "tools" / "autocode.py"
 MODULE = ROOT / "tools" / "autocode_visual_check.py"
@@ -214,6 +216,25 @@ def offline_provider_environment(project, command):
         encoding="utf-8",
     )
     wrapper.chmod(0o755)
+    # The base holds app.py with no test, so the fixture Builder also delivers a test of that
+    # existing behavior which passes on the base and on the change: the proof's stand-in for the
+    # suite the base lacks (#2259). Without it the greeting alone leaves preservation unproven.
+    builder_files = project.root.parent / "builder-files.json"
+    builder_files.write_text(
+        json.dumps(
+            {
+                "greet.py": goal_fixtures.GREETING_SOURCE,
+                "test_greeting.py": goal_fixtures.GREETING_TESTS,
+                "test_app_render.py": (
+                    "import unittest\n\nimport app\n\n\nclass AppRenderTests(unittest.TestCase):\n"
+                    "    def test_render_keeps_the_requested_size_and_the_functional_value(self):\n"
+                    "        self.assertEqual((100, 80), app.render((100, 80)).size)\n"
+                    "        self.assertEqual(42, app.functional_value())\n"
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
     config = project.root.parent / "config"
     config.mkdir()
     codex_home = project.root.parent / "codex-home"
@@ -224,6 +245,7 @@ def offline_provider_environment(project, command):
         "CODEX_HOME": str(codex_home),
         "AUTOCODE_HOME": str(project.root.parent / "registry"),
         "AUTOCODE_FIXTURE_MODE": "no-human",
+        "AUTOCODE_FIXTURE_FILES": str(builder_files),
         "PYTHONDONTWRITEBYTECODE": "1",
     }
 

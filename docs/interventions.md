@@ -31,6 +31,27 @@ requests; it does not claim that a currently running older binary can consume th
 
 ## Consumption
 
+For a spec-first task that has not completed or stopped, `--kind message --text TEXT`
+queues a conversation rather than assuming a requirements correction. Submission is
+pending-only and uses the same exact request-ID deduplication as other interventions.
+At a saved, idle checkpoint, the existing Requirements stage answers the message using
+the task, requirements, plan and earlier exchanges. It may make focused read-only source
+inspections to assess a technical question. A question restores the saved work checkpoint
+without changing the plan, approvals, requirements sources or completed stages. An explicit
+requested change keeps the reply and forwards the original human text through ordinary
+planning and exact-plan review. Messages are answered in submission order.
+A message already accepted before the final result is answered at that boundary too:
+a question restores completion, while a change archives it and returns through review.
+New messages after completion use the existing follow-up path instead. A runtime must
+have recorded `intervention_capability.supports_messages=true` at an owned checkpoint
+before a message can be accepted; updating a viewer alone cannot enable an older worker.
+
+An explicit pause or stop wins over a message in the same batch. A message cannot release
+an exhausted budget, an operational hold, uncertain work or an outstanding report repair.
+It remains saved until that checkpoint can continue under its existing authority. Saving
+a message itself launches no model. The ordinary named continuation runs its conversation;
+the invocation may first return at the saved boundary with `needs.kind=continue`.
+
 The workspace-lock owner checks the inbox after recovery and before every provider
 admission, and after every saved stage result, including question, approval, review and
 completion exits. Inbox acceptance and admission are serialized by the short inbox lock:
@@ -46,7 +67,13 @@ order.
 
 Applied feedback saves a `brief_feedback` provenance event, preserves stage artifacts and
 partial edits, archives stale validation/review authorization, invalidates goal approval,
-and pauses with `astra_discovery` selected. It never starts Requirements discovery automatically: invoke
+and pauses before further planning. In an adaptive run, feedback bound to the exact
+current plan at its approval or approved acceptance-test checkpoint reuses the saved
+requirements and selects Planner revision (`astra_discovery`). The feedback becomes a
+traced requirement; the Planner may return a genuine requirements change to Requirements,
+and independent review and fresh exact-plan approval remain required. Stale or missing
+plan bindings, open questions, execution-time feedback and fixed planning flows retain
+Requirements discovery. Consumption itself never starts a model: invoke
 the existing explicit Continue action as an argument array, for example
 `["autocode", "--workspace", "/project", "--run-dir", "/project/.autocode/runs/run", "--resume-paused"]`.
 The revised brief still requires its exact displayed approval token. Pending feedback also
@@ -86,7 +113,7 @@ Each request ID retains its original receipt after application. An identical exp
 
 Submission and provider admission share the short inbox lock. Preparation occurs before admission; a request accepted first prevents the next provider launch. A request accepted after admission is queued while that stage finishes. The lock is released before waiting for the provider or asking for terminal input. Pending requests also prevent a prepared answer, goal approval, artifact approval or operator completion from committing. Stage results and recovery preserve completed work and consume earlier requests before committing any completion authorization.
 
-The owner commits pause effects, feedback invalidation and applied receipt IDs in one authoritative state write before removing inbox requests. Restart recovers both acknowledgement crash windows without applying an ID twice. Pause confirmation requires the saved paused state, not merely a receipt. Explicit `--resume-paused` acknowledges a saved pause; feedback still requires Requirements discovery and a newly displayed exact-token brief approval before implementation can resume.
+The owner commits pause effects, feedback invalidation and applied receipt IDs in one authoritative state write before removing inbox requests. Restart recovers both acknowledgement crash windows without applying an ID twice. Pause confirmation requires the saved paused state, not merely a receipt. Explicit `--resume-paused` acknowledges a saved pause; feedback still requires the selected planning path and a newly displayed exact-token brief approval before implementation can resume.
 
 Applied receipts include `applied_at`; explicit continuation adds `resumed_at` to previously applied receipts. Status exposes these durable timestamps. Submission retries omit these owner-only fields and continue to return the original acceptance receipt.
 

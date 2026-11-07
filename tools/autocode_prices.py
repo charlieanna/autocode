@@ -4,6 +4,12 @@ Each row names a model the way a stage records it (`provider/model` for OpenCode
 its input, output and, where the provider publishes one, cached-input price in USD per million
 tokens, the page it came from and the date it was read. Rows change by pull request only.
 
+A row may keep the rates it replaced in `history`: each entry has the same fields plus `until`,
+the UTC date from which it no longer applies, in ascending order. A stage is priced at the entry
+in force on the UTC date it finished, so a tariff update never rewrites what an earlier stage
+cost (#1867 S1a). Changing a rate therefore moves the old one into `history` with `until` set to
+the new rate's first day; editing a rate in place reprices every earlier stage.
+
 A model id is matched as recorded, without an OpenCode 2.x `#effort` suffix; a bare id with no row of
 its own (the Codex engine's `gpt-5.6-sol`) is priced as `openai/<id>`, the only provider that engine
 runs. A model without a row has no rate: its cost is unknown, never zero.
@@ -15,6 +21,7 @@ to them do not move when this table is updated. Imports only the standard librar
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import math
 from functools import lru_cache
@@ -43,14 +50,47 @@ def parse(document):
     for model, row in document["models"].items():
         if not isinstance(model, str) or not model or model != model.strip() or not isinstance(row, dict):
             raise ValueError(f"bad price row {model!r}")
-        for key in ("source", "retrieved"):
-            if not isinstance(row.get(key), str) or not row[key]:
-                raise ValueError(f"{model}: {key} is required")
-        prices = {key: _rate(row[key], f"{model}.{key}") for key in ("input", "output")}
-        if row.get("cached_input") is not None:
-            prices["cached_input"] = _rate(row["cached_input"], f"{model}.cached_input")
-        models[model] = {**prices, "source": row["source"], "retrieved": row["retrieved"], "note": row.get("note", "")}
+        models[model] = {**_rates(row, model), "note": row.get("note", "")}
+        if "history" in row:
+            models[model]["history"] = _history(row["history"], model)
     return {"as_of": document["as_of"], "currency": "USD", "models": models}
+
+
+def _rates(row, where):
+    for key in ("source", "retrieved"):
+        if not isinstance(row.get(key), str) or not row[key]:
+            raise ValueError(f"{where}: {key} is required")
+    prices = {key: _rate(row[key], f"{where}.{key}") for key in ("input", "output")}
+    if row.get("cached_input") is not None:
+        prices["cached_input"] = _rate(row["cached_input"], f"{where}.cached_input")
+    return {**prices, "source": row["source"], "retrieved": row["retrieved"]}
+
+
+def _history(entries, model):
+    if not isinstance(entries, list):
+        raise ValueError(f"{model}.history must be a list")
+    parsed, last = [], None
+    for index, entry in enumerate(entries):
+        where = f"{model}.history[{index}]"
+        until = entry.get("until") if isinstance(entry, dict) else None
+        if _day(until) != until or (last is not None and until <= last):
+            raise ValueError(f"{where}.until must be a YYYY-MM-DD date after the previous entry's")
+        parsed.append({**_rates(entry, where), "until": until})
+        last = until
+    return parsed
+
+
+def _day(value):
+    """The UTC calendar date of an ISO date or timestamp, as YYYY-MM-DD; None when it is not one."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        moment = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(dt.UTC)
+    return moment.date().isoformat()
 
 
 @lru_cache(maxsize=1)
@@ -72,18 +112,32 @@ def key(model):
     return None
 
 
-def rate(model):
-    """The row for `model` (input, output, optional cached_input, source, retrieved), or None."""
+def rate(model, at=None):
+    """The rates for `model` (input, output, optional cached_input, source, retrieved), or None.
+
+    With `at`, an ISO timestamp, the entry in force on that UTC date: a `history` entry, which
+    carries its `until`, while the date is before it; otherwise the current row.
+    """
     found = key(model)
-    return dict(table()["models"][found]) if found else None
+    if not found:
+        return None
+    row = dict(table()["models"][found])
+    history = row.pop("history", [])
+    day = _day(at)
+    for entry in history if day else ():
+        if day < entry["until"]:
+            return {**entry, "note": row.get("note", "")}
+    return row
 
 
 def _count(value):
     return value if type(value) is int and value >= 0 else None
 
 
-def estimate(model, tokens):
+def estimate(model, tokens, at=None):
     """USD for one stage's tokens at the table's rates, or None without a rate or token counts.
+
+    `at` is when the stage finished: it is priced at the rate in force then (`rate`).
 
     Input and output counts are inclusive: input includes cache reads and writes, output includes
     reasoning. Cache reads are priced at the cached-input rate when the row has one and the read
@@ -91,7 +145,7 @@ def estimate(model, tokens):
     rate. Cache writes are priced at the input rate, and a per-request long-context premium is not
     visible in a stage's totals, so this is an estimate that can run below the provider's bill.
     """
-    row = rate(model)
+    row = rate(model, at)
     tokens = tokens if isinstance(tokens, dict) else {}
     inp, out = _count(tokens.get("input_tokens")), _count(tokens.get("output_tokens"))
     if row is None or inp is None or out is None:

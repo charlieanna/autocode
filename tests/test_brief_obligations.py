@@ -13,6 +13,7 @@ import autocode_brief_obligations as brief
 import autocode_conversation as conversation
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
+import autocode_resolver_human as human
 import autopilot
 from goal_fixtures import body
 from units import autoplanner
@@ -604,6 +605,76 @@ class BriefObligationsTests(unittest.TestCase):
         self.assertEqual("astra_challenge", state["goal_contract"]["body"]["brief_acceptance"]["review"]["stage"])
         self.assertEqual(goals.token(state["goal_contract"]), state["planning"]["final_token"])
 
+    def test_adaptive_review_observation_error_stays_owned_by_the_reviewer(self):
+        state = self.planning_state(adaptive=True)
+        proposal = self.proposal(brief.inventory(state)[0])
+        report = {
+            "summary": "Approve the draft",
+            "concerns": [],
+            "brief_observations": [proposal, copy.deepcopy(proposal)],
+            "brief_observation_changes": [],
+            "source_trace": {"out_of_scope": [], "negation_waivers": []},
+        }
+        with self.assertRaisesRegex(ValueError, "Observation declarations must be known and unique"):
+            autopilot.apply_planning(
+                state, "astra_challenge", report, self.reviewer_record(state, report, stage="astra_challenge")
+            )
+
+    def test_adaptive_challenge_publishes_the_reviewed_plan_for_approval(self):
+        state = self.state(adaptive=True)
+        lifecycle.install_draft(state, self.contract_body(initial=True), origin="glm_draft")
+        report = {
+            "summary": "Reviewed",
+            "concerns": [],
+            "brief_observations": [self.proposal(brief.inventory(state)[0])],
+            "brief_observation_changes": [],
+            "source_trace": {"out_of_scope": [], "negation_waivers": []},
+        }
+        record = self.reviewer_record(state, report, stage="astra_challenge")
+        record["source_revision"] = "reviewed-source"
+        autopilot.apply_planning(state, "astra_challenge", report, record)
+        with patch.object(human.source_scope, "snapshot", return_value={"revision": "reviewed-source"}):
+            self.assertEqual("escalate", human.evaluate(state))
+            published = human.current(state)
+        self.assertIsNotNone(published)
+        self.assertEqual("goal_approval", published["scope"])
+        self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
+        self.assertEqual("draft", state["goal_contract"]["approval_status"])
+
+    def test_adaptive_challenge_that_cannot_approve_the_draft_sends_it_to_the_planner(self):
+        # #1630: a non-blocking review of a draft citing only part of the brief was rejected as invalid
+        # Plan Reviewer output; report repair cannot change the Planner's contract, so the run paused.
+        state = self.state(task="Fix the bug in todo.py. " + TASK, adaptive=True)
+        lifecycle.install_draft(state, self.contract_body(initial=True), origin="glm_draft")
+        state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})
+        draft = copy.deepcopy(state["goal_contract"])
+        report = {
+            "summary": "Reviewed",
+            "concerns": [
+                {
+                    "id": "astra-1",
+                    "concern": "No criterion quotes 'Fix the bug in todo.py.'",
+                    "requested_change": "Cite that sentence",
+                    "acceptance_test": "Every brief sentence is cited",
+                    "evidence_refs": ["todo.py"],
+                    "blocking": False,
+                }
+            ],
+            "brief_observations": [self.proposal(brief.inventory(state)[0])],
+            "brief_observation_changes": [],
+            "source_trace": {"out_of_scope": [], "negation_waivers": []},
+        }
+        autopilot.apply_planning(
+            state, "astra_challenge", report, self.reviewer_record(state, report, stage="astra_challenge")
+        )
+        self.assertEqual("glm_revise", state["next_stage"])
+        self.assertEqual(draft, state["goal_contract"])
+        self.assertIsNone(state["planning"]["final_token"])
+        adaptive = state["planning"]["adaptive"]
+        self.assertIsNone(adaptive["approved_at"])
+        self.assertIn("'Fix the bug in todo.py.'", adaptive["approval_refused"])
+        self.assertIn("planning.adaptive.approval_refused", autoplanner.adaptive.prompt_rule(state, "glm_revise"))
+
     def test_nonjoint_generation_preserves_a_parseable_handoff_json_suffix(self):
         state = self.state(task="Build greeting")
         state["settings"]["joint_planning"] = False
@@ -646,6 +717,23 @@ class BriefObligationsTests(unittest.TestCase):
         self.assertIn("[task:0] kind=task", instruction)
         self.assertNotIn(encoded_brief, instruction)
 
+    def test_citation_lists_sit_after_the_static_policy_and_before_the_transport_block(self):
+        # #2136: the per-run source-id list and the brief-literal list moved out of the
+        # middle of the planning instructions to the end of the static policy, so planning
+        # prompts share the longest static prefix a provider can cache.
+        transport = "The runner's state.json is authoritative"
+        for stage, literals_expected in (("astra_challenge", False), ("astra_finalize", True)):
+            with self.subTest(stage=stage):
+                state = self.planning_state()
+                request = autoplanner.prepare(state, stage, self.root / "state.json", self.root)
+                citation = request.prompt.index("[task:0] kind=task")
+                self.assertLess(request.prompt.index("REGRESSION REFERENCE:"), citation)
+                if literals_expected:
+                    self.assertLess(request.prompt.index("BRIEF LITERALS:"), citation)
+                else:
+                    self.assertNotIn("BRIEF LITERALS:", request.prompt)
+                self.assertLess(citation, request.prompt.index(transport))
+
     def test_unrelated_task_reviewer_schema_and_prompt_omit_brief_fields(self):
         state = self.state(task="Build greeting")
         lifecycle.install_draft(state, self.contract_body("Build greeting"), origin="glm_draft")
@@ -665,7 +753,11 @@ class BriefObligationsTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 request = autoplanner.prepare(state, stage, self.root / "state.json", self.root)
                 strict = autoplanner.s.model_output_schema(request.schema)
-                self.assertNotIn("brief_acceptance", strict["properties"]["contract"]["properties"])
+                contract = strict["properties"]["contract"]
+                for branch in contract.get("anyOf", [contract]):
+                    fields = branch["properties"]
+                    self.assertNotIn("brief_acceptance", fields)
+                    self.assertNotIn("brief_acceptance", fields.get("changes", {}).get("properties", {}))
                 packet = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
                 self.assertEqual(stage == "astra_finalize", "brief_declaration_inventory" in packet)
         self.assertIn("brief_acceptance", goals.BODY_SCHEMA["properties"])

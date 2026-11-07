@@ -19,16 +19,31 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import sys
 import time
 from pathlib import Path
 
 try:
+    from . import autocode_attention as attention
+    from . import autocode_attention_status as attention_status
+    from . import autocode_changeset_store as changeset_store
+    from . import autocode_chat_view as chat_view
+    from . import autocode_controller_owner as controller_owner
     from . import autocode_registry as registry
+    from . import autocode_replay_view as replay_view
+    from . import autocode_run_finder as run_finder
     from . import autocode_run_view as run_view
 except ImportError:
+    import autocode_attention as attention
+    import autocode_attention_status as attention_status
+    import autocode_changeset_store as changeset_store
+    import autocode_chat_view as chat_view
+    import autocode_controller_owner as controller_owner
     import autocode_registry as registry
+    import autocode_replay_view as replay_view
+    import autocode_run_finder as run_finder
     import autocode_run_view as run_view
 
 SCHEMA = 1
@@ -41,6 +56,7 @@ BUCKETS = (NEEDS, WORKING, SETTLED, UNREADABLE)
 # A controller is doing work in these statuses; they need no person yet.
 WORKING_STATUSES = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER")
 NAME_WIDTH = 52
+TITLE_LIMIT = 80  # a row's title: the first line of its task
 STAMP = "%Y-%m-%dT%H:%M:%S"
 
 
@@ -80,8 +96,15 @@ def unreadable(run_dir: Path, workspace: Path, reason: str) -> dict:
     }
 
 
-def row(workspace: Path, run_dir: Path, now: float) -> dict:
-    """Project one run directory onto a display row, reading only its checkpoint."""
+def title(task) -> str | None:
+    """The first line of what the run was asked to do, bounded: how a client names the chat."""
+    first = next((line.strip().lstrip("#").strip() for line in str(task or "").splitlines() if line.strip()), "")
+    return (first[: TITLE_LIMIT - 1] + "…" if len(first) > TITLE_LIMIT else first) or None
+
+
+def row(workspace: Path, run_dir: Path, now: float, changesets: dict[str, str] | None = None) -> dict:
+    """Project one run directory onto a display row, reading only its checkpoint. ``changesets`` maps a
+    linked run directory to its change set (autocode_changeset_store.memberships)."""
     state_path = run_dir / "state.json"
     try:
         updated_at = _stamp(state_path.stat().st_mtime)
@@ -89,8 +112,22 @@ def row(workspace: Path, run_dir: Path, now: float) -> dict:
         updated_at = None
     availability, payload = registry.read_checkpoint(state_path, workspace)
     if availability != "available":
+        reason = payload.get("message") or availability
+        if not os.path.lexists(run_dir):
+            # A registered run whose directory is gone: only its pointer is left, and the registry
+            # drops it on request. Without the command here the row sat there for good (#2321).
+            forget = [
+                "autocode",
+                "registry",
+                "forget-deleted",
+                "--workspace",
+                str(workspace),
+                "--run-dir",
+                str(run_dir),
+            ]
+            reason = f"run directory no longer exists; drop its entry with: {shlex.join(forget)}"
         return {
-            **unreadable(run_dir, workspace, payload.get("message") or availability),
+            **unreadable(run_dir, workspace, reason),
             "availability": availability,
             "updated_at": updated_at,
         }
@@ -106,8 +143,22 @@ def row(workspace: Path, run_dir: Path, now: float) -> dict:
             "updated_at": updated_at,
         }
     need = shown["needs"] or {}
+    public = {
+        **shown,
+        "status": state.get("status"),
+        "done": state.get("status") in run_view.COMPLETE and replay_view.completion_policy(state)["completion_allowed"],
+    }
+    projected = attention.project(
+        state, public, workspace=workspace, run_dir=run_dir, context=chat_view.context(state, public)
+    )
     command = shown["next_command"]
     reason = None
+    bucket = _bucket(need.get("kind"), state.get("status"))
+    ready = False
+    if bucket == WORKING and command and controller_owner.ready_for(state, run_dir):
+        # Saved by an answer, approval or follow-up and left for the person to continue: nothing runs
+        # it, so it needs them, not patience (#2332).
+        bucket, ready = NEEDS, True
     if need.get("abandon_stage"):
         # Only the run itself can tell an uncertain attempt from one whose retained
         # report just needs repair, and only the first may be set aside. Point the
@@ -117,11 +168,14 @@ def row(workspace: Path, run_dir: Path, now: float) -> dict:
     return {
         "run_dir": str(run_dir),
         "name": run_dir.name,
+        "title": title(state.get("task")),
         "workspace": str(workspace),
-        "bucket": _bucket(need.get("kind"), state.get("status")),
+        "bucket": bucket,
+        "ready_to_continue": ready,
         "availability": availability,
         "status": state.get("status"),
         "needs": need.get("kind"),
+        "attention": attention_status.observed(projected),
         "needs_reason": need.get("reason"),
         "pause_category": shown["pause_category"],
         "pause_category_label": shown["pause_category_label"],
@@ -131,17 +185,32 @@ def row(workspace: Path, run_dir: Path, now: float) -> dict:
         "next_command": command,
         "reason": reason,
         "updated_at": updated_at,
+        "changeset": (changesets or {}).get(str(run_dir.resolve())),
     }
 
 
+ISSUE_WORKTREES = Path(".autocode") / "issues"  # autocode_issue.STORE: one Git worktree per GitHub issue
+
+
+def _local(workspace: Path) -> list[tuple[Path, Path]]:
+    runs = Path(workspace) / ".autocode" / "runs"
+    if not runs.is_dir():
+        return []
+    return [(run_dir, Path(workspace)) for run_dir in sorted(p for p in runs.iterdir() if p.is_dir())]
+
+
 def _pairs(workspace: Path, all_workspaces: bool) -> list[tuple[Path, Path]]:
-    """(run directory, its workspace) for one project, or for every registered project."""
+    """(run directory, its workspace) for one project, or for every registered project.
+
+    A project's own runs include those of its autocode issue worktrees, so its chat can open them (#1731),
+    and those of its task worktrees (a task started without ``--in-place``), the lanes ``--status`` and
+    ``resume`` already find."""
     if not all_workspaces:
-        runs = Path(workspace) / ".autocode" / "runs"
-        if not runs.is_dir():
-            return []
-        return [(run_dir, Path(workspace)) for run_dir in sorted(p for p in runs.iterdir() if p.is_dir())]
-    records = registry.listing()["runs"]
+        issues = Path(workspace) / ISSUE_WORKTREES
+        worktrees = sorted(p for p in issues.iterdir() if p.is_dir()) if issues.is_dir() else []
+        worktrees += run_finder.task_worktrees(Path(workspace).resolve())
+        return _local(workspace) + [pair for worktree in worktrees for pair in _local(worktree)]
+    records = registry.listing(also=registry.project_storage(workspace))["runs"]
     return [
         (Path(record["run_dir"]), Path(record["workspace"]))
         for record in records
@@ -154,8 +223,12 @@ def _pairs(workspace: Path, all_workspaces: bool) -> list[tuple[Path, Path]]:
 def rows(workspace: Path, *, all_workspaces: bool = False, now: float | None = None) -> list[dict]:
     """Every run in scope: needing-runs first, then working, settled and unreadable, each by start time."""
     clock = time.time() if now is None else now
+    changesets = changeset_store.memberships()
     return sorted(
-        (row(one_workspace, run_dir, clock) for run_dir, one_workspace in _pairs(Path(workspace), all_workspaces)),
+        (
+            row(one_workspace, run_dir, clock, changesets)
+            for run_dir, one_workspace in _pairs(Path(workspace), all_workspaces)
+        ),
         key=lambda item: (BUCKETS.index(item["bucket"]), item.get("run_dir") or ""),
     )
 
@@ -178,8 +251,12 @@ def _detail(item: dict) -> str:
     return " · ".join(str(value) for value in (stage, iteration) if value)
 
 
-def render(entries: list[dict], scope: str, *, now: float | None = None) -> str:
-    """Group rows by bucket, each needing run followed by the command that answers it."""
+def render(entries: list[dict], scope: str, *, now: float | None = None, name_workspace: bool = False) -> str:
+    """Group rows by bucket, each needing run followed by the command that answers it.
+
+    ``name_workspace`` adds each run's workspace to its row: `--all` lists every registered project's
+    runs, and a run's name alone does not say which project it belongs to (#2379).
+    """
     clock = time.time() if now is None else now
     summary = counts(entries)
     lines = [f"{scope}: {summary['total']} run(s), {summary[NEEDS]} need you"]
@@ -189,11 +266,16 @@ def render(entries: list[dict], scope: str, *, now: float | None = None) -> str:
             continue
         lines += ["", f"  {bucket} ({len(group)})"]
         for item in group:
-            label = item.get("pause_category_label") or item.get("pause_category") or item.get("status") or "unreadable"
+            label = item.get("pause_category_label") or item.get("pause_category")
+            if not label and item.get("ready_to_continue"):
+                label = "Ready to continue"
+            label = label or item.get("status") or "unreadable"
             head = (
                 f"    {_age(item.get('updated_at'), clock):>5}  {item['name'][:NAME_WIDTH]:<{NAME_WIDTH}} {label:<26}"
             )
             lines.append(f"{head} {_detail(item)}".rstrip())
+            if name_workspace and item.get("workspace"):
+                lines.append(f"{'':11}in {item['workspace']}")
             if item.get("next_command"):
                 lines.append(f"{'':11}-> {item['next_command']}")
     return "\n".join(lines)
@@ -219,7 +301,7 @@ def cli(argv: list[str] | None = None) -> int:
         arguments.error("--all already covers every registered project; drop --workspace")
     entries = rows(workspace, all_workspaces=args.all)
     scope = "all registered projects" if args.all else str(workspace)
-    if not entries:
+    if not entries and not args.json:
         print(f"No runs found for {scope}.", file=sys.stderr)
         return 2
     selected = [item for item in entries if item["bucket"] == NEEDS] if args.needs else entries
@@ -240,7 +322,7 @@ def cli(argv: list[str] | None = None) -> int:
     if not selected:
         print(f"{scope}: no run needs you ({len(entries)} run(s) listed).")
         return 0
-    print(render(selected, scope))
+    print(render(selected, scope, name_workspace=args.all))
     if not args.needs:
         print("\nRead-only: nothing here starts, resumes or changes a run.")
     return 0

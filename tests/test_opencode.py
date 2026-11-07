@@ -1,7 +1,10 @@
 """OpenCode transport tests with native JSON events and no network/model calls."""
 
+import contextlib
 import copy
+import hashlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -21,8 +24,12 @@ import autocode_format_correction as format_correction
 import autocode_milestones as milestones
 import autocode_opencode as oc
 import autocode_planning as planning
+import autocode_run_view as run_view
+import autocode_source_log as source_log
 import autocode_support as support
 import autopilot
+import goal_fixtures
+from units import autoplanner
 
 from . import opencode_fixture_cli as fixture_cli
 from . import test_subprocess as subprocess_tests
@@ -101,6 +108,222 @@ emit("step_finish", reason="stop", tokens={"input": 10, "output": 5, "reasoning"
                     sink.write('{"type":"step_start"}\n')
                     raise RuntimeError("interrupted")
             self.assertEqual('{"type":"step_start"}\n', path.read_text())
+
+
+class DuplicateEmptyParameterTests(unittest.TestCase):
+    SUFFIX = '<parameter name="machine_resolutions">[]</parameter>'
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.events = self.root / "discovery.jsonl"
+        self.response = self.root / "discovery.response.txt"
+
+    def write(self, text, *, finish=None):
+        rows = [
+            event("text", id="earlier", messageID="old", text='{"unrelated":true}'),
+            event("text", text=text),
+            terminal() if finish is None else finish,
+        ]
+        self.events.write_text("\n".join(json.dumps(row) for row in rows))
+        return hashlib.sha256(self.events.read_bytes()).hexdigest()
+
+    def test_exact_duplicate_empty_tag_preserves_object_citations_and_raw_evidence(self):
+        report = {
+            "summary": "Résumé: keep literal " + self.SUFFIX + ' and ```json {"not":"the report"} ```',
+            "machine_resolutions": [],
+            "contract": {
+                "acceptance_criteria": [
+                    {"id": "AC1", "sources": [{"source_id": "task:0", "quote": "task:0#1"}]},
+                    {"id": "AC2", "sources": [{"source_id": "task:0", "quote": "task:0#2"}]},
+                ]
+            },
+        }
+        for gap in ("", " ", "\n", "\r\n\t "):
+            for repair in (False, True):
+                text = json.dumps(report, ensure_ascii=False) + gap + self.SUFFIX
+                before = self.write("\r\n\t " + text + " \t\r\n")
+                with self.subTest(gap=gap, repair=repair):
+                    self.assertEqual(
+                        report, oc.final_report(self.events, recover_wrapped=repair, response_path=self.response)
+                    )
+                    self.assertEqual(text.encode(), self.response.read_bytes())
+                    self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), support.file_hash(self.response))
+                    self.assertEqual(before, support.file_hash(self.events))
+
+    def test_any_other_field_value_framing_or_duplicate_key_is_still_rejected(self):
+        complete = '{"machine_resolutions":[],"summary":"keep this report"}'
+        cases = [
+            "{}" + self.SUFFIX,
+            '{"machine_resolutions":null}' + self.SUFFIX,
+            '{"machine_resolutions":false}' + self.SUFFIX,
+            '{"machine_resolutions":{}}' + self.SUFFIX,
+            '{"machine_resolutions":[{"question_id":"Q1"}]}' + self.SUFFIX,
+            '{"machine_resolutions":[1],"machine_resolutions":[]}' + self.SUFFIX,
+            '{"machine_resolutions":[],"nested":{"claim":true,"claim":false}}' + self.SUFFIX,
+            '{"machine_resolutions":[],"amount":NaN}' + self.SUFFIX,
+            complete + '<parameter name="machine_resolutions">[1]</parameter>',
+            complete + '<parameter name="machine_resolutions">[ ]</parameter>',
+            complete + '<parameter name="other">[]</parameter>',
+            complete + "<parameter name='machine_resolutions'>[]</parameter>",
+            complete + '<parameter name="machine_resolutions" extra="yes">[]</parameter>',
+            complete + '<parameter name="machine_resolutions">[]',
+            complete + self.SUFFIX * 2,
+            complete + self.SUFFIX + " but reconsider this",
+            complete + self.SUFFIX + "{}",
+            "Report: " + complete + self.SUFFIX,
+            '{"machine_resolutions":[]' + self.SUFFIX,
+        ]
+        for text in cases:
+            for repair in (False, True):
+                before = self.write(text)
+                with self.subTest(text=text, repair=repair), self.assertRaisesRegex(RuntimeError, "not a JSON report"):
+                    oc.final_report(self.events, recover_wrapped=repair, response_path=self.response)
+                self.assertEqual(text.encode(), self.response.read_bytes())
+                self.assertEqual(before, support.file_hash(self.events))
+
+    def test_duplicate_tag_does_not_complete_an_unsuccessful_provider_turn(self):
+        text = '{"machine_resolutions":[]}' + self.SUFFIX
+        for reason in ("length", "tool-calls", "content-filter"):
+            finish = terminal()
+            finish["part"]["reason"] = reason
+            before = self.write(text, finish=finish)
+            with self.subTest(reason=reason), self.assertRaisesRegex(RuntimeError, "no successful terminal"):
+                oc.final_report(self.events, response_path=self.response)
+            self.assertFalse(self.response.exists())
+            self.assertEqual(before, support.file_hash(self.events))
+
+    def completed_discovery(self, case):
+        root = self.root / case
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=f@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
+        run = root / ".autocode/runs/recovery"
+        run.mkdir(parents=True)
+        base = run / "discovery-01"
+        state = {
+            "version": 3,
+            "task_id": "fixture",
+            "task": "Build a greeting CLI. Reject an empty name.",
+            "workspace": str(root),
+            "status": "RUNNING",
+            "next_stage": "astra_discovery",
+            "sessions": {},
+            "stages": [],
+            "history": [],
+            "iteration": 1,
+            "settings": {"engine": "opencode", "joint_planning": True, "report_repair": {"max_attempts": 2}},
+        }
+        source_log.seed(state)
+        contract = goal_fixtures.body()
+        contract["acceptance_criteria"][0]["sources"] = [
+            {"source_id": "task:0", "quote": "task:0#1"},
+            {"source_id": "task:0", "quote": "task:0#2"},
+        ]
+        report = {
+            "summary": "Plan the greeting CLI",
+            "contract": contract,
+            "code_refs": [],
+            "alternatives": [],
+            "uncertainties": [],
+            "contract_changes": [],
+            "conflict_resolutions": [],
+            "requirement_trace": [],
+            "machine_resolutions": [],
+        }
+        if case == "schema":
+            del report["summary"]
+        elif case == "citation":
+            contract["acceptance_criteria"][0]["sources"][1]["quote"] = "task:0#9"
+        schema = base.with_suffix(".schema.json")
+        support.atomic_json(schema, autoplanner.schema_for(state, "astra_discovery"))
+        before = support.snapshot(root)
+        before_path = base.with_suffix(".before.json")
+        support.atomic_json(before_path, before)
+        text = json.dumps(report) + "\n" + self.SUFFIX
+        events = base.with_suffix(".jsonl")
+        events.write_text("\n".join(json.dumps(row) for row in [event("text", text=text), terminal()]))
+        record = {
+            "engine": "opencode",
+            "role": "astra",
+            "stage": "astra_discovery",
+            "iteration": 1,
+            "output": str(base.with_suffix(".json")),
+            "events": str(events),
+            "before_ref": str(before_path),
+            "schema": str(schema),
+            "exit_code": 0,
+            "source_revision": before["revision"],
+        }
+        state["active_stage"] = record
+        return state, run, root, record, report, text, events.read_bytes()
+
+    def assert_retained_report(self, record, report, text, event_bytes):
+        self.assertEqual(report, support.read(Path(record.get("reported_output", record["output"]))))
+        saved = support.read(Path(record["output"]))
+        self.assertEqual(
+            [criterion["sources"] for criterion in report["contract"]["acceptance_criteria"]],
+            [criterion["sources"] for criterion in saved["contract"]["acceptance_criteria"]],
+        )
+        self.assertEqual(text.encode(), Path(record["response_text"]).read_bytes())
+        self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), support.file_hash(record["response_text"]))
+        self.assertEqual(event_bytes, Path(record["events"]).read_bytes())
+        self.assertEqual(hashlib.sha256(event_bytes).hexdigest(), support.file_hash(record["events"]))
+
+    def test_completed_discovery_advances_without_report_repair(self):
+        state, run, root, record, report, text, event_bytes = self.completed_discovery("valid")
+        with (
+            patch.object(runner, "run_role", side_effect=AssertionError("No provider launch")) as launch,
+            patch.object(runner, "reject_completed_stage", wraps=runner.reject_completed_stage) as reject,
+        ):
+            runner.reconcile_active(state, run, root)
+        launch.assert_not_called()
+        reject.assert_not_called()
+        public = run_view.view(state)
+        self.assertEqual(
+            ("RUNNING", "PLANNING", "astra_challenge"), (public["status"], public["phase"], public["next_stage"])
+        )
+        self.assert_retained_report(record, report, text, event_bytes)
+
+    def test_recovered_discovery_still_requires_schema_and_valid_citations(self):
+        for case in ("schema", "citation"):
+            with self.subTest(case=case):
+                state, run, root, record, report, text, event_bytes = self.completed_discovery(case)
+                with (
+                    patch.object(runner, "run_role", side_effect=AssertionError("No provider launch")) as launch,
+                    patch.object(runner, "reject_completed_stage", wraps=runner.reject_completed_stage) as reject,
+                    self.assertRaises(runner.ReportRepairQueued),
+                ):
+                    runner.reconcile_active(state, run, root)
+                launch.assert_not_called()
+                reject.assert_called_once()
+                error = str(reject.call_args.args[-1])
+                self.assertIn("summary" if case == "schema" else "no such sentence id", error)
+                public = run_view.view(state)
+                self.assertEqual(
+                    ("RUNNING", "REPORT_REPAIR", "astra_discovery"),
+                    (public["status"], public["phase"], public["next_stage"]),
+                )
+                self.assert_retained_report(record, report, text, event_bytes)
+                self.assertEqual(
+                    support.file_hash(record["response_text"]),
+                    state["pending_report_repair"]["pins"][record["response_text"]],
+                )
 
 
 class OpenCodeTests(unittest.TestCase):
@@ -424,6 +647,37 @@ class OpenCodeTests(unittest.TestCase):
                 autopilot=autopilot,
             )
 
+    def test_a_planning_agent_is_read_only_and_its_shell_comes_only_from_the_launch(self):
+        # Owner decision 2026-10-21: every Planner has a shell, granted where the launch provides one; the adapter
+        # on its own keeps the read-tools-only agent, so no caller gets a shell by default.
+        def permission(**kwargs):
+            with patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT": "{}"}):
+                _, env, _ = oc.launch(
+                    "glm", Path("/workspace"), Path("/run"), None, "test/model", None, False, planning=True, **kwargs
+                )
+            agents = json.loads(env["OPENCODE_CONFIG_CONTENT"])["agent"]
+            return next(value["permission"] for name, value in agents.items() if name.startswith("autocode_glm_plan_"))
+
+        plain = permission()
+        self.assertEqual(("allow", "deny", "deny"), (plain["read"], plain["bash"], plain["edit"]))
+        uncontained = permission(planning_shell=True)  # the person accepted uncontained tools (#413)
+        self.assertEqual(("allow", "allow", "deny"), (uncontained["read"], uncontained["bash"], uncontained["edit"]))
+        self.assertEqual("deny", uncontained["*"])
+        self.assertEqual("deny", uncontained["external_directory"])
+        captured = {}
+
+        def configure(command, child, workspace, **kwargs):
+            config = json.loads(child["OPENCODE_CONFIG_CONTENT"])
+            captured.update(next(v for k, v in config["agent"].items() if k.startswith("autocode_glm_plan_")))
+            return child, {"shell": "/contained/bash"}
+
+        with patch.object(oc.tool_containment, "configure", side_effect=configure):
+            permission(containment={"source_paths": [], "tool_commands": [], "read_roots": [], "protected_paths": []})
+        # The kernel boundary narrows this to its own bash (autocode_tool_containment.shell_permissions), which
+        # needs a bash rule to narrow; the read-tools-only agent would deny the conformance probe.
+        self.assertNotEqual("deny", captured["permission"].get("bash", "allow"))
+        self.assertEqual("deny", captured["permission"]["edit"])
+
     def test_inline_role_denies_and_patterns_survive_launch(self):
         for policy in (
             "deny",
@@ -690,6 +944,70 @@ class OpenCodeTests(unittest.TestCase):
             self.assertNotIn("auth.json", calls)
 
 
+class FixtureBootstrapTests(unittest.TestCase):
+    """The offline bootstrap patches the namespace its target imports, and no other (#2442)."""
+
+    TOOLS = Path(__file__).resolve().parents[1] / "tools"
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+
+    def bootstrap(self, target, installed):
+        """Run the fixture bootstrap for ``target`` without executing it.
+
+        ``installed=False`` simulates a checkout without the package installed: importing
+        ``autocode_cli`` raises. ``installed=True`` records those imports and satisfies them
+        with the already-imported tools/ modules, as an installed entry would need.
+        """
+        real_import = importlib.import_module
+        requested = []
+
+        def guarded(name, *args, **kwargs):
+            if name.startswith("autocode_cli"):
+                requested.append(name)
+                if not installed:
+                    raise ModuleNotFoundError(f"blocked test import: {name}")
+                return real_import(name.removeprefix("autocode_cli."))
+            return real_import(name, *args, **kwargs)
+
+        ran = {}
+        with (
+            patch.object(fixture_cli, "checked_fixture", lambda *args, **kwargs: None),
+            patch.object(fixture_cli.importlib, "import_module", side_effect=guarded),
+            patch.object(fixture_cli.runpy, "run_path", lambda target, run_name: ran.update(target=target)),
+            patch.object(sys, "argv", ["bootstrap", str(target)]),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            fixture_cli.main()
+        return requested, ran
+
+    def test_a_tools_script_target_needs_no_installed_package(self):
+        """The Builder worker runs from tools/, where the bootstrap must not import the
+        installed namespace: without the package the worker died at that import before
+        writing any result, and the orchestrator read every member as INTERRUPTED."""
+        target = self.TOOLS / "autocode_builder_worker.py"
+        requested, ran = self.bootstrap(target, installed=False)
+        self.assertEqual([], requested)
+        self.assertEqual(str(target), ran["target"])
+
+    def test_an_installed_entrypoint_target_still_patches_the_package_namespace(self):
+        installed = self.root / "bin" / "autocode"
+        installed.parent.mkdir()
+        installed.write_text("#!/bin/sh\n")
+        requested, ran = self.bootstrap(installed, installed=True)
+        self.assertEqual(
+            [
+                "autocode_cli.autocode_provider_launch",
+                "autocode_cli.autocode_supervision",
+                "autocode_cli.autocode_tool_containment",
+            ],
+            requested,
+        )
+        self.assertEqual(str(installed), ran["target"])
+
+
 class OpenCodeFlow(unittest.TestCase):
     """Builtin adapter/model routing through an explicitly uncontained fake CLI."""
 
@@ -793,7 +1111,7 @@ class OpenCodeFlow(unittest.TestCase):
         }
         for record in state["stages"]:
             if record.get("runner_owned"):
-                self.assertIn(record["stage"], ("orchestrator", "resolver"))
+                self.assertIn(record["stage"], ("orchestrator", "resolver", "regression_proof"))
                 self.assertEqual("runner", record["engine"])
                 self.assertNotIn("command", record)
                 if record["stage"] == "resolver":

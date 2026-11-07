@@ -29,6 +29,13 @@ _FAILED = re.compile(
 )
 
 
+# The fixed diagnostic for a provider-owned HTTP 401: never the provider's own message, which
+# can carry credential material. The recovery view recognizes a stop by it (autocode_recovery_view).
+AUTH_FAILED = (
+    "provider authentication failed (HTTP 401); check or refresh the selected provider's credentials before retrying"
+)
+
+
 def authentication_reason(rows) -> str | None:
     """A provider-owned HTTP 401, never a number in usage, tool output or prose."""
     for row in rows:
@@ -40,10 +47,7 @@ def authentication_reason(rows) -> str | None:
         data = error.get("data")
         for fields in (error, data if isinstance(data, dict) else {}):
             if fields.get("statusCode") == 401 or fields.get("status_code") == 401:
-                return (
-                    "provider authentication failed (HTTP 401); check or refresh the selected "
-                    "provider's credentials before retrying"
-                )
+                return AUTH_FAILED
     return None
 
 

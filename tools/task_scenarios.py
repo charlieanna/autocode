@@ -1109,126 +1109,6 @@ UI_TASK = (
     "design/spec.json or add other files."
 )
 
-PROGRAM_FLOW = [
-    "List the catalog through the gateway",
-    "Add two items to a cart",
-    "Check out and receive an order total",
-    "The cart is empty afterwards",
-    "An empty-cart checkout is rejected with 409",
-]
-PROGRAM_SKELETON_CHECK = "python3 -m unittest discover -s tests -p test_skeleton.py"
-
-PROGRAM_MANIFEST = {
-    "version": 1,
-    "name": "order system",
-    "brief": PROGRAM_TASK,
-    "shared": {
-        "constraints": [
-            "Python standard library only",
-            "Every service is a separate process with GET /health",
-            "No deployment is executed",
-        ],
-        "end_to_end_flow": list(PROGRAM_FLOW),
-        "interfaces": [
-            {
-                "id": "contracts",
-                "summary": "JSON shapes Item, CartItem, Cart, Order",
-                "paths": ["contracts/"],
-                "version": 1,
-                "producer": "contracts",
-                "consumers": ["catalog", "cart", "checkout", "gateway"],
-            }
-        ],
-    },
-    "journeys": [
-        {"id": "order-journey", "name": "Shop and check out through the gateway", "steps": list(PROGRAM_FLOW)}
-    ],
-    # Re-run on the integration branch after every merge, starting with the walking skeleton's.
-    "checks": [PROGRAM_SKELETON_CHECK],
-    "workstreams": [
-        # The walking skeleton: the shared contracts plus the thinnest path through every process.
-        # It owns the parent directories because every other workstream depends on it and extends it.
-        {
-            "id": "contracts",
-            "kind": "code",
-            "skeleton": True,
-            "owns": ["contracts/", "services/", "gateway/", "tests/test_skeleton.py"],
-            "depends_on": [],
-            "brief": "Walking skeleton: the shared contracts and the thinnest end-to-end path every other workstream "
-            "extends. Write contracts/README.md and one contracts/<shape>.json per shape: Item {sku, name, "
-            "price_cents}, CartItem {sku, quantity, price_cents}, Cart {cartId, items}, Order {orderId, "
-            "cartId, total_cents}. Each JSON file declares type object and a required list of those fields. "
-            "Then create services/catalog/server.py, services/cart/server.py, services/checkout/server.py and "
-            "gateway/server.py as separate standard-library HTTP processes started as `python3 <path> --port N` "
-            "and already taking the program's wiring flags (checkout: --catalog-url --cart-url; gateway: "
-            '--catalog-url --cart-url --checkout-url). Each answers GET /health with 200 {"status": "ok"}; '
-            "the catalog answers GET /items with a JSON list of Item objects and the gateway proxies GET "
-            "/catalog to it. Leave every other route to the workstream that owns that service. "
-            "tests/test_skeleton.py is one discoverable unittest that starts all four processes wired together "
-            "on free ports, checks each GET /health, lists the catalog through the gateway, and stops them; `"
-            + PROGRAM_SKELETON_CHECK
-            + "` runs it.",
-        },
-        {
-            "id": "catalog",
-            "kind": "code",
-            "owns": ["services/catalog/"],
-            "depends_on": ["contracts"],
-            "brief": "services/catalog/server.py --port N: GET /health -> 200 {status: ok}; GET /items -> 200 list of "
-            "at least three Item objects; GET /items/{sku} -> 200 Item or 404. Include unit tests in the package.",
-        },
-        {
-            "id": "cart",
-            "kind": "code",
-            "owns": ["services/cart/"],
-            "depends_on": ["contracts"],
-            "brief": "services/cart/server.py --port N: GET /health; POST /carts/{cartId}/items CartItem -> 200 Cart; "
-            "GET /carts/{cartId} -> 200 Cart (empty items for unknown ids); DELETE /carts/{cartId} -> 204. "
-            "In-memory storage. Include unit tests in the package.",
-        },
-        {
-            "id": "checkout",
-            "kind": "code",
-            "owns": ["services/checkout/"],
-            "depends_on": ["catalog", "cart"],
-            "brief": "services/checkout/server.py --port N --catalog-url --cart-url: GET /health; POST /checkout "
-            "{cartId} -> 201 Order with total_cents = sum(quantity*price_cents) over the cart fetched from "
-            "the cart service, then DELETE that cart; empty cart -> 409 {error: empty_cart}; GET "
-            "/orders/{orderId} -> 200 Order or 404. Include unit tests using a stub cart server.",
-        },
-        {
-            "id": "gateway",
-            "kind": "code",
-            "owns": ["gateway/"],
-            "depends_on": ["checkout"],
-            "brief": "gateway/server.py --port N --catalog-url --cart-url --checkout-url: GET /health; proxy GET "
-            "/catalog, POST /cart/{cartId}/items, GET /cart/{cartId}, POST /checkout, GET /orders/{orderId} "
-            "to the owning service, preserving status codes and JSON bodies.",
-        },
-        {
-            "id": "deploy",
-            "kind": "code",
-            "owns": ["deploy/"],
-            "depends_on": ["gateway"],
-            "brief": "deploy/docker-compose.yml defining services catalog, cart, checkout and gateway, and "
-            "deploy/README.md stating that no deployment was performed. Do not run docker or reach any "
-            "external system.",
-        },
-        {
-            "id": "integration",
-            "kind": "integration",
-            "owns": ["tests/", "scripts/"],
-            "depends_on": ["gateway", "deploy"],
-            "brief": "scripts/run_local.py --catalog-port --cart-port --checkout-port --gateway-port starts all four "
-            "services wired together and stops them on SIGTERM. tests/test_e2e.py is a discoverable unittest "
-            "suite that starts the services on "
-            "free ports and verifies the full journey through the gateway: catalog listing, two cart "
-            "additions, checkout total, cart empty afterwards, empty-cart checkout 409. Fix integration "
-            "defects in any service only when the journey fails.",
-        },
-    ],
-}
-
 SCENARIOS = {
     "BUGFIX-01": {
         "title": "Bug fix: blank-name validation in a committed CLI",
@@ -1291,9 +1171,6 @@ SCENARIOS = {
         "expected_class": "pass_or_honest",
         "deliverables": list(PROGRAM_STATIC_FILES)
         + ["services/catalog/server.py", "services/cart/server.py", "services/checkout/server.py", "gateway/server.py"],
-        # The same brief can run as one run with parallel milestone Builders or
-        # as `autocode program run` with this manifest; the oracle is identical.
-        "program_manifest": PROGRAM_MANIFEST,
         "baseline": {
             "status": "ERROR",
             "profile": "glm53-mimo",

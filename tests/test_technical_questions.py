@@ -127,6 +127,26 @@ class TechnicalQuestionPolicyTests(unittest.TestCase):
         current["user_events"].append({"kind": "brief_feedback", "actor": "user_cli", "text": "Use a different input."})
         self.assertEqual([], technical.settle(current, [question()], "r3:draft"))
 
+    def test_reworded_internal_question_cannot_repeat_the_same_settled_decision(self):
+        current = state()
+        technical.settle(current, [question("OWNER")], "r1:draft")
+        repeated = question(
+            "OWNER",
+            question="Which owner will carry the already selected work?",
+            why="The assignment has not changed since the previous draft.",
+            proposed_default="Use the saved owner decision and refresh its assignment.",
+        )
+        before = copy.deepcopy(current)
+        with self.assertRaisesRegex(ValueError, "OWNER.*already settled"):
+            technical.settle(current, [question("NEW"), repeated], "r2:draft")
+        self.assertEqual(before, current, "Refusal must not record other defaults from the rejected report")
+
+    def test_distinct_internal_question_can_be_settled_after_another_decision(self):
+        current = state()
+        technical.settle(current, [question("FIRST")], "r1:draft")
+        self.assertEqual([], technical.settle(current, [question("SECOND")], "r2:draft"))
+        self.assertEqual(["FIRST", "SECOND"], [event["question_id"] for event in current["user_events"]])
+
 
 class TechnicalDraftTests(unittest.TestCase):
     def test_nonjoint_runs_keep_their_existing_human_question_path(self):
@@ -311,6 +331,72 @@ class TechnicalPlanningTests(EpisodeCase):
         self.assertEqual("astra_discovery", self.state["next_stage"])
         self.assertEqual("none", lifecycle.human.evaluate(self.state))
         self.assertFalse(goals.approved(self.state))
+        # The restart is AutoCode's own answer, recorded so the next cycle can renew a spent review allowance.
+        self.assertTrue(self.state["planning"]["internal_answer_restart"])
+
+    def redraft_after_internal_answer(self, limit=2):
+        """Draft, a blocking review, a revision that asks a technical question AutoCode answers, and the redraft."""
+        self.state["settings"]["planning_review_call_limit"] = limit
+        self.apply("requirements_gather", requirements([]))
+        self.apply("astra_discovery", discovery(body()))
+        planner.charge(self.state, "astra_challenge")
+        concern = {
+            "id": "C1",
+            "concern": "M1 owns no tests",
+            "evidence_refs": ["goal_contract.body.milestones"],
+            "requested_change": "Give M1 its regression tests",
+            "acceptance_test": "M1's affected_paths name a test file",
+            "blocking": True,
+        }
+        self.apply("astra_challenge", {"summary": "Review", "concerns": [concern]})
+        draft = body()
+        draft["open_blocking_questions"] = [question()]
+        response = {
+            "concern_id": "C1",
+            "response": "M1 now owns test_greeting.py",
+            "evidence_refs": ["config.py:1"],
+            "change": "Added the test file to M1",
+            "acceptance_test": "M1's affected_paths name test_greeting.py",
+        }
+        self.apply(
+            "glm_revise",
+            {
+                "contract": draft,
+                "summary": "Revision with an internal question",
+                "code_refs": ["config.py:1"],
+                "responses": [response],
+                "contract_changes": [],
+                "requirement_trace": [],
+            },
+        )
+        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.apply("astra_discovery", discovery(body()))
+
+    def test_the_redraft_after_an_internal_answer_continues_the_reviewed_cycle(self):
+        # Live 2026-10-20: the restart renewed the allowance and the reviewer saw nothing of its first review.
+        self.redraft_after_internal_answer()
+        record = self.state["planning"]
+        self.assertEqual(1, len(self.state["planning_history"]))
+        self.assertEqual(1, record["astra_calls"], "the first review's charge is carried, not renewed")
+        self.assertEqual({"astra_challenge", "glm_revise", "astra_discovery"}, set(record["reports"]))
+        self.assertEqual("astra_finalize", self.state["next_stage"], "one call left: the final review decides")
+        self.assertEqual("none", lifecycle.human.evaluate(self.state))
+        self.assertFalse(goals.approved(self.state))
+        prompt, _ = planner.context(self.state, "astra_finalize", Path("/fixture/state.json"))
+        packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(
+            ["C1"], [row["id"] for row in packet["planning"]["reports"]["astra_challenge"]["report"]["concerns"]]
+        )
+        self.assertTrue(any(row.get("kind") == "technical_decision" for row in packet["user_events"]))
+
+    def test_with_calls_to_spare_the_redraft_is_re_reviewed_with_the_default_named(self):
+        self.redraft_after_internal_answer(limit=3)
+        self.assertEqual("astra_challenge", self.state["next_stage"])
+        prompt, _ = planner.context(self.state, "astra_challenge", Path("/fixture/state.json"))
+        self.assertIn(planner.REREVIEW_RULE, prompt)
+        packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        answered = packet["previous_review"]["answered_questions"]
+        self.assertEqual([("Q1", "autocode")], [(row["id"], row["answered_by"]) for row in answered])
 
 
 if __name__ == "__main__":

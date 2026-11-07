@@ -13,15 +13,19 @@ import { realpath } from "node:fs/promises";
 import { invoke, readStatus, stream, tail, type CliResult } from "./core/cli";
 import {
   applyDecisions,
+  boundOffer,
+  changesetAction,
+  changesetStatusArgs,
   commandInputs,
   findUnsupplied,
+  integerValue,
   isAdvancing,
   openDecisions,
   parseNamedCommand,
   ClientGap,
   type OpenDecision,
 } from "./core/next-command";
-import { readRegistryList, readStatusPayload, approvalToken, planForApproval, type CheckpointAction, type RegistryList, type StatusView } from "./core/view";
+import { readChangesetSummary, readRegistryList, readStatusPayload, approvalToken, planForApproval, type ChangesetSummary, type CheckpointAction, type IntegerCommandInput, type RegistryList, type StatusView } from "./core/view";
 import { FULL_START_ARGS, readRunModes, type RunModes } from "./core/modes";
 import { readSettings, type Settings } from "./settings";
 
@@ -51,8 +55,62 @@ export interface ActionPlan {
 export class RunController {
   constructor(private readonly log: vscode.OutputChannel) {}
 
+  private readonly polling = new Map<string, { generation: number; request: Promise<StatusView> }>();
+  private readonly mutations = new Map<string, number>();
+
   private get settings(): Settings {
     return readSettings();
+  }
+
+  private runKey(run: RunRef): string {
+    return JSON.stringify([run.workspace, run.runDir]);
+  }
+
+  private pollKey(run: RunRef, settings: Settings): string {
+    return JSON.stringify([this.runKey(run), settings.command, settings.prefix, settings.cwd ?? null,
+      Object.entries(settings.env ?? {}).sort(([left], [right]) => left.localeCompare(right))]);
+  }
+
+  /** UI polling only: share a pending read, never a completed status or action preflight. */
+  pollStatus(run: RunRef): Promise<StatusView> {
+    const runKey = this.runKey(run);
+    const generation = this.mutations.get(runKey) ?? 0;
+    const key = this.pollKey(run, this.settings);
+    const pending = this.polling.get(key);
+    if (pending?.generation === generation) return pending.request;
+    const superseded = () => (this.mutations.get(runKey) ?? 0) !== generation || this.pollKey(run, this.settings) !== key;
+    const retire = () => {
+      if (this.polling.get(key)?.request === request) this.polling.delete(key);
+    };
+    const refresh = () => {
+      // Retire before joining a replacement: settings A -> B -> A must not
+      // let the old A and B promises join each other in a cycle.
+      retire();
+      return this.pollStatus(run);
+    };
+    const request: Promise<StatusView> = this.status(run).then((view) => {
+      // A command can finish while an older poll is still reading. Its old
+      // result must not replace the new boundary or its decision/token offer.
+      return superseded() ? refresh() : view;
+    }, (error: unknown) => {
+      if (superseded()) return refresh();
+      throw error;
+    }).finally(retire);
+    this.polling.set(key, { generation, request });
+    return request;
+  }
+
+  private async mutating<T>(runs: RunRef[], command: () => Promise<T>): Promise<T> {
+    const keys = [...new Set(runs.map((run) => this.runKey(run)))];
+    const invalidate = () => {
+      for (const key of keys) this.mutations.set(key, (this.mutations.get(key) ?? 0) + 1);
+    };
+    invalidate();
+    try {
+      return await command();
+    } finally {
+      invalidate();
+    }
   }
 
   /** The per-user run pointers. Read-only: it starts nothing and changes nothing. */
@@ -94,7 +152,8 @@ export class RunController {
     const args = [brief, "--in-place", "--no-chat", ...startArgs, ...settings.runOptions, "--workspace", runWorkspace, "--new-run-dir", runDir];
     this.log.appendLine(`$ autocode ${summarize(brief)} --in-place --no-chat --new-run-dir ${runDir}`);
     created?.({ workspace: runWorkspace, runDir });
-    const result = await stream({ ...settings, cwd: runWorkspace }, args, {}, (chunk) => this.log.append(chunk));
+    const result = await this.mutating([{ workspace: runWorkspace, runDir }], () =>
+      stream({ ...settings, cwd: runWorkspace }, args, {}, (chunk) => this.log.append(chunk)));
     if (result.rejected || (result.code !== 0 && result.code !== 2)) throw new Error(tail(result));
     this.log.appendLine(`[autocode exited ${result.code}]`);
     return { workspace: runWorkspace, runDir };
@@ -138,7 +197,7 @@ export class RunController {
   /** The named action with a person's decisions filled in, ready to run. */
   prepare(view: StatusView, run: RunRef, answers: Record<string, string>): PreparedAction {
     const { argv, env } = this.named(view, run);
-    const filled = applyDecisions(argv, answers, commandInputs(view, { argv, env }));
+    const filled = applyDecisions(argv, answers, commandInputs(view, { argv, env }), view.needs?.effort);
     const advancing = isAdvancing(filled);
     // Existing runs own their saved backend, models and limits. Changing the
     // Connections selection for a new chat must not reroute a paused run.
@@ -172,10 +231,83 @@ export class RunController {
     const own = effective(view, run);
     const args = [...action.argv, "--workspace", own.workspace, "--run-dir", own.runDir];
     this.log.appendLine(`$ autocode ${args.map(redact).join(" ")}`);
-    const result = await stream(this.settings, args, action.env, (chunk) => this.log.append(chunk));
+    const result = await this.mutating([run, own], () =>
+      stream(this.settings, args, action.env, (chunk) => this.log.append(chunk)));
     this.log.appendLine(`[autocode exited ${result.code}]`);
     if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
     if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
+    return result;
+  }
+
+  /**
+   * The core's separate raise of the bound holding the run (#2044), or null when the view names none.
+   *
+   * At a plain resume or AutoResolver's operational request for a bound pause, next_command is not the
+   * raise; the command_inputs row names it as its own command. A row that fails the shared rule is
+   * no offer here, as in the terminal chat.
+   */
+  boundRaise(view: StatusView, run: RunRef): IntegerCommandInput | null {
+    try {
+      return boundOffer(view, effective(view, run))?.input ?? null;
+    } catch (error) {
+      if (error instanceof ClientGap) return null;
+      throw error;
+    }
+  }
+
+  /** Take the named raise with the number a person typed in its one slot, never in next_command. */
+  async raise(view: StatusView, run: RunRef, text: string): Promise<CliResult> {
+    const own = effective(view, run);
+    const offer = boundOffer(view, own);
+    if (!offer) throw new ClientGap("AutoCode offers no limit to raise for this pause");
+    const argv = [...offer.named.argv];
+    argv[offer.input.arg_index] = integerValue(text, offer.input);
+    const args = [...argv, "--workspace", own.workspace, "--run-dir", own.runDir];
+    this.log.appendLine(`$ autocode ${args.map(redact).join(" ")}`);
+    const result = await this.mutating([run, own], () =>
+      stream(this.settings, args, offer.named.env, (chunk) => this.log.append(chunk)));
+    this.log.appendLine(`[autocode exited ${result.code}]`);
+    if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
+    if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
+    return result;
+  }
+
+  /**
+   * `changeset status --json` for a run whose view lists linked runs; null when it is in no change
+   * set. Read-only: it reads each run's status view and changes nothing (#2066).
+   */
+  async changeset(view: StatusView, run: RunRef): Promise<ChangesetSummary | null> {
+    const args = changesetStatusArgs(view, effective(view, run));
+    if (!args) return null;
+    const result = await invoke(this.settings, args);
+    if (result.code !== 0) {
+      try {
+        readChangesetSummary(result.stdout);
+      } catch (error) {
+        throw new Error(error instanceof Error ? error.message : tail(result));
+      }
+      throw new Error(tail(result));
+    }
+    return readChangesetSummary(result.stdout);
+  }
+
+  /**
+   * Take the change set's named set approval or joint check. The set approval is bound to the
+   * set token a person was shown with every run's plan: a plan revised since has a new token, and
+   * the client refuses before the core would.
+   */
+  async takeChangeset(view: StatusView, run: RunRef, key: "approval" | "verification", shownToken?: string | null): Promise<CliResult> {
+    const summary = await this.changeset(view, run);
+    if (!summary) throw new ClientGap("this run is in no change set");
+    if (key === "approval" && summary.approval.set_token !== shownToken) {
+      throw new ClientGap("a plan in the change set changed since it was displayed; review the plans again");
+    }
+    const args = changesetAction(summary, key);
+    this.log.appendLine(`$ autocode ${args.join(" ")}`);
+    const runs = summary.runs.map((row) => ({ workspace: row.workspace, runDir: row.run_dir }));
+    const result = await this.mutating([run, ...runs], () => stream(this.settings, args, {}, (chunk) => this.log.append(chunk)));
+    this.log.appendLine(`[autocode exited ${result.code}]`);
+    if (result.rejected || result.code !== 0) throw new Error(tail(result));
     return result;
   }
 
@@ -207,8 +339,8 @@ export class RunController {
     if (!operational && (!flag || parsed.argv.length !== 2 || parsed.argv[0] !== flag || parsed.argv[1] !== "MESSAGE"
       || Object.keys(parsed.env).length)) throw new ClientGap("Unsupported message action from AutoCode");
     const own = effective(view, run);
-    const result = await stream({ ...this.settings, cwd: run.workspace },
-      [...parsed.argv.slice(0, -1), text, "--workspace", own.workspace, "--run-dir", own.runDir], parsed.env);
+    const result = await this.mutating([run, own], () => stream({ ...this.settings, cwd: run.workspace },
+      [...parsed.argv.slice(0, -1), text, "--workspace", own.workspace, "--run-dir", own.runDir], parsed.env));
     if (result.code !== 0) throw new Error(tail(result));
   }
 
@@ -223,7 +355,8 @@ export class RunController {
     const expected = ["intervention", "submit", "--workspace", own.workspace, "--run-dir", own.runDir,
       "--request-id", "REQUEST_ID", "--kind", "pause", "--json"];
     if (JSON.stringify(command) !== JSON.stringify(expected)) throw new ClientGap("Unsupported pause action from AutoCode");
-    const result = await invoke(this.settings, command.map((word) => (word === "REQUEST_ID" ? requestId : word)));
+    const result = await this.mutating([run, own], () =>
+      invoke(this.settings, command.map((word) => (word === "REQUEST_ID" ? requestId : word))));
     if (result.code !== 0) throw new Error(tail(result));
   }
 
@@ -253,6 +386,21 @@ export class RunController {
     return JSON.parse(result.stdout) as CheckpointComparison;
   }
 
+  /** The view's named, display-only diff of what the running Builder has changed so far. */
+  async workingDiff(run: RunRef): Promise<WorkingComparison> {
+    const view = await this.status(run);
+    const action = view.code_checkpoints?.working;
+    if (!action) throw new ClientGap("AutoCode offers no live diff right now. It is offered while the Builder works.");
+    const own = effective(view, run);
+    const expected = ["checkpoint", "--workspace", own.workspace, "--run-dir", own.runDir, "--working"];
+    if (JSON.stringify(action.next_command) !== JSON.stringify(expected)) {
+      throw new ClientGap("Unsupported working-diff action from AutoCode");
+    }
+    const result = await invoke(this.settings, expected);
+    if (result.code !== 0) throw new Error(tail(result));
+    return JSON.parse(result.stdout) as WorkingComparison;
+  }
+
   /**
    * The named restore: a person's confirmed decision, bound to the token a
    * fresh compare returned and a stable request id that makes replay safe.
@@ -261,10 +409,20 @@ export class RunController {
     const view = await this.status(run);
     const action = this.namedCheckpointAction(view, run, checkpointId, "restore");
     const argv = action.next_command.map((word) => (word === "REQUEST_ID" ? requestId : word));
-    const result = await invoke(this.settings, argv, { AUTOCODE_CHECKPOINT_EXPECTED_TOKEN: expectedToken });
+    const result = await this.mutating([run, effective(view, run)], () =>
+      invoke(this.settings, argv, { AUTOCODE_CHECKPOINT_EXPECTED_TOKEN: expectedToken }));
     if (result.code !== 0) throw new Error(tail(result));
     return JSON.parse(result.stdout) as CheckpointRestoreResult;
   }
+}
+
+/** The payload `checkpoint --working` prints: display only, with no token. */
+export interface WorkingComparison {
+  since?: string;
+  changed_files?: string[];
+  patch?: string;
+  truncated?: boolean;
+  compared_at?: string;
 }
 
 /** The payload `checkpoint --compare` prints. */

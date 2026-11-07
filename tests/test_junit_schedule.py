@@ -1,4 +1,4 @@
-"""JUnit baseline artifacts remain authenticated through final completion."""
+"""JUnit baseline artifacts authenticate independently of changed-code obligations."""
 
 import copy
 import hashlib
@@ -83,12 +83,17 @@ class JUnitProofArtifactTests(unittest.TestCase):
             },
         }
 
-    def test_owned_sibling_baseline_capture_remains_valid_through_final_completion(self):
+    def test_owned_sibling_baseline_capture_remains_valid_without_inventing_changed_code_evidence(self):
         baseline = self.result["checks"]["suite_on_base"]
         self.assertTrue(schedule.intact(baseline, root=self.baseline_root))
         self.assertFalse(schedule.intact(baseline, root=self.proof_root))
         self.assertTrue(schedule.proof_intact(self.result["checks"], root=self.proof_root))
-        self.assertTrue(regression.complete(self.state, self.result["source_revision"], all_due=True))
+        # This direct verify.verify fixture records JUnit receipts, not the
+        # runner's changed-line measurements or independently accepted reasons.
+        self.assertTrue(
+            regression.complete(self.state, self.result["source_revision"], all_due=True, require_changed_code=False)
+        )
+        self.assertFalse(regression.complete(self.state, self.result["source_revision"], all_due=True))
 
     def test_editing_the_retained_baseline_xml_invalidates_the_whole_proof_and_completion(self):
         baseline = self.result["checks"]["suite_on_base"]
@@ -97,6 +102,9 @@ class JUnitProofArtifactTests(unittest.TestCase):
         self.addCleanup(artifact.write_bytes, original)
         artifact.write_bytes(original.replace(b"test_c2_exact", b"test_c2_forged"))
         self.assertFalse(schedule.proof_intact(self.result["checks"], root=self.proof_root))
+        self.assertFalse(
+            regression.complete(self.state, self.result["source_revision"], all_due=True, require_changed_code=False)
+        )
         self.assertFalse(regression.complete(self.state, self.result["source_revision"], all_due=True))
 
     def capture(self, folder):

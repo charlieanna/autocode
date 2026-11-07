@@ -33,6 +33,61 @@ the candidate suite. If no suite command was available when the inventory was
 bound, changed tests remain unverified until an explicit user revision supplies
 one. Unchanged original files use the ordinary independent verification gates.
 
+## Tests an approved plan replaces
+
+Sometimes an existing test asserts the very behavior the task changes. A bug fix
+can meet a test that pins the bug, such as `shipping_fee(5000) == 499` when the
+fix makes a $50 order ship free. No correct fix can pass that original assertion.
+The plan names such a test instead. A `test:` criterion may carry `supersedes`, a
+list of the original tests it replaces. Each entry is a test file of the original
+binding, as a path from the repository root, and the test's own name:
+
+```json
+{"id": "AC1", "criterion": "An order of exactly $50 ships free",
+ "verification_method": "test: test_fifty_dollar_order_pays_standard_fee",
+ "supersedes": [{"file": "tests/test_shipping.py", "test": "test_fifty_dollar_order_pays_standard_fee"}]}
+```
+
+The approval screen shows each entry as "Replaces existing test", and approving
+the plan approves the list. AutoCode checks the list itself, with no question to
+the person:
+
+- The draft is refused unless each entry is on a `test:` criterion and names a
+  regular file of the original binding whose original bytes define that test. A
+  name that another original file in the same directory also defines is refused,
+  because Go reports a package, not a file.
+- The criterion's named test must still pass the [regression proof](named-test-proof.md):
+  it fails on the original code and passes with the change.
+- The original suite still runs whole. Its failure is accepted only when the
+  runner reported complete per-test results (unittest, pytest, Go, `node:test` or
+  Vitest), nothing failed to collect, and every failing test is a listed one in a
+  file the change edited. Any other failing original test, a crash, a timeout or
+  a runner without per-test results keeps the gate closed, as before.
+- The replay receipt records the accepted failures under `superseded`.
+  Completion checks them again against the plan in force, so a later plan that
+  drops the entry cannot reuse the receipt.
+
+A planner sometimes changes such a test in place without listing it, most often
+when the wrong assertion is one of several in a larger test. AutoCode then revises
+the plan itself, once per test, instead of stopping. The revision happens only
+when the original gate refused the Tester's PASS for exactly that conflict:
+
+- the plan is approved and has a `test:` criterion;
+- the changed suite passed;
+- the original suite reported complete per-test results;
+- every failing original test is defined in an original test file the change
+  edited, and the plan does not list it already.
+
+The runner adds each such test to a `test:` criterion's `supersedes`. It picks the
+criterion whose named test now sits in the same file, or else the first one. The
+draft then goes back to plan review. The Plan Reviewer checks whether the test
+really asserts the changed behavior, and approval follows as for any plan. The run
+records each test it sent back under `superseded_corrections`. If the same test is
+refused again, or the refusal is anything else, the run pauses as before.
+
+A failed original gate names the failing original tests. Its pause counts as
+AutoCode's gate conflict, not as a model or provider failure.
+
 `--status` exposes the binding under `view.evidence.protected_tests` and the
 replay result under `view.evidence.check_replay.protected_tests`. A failed replay
 has a unique receipt and log directory; a restart preserves it. Successful

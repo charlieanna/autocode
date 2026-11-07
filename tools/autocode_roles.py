@@ -56,8 +56,8 @@ SCREEN = {
 STAGE_JOB = {
     "recognize_workflow": "recognizer",
     "requirements_gather": "requirements",
-    "astra_discovery": "requirements",
-    "glm_revise": "requirements",
+    "astra_discovery": "planner",
+    "glm_revise": "planner",
     "requirements_planner": "requirements",
     "requirements_revision": "requirements",
     "requirements": "requirements",
@@ -94,7 +94,7 @@ STAGE_JOB = {
 # several stages. These name its primary job, not a prediction of execution.
 ROUTE_JOB = {
     "astra": "planner",
-    "glm": "requirements",
+    "glm": "planner",
     "requirements": "requirements",
     "plan_reviewer": "plan_reviewer",
     "terra": "builder",
@@ -111,8 +111,12 @@ ROUTE_JOB = {
 
 
 def route_name(role: str, state: Mapping[str, Any]) -> str:
-    """Primary job of a configured slot; actual stage names use screen_name."""
-    job = "planner" if role == "glm" and planning_flow(state) == "v2" else ROUTE_JOB.get(role)
+    """Primary job of a configured slot; actual stage names use screen_name.
+
+    ``state`` stays in the call contract (autocode_role_route.record passes it);
+    the label no longer reads it: the same Planner work runs the slot in both flows.
+    """
+    job = ROUTE_JOB.get(role)
     return SCREEN[job] if job else str(role).replace("_", " ").title()
 
 

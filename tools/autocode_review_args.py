@@ -2,12 +2,21 @@
 
 try:
     from . import autocode_approval_provenance as approval_provenance
+    from . import autocode_review_routing as review_routing
 except ImportError:
     import autocode_approval_provenance as approval_provenance
+    import autocode_review_routing as review_routing
 
 
 def add_arguments(parser):
-    parser.add_argument("--approve-review", action="append", default=[], metavar="CRITERION_ID")
+    review_routing.add_argument(parser)
+    parser.add_argument(
+        "--approve-review",
+        action="append",
+        default=[],
+        metavar="CRITERION_ID",
+        help="Record a human-review acceptance of this criterion (repeatable); needs --review-token",
+    )
     parser.add_argument(
         "--reconcile-review",
         metavar="CRITERION_ID=ANSWER_ID",
@@ -38,11 +47,10 @@ def validate(args, parser):
         or args.reconcile_review
         or args.delegate_all
         or args.reject_assumption
-        or args.program_guidance is not None
     ):
         parser.error(
-            "--review-token requires --approve-review, --reject-review, --reconcile-review, --delegate-all, "
-            "--reject-assumption or --program-guidance"
+            "--review-token requires --approve-review, --reject-review, --reconcile-review, --delegate-all "
+            "or --reject-assumption"
         )
     if args.reconcile_review and not args.review_token:
         parser.error("--reconcile-review requires --review-token")

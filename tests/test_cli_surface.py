@@ -14,7 +14,6 @@ from unittest.mock import patch
 
 import autocode
 import autocode_args
-import autocode_program
 import autocode_subcommands as commands
 import autocode_unattended as unattended
 
@@ -52,6 +51,10 @@ class CliSurfaceTests(unittest.TestCase):
                 self.assertIn(name, listed)
         self.assertIn("--help-all", out)
         self.assertIn("docs/cli.md", out)
+        # #2330: the coding agent is chosen with --engine; --provider (external tools) led people to
+        # `--provider codex`, which fails asking for a TOML file.
+        self.assertIn("--engine", out)
+        self.assertNotIn("--provider", out)
 
     def test_full_help_retains_advanced_options_and_normal_parsing(self):
         code, out, err = self.invoke("--help-all")
@@ -75,6 +78,20 @@ class CliSurfaceTests(unittest.TestCase):
                 code, out, err = self.invoke(name, "--help")
                 self.assertEqual(0, code, err)
                 self.assertIn("usage:", out)
+
+    def test_every_subcommands_usage_line_names_the_subcommand(self):
+        """`usage: autocode [-h] {location,list,...}` read as if `autocode list` existed (#2387)."""
+        own_program = {"issue", "unattended"}  # autocode-issue and autocode-unattended are scripts of their own
+        for name in sorted((set(commands.SUBCOMMANDS) | set(commands.BUILTIN_COMMANDS)) - own_program):
+            if name in commands.WITHOUT_PARSER:
+                continue
+            with self.subTest(command=name):
+                code, out, err = self.invoke(name, "--help")
+                self.assertEqual(0, code, err)
+                self.assertTrue(out.startswith(f"usage: autocode {name}"), out.splitlines()[:1])
+        code, out, err = self.invoke("registry", "no-such-action")
+        self.assertEqual(2, code)
+        self.assertIn("autocode registry: error:", err)
 
     def test_a_user_error_names_the_problem_without_the_option_dump(self):
         code, out, err = self.invoke("Build a greeting CLI", "--new-run-dir", "/tmp/fresh-run")
@@ -127,40 +144,31 @@ class CliSurfaceTests(unittest.TestCase):
         self.assertIsNone(unattended.refused(["--run-dir", "saved", "--status"]))
         self.assertIsNone(unattended.refused(["Build it", "--no-chat"]))
 
-    def test_public_inventory_uses_actual_program_dispatch_and_explicit_internal_flags(self):
+    def test_public_inventory_uses_actual_dispatch_and_explicit_internal_flags(self):
         paths = commands.public_command_paths()
         self.assertEqual(len(paths), len(set(paths)))
         self.assertIn((), paths)
-        self.assertEqual(set(autocode_program.COMMANDS), {p[1] for p in paths if len(p) == 2 and p[0] == "program"})
         self.assertEqual(
             set(commands.SUBCOMMANDS) | set(commands.BUILTIN_COMMANDS), {p[0] for p in paths if len(p) == 1}
         )
         self.assertIn(("unattended", "--analyze"), paths)
         self.assertEqual(
             {
-                (): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
-                ("unattended",): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
+                (): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks", "--worker-receipt"}),
+                ("unattended",): frozenset(
+                    {"--new-run-dir", "--replay-recording", "--replay-checks", "--worker-receipt"}
+                ),
+                ("worker",): frozenset({"--receipt"}),
             },
             commands.INTERNAL_FLAGS,
         )
 
-    def test_packaging_marks_only_autocode_public_and_preserves_compatibility_scripts(self):
+    def test_packaging_installs_only_the_autocode_command(self):
         package = tomllib.loads((ROOT / "pyproject.toml").read_text())
         policy = package["tool"]["autocode"]["cli"]
         self.assertEqual(["autocode"], policy["public-entry-points"])
-        internal = policy["internal-entry-points"]
-        self.assertEqual(len(internal), len(set(internal)))
-        self.assertEqual(set(package["project"]["scripts"]) - {"autocode"}, set(internal))
-        self.assertTrue(
-            {
-                "autoplanner",
-                "autocode-build",
-                "autoreview",
-                "autoresolver",
-                "autocode-orchestrator",
-                "autocode-unattended",
-            }.issubset(internal)
-        )
+        self.assertEqual([], policy["internal-entry-points"])
+        self.assertEqual({"autocode": "autocode_cli.autocode:cli"}, package["project"]["scripts"])
         for unit in ("autoplanner", "autocode", "autoreview", "autoresolver"):
             with self.subTest(unit=unit):
                 self.assertEqual(

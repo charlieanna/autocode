@@ -9,17 +9,18 @@ from collections.abc import Mapping, Sequence
 
 TOKEN_ENV_VARS = {
     "resolver_token": "AUTOCODE_RESOLVER_TOKEN",
+    "reconcile_only": "AUTOCODE_RECONCILE_ONLY_TOKEN",
     "job_retry_token": "AUTOCODE_JOB_RETRY_TOKEN",
     "recover_job_report": "AUTOCODE_RECOVER_JOB_REPORT",
     "approve_goal": "AUTOCODE_APPROVE_GOAL_TOKEN",
+    "changeset_token": "AUTOCODE_CHANGESET_TOKEN",
     "review_token": "AUTOCODE_REVIEW_TOKEN",
     "expected_goal_token": "AUTOCODE_EXPECTED_GOAL_TOKEN",
     "expected_recovery_token": "AUTOCODE_EXPECTED_RECOVERY_TOKEN",
 }
 CHECKPOINT_TOKEN_ENV_VARS = {"expected_token": "AUTOCODE_CHECKPOINT_EXPECTED_TOKEN"}
-PROGRAM_TOKEN_ENV_VARS = {"token": "AUTOCODE_PROGRAM_APPROVAL_TOKEN"}
 CONTROL_TOKEN_ENV_VARS = frozenset(
-    (*TOKEN_ENV_VARS.values(), *CHECKPOINT_TOKEN_ENV_VARS.values(), *PROGRAM_TOKEN_ENV_VARS.values())
+    (*TOKEN_ENV_VARS.values(), *CHECKPOINT_TOKEN_ENV_VARS.values(), "AUTOCODE_COORDINATION_TOKEN")
 )
 
 
@@ -54,12 +55,8 @@ def private_command(command: Sequence[str], *, argument_offset: int = 0) -> tupl
     """
     result = list(command)
     arguments = result[argument_offset:]
-    if arguments[:2] == ["program", "approve"]:
-        fields = PROGRAM_TOKEN_ENV_VARS
-    elif arguments[:1] == ["checkpoint"]:
+    if arguments[:1] == ["checkpoint"]:
         fields = CHECKPOINT_TOKEN_ENV_VARS
-    elif arguments[:1] == ["program"]:
-        fields = {}
     else:
         fields = TOKEN_ENV_VARS
     flags = {"--" + attribute.replace("_", "-"): variable for attribute, variable in fields.items()}

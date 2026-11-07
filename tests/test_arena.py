@@ -246,6 +246,26 @@ class ArenaTests(unittest.TestCase):
         self.assertIn("controls failed", result.stderr)
         self.assertEqual([], self.store.cases())
 
+    def test_every_action_but_init_names_a_missing_store_and_the_command_that_creates_it(self):
+        missing = Store(self.root / "no-arena")
+        for args in (
+            ("cases",),
+            ("report",),
+            ("propose", "--cohort", "c"),
+            ("compare", "--baseline", "a", "--candidate", "b"),
+        ):
+            with self.subTest(args[0]):
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    with self.assertRaises(SystemExit) as stopped:
+                        arena.main(["--arena", str(missing.root), *args])
+                self.assertEqual(2, stopped.exception.code)
+                self.assertEqual(
+                    f"arena error: No arena store at {missing.root}; run autocode arena init first\n", err.getvalue()
+                )
+                self.assertEqual("", out.getvalue())
+        self.assertFalse(missing.root.exists(), "a refused action creates nothing")
+
     def test_cases_lists_prepared_workloads_without_running_them(self):
         self.assertEqual([], json.loads(self.call("cases").stdout)["cases"])
         self.assertEqual(0, self.ingest().returncode)

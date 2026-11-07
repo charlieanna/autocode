@@ -12,6 +12,7 @@ import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_resolver_human as human
+import autocode_run_records as records
 import autocode_support as support
 import autocode_util as util
 import autocode_workflow as workflow
@@ -269,6 +270,37 @@ class ResolverProducerTests(unittest.TestCase):
                 # Still one diagnosis for this task and source.
                 self.assertEqual(1, sum(row.get("stage") == "astra_resolve" for row in self.state["stages"]))
                 self.state = before
+
+    def test_a_repeated_rework_after_an_answered_diagnosis_holds_instead_of_looping(self):
+        # Live run 2026-10-25: a flaky regression replay failed once, the Completion Reviewer returned
+        # REWORK, the Resolver diagnosed it and its question was answered. Every later REWORK on the
+        # unchanged source staged the existing-diagnosis blocker, the writer boundary deferred it for
+        # "internal AutoResolver investigation", requeued the same resolution (which staged the same
+        # blocker) and set the run RUNNING at astra_review again: the Completion Reviewer ran 11 times.
+        self.ready()
+        self.apply("astra_review", self.decision())
+        diagnosis = {**self.decision(), "diagnosis": "The regression replay failed once on a timing flake"}
+        self.apply("astra_resolve", diagnosis)
+        records.normalize_human_boundary(self.state, self.run)
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        # The user answers the diagnosis's question; the source does not change.
+        self.state.pop(human.PRIVATE, None)
+        self.state.pop(human.PUBLIC, None)
+        self.state.pop("user_request", None)
+        self.state.update(status="RUNNING", next_stage="astra_review", pending_questions=[])
+        rework = self.decision("REWORK")
+        rework["user_request"] = {**envelope(self.state)["user_request"]}
+        reviewed = self.apply("astra_review", rework)
+        self.assertFalse(reviewed.get("rejected"))
+        records.normalize_human_boundary(self.state, self.run)
+        # The run holds with the existing diagnosis; it does not schedule the same review again.
+        self.assertEqual("RESOLVER_PENDING", self.state["status"])
+        self.assertIn("existing diagnosis", self.state["stop_reason"])
+        self.assertEqual(1, sum(row.get("stage") == "astra_resolve" for row in self.state["stages"]))
+        # The boundary is idempotent: persisting again (as a resume does) holds again, never RUNNING.
+        records.normalize_human_boundary(self.state, self.run)
+        self.assertEqual("RESOLVER_PENDING", self.state["status"])
+        self.assertEqual(1, sum(row.get("stage") == "astra_resolve" for row in self.state["stages"]))
 
     def test_changed_verification_command_reopens_a_retained_diagnosis(self):
         self.ready()

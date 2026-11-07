@@ -18,6 +18,28 @@ import autocode_run_view as run_view
 
 
 class RecoveryViewTests(unittest.TestCase):
+    def test_paused_discussion_explains_queued_requirements_handoff_without_resuming(self):
+        state = self.state("PAUSED_INTERVENTION", next_stage="answer_question", goal_contract={})
+        state["settings"]["spec_first"] = True
+        state["pause_intent"] = {"request_ids": ["pause-1"], "acknowledged_at": None}
+        state["user_events"] = [{"kind": "run_message", "id": "run-message-1", "text": "Please fix it.", "live": True}]
+        before = copy.deepcopy(state)
+        view = run_view.view(state, workspace=Path("/p"), run_dir=Path("/p/.autocode/runs/r1"))
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertIn("Requirements", view["recovery"]["what_happened"])
+        self.assertIn("saved message", view["recovery"]["what_happened"])
+        self.assertIn("--resume-paused", view["next_command"])
+        self.assertNotIn("--retry-failed-stage", view["next_command"])
+        action = next(row for row in view["recovery"]["actions"] if row["kind"] == "resume")
+        self.assertEqual("Resume with Requirements", action["label"])
+        self.assertIn("Requirements first", action["effect"])
+        self.assertEqual(before, state)
+
+        state["pause_intent"]["held_pause"] = {"status": "PAUSED_COST_LIMIT"}
+        held = run_view.view(state)
+        self.assertNotEqual(view["recovery"]["token"], held["recovery"]["token"])
+        self.assertNotIn("saved message", held["recovery"]["what_happened"])
+
     def test_immutable_caller_binding_requires_fresh_run_in_every_public_reader(self):
         task = (
             "Implement the api component of a larger system: HTTP service. "
@@ -115,6 +137,38 @@ class RecoveryViewTests(unittest.TestCase):
 
     def card(self, state):
         return run_view.view(state)["recovery"]
+
+    def test_a_run_autocode_ended_itself_is_a_finished_failed_outcome_with_no_retry(self):
+        # #2485: the card shows AutoCode's own end as a stopped run with its reason and evidence, and
+        # offers no retry, flag, packet path or token; the generic person's stop keeps its title.
+        outcome = {
+            "result": "could_not_finish",
+            "reason": "the sol check kept failing for the same reason after AutoCode's own repair retry: x.",
+            "evidence": {"incident_id": "abc", "packet": {"path": "recovery/1.json"}},
+        }
+        receipt = {"id": "autocode-outcome-1", "kind": "stop", "text": "", "actor": "autocode", "outcome": outcome}
+        state = self.state(
+            "PAUSED_INTERVENTION",
+            stop_reason="AutoCode could not finish this task: "
+            + outcome["reason"]
+            + " This run launches no further stages.",
+            applied_interventions=[receipt],
+        )
+        view = run_view.view(state)
+        card = view["recovery"]
+        self.assertEqual(("stopped", "AutoCode could not finish this task"), (card["category"], card["title"]))
+        self.assertIn(outcome["reason"], card["what_happened"])
+        self.assertEqual(outcome, card["outcome"])
+        self.assertEqual(["inspect", "new_conversation"], [row["kind"] for row in card["actions"]])
+        self.assertEqual("autocode", view["pause_category"])
+        for machinery in ("--retry-failed-stage", "--resolver-token", "Exact packet"):
+            self.assertNotIn(machinery, str(view["needs"]) + str(view["next_command"]) + card["what_happened"])
+        person = self.state("PAUSED_INTERVENTION", applied_interventions=[{"id": "s", "kind": "stop", "text": ""}])
+        card = self.card(person)
+        self.assertEqual(
+            ("stopped", "Stopped at your request", None), (card["category"], card["title"], card["outcome"])
+        )
+        self.assertEqual("your_decision", run_view.view(person)["pause_category"])
 
     def test_every_declared_stop_and_future_status_has_three_parts_and_a_next_step(self):
         # Coverage grows automatically with the runtime's status vocabulary.
@@ -596,3 +650,24 @@ class RecoveryViewTests(unittest.TestCase):
                 self.assertEqual(["inspect", "feedback"], [row["kind"] for row in card["actions"]])
                 self.assertIn("original source identity", card["saved_reason"])
                 self.assertEqual(before, state)
+
+
+class AuthenticationStopTests(unittest.TestCase):
+    """A run stopped on the core's own HTTP 401 diagnostic says so in plain words (an expired key)."""
+
+    def test_an_authentication_stop_names_the_credentials_and_the_fix(self):
+        import autocode_provider_auth as provider_auth
+
+        state = {
+            "status": "PAUSED_PROVIDER_UNCERTAIN",
+            "stop_reason": provider_auth.AUTH_FAILED + ". requirements exited 1; reconcile iterations/001/x.jsonl",
+            "active_stage": {"stage": "requirements_gather"},
+        }
+        what = recovery.project(state)["what_happened"]
+        self.assertIn("rejected the saved credentials (HTTP 401)", what)
+        self.assertIn("/connect NAME login", what)
+        self.assertNotIn("reconcile", what, "raw diagnostics stay in the details")
+
+    def test_another_stop_keeps_its_own_explanation(self):
+        state = {"status": "PAUSED_PROVIDER_UNCERTAIN", "stop_reason": "requirements exited 1"}
+        self.assertNotIn("credentials", recovery.project(state)["what_happened"])

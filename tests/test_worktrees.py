@@ -7,8 +7,11 @@ import os
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
+from datetime import datetime
 from pathlib import Path
 
+import autocode_registry as registry
 import autocode_workspaces as w
 import autocode_worktrees as worktrees
 
@@ -71,6 +74,17 @@ class DeliverTests(Fixture):
         worktrees.deliver(state, tree)
         self.assertEqual(tip, git(self.project, "rev-parse", f"{data['branch']}^"), "later work stacks on top")
 
+    def test_completion_commits_when_autocode_state_is_gitignored(self):
+        (self.project / ".gitignore").write_text(".autocode/\n.autocode-ui/\n__pycache__/\n*.pyc\n")
+        git(self.project, "add", ".gitignore")
+        git(self.project, "-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "ignore state")
+        data, tree, state = self.task()
+        note = worktrees.deliver(state, tree)
+        self.assertIn("Delivered on branch", note)
+        listed = git(self.project, "ls-tree", "-r", "--name-only", data["branch"])
+        self.assertIn("greet.py", listed)
+        self.assertNotIn(".autocode", listed)
+
     def test_only_completed_task_worktrees_deliver(self):
         data, tree, state = self.task(status="PAUSED_NO_PROGRESS")
         self.assertEqual("", worktrees.deliver(state, tree))
@@ -101,6 +115,33 @@ class CleanTests(Fixture):
         self.assertEqual("", git(self.project, "status", "--porcelain", "--untracked-files=all"))
         self.assertEqual(1, git(self.project, "worktree", "list", "--porcelain").count("worktree "))
 
+    def test_removing_a_worktree_forgets_its_runs_in_the_shared_registry(self):
+        """#2319: the run stayed registered after clean-worktrees, so `runs --all` listed it as unreadable
+        ("Run state.json is unavailable") for good."""
+        home = Path(self.project.parent, "home")
+        with unittest.mock.patch.dict(os.environ, {"AUTOCODE_HOME": str(home)}):
+            data, tree, state = self.task()
+            registry.register_run(tree, tree / ".autocode" / "runs" / "r1", state)
+            self.assertEqual(1, len(registry.listing()["runs"]))
+            worktrees.deliver(state, tree)
+            code, out = self.clean("--yes")
+            self.assertEqual(0, code, out)
+            self.assertEqual([], registry.listing()["runs"])
+            self.assertTrue((home / "registry.json").is_file())
+        self.assertFalse(tree.exists())
+        archived = self.project / ".autocode" / "archive" / tree.name / "runs" / "r1" / "state.json"
+        self.assertTrue(archived.is_file())
+
+    def test_removing_a_worktree_never_creates_a_registry(self):
+        """A registry kept inside the worktree went with it; forgetting must not make a new one."""
+        home = Path(self.project.parent, "no-such-home")
+        with unittest.mock.patch.dict(os.environ, {"AUTOCODE_HOME": str(home)}):
+            data, tree, state = self.task()
+            worktrees.deliver(state, tree)
+            code, out = self.clean("--yes")
+        self.assertEqual(0, code, out)
+        self.assertFalse(home.exists())
+
     def test_unfinished_undelivered_program_and_locked_worktrees_are_kept(self):
         _, unfinished, _ = self.task(status="PAUSED_NO_PROGRESS", name="one")
         _, undelivered, _ = self.task(name="two")
@@ -118,6 +159,13 @@ class CleanTests(Fixture):
             code, out = self.clean("--yes")
         self.assertEqual(0, code, out)
         self.assertIn("PAUSED_NO_PROGRESS", out)
+        # The keep reason names steps that exist; "abandon" named none (#2365).
+        self.assertNotIn("abandon", out)
+        self.assertIn(
+            f"finish it, or drop it yourself with git -C {self.project} worktree remove --force {unfinished} "
+            "(its run records go with it)",
+            out,
+        )
         self.assertIn("commit it to the branch first", out)
         self.assertIn("owned by an `autocode program`", out)
         self.assertIn("holds its lock", out)
@@ -202,6 +250,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("Delivered on branch autocode/build-greeting-", result.stdout)
         (tree,) = (flow.project / ".autocode" / "worktrees").iterdir()
+        # The delivery line names the merge command, not only the clean-up one.
+        self.assertIn(f"`autocode merge --workspace {flow.project} {tree}`", result.stdout)
         run_dir = next(tree.glob(".autocode/runs/*"))
         status = json.loads(run("--workspace", str(flow.project), "--run-dir", str(run_dir), "--status").stdout)
         self.assertEqual("TASK_COMPLETE", status["status"])
@@ -210,7 +260,13 @@ class CliTests(unittest.TestCase):
             [*flow.entry, "--status"], cwd=flow.project, env=env, text=True, capture_output=True, timeout=60
         )
         self.assertEqual(0, bare.returncode, bare.stderr)
-        self.assertEqual(status, json.loads(bare.stdout))
+        bare_status = json.loads(bare.stdout)
+        for payload in (status, bare_status):
+            observation = payload["view"]["observation"]
+            self.assertEqual(1, observation["version"])
+            # Each read has its own sample, while all saved-state identity and task data must match.
+            datetime.fromisoformat(observation.pop("sampled_at"))
+        self.assertEqual(status, bare_status)
         self.assertIn(f"Using the saved run {run_dir.resolve()} (TASK_COMPLETE, the latest finished run)", bare.stderr)
         self.assertTrue(status["completion_current"])
         branch = status["task_branch"]

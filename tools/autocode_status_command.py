@@ -7,53 +7,117 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_answer_output as answer_output
+    from . import autocode_chat_activity as chat_activity
+    from . import autocode_chat_log as chat_log
     from . import autocode_chat_progress as chat_progress
     from . import autocode_cost as cost
     from . import autocode_escalation_view as escalation_view
+    from . import autocode_failures as failures
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_review_result as review_result
     from . import autocode_source_scope as source_scope
+    from . import autocode_status_summary as status_summary
 except ImportError:
     import autocode_answer_output as answer_output
+    import autocode_chat_activity as chat_activity
+    import autocode_chat_log as chat_log
     import autocode_chat_progress as chat_progress
     import autocode_cost as cost
     import autocode_escalation_view as escalation_view
+    import autocode_failures as failures
     import autocode_launch_inputs as launch_inputs
+    import autocode_review_result as review_result
     import autocode_source_scope as source_scope
+    import autocode_status_summary as status_summary
 
 import json
 import sys
 from pathlib import Path
 
 try:
+    from . import autocode_attention_status as attention_status
     from . import autocode_controller_owner as controller_owner
     from . import autocode_conversation as conversation_protocol
     from . import autocode_dev_server as dev_server
     from . import autocode_interventions as interventions
     from . import autocode_job_report_recovery as job_report_recovery
+    from . import autocode_liveness as liveness_policy
+    from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_offer as pause_offer
     from . import autocode_progress_view as progress_view
     from . import autocode_stop_explanations as stop_explanations
+    from . import autocode_util as util
     from . import autocode_verification_inspection as verification
     from . import autocode_verification_preparation as preparation
+    from . import autocode_worker_binding as worker_binding
 except ImportError:
+    import autocode_attention_status as attention_status
     import autocode_controller_owner as controller_owner
     import autocode_conversation as conversation_protocol
     import autocode_dev_server as dev_server
     import autocode_interventions as interventions
     import autocode_job_report_recovery as job_report_recovery
+    import autocode_liveness as liveness_policy
+    import autocode_pause_authority as pause_authority
     import autocode_pause_offer as pause_offer
     import autocode_progress_view as progress_view
     import autocode_stop_explanations as stop_explanations
+    import autocode_util as util
     import autocode_verification_inspection as verification
     import autocode_verification_preparation as preparation
+    import autocode_worker_binding as worker_binding
+
+
+# How often one --status re-reads a checkpoint that changed while its controller receipt was inspected.
+SAMPLE_RETRIES = 4
+
+
+def sample(runner, state: "RunState", run_dir, workspace):
+    """The saved checkpoint and its controller receipt, read together.
+
+    ``--status`` holds no lock. A controller that finishes a stage and exits between the state read
+    and the receipt read would otherwise be shown as ended at a checkpoint that no longer exists:
+    ``needs`` offers a continue while ``checkpoint_token`` names the earlier state, and the worker
+    refuses that exact offer as stale. When the saved state changed during the inspection, read it
+    again and inspect again, so every field of one view describes the same checkpoint.
+    """
+    path = Path(run_dir) / "state.json"
+    token, owner = util.digest(state), None
+    for _ in range(SAMPLE_RETRIES):
+        if not path.is_file():
+            return state, token, None
+        owner = controller_owner.inspect(state, run_dir, workspace)
+        try:
+            saved = runner.read_json(path)
+        except (OSError, ValueError):
+            return state, token, owner  # a checkpoint being replaced; keep the one that was read
+        if not isinstance(saved, dict) or util.digest(saved) == token:
+            return state, token, owner
+        state, token = cast("RunState", saved), util.digest(saved)
+    return state, token, controller_owner.inspect(state, run_dir, workspace)
 
 
 def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_preview=None):
-    owner = controller_owner.inspect(state, run_dir, workspace) if (Path(run_dir) / "state.json").is_file() else None
+    state, token, owner = sample(runner, state, run_dir, workspace)
+    observation = {
+        "version": 1,
+        "workspace": str(workspace),
+        "run_dir": str(run_dir),
+        "checkpoint_token": token,
+        "sampled_at": util.now(),
+    }
+    execution = state.get("execution") or {}
+    execution_inspection = None
+    if execution.get("mode") == "durable_local" and execution.get("launch_id"):
+        execution_inspection = worker_binding.observation(execution)
     state = controller_owner.project(state, owner)
     if getattr(args, "explain", False):
         text = stop_explanations.explain(
-            state.get("status") or "", stop_reason=state.get("stop_reason") or "", needs=runner.run_view.needs(state)
+            state.get("status") or "",
+            stop_reason=state.get("stop_reason") or "",
+            needs=runner.run_view.needs(state),
+            held_cause=pause_authority.answered_cause(state),
+            ready=(owner or {}).get("kind") == "ready",
         )
         print(text["what_happened"])
         print()
@@ -145,6 +209,10 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
             conversation_journal = conversation_protocol.read_journal(run_dir)
         except (OSError, ValueError) as error:
             conversation_journal = {"session_error": str(error)}
+    try:
+        pending = interventions.inspect(workspace, run_dir)["requests"]
+    except interventions.InterventionError:
+        pending = None  # An unreadable inbox cannot accept a request either.
     public_view = runner.run_view.view(
         state,
         completion_current=completion_current,
@@ -159,12 +227,18 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         run_dir=run_dir,
         workspace=workspace,
         dev_server=dev_server.inspect(run_dir, state.get("settings")),
+        observation=observation,
+        execution_inspection=execution_inspection,
+        stop_pending=any(isinstance(row, dict) and row.get("kind") == "stop" for row in pending or []),
     )
+    if public_view.get("workflow") == "review" and state.get("status") == "TASK_COMPLETE":
+        result = public_view["evidence"].get("workflow_result")
+        if result:
+            public_view["review_result"] = review_result.inspect(
+                result, workspace, current.get("revision") if current else None
+            )
+    public_view["attention"] = attention_status.observed(public_view.get("attention"))
     public_view["job_report_recovery"] = job_report_recovery.offer(runner, state, run_dir, workspace)
-    try:
-        pending = interventions.inspect(workspace, run_dir)["requests"]
-    except interventions.InterventionError:
-        pending = None  # An unreadable inbox cannot accept a request either.
     if pending is not None:
         public_view["pause"] = pause_offer.project(
             state, public_view, pending=pending, run_dir=run_dir, workspace=workspace
@@ -205,13 +279,36 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     stale_check = stale_check or bool(check and state.get("status") == "RUNNING" and lost_check_supervisor)
     checkpoint = runner.milestones.summary(state)
     stage = (active or {}).get("stage") or state.get("next_stage")
+    need = public_view.get("needs") or {}
+    if (
+        state.get("status") == "WAITING_FOR_USER"
+        and not active
+        and not check
+        and need.get("kind") == "answer"
+        and need.get("resolver_scope") == "clarification"
+    ):
+        entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get(
+            need.get("resolver_request_id")
+        ) or {}
+        origin = ((entry.get("identity") or {}).get("proposal") or {}).get("origin") or {}
+        if origin.get("stage") == "requirements_gather":
+            # The queued Planner has not asked this question. Keep the Requirements
+            # conversation labeled by the stage that issued its pending request.
+            stage = "requirements_gather"
+    # A finished attempt still sits in active_stage until its record is saved. The
+    # job after it is what a person should see next to that "finished" line (#1711).
+    following_id = state.get("next_stage") if active_finished else None
+    if following_id and following_id == (active or {}).get("stage"):
+        following_id = None
     next_action = (
-        f"AutoResolver must reconcile retained attempt {runner.attempt_id(active)} before any provider call"
+        f"The Resolver must settle the interrupted attempt {runner.attempt_id(active)} before any new model call"
         if stale
         else "Inspect the retained runner check and resume the run"
         if stale_check
         else None
     )
+    if stale and "--reconcile-only" in (public_view.get("next_command") or ""):
+        next_action = public_view["next_command"]
     if owner and owner["kind"] == "ended" and state.get("status") == controller_owner.STATUS:
         next_action = public_view["next_command"]
     # A stale runner check stopped before the next stage was launched: name the check, not that stage.
@@ -222,6 +319,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         if stage
         else None
     )
+    following_name = None if stale_check or not following_id else runner.autocode_status.role_name(following_id, state)
     public_view["progress"] = progress_view.progress(
         state,
         accepted=checkpoint["accepted_milestones"],
@@ -230,10 +328,39 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         stopped=next_action,
         finished=bool(active_finished),
         stage=stage_name,
+        following=following_name,
+    )
+    # The run in one sentence and its exact next action (#2049); `--summary` prints only this.
+    public_view["summary"] = status_summary.project(
+        public_view, stale=stale or stale_check, completion_current=completion_current, next_action=next_action
     )
     public_view["chat"]["progress"] = chat_progress.project(
         state, public_view, finished=bool(active_finished), stopped=bool(next_action)
     )
+    if activity := chat_activity.project(
+        state, public_view, run_dir, finished=bool(active_finished), stopped=bool(next_action)
+    ):
+        public_view["chat"]["activity"] = activity
+    if last_output := chat_activity.last_output(
+        state, public_view, run_dir, finished=bool(active_finished), stopped=bool(next_action)
+    ):
+        public_view["chat"]["last_output_at"] = last_output
+    # The failure run the current stage is in (autocode_failures.episode): how many attempts in a row
+    # failed the same way, and how many stop it. Display only; the retry itself is the core's.
+    retrying = active if isinstance(active, dict) else {}
+    retry_stage = retrying.get("original_stage") or retrying.get("stage") or state.get("next_stage")
+    if isinstance(retry_stage, str) and retry_stage and (retry := failures.episode(state, retry_stage)):
+        public_view["progress"]["retry"] = retry
+
+    def supervised(attempt: dict) -> bool:
+        saved = attempt.get("supervision")
+        observed = runner.supervision.observe(saved) if saved else None
+        return liveness_policy.classify(saved, observed)["kind"] == "supervised"
+
+    if log := chat_log.project(
+        state, public_view, run_dir, supervised=supervised, finished=bool(active_finished), stopped=bool(next_action)
+    ):
+        public_view["chat"]["log"] = log
     if public_view.get("progressive") and completion_current is not None:
         public_view["progressive"]["current_whole_product_proof"] = {
             "verified": completion_current is True,
@@ -247,7 +374,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         print(
             f"STALE CHECKPOINT: saved status is RUNNING but the retained "
             f"{cast(dict, active).get('stage')} attempt has no current supervised result. "
-            "AutoResolver must reconcile the retained attempt before any further provider call.",
+            "The Resolver must settle the interrupted attempt before any new model call.",
             file=sys.stderr,
         )
     if stale_check:
@@ -256,6 +383,11 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
             "Inspect its command ownership receipt and output before resuming the run.",
             file=sys.stderr,
         )
+    if getattr(args, "summary", False):
+        print(status_summary.text(public_view["summary"]))
+        if block := answer_output.questions(public_view):
+            print(block)  # what the named --answer command answers, with options and default (#2325)
+        return
     print(
         json.dumps(
             {
@@ -306,35 +438,44 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
 
 def reviewed_criteria(runner, state: "RunState"):
     """Human-review criteria whose review receipt is valid for the current validation."""
-    contract = state.get("goal_contract") or {}
-    try:
-        human = {row["id"] for row in contract["body"]["acceptance_criteria"] if row.get("human_review")}
-        return human - set(runner.goals.missing_human_reviews(state))
-    except (KeyError, TypeError, AttributeError, ValueError):
-        return set()  # Legacy or partial plans carry no review binding to show.
+    return set(runner.run_view.accepted_reviews(state))
 
 
-def pause_summary(runner, state: "RunState", workspace, run_dir):
-    """Read-only category and action header; never re-render the mutating plan."""
+def _pause_command():
     try:
         from . import autocode_pause_command as pause_command
     except ImportError:
         import autocode_pause_command as pause_command
-    return pause_command.summary(runner.run_view.view(state, run_dir=run_dir, workspace=workspace))
+    return pause_command
+
+
+def pause_summary(runner, state: "RunState", workspace, run_dir):
+    """Read-only category and action header; never re-render the mutating plan."""
+    return _pause_command().summary(runner.run_view.view(state, run_dir=run_dir, workspace=workspace))
 
 
 def print_pause(runner, state: "RunState", args, workspace, run_dir, rendered):
     """Print a non-complete outcome: with ``--json``, the same payload ``--status``
-    prints; otherwise the prose view. The caller renders the prose BEFORE writing
+    prints; at a plan approval stop without ``--details``, the short approval screen;
+    otherwise the prose view. The caller renders the prose BEFORE writing
     state — present() has a deliberate state effect (it drops a stale
     displayed_goal), and that effect must land before the state is persisted."""
     if getattr(args, "json", False):
         runner.json_output.status(runner, state, args, workspace, run_dir)
+    elif not getattr(args, "details", False) and (screen := runner.lifecycle.approval_screen(state, run_dir)):
+        # A plan waiting for approval leads with the decision in plain words and ends with the
+        # commands; --details prints the full brief below as before (#2535).
+        print(screen)
     else:
-        summary = pause_summary(runner, state, workspace, run_dir)
+        pause_command = _pause_command()
+        view = runner.run_view.view(state, run_dir=run_dir, workspace=workspace)
+        summary = pause_command.summary(view)
         if summary:
             print(summary)
         print(rendered)
+        # The command again after a long presentation, so the last line is the action (#2301).
+        if trailer := pause_command.trailer(view, rendered):
+            print(trailer)
 
 
 def rejection_message(runner, state: "RunState", workspace, run_dir, error):

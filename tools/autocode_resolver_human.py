@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 try:
+    from . import autocode_permission_progress as permission_progress
     from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_permission_progress as permission_progress
     import autocode_roles as roles
     import autocode_source_scope as source_scope
 
@@ -27,6 +29,7 @@ try:
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_recommendation as recommendation
+    from . import autocode_rewording_question as rewording
     from . import autocode_run_status as run_status
     from . import autocode_support as support
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -38,6 +41,7 @@ except ImportError:
     import autocode_recovery_limits as recovery_limits
     import autocode_requirements_review as requirements_review
     import autocode_resolver_recommendation as recommendation
+    import autocode_rewording_question as rewording
     import autocode_run_status as run_status
     import autocode_support as support
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -78,6 +82,7 @@ def _contract(state: RunState):
 
 def _binding(state: RunState):
     """Stable state frontier; excludes publication/response bookkeeping itself."""
+    runtime = Path(__file__).resolve().parent
     source = None
     if state.get("workspace"):
         try:
@@ -90,6 +95,11 @@ def _binding(state: RunState):
             source = {"unavailable": type(error).__name__ + ": " + str(error)}
     interruptions = pending_interruptions(state.get("run_dir"))
     binding = {
+        # A repaired runner changes the cause even when task source is unchanged.
+        # Expire the old response hold; ordinary approval/admission checks still run.
+        "runtime_sources": support.digest(
+            {str(path.relative_to(runtime)): support.file_hash(path) for path in sorted(runtime.rglob("*.py"))}
+        ),
         "task_id": state.get("task_id"),
         "workspace": state.get("workspace"),
         "run_dir": state.get("run_dir"),
@@ -296,6 +306,14 @@ def _decision(state: RunState, proposal):
     contract = state.get("goal_contract") or {}
     body = contract.get("body") or state.get("requirements_body") or {}
     if scope == "goal_approval":
+        try:
+            from . import autocode_changeset_barrier as changeset_barrier
+        except ImportError:
+            import autocode_changeset_barrier as changeset_barrier
+        if (proposal.get("origin") or {}).get("stage") == "changeset_reapproval" and changeset_barrier.held_approval(
+            state, queued_from=proposal.get("previous_status")
+        ):
+            return "escalate", "Only the user can release this exact approved plan from its change-set hold"
         token = f"r{contract.get('revision')}:{contract.get('hash')}"
         planning = state.get("planning") or {}
         if not contract or body.get("open_blocking_questions"):
@@ -331,7 +349,10 @@ def _decision(state: RunState, proposal):
         declared = body.get("open_blocking_questions") or []
         investigation = bug_questions.accepts(state, proposal)
         review = requirements_review.accepts(state, proposal)
-        if not (investigation or review) and (not questions or any(q not in declared for q in questions)):
+        approved_wording = rewording.accepts(state, proposal)
+        if not (investigation or review or approved_wording) and (
+            not questions or any(q not in declared for q in questions)
+        ):
             return "reject", "Clarification must match the validated draft questions"
         for question in questions:
             answer = state.get("answers", {}).get(question.get("id"))
@@ -347,6 +368,8 @@ def _decision(state: RunState, proposal):
             if investigation
             else "Only the user can confirm what Requirements understood before planning"
             if review
+            else "Only the user can change wording they approved"
+            if approved_wording
             else "The validated draft requires user intent absent from authenticated saved answers"
         )
     if scope in ("permission", "goal_change"):
@@ -440,6 +463,16 @@ def evaluate(state: RunState):
     if action != "escalate":
         state.setdefault("resolver", {})["human_disposition"] = {"action": action, "reason": reason}
         return action
+    if proposal["scope"] == "permission":
+        hold = permission_progress.exhausted(state.get("resolver") or {}, binding)
+        if hold:
+            state.pop(PRIVATE, None)
+            state.pop(PUBLIC, None)
+            state.pop("user_request", None)
+            state["pending_questions"] = []
+            state.setdefault("resolver", {})["human_disposition"] = {"action": "hold", **hold}
+            run_status.pause(state, permission_progress.STATUS, hold["reason"])
+            return "permission_loop"
     identity = {
         "version": VERSION,
         "issuer": "resolver",
@@ -460,6 +493,13 @@ def evaluate(state: RunState):
         return "consumed"
     _publish(state, identity)
     return action
+
+
+def permission_hold(state: RunState):
+    """An unchanged permission-loop pause cannot be bypassed with plain resume."""
+    if state.get("status") != permission_progress.STATUS:
+        return None
+    return permission_progress.exhausted(state.get("resolver") or {}, _binding(state))
 
 
 def _publish(state: RunState, identity):
@@ -732,6 +772,73 @@ def restage_pending(state: RunState):
         next_stage=proposal["next_stage"],
     )
     return True
+
+
+def refresh_assigned_scope(state: RunState):
+    """Reissue an authentic scope-only receipt stranded solely by a runtime repair.
+
+    The caller still validates the exact core-owned repository assignment. No
+    source, contract, settings, accounting or other frontier change is accepted.
+    Publication grants no answer, plan approval or execution authority.
+    """
+    live = current(state)
+    if live:
+        return live
+    entry = pending_issued(state)
+    if not entry:
+        return None
+    identity = entry["identity"]
+    proposal = identity.get("proposal") or {}
+    questions = proposal.get("questions") or []
+    if (
+        proposal.get("scope") not in ("clarification", "intake")
+        or not questions
+        or any(not str(row.get("id", "")).startswith("workspace-scope-") for row in questions)
+        or state.get("status") not in (proposal.get("status"), "PAUSED_INVALID_OUTPUT")
+    ):
+        return None
+    binding = _binding(state)
+    previous = identity.get("binding") or {}
+    if (
+        {key: value for key, value in binding.items() if key != "runtime_sources"}
+        != {key: value for key, value in previous.items() if key != "runtime_sources"}
+        or any(binding["interruptions"].values())
+        or not _evidence_valid(proposal)
+    ):
+        return None
+    # Reconstruct the old publication from its digest-authenticated ledger entry.
+    # Comparing the entire public body also rejects edited questions or tokens.
+    checked = copy.deepcopy(state)
+    expected = _publish(checked, identity)
+    if state.get(PUBLIC) != expected or state.get("pending_questions") != checked["pending_questions"]:
+        return None
+    if entry.get("receipt_hash") != expected["receipt_hash"]:
+        return None
+    return _publish(state, {**identity, "binding": binding})
+
+
+def supersede_assigned_scope(state: RunState, published, remaining, receipt):
+    """Retire an exact core-assigned scope question without fabricating a user answer."""
+    if current(state) != published or published.get("scope") not in ("clarification", "intake"):
+        raise ValueError("Repository assignment no longer matches the pending request")
+    entry = state["resolver"]["human_escalations"][published["request_id"]]
+    proposal = entry["identity"]["proposal"]
+    entry.update(status="superseded", superseded_at=support.now(), assignment=copy.deepcopy(receipt))
+    state.pop(PUBLIC, None)
+    state.pop(PRIVATE, None)
+    state.pop("user_request", None)
+    state["pending_questions"] = remaining
+    if remaining:
+        queue(
+            state,
+            proposal["scope"],
+            proposal["origin"],
+            questions=remaining,
+            evidence=proposal.get("evidence"),
+            status=proposal["status"],
+            phase=proposal.get("phase"),
+            next_stage=proposal.get("next_stage"),
+        )
 
 
 def withdrawn(state: RunState):

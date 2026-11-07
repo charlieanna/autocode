@@ -21,10 +21,6 @@ A hybrid run (harness/hybrid.py) runs it through a config-registered tool instea
 as ``codex``; AutoCode's prompt then asks for capture receipts, and the fake runs its
 check through the handoff's capture_command and cites the receipt (receipt_mode).
 
-In a program (scenarios/README.md, "Programs") every workstream is a run whose task is
-the program's workstream brief. The fake reads that brief as a model would and plans the
-workstream alone (``workstream``): a code workstream its own milestone, an integration
-workstream every requirement and journey it inherits, each under the inherited ids.
 Citation stages may set ``task`` to ``see source_inventory id …`` (#1337); the fake
 resolves that pointer before parsing the brief.
 """
@@ -46,6 +42,7 @@ from pathlib import Path
 CONFIG = json.loads(Path(os.environ["SCENARIO_FAKE_CONFIG"]).read_text())
 PROMPT = ""
 OUTPUT_SCHEMA: dict = {}
+WIRE_SCHEMA: dict = {}
 DATA: dict = {}
 CHECK = CONFIG["check"]
 ALL_PATHS = CONFIG["paths"]
@@ -60,15 +57,6 @@ RENEWED_OUTCOME = "Retain durable lesson answers and expose a browsable lesson c
 SCOPED_NOTE = "# Scoped consent: lesson note"
 SCOPED_DENIAL = "No. Do not add the optional note anywhere. Deliver the original goal using the offline fallback."
 SCOPED_CONDITION = "Yes, append only '# Scoped consent: lesson note' to lessons.py. Do not add this note to progress.py or any other file."
-# The program's workstream brief (autocode_program.compose_brief): its first line, and the line naming the
-# requirement ids the workstream's plan must keep. tests/test_program.py checks the fake still reads them.
-WORKSTREAM_HEADER = re.compile(r"PROGRAM WORKSTREAM (\S+) \((\w+)\) of program ")
-INHERITED = re.compile(
-    r"^Inherited requirements: keep each as an acceptance criterion of your plan with exactly "
-    r"this id \(([^)]*)\)",
-    re.M,
-)
-WORKSTREAM: dict | None = None  # the program workstream this call serves (workstream()), set in main()
 # Citation-stage handoffs keep the full brief once in source_inventory (#1337); task is a pointer.
 INVENTORY_TASK = re.compile(r"^see source_inventory id (\S+)$")
 SCOPED_REQUEST = {
@@ -154,61 +142,8 @@ def permission_changes() -> list[dict]:
     ]
 
 
-def workstream() -> dict | None:
-    """The program workstream this call serves, {id, kind, inherited, task}, or None outside a program.
-
-    A report repair's packet has no task: it serves the workstream last seen in this worktree. That is
-    kept beside the configuration, never in the worktree (the program would count it as a delivered
-    file), one file per worktree because parallel workstreams call the fake at the same time."""
-    seen = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name(
-        "fake-workstream-" + hashlib.sha256(str(Path.cwd()).encode()).hexdigest()[:12] + ".json"
-    )
-    task = resolved_task()
-    if not task:
-        return json.loads(seen.read_text()) if seen.is_file() else None
-    head = WORKSTREAM_HEADER.match(task)
-    if not head:
-        return None
-    inherited = INHERITED.search(task)
-    row = {
-        "id": head.group(1),
-        "kind": head.group(2),
-        "task": task,
-        "inherited": [cid.strip() for cid in inherited.group(1).split(",") if cid.strip()] if inherited else [],
-    }
-    seen.write_text(json.dumps(row))
-    return row
-
-
-def conforms(path: str) -> bool:
-    """Whether the worktree already holds the solution's version of ``path``."""
-    here = Path.cwd() / path
-    return here.is_file() and here.read_bytes() == (Path(CONFIG["reference"]) / path).read_bytes()
-
-
-def workstream_scope(row: dict) -> tuple[list[dict], str, list[str]]:
-    """(milestones, check, paths) for one workstream: a code workstream plans only its own [fake] milestones
-    row, with no dependencies (the program merged them first) and the ids it inherits as its criteria, and
-    only validates when its files already match the solution (a re-check, milestone_task); the integration
-    workstream delivers the solution files no workstream merged, verified by the scenario's check, so a
-    program scenario's solution needs one (catalog.load)."""
-    if row["kind"] != "code":
-        return [], CONFIG["check"], [path for path in ALL_PATHS if not conforms(path)]
-    own = next((item for item in CONFIG.get("milestones") or [] if item["id"] == row["id"]), None)
-    if own is None:
-        raise SystemExit(f"fake_codex: program workstream {row['id']} has no [fake] milestones row")
-    return (
-        [{**own, "depends_on": [], "criteria": row["inherited"] or [criterion_id(own["id"])]}],
-        own["verify"],
-        list(own["paths"]),
-    )
-
-
 def request() -> str:
-    """The request this turn serves: the brief, or the newest follow-up without the earlier turns it quotes.
-    A program workstream's request is its own brief."""
-    if WORKSTREAM:
-        return WORKSTREAM["task"]
+    """The request this turn serves: the brief, or the newest follow-up without the earlier turns it quotes."""
     task = resolved_task()
     if not CONFIG.get("turns") or not task:
         return CONFIG["brief"]
@@ -598,17 +533,14 @@ def milestone_row(milestone_id: str) -> dict:
 
 
 def criterion_ids(milestone_id: str) -> list[str]:
-    """The criteria a milestone's plan names: C_<id>, or the ids a program workstream inherits."""
-    return list(milestone_row(milestone_id).get("criteria") or [criterion_id(milestone_id)])
+    """The criteria a milestone's plan names: C_<id>."""
+    return [criterion_id(milestone_id)]
 
 
 def milestone_task(milestone_id: str) -> dict:
     row = milestone_row(milestone_id)
-    # A program workstream re-checked after an agreement revision may find its files already right.
-    rechecked = WORKSTREAM is not None and all(conforms(path) for path in row["paths"])
-    forced = CONFIG.get("fault") == "program_recheck_implement" and WORKSTREAM and WORKSTREAM["id"] == "S"
     return {
-        "kind": "validate" if rechecked and not forced else "implement",
+        "kind": "implement",
         "milestone_id": milestone_id,
         "objective": row["objective"],
         "affected_paths": list(row["paths"]),
@@ -668,35 +600,6 @@ def edit_acceptance_tests_once() -> None:
             (Path.cwd() / rel).write_text("import unittest\n")
 
 
-def first_test(paths: list[str]) -> str | None:
-    """The first test function in the solution's version of the Python test files among ``paths``."""
-    for path in paths:
-        source = Path(CONFIG["reference"]) / path
-        if Path(path).name.startswith("test_") and path.endswith(".py") and source.is_file():
-            found = re.search(r"^\s+def (test_\w+)\(", source.read_text(), re.M)
-            if found:
-                return found.group(1)
-    return None
-
-
-def verification_method(row: dict) -> str:
-    """A milestone's check; a re-checked workstream whose files already conform guards its criteria with a
-    test it already has, as a live Planner marked a skeleton's re-check (2026-10-06), so the runner's
-    regression proof runs on an unchanged source."""
-    test = first_test(row["paths"]) if WORKSTREAM and all(conforms(path) for path in row["paths"]) else None
-    return "guard: " + test if test else row["verify"]
-
-
-def integration_method(cid: str) -> str:
-    """The final check's mark for an inherited id, as its brief asks: the merged product already delivers it,
-    so it is a guard naming a test a merged workstream has (C_<id>), or the journey test the final check adds
-    without changing the product; the runner's regression proof then runs against the integration head."""
-    rows = {criterion_id(row["id"]): row for row in CONFIG.get("milestones") or []}
-    owned = [path for path in ALL_PATHS if not any(path in row["paths"] for row in rows.values())]
-    test = first_test(rows[cid]["paths"] if cid in rows else owned)
-    return "guard: " + test if test else CHECK
-
-
 def done_milestones(data: dict) -> set:
     task = data.get("current_task") or {}
     done = set(((data.get("milestone_checkpoint") or {}).get("accepted_milestones")) or [])
@@ -716,11 +619,27 @@ def next_milestone(done: set) -> dict | None:
 def lazy_citations(report):
     """fault=lazy_validator: the Validator certifies every criterion with its own say-so — plausible
     prose naming nothing the runner verified — the false-completion shape #1070's gate must refuse
-    even when every listed check exits 0."""
-    if CONFIG.get("fault") != "lazy_validator" or not isinstance(report, dict):
+    even when every listed check exits 0.
+
+    fault=extra_file_citation: beside its checks, the Validator also cites the project file it read,
+    as a live Kilo Tester did on 2026-10-20 (``["check:1", "check:3", "hello.txt"]``). The proof is
+    in the checks, so the run must complete without a report repair."""
+    if isinstance(report, dict) and "changed_code_exceptions" in OUTPUT_SCHEMA.get("properties", {}):
+        # Some older tests copy only this script. Absence of the handwritten
+        # fixture reviewer grants no reason; it never means auto-acceptance.
+        try:
+            from fake_changed_code import judgments
+        except ImportError:
+            pass
+        else:
+            report["changed_code_exceptions"] = judgments(DATA)
+    if CONFIG.get("fault") not in ("lazy_validator", "extra_file_citation") or not isinstance(report, dict):
         return report
     for row in report.get("criterion_results") or []:
-        row["evidence_refs"] = ["validator inspected the builder output directly"]
+        if CONFIG["fault"] == "lazy_validator":
+            row["evidence_refs"] = ["validator inspected the builder output directly"]
+        else:
+            row["evidence_refs"] = [*row.get("evidence_refs", []), "todo.py"]
     return report
 
 
@@ -812,7 +731,7 @@ def run_verify(command: str, *, fabricated=False) -> tuple[int, str]:
 
     event_id = "check-" + (
         uuid.uuid5(uuid.NAMESPACE_URL, command).hex[:24]
-        if PROGRESSIVE or WORKSTREAM
+        if PROGRESSIVE
         else re.sub(r"[^a-z0-9]+", "-", command.lower()).strip("-")[:24]
     )
     proc = subprocess.run(shlex.split(command), cwd=Path.cwd(), capture_output=True, text=True, timeout=600)
@@ -909,30 +828,6 @@ def scripted_fault(name: str) -> dict:
     return runpy.run_path(str(scenario_dir().parents[1] / "harness" / name))
 
 
-def inherit_program(body):
-    """Script a Planner quoting the exact inherited definitions, not a weaker same-id substitute."""
-    task = WORKSTREAM["task"]
-    criteria = {}
-    for cid, text in re.findall(r"^- ([A-Za-z0-9._-]+): (.+)$", task, re.M):
-        if cid in WORKSTREAM["inherited"]:
-            human = "human_review: true" in text
-            text = re.sub(r"\s+\((?:verify:|human_review:).*$", "", text)
-            criteria[cid] = {"criterion": text, "human_review": human}
-    for row in body["acceptance_criteria"]:
-        if row["id"] in criteria:
-            row.update(criteria[row["id"]])
-    found = re.search(r"Approved parent contract .*?\n```json\n(.*?)\n```", task, re.S)
-    parent = json.loads(found.group(1)) if found else {}
-    for key, label in (("constraints", "Shared constraints"), ("permission_boundaries", "Permission boundaries")):
-        found = re.search(re.escape(label) + r":\n((?:- .*\n)+)", task)
-        shared = [line[2:] for line in found.group(1).splitlines()] if found else []
-        body[key] = list(dict.fromkeys(body[key] + list(parent.get(key) or []) + shared))
-    body["scope_exclusions"] = list(
-        dict.fromkeys(body["scope_exclusions"] + list(parent.get("scope_exclusions") or []))
-    )
-    return body
-
-
 def cite_sources(body: dict) -> dict:
     """Trace every criterion to the run's human sources, quoting each whole (#595),
     as the runner's source-trace gate requires of a real Planner."""
@@ -960,7 +855,7 @@ def contract(final: bool = False) -> dict:
             body.pop(field, None)
         if final:
             body["initial_task"] = progressive_task()
-        return cite_sources(inherit_program(body) if WORKSTREAM else body)
+        return cite_sources(body)
     body = {
         "intended_outcome": outcome(),
         "intended_user": "The person who made the request",
@@ -1017,7 +912,7 @@ def contract(final: bool = False) -> dict:
             {
                 "id": cid,
                 "criterion": row["objective"],
-                "verification_method": verification_method(row),
+                "verification_method": row["verify"],
                 "human_review": False,
             }
             for row in MILESTONES
@@ -1043,7 +938,7 @@ def contract(final: bool = False) -> dict:
                     "validation_plan",
                 )
             }
-        return cite_sources(inherit_program(body) if WORKSTREAM else body)
+        return cite_sources(body)
     if CONFIG.get("criteria"):
         # A draft the runner corrected (a spec-first case it saw already pass, now guard:) keeps that label,
         # as a Planner revising the current draft would.
@@ -1063,6 +958,9 @@ def contract(final: bool = False) -> dict:
             for cid, text in CONFIG["criteria"].items()
         ]
         body["milestones"][0]["acceptance_criteria"] = list(CONFIG["criteria"])
+        for row in body["acceptance_criteria"]:
+            if (CONFIG.get("supersedes") or {}).get(row["id"]):
+                row["supersedes"] = [dict(entry) for entry in CONFIG["supersedes"][row["id"]]]
     if CONFIG.get("fault") == "recovery_novelty_narrow":
         # #423: the failing task owns two criteria, so the Resolver's repair can keep only one.
         body["acceptance_criteria"].append(
@@ -1080,20 +978,6 @@ def contract(final: bool = False) -> dict:
         rows = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])["criteria"](scenario_dir() / "reference")
         body["acceptance_criteria"] = rows
         body["milestones"][0]["acceptance_criteria"] = [row["id"] for row in rows]
-    if WORKSTREAM and WORKSTREAM["kind"] != "code":
-        # The integration workstream keeps every requirement and journey it inherits, by id; the
-        # scenario's check is the merged product's whole check.
-        ids = WORKSTREAM["inherited"] or ["C1"]
-        body["acceptance_criteria"] = [
-            {
-                "id": cid,
-                "criterion": f"{cid} holds on the merged product",
-                "verification_method": integration_method(cid),
-                "human_review": False,
-            }
-            for cid in ids
-        ]
-        body["milestones"][0]["acceptance_criteria"] = ids
     if (DATA.get("bug_diagnosis") or {}).get("root_cause"):
         body["task_kind"] = "bugfix"  # planned from a bug diagnosis
     if PROGRESSIVE and "PROGRESSIVE PLANNING" in PROMPT:
@@ -1135,7 +1019,7 @@ def contract(final: bool = False) -> dict:
             )
         if PROGRESSIVE and "PROGRESSIVE PLANNING" in PROMPT:
             body["initial_task"] = progressive_task()
-    return cite_sources(inherit_program(body) if WORKSTREAM else body)
+    return cite_sources(body)
 
 
 _EMITTER = None
@@ -1159,7 +1043,21 @@ def emit(event: dict) -> None:
         print(json.dumps(event), flush=True)
 
 
+def report_schema(schema):
+    """Script the full report branch while retaining the offered transport envelope."""
+    branches = schema.get("properties", {}).get("repair_report", {}).get("anyOf")
+    if isinstance(branches, list) and len(branches) == 2 and isinstance(branches[1], dict):
+        return branches[1]
+    return schema
+
+
 def _report(report, output):
+    if (
+        "repair_report" in WIRE_SCHEMA.get("properties", {})
+        and isinstance(report, dict)
+        and "repair_report" not in report
+    ):
+        report = {"repair_report": report}
     if os.environ.get("AUTOCODE_REPLAY_EMITTER_COMMAND"):
         _stream({"kind": "report", "output": output, "report": report})
     else:
@@ -1261,10 +1159,7 @@ def recognize(brief: str, follow_up: dict | None = None) -> dict:
     def has(*patterns):
         return any(re.search(pattern, text) for pattern in patterns)
 
-    if WORKSTREAM_HEADER.match(brief):
-        # A program workstream builds; its brief's "satisfy human review" is not a request for a review.
-        kind, signal = "build", "a program workstream brief"
-    elif (follow_up or {}).get("previous_workflow") == "review" and has(r"\bfix\b", r"\bland\b", r"\bapply\b"):
+    if (follow_up or {}).get("previous_workflow") == "review" and has(r"\bfix\b", r"\bland\b", r"\bapply\b"):
         kind, signal = "build", "follow-up: act on the review's findings"
     elif ((follow_up or {}).get("previous_design") or {}).get("mode") == "review" and not has(
         r"\bbuild\b", r"\bimplement\b"
@@ -1441,15 +1336,33 @@ def investigate(data: dict) -> dict:
         "questions": [str(q) for q in saved.get("questions", [])],
         "tests_run": ["scripted"],
         "plan_approval_requested": bool(saved.get("plan_approval_requested")),
+        "workspace_scope": saved.get("workspace_scope") or {"spans_repositories": False, "external_parts": []},
         # The runner checks the reproduction: [fake] probe in scenario.toml exits 0 while the seed's
         # bug is present; a scenario without one takes the untestable path.
         "probe": (CONFIG.get("probe") or "") if reproduced else "",
+        "counterexample": fix_counterexample(data) if reproduced and CONFIG.get("probe") else BLANK_COUNTEREXAMPLE,
         "untestable": (
             "" if CONFIG.get("probe") else "Scripted investigation: this scenario configures no reproduction probe"
         )
         if reproduced
         else "",
     }
+
+
+BLANK_COUNTEREXAMPLE = {"file": "", "find": "", "replace": ""}
+
+
+def fix_counterexample(data: dict) -> dict:
+    """The edit that removes the seed's bug, where the runner requires the probe to fail (#1769): the
+    solution's version of the one source file it changes, in place of today's text."""
+    workspace = Path(data.get("workspace") or Path.cwd())
+    for path in PATHS:
+        if Path(path).suffix not in {".py", ".go", ".js", ".cjs", ".mjs", ".ts", ".tsx"} or "test" in path:
+            continue
+        current, solved = workspace / path, Path(CONFIG["reference"]) / path
+        if current.is_file() and solved.is_file() and current.read_text() != solved.read_text():
+            return {"file": path, "find": current.read_text(), "replace": solved.read_text()}
+    return BLANK_COUNTEREXAMPLE
 
 
 def scripted_cases() -> list[dict]:
@@ -1459,8 +1372,11 @@ def scripted_cases() -> list[dict]:
     # Native scenarios name the cases in their scripted plan instead of asking
     # this fixture to parse three languages' test source. Existing Python
     # scenarios keep their added-function discovery when no names are declared.
+    # A criterion id starting PLAN_ is the plan's own case, beside the diagnosis (#1868): it never becomes one.
     declared = [
-        match[1] for text in (CONFIG.get("criteria") or {}).values() if (match := re.search(r"test:\s*(\w+)", text))
+        match[1]
+        for cid, text in (CONFIG.get("criteria") or {}).items()
+        if not cid.startswith("PLAN_") and (match := re.search(r"test:\s*(\w+)", text))
     ]
     if declared:
         return [
@@ -1783,6 +1699,12 @@ assert {SCOPED_NOTE!r} not in Path('lessons.py').read_text()
         "evidence_refs": refs,
         "example": "Given the saved answer, the checks pass but lessons.py lacks the permitted note.",
         "probe": shlex.join([sys.executable, "-B", "-c", code]),
+        # The probe must fail once the cited report is no longer a REWORK (#1769).
+        "counterexample": {
+            "file": "run/" + Path(refs[0]).name,
+            "find": (text := Path(refs[0]).read_text()),
+            "replace": json.dumps({**json.loads(text), "status": "PASS"}),
+        },
         "untestable": "",
         "failure_class": "execution",
         "failure_id": failure["failure_id"],
@@ -1841,6 +1763,12 @@ assert p.returncode == 2 and p.stderr.startswith('stock.py: ') and 'invalid choi
         "example": "Given the current vacuous refusal tests, the project check passes but the runner "
         "rejects their regression proof because the named tests also pass without move/remove.",
         "probe": shlex.join([sys.executable, "-B", "-c", code]),
+        # The probe must fail once the cited report is no longer a REWORK (#1769).
+        "counterexample": {
+            "file": "run/" + Path(refs[0]).name,
+            "find": (text := Path(refs[0]).read_text()),
+            "replace": json.dumps({**json.loads(text), "status": "PASS"}),
+        },
         "untestable": "",
         "failure_class": "execution",
         "failure_id": failure["failure_id"],
@@ -2092,7 +2020,8 @@ def report_for(stage: str, data: dict) -> dict:
 
         scenario = next(parent for parent in Path(CONFIG["reference"]).parents if (parent / "scenario.toml").is_file())
         provider = runpy.run_path(str(scenario.parents[1] / "harness" / "recovery_novelty_provider.py"))
-        return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
+        # The Tester's changed-line reasons (fake_changed_code) are attached like every other report's.
+        return lazy_citations(provider["report_for"](stage, data, common, CONFIG, run_check, requirements))
     if CONFIG.get("fault", "").startswith("completion_rework_") and stage in (
         "terra",
         "sol",
@@ -2107,7 +2036,8 @@ def report_for(stage: str, data: dict) -> dict:
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
     if CONFIG.get("fault") in FAULT_PROVIDERS and stage in ("terra", "sol", "astra_review", "astra_resolve"):
         provider = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])
-        return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
+        # The Tester's changed-line reasons (fake_changed_code) are attached like every other report's.
+        return lazy_citations(provider["report_for"](stage, data, common, CONFIG, run_check, requirements))
     if CONFIG.get("fault") == "refund_planted_window" and stage in ("terra", "sol", "astra_review", "astra_resolve"):
         provider = scripted_fault("refund_window_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
@@ -2143,6 +2073,37 @@ def report_for(stage: str, data: dict) -> dict:
         }
         if CONFIG.get("fault") == "project_memory":
             return scripted_fault("project_memory_provider.py")["requirements"](report, data)
+        if CONFIG.get("fault") == "clarifying_requirements":
+            report = scripted_fault("clarifying_requirements_provider.py")["requirements"](report, data)
+        if "job" in OUTPUT_SCHEMA.get("properties", {}):
+            # Requirements names the job by the recognizer's keyword rules (#1846, #1860); a follow-up's
+            # job is judged from its new message, with the earlier turn as context. Behaviors and
+            # acceptance tests describe code to build, so for a job that builds nothing it leaves them
+            # empty, as the live model did in #1846.
+            follow_up = data.get("follow_up")
+            named = recognize((follow_up or {}).get("message") or resolved_task() or CONFIG["brief"], follow_up)
+            # A report repair has no task or follow-up context: it keeps the job its rejected draft named.
+            rejected = ((data.get("rejected_report") or {}).get("content") or {}) if data.get("report_repair") else {}
+            if rejected.get("job"):
+                named = {"workflow": rejected["job"], "design_document": rejected.get("design_document", "")}
+            if named["workflow"] in ("review", "design", "discuss"):
+                report.update(required_behaviors=[], acceptance_tests=[])
+            report.update(job=named["workflow"], design_document=named["design_document"])
+            earlier = ((data.get("previous_requirements_handoff") or {}).get("report") or {}).get("requirements")
+            if follow_up and earlier and named["workflow"] == follow_up.get("previous_workflow"):
+                # The same job continues: its requirements stay, under their IDs (goals.check_requirement_handoff).
+                kept = {row.get("source_quote") for row in earlier}
+                fresh = [row for row in report["requirements"] if row["source_quote"] not in kept]
+                report["requirements"] = [
+                    *earlier,
+                    *({**row, "id": f"R{len(earlier) + number}"} for number, row in enumerate(fresh, start=1)),
+                ]
+        if "workspace_scope" in OUTPUT_SCHEMA.get("properties", {}):
+            # A scripted request belongs to this repository alone (#2066); a scenario that spans two sets it.
+            report.setdefault("workspace_scope", {"spans_repositories": False, "external_parts": []})
+        if "clarity" in OUTPUT_SCHEMA.get("properties", {}):
+            # An adaptive run's Requirements judges clarity as the recognizer did (#1846, #1860); same script.
+            report["clarity"] = os.environ.get("SCENARIO_FAKE_CLARITY") or "clear"
         if data.get("spec_first"):
             report["assistant_reply"] = "Here is what I understand: " + report["intended_outcome"]
         return report
@@ -2296,8 +2257,8 @@ def report_for(stage: str, data: dict) -> dict:
             "untested_behavior": [],
             "recommended_checks": [row["verify"]],
         }
-    if stage == "terra" and (CONFIG.get("turn_paths") or WORKSTREAM):
-        # Deliver this turn's (or this workstream's) files only, and only those the runner assigned.
+    if stage == "terra" and CONFIG.get("turn_paths"):
+        # Deliver this turn's files only, and only those the runner assigned.
         assigned = tuple((data.get("current_task") or {}).get("affected_paths") or PATHS)
         for rel in (path for path in PATHS if path.startswith(assigned)):
             destination = Path.cwd() / rel
@@ -2828,7 +2789,7 @@ def _main() -> int:
         return silent_hang()
     if CONFIG.get("fault") == "chatter_no_progress":
         return chatter_no_progress()
-    global PROMPT, OUTPUT_SCHEMA
+    global PROMPT, OUTPUT_SCHEMA, WIRE_SCHEMA
     prompt = PROMPT = sys.stdin.read()
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     # Auth-helper timeouts happen while resolving credentials, before a session
@@ -2859,12 +2820,9 @@ def _main() -> int:
         return 0
     remembered.parent.mkdir(exist_ok=True)
     remembered.write_text(prompt)
-    global DATA, PATHS, WORKSTREAM, MILESTONES, CHECK
+    global DATA, PATHS
     data = DATA = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     PATHS = turn_paths()
-    WORKSTREAM = workstream()
-    if WORKSTREAM:
-        MILESTONES, CHECK, PATHS = workstream_scope(WORKSTREAM)
     original = data.get("original") or {}
     stage = data.get("stage") or original.get("stage") or ""
     if data.get("report_repair"):
@@ -2888,15 +2846,16 @@ def _main() -> int:
             partial.write_text("# partial builder work retained across route change\n")
         emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
         return 3
-    OUTPUT_SCHEMA = (
+    WIRE_SCHEMA = (
         json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "--output-schema" in sys.argv
         else {}
     )
     # Always-on: the live gocode gateway rejects uniqueItems. Autocode must strip it
     # before --output-schema is written (tools/autocode_util.model_output_schema).
-    if OUTPUT_SCHEMA and _schema_has_unique_items(OUTPUT_SCHEMA):
-        return refuse_unique_items_schema(OUTPUT_SCHEMA)
+    if WIRE_SCHEMA and _schema_has_unique_items(WIRE_SCHEMA):
+        return refuse_unique_items_schema(WIRE_SCHEMA)
+    OUTPUT_SCHEMA = report_schema(WIRE_SCHEMA)
     # Live #452 run jb1acns9: the Builder's first report after approval cites no evidence.
     no_evidence = stage == "terra" and os.environ.get("SCENARIO_FAKE_BUILDER_NO_EVIDENCE") == "1"
     if no_evidence and data.get("report_repair"):
@@ -2916,6 +2875,89 @@ def _main() -> int:
         and os.environ.get("SCENARIO_FAKE_BRIEF_OMIT") == "1"
     ):
         report["brief_observations"] = []
+    if stage == "astra_challenge" and os.environ.get("SCENARIO_FAKE_DUPLICATE_REVIEW_OBSERVATION") in ("1", "always"):
+        marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-duplicate-review-observation")
+        if data.get("report_repair"):
+            # Repair only the faulty review report; do not author a new plan.
+            rejected = data["rejected_report"]["content"]
+            report = json.loads(rejected) if isinstance(rejected, str) else json.loads(json.dumps(rejected))
+            if os.environ["SCENARIO_FAKE_DUPLICATE_REVIEW_OBSERVATION"] != "always":
+                seen = set()
+                fixed = []
+                for proposal in report["brief_observations"]:
+                    if proposal["declaration_id"] not in seen:
+                        fixed.append(proposal)
+                        seen.add(proposal["declaration_id"])
+                report["brief_observations"] = fixed
+        elif not marker.exists() and report.get("brief_observations"):
+            marker.touch()
+            duplicate = json.loads(json.dumps(report["brief_observations"][0]))
+            duplicate["steps"][0]["argv"][-1] += "-duplicate-proposal"
+            report["brief_observations"].append(duplicate)
+    if (
+        not data.get("report_repair")
+        and Path("todo.py").is_file()
+        and (
+            os.environ.get("SCENARIO_FAKE_RETAIN_PLAN") == "1" or os.environ.get("SCENARIO_FAKE_EXISTING_SOURCE") == "1"
+        )
+    ):
+        if stage == "requirements_gather":
+            report["source_refs"] = ["todo.py:1"]
+        if stage in ("astra_discovery", "glm_revise"):
+            report["code_refs"] = ["todo.py:1"]
+    if (
+        os.environ.get("SCENARIO_FAKE_RETAIN_PLAN") == "1"
+        and not data.get("report_repair")
+        and stage in ("astra_discovery", "glm_revise")
+        and report.get("contract")
+    ):
+        retained = {row["retain_criterion"]: row for row in data.get("retained_criteria") or []}
+        report["contract"]["acceptance_criteria"] = [
+            retained.get(row["id"], row) for row in report["contract"]["acceptance_criteria"]
+        ]
+    if stage == "astra_finalize" and "retain_contract" in OUTPUT_SCHEMA.get("properties", {}).get("contract", {}).get(
+        "properties", {}
+    ):
+        draft = report["contract"]
+        report["contract"] = {
+            "retain_contract": data.get("retained_contract")
+            or (data.get("clarification_context") or {}).get("retained_contract"),
+            "open_blocking_questions": draft.get("open_blocking_questions", []),
+        }
+        if "initial_task" in OUTPUT_SCHEMA["properties"]["contract"]["properties"]:
+            report["contract"]["initial_task"] = draft.get("initial_task")
+        if "acceptance_criteria" in OUTPUT_SCHEMA["properties"]["contract"]["properties"]:
+            # The reference's criteria delta (#1991); empty, it retains every row.
+            report["contract"]["acceptance_criteria"] = {
+                "retain_from": report["contract"]["retain_contract"],
+                "upsert": [],
+                "remove": [],
+                "proofs": [],
+            }
+        report["requirement_trace"] = []
+        report["contract_changes"] = []
+        report["conflict_resolutions"] = []
+    if os.environ.get("SCENARIO_FAKE_FINAL_PROOF_FIX") == "1" and not data.get("report_repair"):
+        # The revision binds C1 to a wrong command; the final review corrects that one proof through
+        # the criteria delta inside its reference (#1991), as a Plan Reviewer that read the plan would.
+        if stage == "glm_revise" and report.get("contract"):
+            for row in report["contract"]["acceptance_criteria"]:
+                if row["id"] == "C1":
+                    row["verification_method"] = CHECK + " --planted-by-the-revision"
+        if stage == "astra_finalize" and "retain_contract" in report.get("contract", {}):
+            report["contract"]["acceptance_criteria"] = {
+                "retain_from": report["contract"]["retain_contract"],
+                "upsert": [],
+                "remove": [],
+                "proofs": [{"id": "C1", "verification_method": CHECK}],
+            }
+    if stage == "astra_finalize" and os.environ.get("SCENARIO_FAKE_RETAIN_REPAIR") == "1":
+        if data.get("report_repair"):
+            rejected = data["rejected_report"]["content"]
+            report = json.loads(rejected) if isinstance(rejected, str) else json.loads(json.dumps(rejected))
+            report["summary"] = "Repaired the retained review summary only"
+        else:
+            report.pop("summary", None)
     if no_evidence and not data.get("report_repair"):
         marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-builder-no-evidence")
         if not marker.exists():  # once: later Builder runs cite their check as usual
@@ -2943,7 +2985,7 @@ def _main() -> int:
             {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
         )
     if "--output-schema" in sys.argv:
-        schema = OUTPUT_SCHEMA
+        schema = WIRE_SCHEMA if "repair_report" in report else OUTPUT_SCHEMA
         # Runner-owned brief fields exist only for protected human declarations.
         # Match this call's schema, including report repairs with a smaller packet.
         for field in (
@@ -2955,6 +2997,12 @@ def _main() -> int:
             if field not in schema.get("properties", {}):
                 report.pop(field, None)
         complete(report, schema)
+    if (
+        stage == "astra_finalize"
+        and os.environ.get("SCENARIO_FAKE_RETAIN_REPAIR") == "1"
+        and not data.get("report_repair")
+    ):
+        report.pop("summary", None)
     if cmd_only_final(stage):
         report = dict(CMD_ONLY_FINAL)
     _report(report, sys.argv[sys.argv.index("-o") + 1])

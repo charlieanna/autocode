@@ -79,6 +79,15 @@ def binding(state: RunState, accounting):
     # Preserve authentication of historical reports whose state predates timing.
     if "interaction_timing" in state:
         stable["interaction_timing"] = state["interaction_timing"]
+    # Only the newly displayed repair decisions add a binding; unrelated old
+    # proof history must not invalidate saved reports that never displayed it.
+    repairs = [
+        row
+        for row in state.get("regression_proofs") or []
+        if isinstance(row, dict) and row.get("kind") == "changed_code_rework"
+    ]
+    if repairs:
+        stable["changed_code_repairs"] = repairs
     return util.digest(
         {"state": stable, "accounting": document.accounting_facts(accounting, role_context=_role_context(state))}
     )
@@ -110,7 +119,7 @@ def metadata(state: RunState):
     }
 
 
-def record(state, anchor):
+def record(state: RunState, anchor):
     """Store the small authentication anchor, never another report's document."""
     state["evidence_export"] = {
         key: anchor.get(key)

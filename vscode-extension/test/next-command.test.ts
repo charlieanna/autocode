@@ -4,6 +4,10 @@ import test from "node:test";
 import {
   ClientGap,
   applyDecisions,
+  effortLevels,
+  boundOffer,
+  changesetAction,
+  changesetStatusArgs,
   commandInputs,
   findUnsupplied,
   isAdvancing,
@@ -13,7 +17,7 @@ import {
   requiresConfirmation,
   splitCommandLine,
 } from "../src/core/next-command";
-import type { StatusView } from "../src/core/view";
+import type { ChangesetSummary, StatusView } from "../src/core/view";
 
 const RUN = "/ws/.autocode/runs/20261015-run";
 const WS = "/ws";
@@ -112,6 +116,47 @@ test("typed total rejects stale tokens, changed commands and malformed descripto
   assert.equal(findUnsupplied(named.argv), "N", "bare N remains unsupported");
 });
 
+function costOffer(separate = false): StatusView {
+  const raise = `AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --workspace ${WS} --run-dir ${RUN} --resume-paused --max-cost-usd N --expected-recovery-token -`;
+  return { status: separate ? "RESOLVER_PENDING" : "PAUSED_COST_LIMIT", done: false, recovery: { token: "current" },
+    needs: { kind: "resume", command_inputs: [{ id: "max_cost_usd", kind: "integer", flag: "--max-cost-usd", placeholder: "N",
+      arg_index: 2, label: "Cost cap (whole USD)", current: 2.0, used: 2.37, minimum: 3, maximum: Number.MAX_SAFE_INTEGER,
+      ...(separate ? { command: raise } : {}) }] },
+    next_command: separate ? `autocode --workspace ${WS} --run-dir ${RUN} --resume-paused` : raise };
+}
+
+test("every bound the core describes is typed into its own named raise, not three hardcoded ones (#2044)", () => {
+  const view = costOffer();
+  const named = parseNamedCommand(view.next_command!, own);
+  const inputs = commandInputs(view, named);
+  assert.equal(findUnsupplied(named.argv, inputs), null);
+  assert.deepEqual(applyDecisions(named.argv, { max_cost_usd: "5" }, inputs),
+    ["--resume-paused", "--max-cost-usd", "5", "--expected-recovery-token", "-"]);
+  assert.throws(() => applyDecisions(named.argv, { max_cost_usd: "2" }, inputs), ClientGap);
+  for (const [key, value] of Object.entries({ label: "Total active time (seconds)", id: "max_seconds", minimum: 4,
+    flag: "--max-unknown", used: -1, current: 0 })) {
+    const bad = structuredClone(view);
+    Object.assign(bad.needs!.command_inputs![0]!, { [key]: value });
+    assert.throws(() => commandInputs(bad, named), ClientGap, key);
+  }
+  assert.equal(boundOffer(view, own), null, "an attached row is no separate offer");
+});
+
+test("a bound held behind a plain resume names its raise separately, bound to the current token", () => {
+  const view = costOffer(true);
+  const named = parseNamedCommand(view.next_command!, own);
+  assert.deepEqual(commandInputs(view, named), [], "the plain resume has no slot");
+  const offer = boundOffer(view, own)!;
+  assert.deepEqual(applyDecisions(offer.named.argv, { max_cost_usd: "3" }, [offer.input]),
+    ["--resume-paused", "--max-cost-usd", "3", "--expected-recovery-token", "-"]);
+  assert.deepEqual(offer.named.env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: "current" });
+  const stale = { ...view, recovery: { token: "other" } };
+  assert.throws(() => boundOffer(stale, own), ClientGap);
+  const elsewhere = structuredClone(view);
+  elsewhere.needs!.command_inputs![0]!.command = view.needs!.command_inputs![0]!.command!.replace(RUN, "/other/run");
+  assert.throws(() => boundOffer(elsewhere, own), ClientGap);
+});
+
 test("splitCommandLine keeps quoted words whole", () => {
   assert.deepEqual(splitCommandLine(`autocode --feedback "keep the retry logic"`), [
     "autocode",
@@ -156,6 +201,17 @@ test("openDecisions names the placeholders a person has to fill", () => {
   assert.deepEqual(openDecisions(["--answer", "route-GLM=MODEL"]), [
     { questionId: "route-GLM", placeholder: "MODEL", kind: "model" },
   ]);
+});
+
+test("an unsupported named effort is a choice among the levels the model declares (#2057)", () => {
+  const effort = { question_id: "effort-plan_reviewer", role: "plan_reviewer", declared: ["low", "high", "max"], requested: "medium" };
+  const argv = ["--answer", "effort-plan_reviewer=EFFORT"];
+  assert.deepEqual(openDecisions(argv), [{ questionId: "effort-plan_reviewer", placeholder: "EFFORT", kind: "effort" }]);
+  assert.deepEqual(effortLevels(effort, "effort-plan_reviewer"), ["low", "high", "max"]);
+  assert.deepEqual(applyDecisions(argv, { "effort-plan_reviewer": " High " }, [], effort), ["--answer", "effort-plan_reviewer=high"]);
+  assert.throws(() => applyDecisions(argv, { "effort-plan_reviewer": "medium" }, [], effort), /Choose one of low, high, max/);
+  assert.throws(() => applyDecisions(argv, { "effort-plan_reviewer": "high" }), /does not describe/);
+  assert.throws(() => applyDecisions(argv, {}, [], effort), /decision for a person/);
 });
 
 test("applyDecisions substitutes the person's words and keeps everything else", () => {
@@ -203,4 +259,23 @@ test("the core can suppress a duplicate resume dialog without authorizing automa
   assert.equal(requiresConfirmation({ kind: "resume", confirmation_required: true }), true);
   assert.equal(requiresConfirmation({ kind: "retry_job", confirmation_required: false }), true);
   assert.equal(requiresConfirmation({ kind: "answer", resolver_scope: "blocker", confirmation_required: false }), true);
+});
+
+test("a change set's actions are taken only as changeset status names them (#2066)", () => {
+  const source = "/ws/.autocode/runs/a";
+  const summary: ChangesetSummary = {
+    changeset: "changeset-1",
+    runs: [{ role: "source", target: "ws", workspace: "/ws", run_dir: source, status: "AWAITING_GOAL_APPROVAL" }],
+    approval: { set_token: "set-1", waiting_on: [], next_command: ["autocode", "changeset", "approve", "--run-dir", source, "--set-token", "set-1"] },
+    verification: { waiting_on: ["ws"], done: false, merge_order: ["ws"], next_command: null },
+  };
+  assert.deepEqual(changesetAction(summary, "approval"), ["changeset", "approve", "--run-dir", source, "--set-token", "set-1"]);
+  assert.throws(() => changesetAction(summary, "verification"), /no joint check/);
+  const moved = { ...summary, approval: { ...summary.approval, set_token: "set-2" } };
+  assert.throws(() => changesetAction(moved, "approval"), (error: unknown) => error instanceof ClientGap && /Unsupported/.test(String(error)));
+  assert.equal(changesetStatusArgs({ status: "X", done: false, scope: { linked: [] } }, own), null);
+  assert.deepEqual(
+    changesetStatusArgs({ status: "X", done: false, scope: { linked: [{ changeset: "c", target: "b", role: "member", workspace: "/b", run_dir: null }] } }, own),
+    ["changeset", "status", "--run-dir", RUN, "--json"],
+  );
 });

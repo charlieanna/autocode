@@ -1,9 +1,7 @@
-"""An operator can recover a serial retry exhaustion through the public CLI."""
+"""Terminal exhaustion refuses obsolete CLI retries; legacy domain guards remain explicit."""
 
 import copy
 import json
-import subprocess
-import sys
 import unittest
 
 import autocode_builder_recovery as recovery
@@ -40,79 +38,57 @@ class SerialRecoveryTests(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
         return run
 
-    def test_displayed_recovery_token_refuses_a_newer_failure_before_any_settings_write(self):
+    def test_terminal_outcome_refuses_retry_tokens_before_any_settings_change(self):
         run = self.stopped_run()
         before = self.status(run)
-        token = before["view"]["recovery"]["token"]
-        self.assertEqual(token, self.status(run)["view"]["recovery"]["token"])
-        checkpoint = run / "state.json"  # owned disposable CLI fixture only
-        original = checkpoint.read_bytes()
-        args = ["--run-dir", str(run), "--resume-paused", "--retry-builder", "M1", "--no-chat"]
-        refused = self.launch([*args, "--expected-recovery-token", "old", "--terra-reasoning-effort", "low"], 2)
-        self.assertIn("saved pause changed", refused.stderr)
-        self.assertEqual(original, checkpoint.read_bytes())
-        self.launch([*args, "--expected-recovery-token", token], 2)
-        after = self.status(run)
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", after["status"])
-        self.assertNotEqual(token, after["view"]["recovery"]["token"])
-        self.assertEqual(before["settings"]["roles"], after["settings"]["roles"])
-        self.assertEqual(before["contract_token"], after["contract_token"])
-        retained = checkpoint.read_bytes()
+        view = before["view"]
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertEqual("could_not_finish", view["recovery"]["outcome"]["result"])
         source = (self.project / "greet.py").read_bytes()
-        refused = self.launch([*args, "--expected-recovery-token", token], 2)
-        self.assertIn("saved pause changed", refused.stderr)
-        self.assertEqual(retained, checkpoint.read_bytes())
-        self.assertEqual(source, (self.project / "greet.py").read_bytes())
+        args = ["--run-dir", str(run), "--resume-paused", "--retry-builder", "M1", "--no-chat"]
+        for token in ("old", view["recovery"]["token"]):
+            with self.subTest(token=token):
+                self.launch([*args, "--expected-recovery-token", token, "--terra-reasoning-effort", "low"], 2)
+                after = self.status(run)
+                for field in ("settings", "contract_token"):
+                    self.assertEqual(before[field], after[field])
+                for field in ("cost", "usage", "recovery"):
+                    self.assertEqual(view[field], after["view"][field])
+                self.assertEqual(source, (self.project / "greet.py").read_bytes())
 
-    def test_retry_at_raw_pause_does_not_first_publish_an_operator_question(self):
+    def test_terminal_retry_with_pause_after_stage_cannot_requeue_a_builder(self):
         run = self.stopped_run()
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.status(run)["status"])
+        before = self.status(run)["view"]
+        self.assertEqual("could_not_finish", before["recovery"]["outcome"]["result"])
         self.launch(
             ["--run-dir", str(run), "--resume-paused", "--retry-builder", "M1", "--pause-after-stage", "--no-chat"], 2
         )
-        current = self.status(run)
-        self.assertEqual("PAUSED_REQUESTED", current["status"])
-        self.assertEqual("terra", current["next_stage"])
-        self.assertNotEqual("answer", current["view"]["needs"]["kind"])
+        after = self.status(run)["view"]
+        self.assertEqual("PAUSED_INTERVENTION", after["status"])
+        self.assertIsNone(after["next_command"])
+        self.assertTrue(all(not action.get("next_command") for action in after["recovery"]["actions"]))
+        self.assertEqual(before["usage"], after["usage"])
+        self.assertEqual(before["recovery"]["outcome"], after["recovery"]["outcome"])
 
-    def test_explicit_retry_preserves_pins_and_requires_a_new_grant_after_failure(self):
+    def test_repaired_provider_and_retry_flags_cannot_restart_terminal_exhaustion(self):
         run = self.stopped_run()
         before = self.status(run)
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", before["status"])
-        original_source = (self.project / "greet.py").read_bytes()
-        args = ["--run-dir", str(run), "--resume-paused", "--no-chat"]
-        self.launch([*args, "--retry-builder", "M2"], 2)
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.status(run)["status"])
-        self.launch(args, 2)
-        self.assertEqual(original_source, (self.project / "greet.py").read_bytes())
-        # One explicit grant runs one more bad Builder, then stops again.
-        attempt = self.launch([*args, "--retry-builder", "M1"], 2)
-        self.assertNotEqual(original_source, (self.project / "greet.py").read_bytes(), attempt.stdout + attempt.stderr)
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.status(run)["status"])
-        failed_source = (self.project / "greet.py").read_bytes()
-        self.launch(args, 2)
-        self.assertEqual(failed_source, (self.project / "greet.py").read_bytes())
-        # The repaired provider now handles the same approved task correctly.
+        view = before["view"]
+        self.assertEqual("could_not_finish", view["recovery"]["outcome"]["result"])
+        source = (self.project / "greet.py").read_bytes()
+        # Changing the fixture to a successful provider supplies no new task authority.
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
-        self.launch([*args, "--retry-builder", "M1", "--pause-after-stage"], 2)
-        self.assertEqual("terra", self.status(run)["next_stage"])
-        self.launch([*args, "--pause-after-stage"], 2)
-        self.assertEqual("sol", self.status(run)["next_stage"])
-        self.launch([*args, "--pause-after-stage"], 2)
-        after = self.status(run)
-        self.assertEqual("PAUSED_REQUESTED", after["status"])
-        self.assertEqual("astra_review", after["next_stage"])
-        self.assertEqual("PASS", after["view"]["evidence"]["check_replay"]["verdict"])
-        self.assertEqual(before["contract_token"], after["contract_token"])
-        # Avoiding the first paid diagnosis leaves its inherited route lazy.
-        # Its later materialization must be exactly the approved planner route.
-        before["settings"]["roles"].setdefault("resolver", copy.deepcopy(before["settings"]["roles"]["astra"]))
-        for field in ("roles", "limits", "builder_retry"):
-            self.assertEqual(before["settings"][field], after["settings"][field])
-        valid = subprocess.run([sys.executable, "greet.py", "Ada"], cwd=self.project, capture_output=True, text=True)
-        invalid = subprocess.run([sys.executable, "greet.py", ""], cwd=self.project, capture_output=True, text=True)
-        self.assertEqual((0, "Hello, Ada\n"), (valid.returncode, valid.stdout))
-        self.assertEqual(2, invalid.returncode)
+        args = ["--run-dir", str(run), "--resume-paused", "--no-chat"]
+        for extra in ([], ["--retry-builder", "M2"], ["--retry-builder", "M1"]):
+            with self.subTest(extra=extra):
+                self.launch([*args, *extra], 2)
+                after = self.status(run)
+                self.assertEqual("PAUSED_INTERVENTION", after["status"])
+                self.assertEqual(before["settings"], after["settings"])
+                self.assertEqual(before["contract_token"], after["contract_token"])
+                for field in ("cost", "usage", "recovery"):
+                    self.assertEqual(view[field], after["view"][field])
+                self.assertEqual(source, (self.project / "greet.py").read_bytes())
 
 
 class SerialRecoveryGuards(unittest.TestCase):

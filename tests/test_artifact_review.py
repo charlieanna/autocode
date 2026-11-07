@@ -48,6 +48,7 @@ class ArtifactReviewCLITests(unittest.TestCase):
             if fixture_flags.get("AUTOCODE_FIXTURE_EMPTY_HUMAN_EVIDENCE")
             else ["sol_report_repair"]
             if fixture_flags.get("AUTOCODE_FIXTURE_OMIT_CHECKS")
+            or fixture_flags.get("AUTOCODE_FIXTURE_INCOMPLETE_HUMAN_PROOF")
             else [],
             repairs,
         )
@@ -60,6 +61,10 @@ class ArtifactReviewCLITests(unittest.TestCase):
 
     def test_omitted_executed_checks_are_repaired_before_review(self):
         self.review_then_complete(AUTOCODE_FIXTURE_OMIT_CHECKS="1")
+
+    def test_a_report_without_the_human_only_proof_is_repaired_then_reviewed(self):
+        # #1851: the Validator's unverified human row cited nothing and the flow proved no technical result.
+        self.review_then_complete(AUTOCODE_FIXTURE_INCOMPLETE_HUMAN_PROOF="1")
 
     def test_flow_awaiting_only_human_acceptance_presents_review_without_repeating_validation(self):
         # #195: the approved flow ends in the person's approval, so the Validator leaves it NOT_VERIFIED.

@@ -29,8 +29,12 @@ try:
     from . import autocode_job_failure as job_failure
     from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_job_route as job_route
+    from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_recovery_dispatch as recovery_dispatch
+    from . import autocode_recovery_grants as recovery_grants
+    from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_route_advisory as route_advisory
     from . import autocode_runner_check as runner_check
     from . import autocode_stop as stop
     from . import autocode_support as support
@@ -40,15 +44,51 @@ except ImportError:
     import autocode_job_failure as job_failure
     import autocode_job_report_recovery as job_report_recovery
     import autocode_job_route as job_route
+    import autocode_recovery_accounting as recovery_accounting
     import autocode_recovery_dispatch as recovery_dispatch
+    import autocode_recovery_grants as recovery_grants
+    import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_route_advisory as route_advisory
     import autocode_runner_check as runner_check
     import autocode_stop as stop
     import autocode_support as support
 
 
+def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    """Publish an uncertain-stage pause under the run lock; never enter a provider/recovery dispatcher."""
+    if getattr(args, "reconcile_only", None) is None:
+        return None
+    try:
+        from . import autocode_checkpoint_reconciliation as reconciliation
+    except ImportError:
+        import autocode_checkpoint_reconciliation as reconciliation
+    if stop.applied_stop(state) is not None or stop.pending_stop(run_dir) is not None:
+        parser.error("A stop is pending or already applied; inspect that stop before reconciling the checkpoint")
+    active = state.get("active_stage") or {}
+    fresh = runner.supervision.observe(active.get("supervision"))
+    try:
+        changed = reconciliation.decision(state, args.reconcile_only, fresh)
+    except ValueError as error:
+        parser.error(str(error))  # Refusal must not overwrite a still-running checkpoint.
+    state.update(changed)
+    runner.write_json(state_path, state)
+    print(state["stop_reason"])
+    return 0  # The metadata action was saved; the run remains paused, not completed.
+
+
 def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Settle a classification or job failure before any pause authority is weighed."""
+    if getattr(args, "_job_cap_change", False):
+        try:
+            job_failure.change_total_caps(runner, state, run_dir, workspace, args)
+        except ValueError as error:
+            print(f"Input rejected: {error}", file=sys.stderr)
+            return 2
+        print(
+            "Limits saved; job remains paused. Inspect the fresh retry token before authorizing a retry. No provider launched."
+        )
+        return 0
     classification_gate = classification_recovery.gate(
         state,
         resume=bool(args.resume_paused),
@@ -140,16 +180,30 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             # Validate the displayed grant before resume bookkeeping changes
             # the user events bound into the resolver request's identity.
             if args.grant_recovery is not None:
+                # Validate the request as issued, then let the grant's single save carry the
+                # accepted settings and the invocation's deferred limit_change events together
+                # (#2479): no exit can persist one without the other (#2412), and a refused
+                # grant persists neither.
                 try:
-                    runner.grant_recovery_allowance(
+                    recovery_grants.grant(
                         state,
                         run_dir,
                         args.grant_recovery,
                         previous_settings=getattr(args, "_recovery_grant_settings", None),
+                        current_request=resolver_human.current,
+                        count=runner.recovery_count(state),
+                        supersede=resolver_human.supersede_operational,
+                        persist=runner.write_json,
+                        maximum=recovery_accounting.MAX_AUTOMATIC_RECOVERIES,
+                        pending_limit_events=getattr(args, "_grant_limit_events", None) or (),
                     )
                 except ValueError as error:
                     print(f"Input rejected: {error}", file=sys.stderr)
                     return 2
+                if run_dir is not None:
+                    route_advisory.report_changes(
+                        getattr(args, "_recovery_grant_settings", None), state.get("settings")
+                    )
             # Reset milestone budget counters when raising the limit
             if args.max_milestone_seconds is not None and not (state.get("progressive") or {}).get("budget"):
                 for row in state.get("milestone_progress", {}).values():
@@ -161,7 +215,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             # only after exhaustion-gated retry decisions below. A
             # continuation admitted on corrective information renews
             # neither allowance: information never resets a count (#486).
-            if not information_admitted:
+            if not information_admitted and not getattr(decided, "evidence_reconciled", False):
                 resolver_runtime.reset_for_resume(state)
             if args.retry_report:
                 try:
@@ -176,7 +230,13 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                 elif args.retry_failed_stage:
                     try:
                         authorization = runner.resolver_recovery.authorize_retry(
-                            runner, state, run_dir, workspace
+                            runner,
+                            state,
+                            run_dir,
+                            workspace,
+                            previous_settings=getattr(args, "_recovery_grant_settings", None)
+                            if args.resolver_model or args.resolver_reasoning_effort
+                            else None,
                         ) or runner.authorize_failure_retry(state, run_dir, workspace)
                         args._failure_retry_authorization = authorization
                         print(
@@ -199,18 +259,22 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                         print(f"Input rejected: {error}", file=sys.stderr)
                         return 2
                 runner.prepare_abandoned_completion_revalidation(state, run_dir, workspace)
-                runner.repeated_failure_resume_guard(state, workspace, authorization=authorization)
+                runner.prepare_timeout_archived_completion(state, run_dir, workspace)
                 runner.prepare_planning_retry(state, run_dir)
                 runner.prepare_exhausted_execution_report_retry(state, run_dir, workspace)
                 discarded = runner.archive_stale_report_repair(state, run_dir, workspace)
                 if discarded:
                     print(discarded, flush=True)
+                # Reconcile the saved repair before holding (#1899): the two calls above archive an
+                # exhausted or stale one, so this guard judges only what a resume cannot dispatch, and
+                # the retry it tells the operator to authorize is then actually admissible.
+                runner.repeated_failure_resume_guard(state, workspace, authorization=authorization)
             # Reset report repair attempts on explicit resume, for whatever
             # repair record is still pending. An exhaustion-gated retry
             # above (which requires and archives the true attempt count)
             # already consumed it if one applied; resetting first would
             # corrupt that archived count and always fail those guards.
-            if not information_admitted:
+            if not information_admitted and not getattr(decided, "evidence_reconciled", False):
                 runner.reset_report_repair_for_resume(state)
         runner.reconcile_active(state, run_dir, workspace)
     except runner.ReportRepairQueued:

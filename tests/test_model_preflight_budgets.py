@@ -221,6 +221,15 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
         self.assertAlmostEqual(self.probe_cost, view["cost"]["spent_usd"])
         self.assertEqual(0, view["cost"]["unpriced_stages"])
 
+    def test_storage_failure_stops_before_any_paid_access_probe(self):
+        import autocode_storage_budget as storage
+
+        with patch.object(storage, "dispatch_refusal", return_value="temporary filesystem is full"):
+            code, stdout, stderr = self.start("--max-cost-usd", "1")
+        self.assertEqual([], self.probes)
+        self.assertEqual([], self.stages)
+        self.assertEqual("PAUSED_TASK_PREFLIGHT", self.status()["status"], (code, stdout, stderr))
+
     def test_reported_probe_cost_stops_before_another_request_and_is_public(self):
         code, stdout, stderr = self.start("--max-cost-usd", "0.01")
         self.assertEqual(2, code, stdout + stderr)

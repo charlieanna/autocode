@@ -6,6 +6,7 @@ approval, scheduling, processes, worktrees, reports and integration are real.
 """
 
 import copy
+import hashlib
 import json
 import os
 import re
@@ -16,6 +17,51 @@ import sys
 import time
 import uuid
 from pathlib import Path
+
+HELLO_SOURCE = "print('hello')\n"
+HELLO_TESTS = """import subprocess, sys, unittest
+class HelloTests(unittest.TestCase):
+    def test_cli_hello(self):
+        result = subprocess.run([sys.executable, 'main.py'], capture_output=True, text=True)
+        self.assertEqual((0, 'hello\\n', ''), (result.returncode, result.stdout, result.stderr))
+"""
+
+
+def scripted_changed_code_reasons(spec, data):
+    """The fixture Tester's reasons for its own scripted lines that have no mutation site.
+
+    The real Tester records why a changed line without a mutation site (an import, a call, a
+    ``def``) is covered; this fixture does the same for the exact payload bytes the scripted
+    Builder wrote, bound to the gap, file and line, and never for a file it did not script or a
+    line a mutant reached (that line's evidence is the mutant's outcome).
+    """
+    proof = data.get("regression_proof") or {}
+    if not proof.get("path"):
+        return []
+    scripted = {
+        name: hashlib.sha256(content.encode()).hexdigest()
+        for files in (spec.get("payloads") or {}).values()
+        for name, content in files.items()
+    }
+    return [
+        {
+            "gap_id": row["gap_id"],
+            "decision": "accept",
+            "reason_kind": "instrumentation_unavailable",
+            "reason": (
+                f"Scripted fixture: {row['path']}:{row['line']} is the exact scripted content of this delivery; "
+                "the line has no supported mutation site, and the delivery's own tests, run independently by "
+                "the proof, exercise the behavior it takes part in. The approved milestone check observes the "
+                "same behavior."
+            ),
+            "evidence_refs": [proof["path"], row["path"]],
+        }
+        for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []
+        if row.get("status") == "reason_required"
+        and scripted.get(row.get("path")) == row.get("sha256")
+        and not row.get("mutation_outcomes")
+    ]
+
 
 _NUMBER = re.compile(r"\d+(?:\.\d+)*")
 _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
@@ -156,6 +202,11 @@ def classify_failure(data, mode, spec):
         evidence_refs=[str(report), str(events)] if execution else [str(report)],
         example=diagnosis,
         probe=probe,
+        counterexample={
+            "file": "run/" + report.name if execution else "",
+            "find": json.dumps(value["results"][0]) if execution else "",
+            "replace": json.dumps("check exit=0") if execution else "",
+        },
         untestable="" if probe else "The retained report cannot establish which cause produced the empty diff.",
         failure_class="execution" if execution else "unknown",
         failure_id=failure["failure_id"],
@@ -227,7 +278,30 @@ def main():
     rows = spec["contract"]["milestones"]
     if data.get("report_repair"):
         result = json.loads(Path(data["original"]["output"]).read_text())
-        if data["original"]["stage"] == "sol" and spec.get("validator_repair_incidents"):
+        if data["original"]["stage"] == "sol" and spec.get("changed_code_citation_repair"):
+            context = data.get("changed_code_citation_context") or {}
+            record("citation_repair", context=context, error=data["error"], original_error=data.get("original_error"))
+            if spec.get("repair_loses_error") and not data.get("original_report"):
+                # A format failure in repair must not erase the original evidence rejection.
+                Path(sys.argv[sys.argv.index("-o") + 1]).write_text("I will repair the report")
+                record("finish")
+                print(json.dumps({"type": "turn.completed"}), flush=True)
+                return
+            source = data.get("original_report") or data["rejected_report"]
+            result = copy.deepcopy(source["content"])
+            rejection = data.get("original_error", "") if spec.get("repair_loses_error") else data["error"]
+            if context.get("proof_reference") and "unauthenticated evidence" in rejection:
+                result["changed_code_exceptions"][0]["evidence_refs"] = [context["proof_reference"]]
+        elif data["original"]["stage"] == "sol" and spec.get("batch_report_repair"):
+            scope = data.get("batch_validation") or {}
+            # A report-only provider cannot discover the batch by reading private run state.
+            # The original check evidence covers every member; only its result inventory was damaged.
+            template = result["milestone_results"][0]
+            result["milestone_results"] = [
+                {**template, "milestone_id": member} for member in scope.get("milestone_ids", [])
+            ]
+            record("batch_repair", scope=scope)
+        elif data["original"]["stage"] == "sol" and spec.get("validator_repair_incidents"):
             result.pop("milestone_results", None)
             state = json.loads(Path(data["state_file"]).read_text())
             # M4 needs both bounded repairs; the final validate task needs its own.
@@ -260,6 +334,7 @@ def main():
             "evidence_refs": [],
             "example": "",
             "probe": "",
+            "counterexample": {"file": "", "find": "", "replace": ""},
             "untestable": "",
         }
     elif data["stage"] == "astra_discovery":
@@ -490,6 +565,8 @@ def main():
                 )
                 for m in task["milestone_ids"]
             ]
+            if spec.get("batch_report_repair"):
+                result["milestone_results"] = result["milestone_results"][:1]
         elif spec.get("validator_repair_incidents") and mid == rows[-1]["id"]:
             result["milestone_results"] = []
     else:
@@ -575,6 +652,15 @@ def main():
         request = result.get("user_request")
         if owning == "astra_resolve" and isinstance(request, dict) and nullable:
             request.setdefault("recommended_revision", None)
+    if data["stage"] == "sol":
+        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if "changed_code_exceptions" in schema.get("properties", {}):
+            result["changed_code_exceptions"] = scripted_changed_code_reasons(spec, data)
+            if spec.get("changed_code_citation_repair") and result["changed_code_exceptions"]:
+                # Deliberately invalid nested proof citation; only the enclosing proof is admitted.
+                result["changed_code_exceptions"][0]["evidence_refs"] = [
+                    str(Path(data["regression_proof"]["path"]).parent / "mutation-check/raw.log")
+                ]
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
     record("finish")
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

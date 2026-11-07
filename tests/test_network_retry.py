@@ -36,6 +36,23 @@ def failure(**data):
     }
 
 
+def generic_network_failure():
+    """The archived #1797 row: isRetryable, empty errno facts, a generic connection loss."""
+    return {
+        "type": "error",
+        "timestamp": 1792607931467,
+        "sessionID": "ses_ea03f73b9ffe17xYxX2pRT17JX",
+        "error": {
+            "name": "APIError",
+            "data": {
+                "message": "Network connection failed",
+                "isRetryable": True,
+                "metadata": {"code": "", "syscall": "", "message": "network connection was lost"},
+            },
+        },
+    }
+
+
 class NetworkDiagnosticTests(unittest.TestCase):
     def test_explicit_network_code_or_http_status(self):
         for code in retry.NETWORK_CODES:
@@ -95,6 +112,27 @@ class NetworkDiagnosticTests(unittest.TestCase):
             with self.subTest(row=row):
                 self.assertIsNone(retry.retryable_error(json.dumps(row)))
 
+    def test_a_generic_network_loss_with_empty_errno_facts_classifies(self):
+        # Live row from #1797: OpenCode set isRetryable, wrote empty code/syscall
+        # strings and named the loss only in the messages.
+        self.assertEqual("network", retry.retryable_error(json.dumps(generic_network_failure())))
+
+    def test_a_generic_network_message_still_needs_the_retryable_flag_and_a_network_cause(self):
+        row = generic_network_failure()
+        data = row["error"]["data"]
+
+        def changed(**fields):
+            return json.dumps({**row, "error": {"name": "APIError", "data": {**data, **fields}}})
+
+        for value in (False, None, 1, "true"):
+            with self.subTest(isRetryable=value):
+                self.assertIsNone(retry.retryable_error(changed(isRetryable=value)))
+        for message in ("Connection reset by server", "Quota exhausted", "429 rate limit exceeded"):
+            with self.subTest(message=message):
+                self.assertIsNone(retry.retryable_error(changed(message=message, metadata={"code": "", "syscall": ""})))
+        with self.subTest(code="ENOTFOUND"):
+            self.assertIsNone(retry.retryable_error(changed(metadata={"code": "ENOTFOUND", "syscall": ""})))
+
     def test_partial_turn_tools_text_unknown_rows_and_duplicate_keys_refuse(self):
         raw = json.dumps(failure())
         for kind in ("step_start", "step_finish", "text", "tool_use", "turn.completed", "usage", "unknown"):
@@ -113,6 +151,85 @@ class NetworkDiagnosticTests(unittest.TestCase):
         ):
             with self.subTest(stream=stream):
                 self.assertIsNone(retry.retryable_error(stream))
+
+
+def cut_short_stream(*extra, error=None):
+    """The #1717 shape: progress, read-only tools and text, then a retryable reset, Kilo's echo and flushed text."""
+    error = failure() if error is None else error
+    rows = [
+        {"type": "step_start", "part": {"type": "step-start"}},
+        {"type": "autocode_progress", "detail": "native provider stream advanced"},
+        {"type": "tool_use", "part": {"type": "tool", "tool": "read", "state": {"status": "completed"}}},
+        {"type": "step_finish", "part": {"type": "step-finish", "reason": "tool-calls"}},
+        {"type": "step_start", "part": {"type": "step-start"}},
+        {"type": "reasoning", "part": {"type": "reasoning", "text": "thinking"}},
+        error,
+    ]
+    lines = [json.dumps(row) for row in rows[:-1]] + [
+        f"\x1b[91m\x1b[1mError: \x1b[0m{error['error']['data']['message']}"
+    ]
+    lines += [json.dumps(error), json.dumps({"type": "text", "part": {"type": "text", "text": '{"contract": {'}})]
+    return ("\n".join(lines + [json.dumps(row) for row in extra]) + "\n").encode()
+
+
+class ReadOnlyPartialStreamTests(unittest.TestCase):
+    def test_a_stream_cut_short_by_a_retryable_reset_classifies(self):
+        self.assertEqual("ECONNRESET", retry.read_only_partial_error(cut_short_stream()))
+
+    def test_a_stream_cut_short_by_the_generic_network_loss_classifies(self):
+        # The archived #1797 discovery stream: five completed reads, then the generic row.
+        stream = cut_short_stream(error=generic_network_failure())
+        self.assertEqual("network", retry.read_only_partial_error(stream))
+
+    def test_a_finished_turn_a_running_tool_an_unknown_row_or_a_second_error_does_not(self):
+        for extra in (
+            {"type": "step_finish", "part": {"type": "step-finish", "reason": "stop"}},
+            {"type": "tool_use", "part": {"type": "tool", "state": {"status": "running"}}},
+            {"type": "turn.completed"},
+            {"type": "usage"},
+            failure(),
+        ):
+            with self.subTest(extra=extra):
+                self.assertIsNone(retry.read_only_partial_error(cut_short_stream(extra)))
+        self.assertIsNone(retry.read_only_partial_error(cut_short_stream() + b"a diagnostic line\n"))
+        not_retryable = cut_short_stream().replace(b'"isRetryable": true', b'"isRetryable": false')
+        self.assertIsNone(retry.read_only_partial_error(not_retryable))
+        self.assertIsNone(retry.read_only_partial_error(cut_short_stream().replace(b"ECONNRESET", b"ENOTFOUND")))
+
+
+def dropped_stream(*extra, reason="other", tokens=None):
+    """2026-11-05: Kilo on MiMo streamed reasoning, then ended the step with reason "other", zero tokens, exit 0."""
+    tokens = {"input": 0, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}} if tokens is None else tokens
+    rows = [
+        {"type": "step_start", "part": {"type": "step-start"}},
+        {"type": "tool_use", "part": {"type": "tool", "tool": "read", "state": {"status": "completed"}}},
+        {"type": "autocode_progress", "progress": {"kind": "reasoning", "position": 18860}},
+        {"type": "step_finish", "part": {"type": "step-finish", "reason": reason, "tokens": tokens}},
+        *extra,
+    ]
+    return ("\n".join(json.dumps(row) for row in rows) + "\n").encode()
+
+
+class ReadOnlyDroppedStreamTests(unittest.TestCase):
+    def test_an_unexplained_finish_with_no_usage_classifies(self):
+        self.assertEqual("dropped_stream", retry.read_only_dropped_stream(dropped_stream()))
+        self.assertEqual("dropped_stream", retry.read_only_dropped_stream(dropped_stream(reason="unknown")))
+
+    def test_a_finished_turn_counted_usage_an_error_or_unknown_row_does_not(self):
+        for stream in (
+            dropped_stream(reason="stop"),
+            dropped_stream(reason="tool-calls"),
+            dropped_stream(reason="length"),
+            dropped_stream(tokens={"input": 10, "output": 0}),
+            dropped_stream(tokens=None).replace(b'"tokens": {', b'"tokenz": {'),
+            dropped_stream(failure()),
+            dropped_stream({"type": "turn.completed"}),
+            dropped_stream({"type": "tool_use", "part": {"type": "tool", "state": {"status": "running"}}}),
+            dropped_stream() + b"a diagnostic line\n",
+            b"",
+        ):
+            with self.subTest(stream=stream[-120:]):
+                self.assertIsNone(retry.read_only_dropped_stream(stream))
 
 
 class CommandProviderShapeTests(unittest.TestCase):
@@ -408,7 +525,7 @@ class RecoveryAdmissionTests(unittest.TestCase):
             ("exit_code", -15),
             ("expected_session", "ses_prior"),
             ("report_only", True),
-            ("activity", {"completed_tool_count": 1}),
+            ("activity", {"active_tool_count": 1}),
             ("activity", ["unknown"]),
             ("output", str(self.workspace / "foreign.json")),
             ("events", str(self.base.parent / "foreign.jsonl")),
@@ -436,6 +553,88 @@ class RecoveryAdmissionTests(unittest.TestCase):
         self.assertEqual(before, self.state)
         self.assertEqual(raw + b'{"type":"tool_use"}\n', events.read_bytes())
         Path(self.record["output"]).write_text("partial report")
+        self.assertFalse(self.recover())
+
+    def cut_short(self, role):
+        events = Path(self.record["events"])
+        events.chmod(0o600)
+        events.write_bytes(cut_short_stream())
+        events.chmod(0o400)
+        self.record.update(role=role, activity={"active_tool_count": 0, "completed_tool_count": 1})
+
+    def test_a_read_only_stage_cut_short_by_a_reset_retries_once(self):
+        # #1717: the laptop slept mid-plan; on wake the stream reset after read-only tools and partial text.
+        self.cut_short("glm")
+        self.assertTrue(self.recover())
+        archived = self.state["stages"][-1]
+        self.assertEqual("ECONNRESET", archived["network_retry_chain"]["cause"])
+        self.assertTrue(archived["abandoned"])
+
+    def test_a_writer_or_tester_cut_short_the_same_way_keeps_its_hold(self):
+        for role in ("terra", "sol"):
+            with self.subTest(role=role):
+                self.cut_short(role)
+                before = copy.deepcopy(self.state)
+                self.assertFalse(self.recover())
+                self.assertEqual(before, self.state)
+
+    def test_a_read_only_stage_that_changed_the_workspace_keeps_its_hold(self):
+        self.cut_short("astra")
+        (self.workspace / "seed.txt").write_text("changed\n")
+        self.assertFalse(self.recover())
+
+    def dropped(self, role):
+        events = Path(self.record["events"])
+        events.chmod(0o600)
+        events.write_bytes(dropped_stream())
+        events.chmod(0o400)
+        clean = commands.run(
+            f'{sys.executable} -c "pass"', self.workspace, self.run / "owned/clean.log", timeout=10, env=None
+        )
+        self.assertEqual(0, clean["exit_code"])
+        self.record.update(
+            role=role,
+            exit_code=0,
+            supervision=clean["supervision"],
+            activity={"active_tool_count": 0, "completed_tool_count": 1},
+        )
+        # The launch binding names the role, so the attempt is bound as the role it ran as.
+        before = json.loads(Path(self.record["before_ref"]).read_text())
+        retry.bind_attempt(self.state, self.record, before, self.workspace)
+        self.error = util.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without turn.completed")
+
+    def test_a_read_only_stream_dropped_without_an_answer_retries_once(self):
+        self.dropped("astra")
+        self.assertTrue(self.recover())
+        archived = self.state["stages"][-1]
+        self.assertEqual("dropped_stream", archived["network_retry_chain"]["cause"])
+        self.assertTrue(archived["abandoned"])
+        # The retry is the only one: a second dropped stream on the child keeps its hold.
+        child = {**self.record, "output": str(self.base.with_name("requirements-gather-02").with_suffix(".json"))}
+        child.pop("network_retry_chain")
+        retry.bind_attempt(self.state, child, scope.snapshot(self.workspace, self.state), self.workspace)
+        self.assertEqual("dropped_stream", child["network_retry_chain"]["cause"])
+
+    def test_a_dropped_stream_on_a_writer_a_changed_workspace_or_another_pause_keeps_its_hold(self):
+        for role in ("terra", "sol"):
+            with self.subTest(role=role):
+                self.dropped(role)
+                before = copy.deepcopy(self.state)
+                self.assertFalse(self.recover())
+                self.assertEqual(before, self.state)
+        self.dropped("astra")
+        self.error = util.Paused("PAUSED_PROVIDER_UNCERTAIN", "a clean exit is not a provider failure")
+        self.assertFalse(self.recover())
+        self.dropped("astra")
+        (self.workspace / "seed.txt").write_text("changed\n")
+        self.assertFalse(self.recover())
+
+    def test_a_clean_exit_with_an_error_row_is_not_admitted(self):
+        self.dropped("astra")
+        events = Path(self.record["events"])
+        events.chmod(0o600)
+        events.write_bytes(cut_short_stream())
+        events.chmod(0o400)
         self.assertFalse(self.recover())
 
     def test_live_actor_or_denied_process_inspection_never_archives(self):

@@ -2,9 +2,9 @@
 
 autocode_acceptance_tests routes a build here when its due ``test:``/``guard:`` cases have no tests yet.
 The Tester, on the Validator's model with a session of its own, writes one test per case, named as the
-case says, and changes nothing but test files. The runner then:
+case says, and changes only test files and validated Go loading metadata. The runner then:
 
-- rejects the report if the attempt changed anything that is not a test file (the stray-write rule),
+- rejects non-test changes except additive already-selected Go prerequisites (the stray-write rule),
 - runs the reported test files on the code as it is (a scratch copy) and requires, per case, that a
   ``test:`` case's test does not pass there (a failure, or a file that cannot load because the product
   lacks what it imports, counts when the file defines the named test) and that a ``guard:`` case's
@@ -13,9 +13,11 @@ case says, and changes nothing but test files. The runner then:
 
 A ``test:`` case the Tester reports already working (``already_passing``, its test still delivered) and
 the runner sees pass goes back to plan review once, relabelled ``guard:`` in a runner-built draft (ORIGIN);
-the user approves the corrected plan. A second disagreement on that case, a case no test can show
-(``cannot_write``) and a bug's reproduction that already passes pause the run (PAUSED_ACCEPTANCE_TESTS):
-only the user (``--feedback``) can say which is right.
+the user approves the corrected plan. That holds for a bug fix too: its plan can add ``test:`` cases of
+its own beside the Investigator's reproduction (autocode_acceptance_tests._cases), and one of those that
+already works is the same disagreement as in a build (#1868). A second disagreement on that case, a case no
+test can show (``cannot_write``) and a bug's reproduction that already passes pause the run
+(PAUSED_ACCEPTANCE_TESTS): only the user (``--feedback``) can say which is right.
 
 Pure: prompt, schema and the transition; the unit passes in the function that runs the tests.
 """
@@ -38,19 +40,27 @@ import shutil
 from pathlib import Path
 
 try:
+    from . import autocode_acceptance_provenance as provenance
     from . import autocode_acceptance_tests as acceptance
+    from . import autocode_go_test_prerequisites as go_prerequisites
+    from . import autocode_handoff_dedup as handoff
     from . import autocode_run_status as run_status
     from . import autocode_stray_writes as stray_writes
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
-    from .autocode_verify import is_test_path
+    from .autocode_report_repair_queue import ExecutionEvidenceRequired
+    from .autocode_verify import is_test_path, run_command
 except ImportError:
+    import autocode_acceptance_provenance as provenance
     import autocode_acceptance_tests as acceptance
+    import autocode_go_test_prerequisites as go_prerequisites
+    import autocode_handoff_dedup as handoff
     import autocode_run_status as run_status
     import autocode_stray_writes as stray_writes
     import autocode_test_cases as test_cases
     import autocode_util as util
-    from autocode_verify import is_test_path
+    from autocode_report_repair_queue import ExecutionEvidenceRequired
+    from autocode_verify import is_test_path, run_command
 
 STAGE = acceptance.STAGE
 PAUSE = "PAUSED_ACCEPTANCE_TESTS"
@@ -90,22 +100,30 @@ PROMPT = prompts.get("acceptance-tests.md")
 REPAIR_RULES = prompts.get("fragments/acceptance-tests/repair-rules.md")
 
 
-def _case(case: dict) -> dict:
+def _case(case: dict, inherited=False) -> dict:
     return {
         "id": case["id"],
         "criterion": test_cases.case_text(case),
         "test_name": case.get("test_name") or test_cases.case_test_name(case["id"]),
-        "kind": "guard: must pass on today's code" if case.get("kind") == "preserve" else "test: must fail today",
+        "kind": (
+            "test: already delivered with authenticated fail-first provenance; retain its existing test, which may pass today; "
+            "fresh original-reference fail-first proof remains required"
+            if inherited
+            else "guard: must pass on today's code"
+            if case.get("kind") == "preserve"
+            else "test: must fail today"
+        ),
     }
 
 
 def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
+    inherited = provenance.inherited_cases(state, workspace=state.get("workspace"))
     return {
         "stage": STAGE,
         "task": state["task"],
         "workspace": state.get("workspace"),
         "execution_engine": engine,
-        "cases": [_case(case) for case in acceptance.job_cases(state)],
+        "cases": [_case(case, case["id"] in inherited) for case in acceptance.job_cases(state)],
         "goal_contract": state.get("goal_contract"),
         "current_task": state.get("current_task"),
         "saved_answers": state.get("answers") or {},
@@ -116,7 +134,11 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
 def prompt(
     state: RunState, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
 ) -> tuple[str, dict]:
-    text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
+    text = (
+        PROMPT
+        + "\nCURRENT HANDOFF DATA\n"
+        + json.dumps(handoff.deduplicate(packet(state, inventory, engine)), indent=2)
+    )
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 
@@ -133,7 +155,7 @@ def render(state: RunState) -> str:
     return ""
 
 
-def _check_rows(value: dict, cases: list[dict]) -> None:
+def _check_rows(value: dict, cases: list[dict], *, shared_names=()) -> None:
     due = {case["id"] for case in cases}
     named = [row["case_id"] for key in ("tests", "cannot_write") for row in value[key]]
     unknown = sorted((set(named) | {row["case_id"] for row in value["already_passing"]}) - due)
@@ -146,6 +168,11 @@ def _check_rows(value: dict, cases: list[dict]) -> None:
         raise ValueError(
             f"A case reported in already_passing still needs its test in tests, so the runner can see it pass: {untested}"
         )
+    split = [
+        name for name in shared_names if len({row["file"] for row in value["tests"] if row["test_name"] == name}) > 1
+    ]
+    if split:
+        raise ValueError(f"Shared case bindings must report the same function and file, not copies: {sorted(split)}")
 
 
 def _pause(state: RunState, rows: list[str]) -> None:
@@ -159,6 +186,14 @@ def _pause(state: RunState, rows: list[str]) -> None:
     )
 
 
+def reproduction_ids(state: RunState) -> set[str]:
+    """The ids of the Investigator's reproduction cases: a reproduced bug's ``restore`` cases, not its guards.
+
+    They live in the diagnosis, not the contract, so the runner cannot relabel one; a plan's own cases
+    never share their ids (autocode_acceptance_tests._cases)."""
+    return {case["id"] for case in test_cases.diagnosis_cases(state) if case.get("kind", "restore") != "preserve"}
+
+
 def corrected_body(state: RunState, names: dict[str, str]) -> dict:
     """The approved plan with each case in ``names`` (id -> test name) relabelled from test: to guard:."""
     body = copy.deepcopy((state.get("goal_contract") or {}).get("body") or {})
@@ -168,13 +203,17 @@ def corrected_body(state: RunState, names: dict[str, str]) -> dict:
     return body
 
 
-def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: dict) -> dict[str, str]:
+def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: dict, *, inherited=()) -> dict[str, str]:
     """Per case, how the runner saw its test on today's code; raises ValueError naming what is wrong."""
     if run.get("error"):
-        raise ValueError(f"The runner could not run the acceptance tests on today's code: {run['error']}")
+        raise ExecutionEvidenceRequired(
+            f"The runner could not run the acceptance tests on today's code: {run['error']}"
+        )
     results = run.get("results")
     if results is None:
-        raise ValueError("The acceptance tests reported no per-test results; write standard tests for the project")
+        raise ExecutionEvidenceRequired(
+            "The acceptance tests reported no per-test results; write standard tests for the project"
+        )
     rows = {row["case_id"]: row for row in value["tests"]}
     # The final regression proof finds each test by the approved name, else by the case id
     # (test_ac1_...): a test named otherwise would pass here and never count there.
@@ -195,13 +234,17 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
     # A bug's reproduction must run and fail; a file that cannot load is no reproduction (autocode_proof_seam).
     unloadable = bool(results.get("collection_errors")) and not test_cases.bugfix(state)
     verdicts, wrong = {}, []
+    needs_execution = False
     already = {row["case_id"] for row in value["already_passing"]}
     for case in named:
         source = (Path(workspace) / rows[case["id"]]["file"]).read_text(errors="replace")
         if case.get("kind") == "preserve":
             verdicts[case["id"]] = "passes" if passed[case["id"]] else ""
             if not passed[case["id"]]:
+                needs_execution = True
                 wrong.append(f"guard {case['id']} ({case['test_name']}) does not pass on today's code")
+        elif case["id"] in inherited and passed[case["id"]]:
+            verdicts[case["id"]] = "already passes"
         elif case["id"] in already:
             verdicts[case["id"]] = "already passes" if passed[case["id"]] else ""
             if not passed[case["id"]]:
@@ -213,9 +256,11 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
         elif unloadable and test_cases.named_in(case["test_name"], source):
             verdicts[case["id"]] = "cannot load"
         else:
+            needs_execution = True
             wrong.append(_not_run(case, rows[case["id"]]["file"], source, run, results))
     if wrong:
-        raise ValueError(
+        error = ExecutionEvidenceRequired if needs_execution else ValueError
+        raise error(
             "The runner ran the acceptance tests on today's code: "
             + "; ".join(wrong)
             + ". A test: case must fail before the Builder starts and a guard: case must pass. If the behavior "
@@ -253,12 +298,25 @@ def apply(
     ``send_back(body, changes)`` installs a runner-corrected draft and restarts plan review (the unit passes
     it); a case the runner saw already pass is sent back once, relabelled guard:, else the run pauses."""
     stray = sorted(str(path) for path in record.get("changed_files") or [] if not is_test_path(str(path)))
+    prerequisites = {}
+    if stray and all(Path(path).name in ("go.mod", "go.sum") for path in stray):
+        try:
+            prerequisites = go_prerequisites.from_attempt(
+                workspace,
+                record,
+                stray,
+                Path(evidence_dir or Path(record.get("output") or workspace).parent) / "go-test-prerequisites",
+                run_command,
+            )["files"]
+        except (OSError, ValueError, KeyError) as error:
+            raise stray_writes.StrayWrites("Unverified Go test prerequisites: " + str(error), stray) from error
+        stray = [path for path in stray if path not in prerequisites]
     if stray:
         raise stray_writes.StrayWrites(
             "The Tester may change only test files; this attempt changed: " + ", ".join(stray), stray
         )
     cases = acceptance.job_cases(state)
-    _check_rows(value, cases)
+    _check_rows(value, cases, shared_names=set(acceptance.shared_test_names(state).values()))
     if value["cannot_write"]:
         _pause(state, [f"{row['case_id']} cannot be tested: {row['reason']}" for row in value["cannot_write"]])
         return
@@ -267,13 +325,47 @@ def apply(
     if bad:
         raise ValueError(f"Each test file must exist in the workspace and be a test file: {bad}")
     run = (run_tests or (lambda tests: {"error": "no test runner was given"}))(files)
-    verdicts = _verdicts(state, cases, value, workspace, run)
-    already = {row["case_id"]: row for row in value["already_passing"]}
+    inherited = provenance.inherited_cases(state, reports=value["tests"], workspace=workspace)
+    try:
+        verdicts = _verdicts(state, cases, value, workspace, run, inherited=inherited)
+    except ExecutionEvidenceRequired as error:
+        if "no test command runs these files" in str(error):
+            # The run's suite cannot name these files: a binding gap, not a fault in the tests (#2609).
+            remedy = (
+                "The tests are not at fault: the run's test suite cannot run them. Resume with a saved "
+                "--test-command that runs them, and the runner executes a fresh proof with it."
+            )
+        else:
+            remedy = (
+                "Resume explicitly to correct the tests and execute a fresh proof, or use --feedback to revise "
+                "the plan. A report-only repair cannot change test files or rerun proof."
+            )
+        run_status.pause(
+            state,
+            PAUSE,
+            f"The runner could not establish the approved pre-build proof: {error}. {remedy}",
+            next_stage=STAGE,
+        )
+        return
+    already = {row["case_id"]: row for row in value["already_passing"] if row["case_id"] not in inherited}
     if already:
         names = {row["case_id"]: row["test_name"] for row in value["tests"] if row["case_id"] in already}
         # A bug's reproduction that already passes disagrees with its diagnosis: only the user can settle that.
-        if send_back is None or test_cases.bugfix(state) or acceptance.sent_back(state) & set(already):
-            _pause(state, [f"{cid} already works: {row['evidence']}" for cid, row in sorted(already.items())])
+        # The plan's own test: cases are contract rows the runner can relabel, in a bug fix as in a build.
+        reproduced = reproduction_ids(state) & set(already)
+        if send_back is None or reproduced or acceptance.sent_back(state) & set(already):
+            _pause(
+                state,
+                [
+                    f"{cid} already works: {row['evidence']}"
+                    + (
+                        " (the bug's reproduction passes, so the diagnosis and the code disagree)"
+                        if cid in reproduced
+                        else ""
+                    )
+                    for cid, row in sorted(already.items())
+                ],
+            )
             return
         changes = [
             {
@@ -291,7 +383,7 @@ def apply(
     archive = Path(evidence_dir or Path(record.get("output") or workspace).parent) / "acceptance-tests"
     archive.mkdir(parents=True, exist_ok=True)
     kept = {}
-    for path in files:
+    for path in sorted(set(files) | prerequisites.keys()):
         digest = util.file_hash(Path(workspace) / path)
         copy = archive / digest
         shutil.copyfile(Path(workspace) / path, copy)

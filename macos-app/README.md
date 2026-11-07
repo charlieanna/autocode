@@ -46,7 +46,7 @@ without rebuilding.
 - **Restart Dashboard Server (⇧⌘R)** — stops and restarts only the local server.
 - **Settings** — checkout path (validated against `tools/autopilot.py`) and port
   (`0` picks a free port automatically, so it never collides with a
-  terminal-started `autocode-dashboard`).
+  terminal-started `autocode dashboard`).
 - The status bar shows the running URL, the chosen Python, and that the
   autopilot runner is active.
 

@@ -1,4 +1,4 @@
-"""`autocode-issue plan`: the plan a run drafted for an issue, as a pull request carrying its plan file (#720).
+"""`autocode issue plan`: the plan a run drafted for an issue, as a pull request carrying its plan file (#720).
 
 On a team, what will be built is worth reviewing before any model builds it. The issue's run stops with its
 plan waiting for approval; this exports that plan through the task-run interface (``TaskRun.export_plan``,
@@ -30,7 +30,7 @@ except ImportError:
     import autocode_plan_file as plan_file
 
 FIELD = "plan_pr"  # the issue record's entry for its plan pull request
-NOT_IN_REPOSITORY = (".git", ".autocode")  # Git's own directory, and the run data autocode-issue never commits
+NOT_IN_REPOSITORY = (".git", ".autocode")  # Git's own directory, and the run data autocode issue never commits
 
 
 def default_path(number: int) -> str:
@@ -83,7 +83,7 @@ def prepare(project: Path, record: dict, run, path: str, start: str | None = Non
     current = _object(project, f"refs/heads/{name}")
     if previous and current and current != previous:
         raise ValueError(
-            f"branch {name} no longer points at {previous[:12]}, the plan commit autocode-issue made; "
+            f"branch {name} no longer points at {previous[:12]}, the plan commit autocode issue made; "
             "it never replaces commits it did not make"
         )
     with tempfile.TemporaryDirectory(prefix="autocode-issue-plan-") as temporary:

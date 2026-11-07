@@ -53,6 +53,20 @@ def make_recording(directory, *, payload=b"print('hello')\n", head="a" * 40):
 
 
 class RecordingValidationTests(unittest.TestCase):
+    def test_planning_and_review_policy_survives_recording_without_transport_authority(self):
+        settings = {
+            **self.document["launch"]["settings"],
+            "compact_bugfix_planning": True,
+            "sensitive_paths": ["auth/**"],
+            "review_routing": "combined",
+            "implementation_flow": "standard",
+        }
+        self.document["launch"]["settings"] = recording.launch_settings(settings)
+        self.save(self.document)
+        saved = recording.load(self.manifest).document["launch"]["settings"]
+        for key in ("compact_bugfix_planning", "sensitive_paths", "review_routing", "implementation_flow"):
+            self.assertEqual(settings[key], saved[key])
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -99,8 +113,9 @@ class RecordingValidationTests(unittest.TestCase):
         self.assertNotIn("effort_origins", recording.load(self.manifest).document["launch"]["settings"])
         document = copy.deepcopy(self.document)
         settings = document["launch"]["settings"]
-        for origin in ("user_explicit", "runner_default", "auto_selected"):
-            settings["effort_origins"] = {"plan_reviewer": origin}
+        settings["roles"]["plan_reviewer"] = {"model": "fixture-model"}
+        for origin in ("user_explicit", "runner_default", "auto_selected", "stage_choice"):
+            settings["effort_origins"] = {"plan_reviewer": origin, "terra": origin}
             self.save(document)
             saved = recording.load(self.manifest).document["launch"]["settings"]
             self.assertEqual(settings["effort_origins"], recording.launch_settings(saved)["effort_origins"])
@@ -110,11 +125,27 @@ class RecordingValidationTests(unittest.TestCase):
             [],
             {"plan_reviewer": "derived"},
             {"plan_reviewer": []},
-            {"terra": "user_explicit"},
+            {"terra": "derived"},
+            {"completion": "user_explicit"},
         ):
             settings["effort_origins"] = invalid
             self.save(document)
             with self.subTest(value=invalid), self.assertRaisesRegex(recording.RecordingError, "effort origin"):
+                recording.load(self.manifest)
+
+    def test_the_levels_a_model_offers_are_portable_and_typed(self):
+        # A review under a stage-choice ceiling runs at a level its listing offers (2026-11-05), so a
+        # replay keeps the listing to derive the same level.
+        document = copy.deepcopy(self.document)
+        settings = document["launch"]["settings"]
+        settings["declared_variants"] = {"fixture-model": ["low", "medium", "high"]}
+        self.save(document)
+        saved = recording.load(self.manifest).document["launch"]["settings"]
+        self.assertEqual(settings["declared_variants"], recording.launch_settings(saved)["declared_variants"])
+        for invalid in (None, [], {"fixture-model": "high"}, {"fixture-model": [1]}):
+            settings["declared_variants"] = invalid
+            self.save(document)
+            with self.subTest(value=invalid), self.assertRaisesRegex(recording.RecordingError, "reasoning variants"):
                 recording.load(self.manifest)
 
     def test_unknown_fields_bool_version_and_missing_source_payload_are_refused(self):
@@ -282,6 +313,166 @@ class ExportAndMaterializationTests(unittest.TestCase):
         self.root = Path(temporary.name).resolve()
         self.projection = make_export_projection(self.root)
         self.destination = self.root / "export"
+
+    def compacted_mutation_projection(self):
+        import autocode_changed_code_evidence as evidence
+        import autocode_context as context
+        import autocode_proof_detail as detail
+
+        run = Path(self.projection["run_dir"])
+        record = self.projection["records"][0]
+        source = util.snapshot(self.projection["workspace"])
+        binding = {"source_revision": source["revision"], "proof_context": "recorded-proof"}
+        output = str(run / "regression/proof-old/mutation-check/mutant-old.log")
+        mutant = {
+            "line": 1,
+            "end_line": 1,
+            "operator": "constant_return",
+            "outcome": "killed",
+            "evidence": [output],
+            "failed_tests": ["tests.test_value"],
+            "before": "return value # " + "large mutation detail " * 4000,
+        }
+        digest = source["files"]["greet.py"]
+        gap = evidence.gap_id(*binding.values(), "greet.py", digest, 1)
+        proof = {
+            "changed_code_evidence": {
+                **binding,
+                "obligations": [
+                    {
+                        "gap_id": gap,
+                        "handle": "L1",
+                        "path": "greet.py",
+                        "sha256": digest,
+                        "line": 1,
+                        "status": "reason_required",
+                        "reason": "large reason detail " * 4000,
+                    }
+                ],
+            },
+            "changed_code_inputs": {
+                "mutation": {**binding, "files": [{"path": "greet.py", "sha256": digest, "mutants": [mutant]}]},
+            },
+            "mutation_check": {"files": [{"path": "greet.py", "sha256": digest, "mutants": [mutant]}]},
+        }
+        packet, moved = context.compact({"stage": "sol", "regression_proof": proof}, run / "state.json")
+        self.assertIn(detail.INPUTS, moved)
+        self.assertIn(detail.OBLIGATIONS, moved)
+        self.assertEqual(
+            detail.INPUTS, packet["regression_proof"]["changed_code_inputs"]["mutation"]["details_artifact"]["field"]
+        )
+        record.update(stage="sol", original_stage="sol", role="sol", route_role="sol")
+        Path(record["before_ref"]).write_bytes(Path(record["after_ref"]).read_bytes())
+        prompt = run / "validator.prompt.md"
+        record["prompt"] = str(prompt)
+        prompt.write_text("Review the proof.\nCURRENT HANDOFF DATA\n" + json.dumps(packet))
+        report = {"changed_code_exceptions": [{"gap_id": "L1", "evidence_refs": [output]}]}
+        Path(record["output"]).write_text(json.dumps(report))
+        return packet, proof, report
+
+    def test_export_rebinds_mutation_and_gap_from_authentic_compacted_proof(self):
+        import autocode_changed_code_evidence as evidence
+
+        packet, proof, report = self.compacted_mutation_projection()
+        original = copy.deepcopy(self.projection)
+        prompt = Path(original["records"][0]["prompt"])
+        prompt_bytes = prompt.read_bytes()
+        archive_bytes = Path(packet["context_artifact"]["path"]).read_bytes()
+        loaded = recording.load(recording.export(self.projection, self.destination))
+        bindings = loaded.document["dispatches"][0]["bindings"]
+        self.assertEqual({"mutation_capture", "changed_code_gap"}, {row["symbol"] for row in bindings})
+        current = copy.deepcopy(proof)
+        binding = {"source_revision": "replayed-source", "proof_context": "replayed-proof"}
+        current["changed_code_evidence"].update(binding)
+        current["changed_code_inputs"]["mutation"].update(binding)
+        new_log = str(self.root / "new-run/proof-new/mutant-new.log")
+        current["changed_code_inputs"]["mutation"]["files"][0]["mutants"][0]["evidence"] = [new_log]
+        rebound = recording.rebind(
+            {"report": report},
+            bindings,
+            {"changed_code_gap": binding, "mutation_capture": {"citations": evidence.mutation_citations(current)}},
+        )
+        decision = rebound["report"]["changed_code_exceptions"][0]
+        self.assertEqual([new_log], decision["evidence_refs"])
+        row = proof["changed_code_evidence"]["obligations"][0]
+        self.assertEqual(
+            evidence.gap_id(*binding.values(), row["path"], row["sha256"], row["line"]), decision["gap_id"]
+        )
+        archive = str(self.root / "new-run/archived-proof.json")
+        simulated = recording.rebind(
+            {"report": report},
+            bindings,
+            {
+                "changed_code_gap": binding,
+                "mutation_capture": {"citations": evidence.mutation_citations(current), "archive": archive},
+            },
+        )
+        self.assertEqual([archive], simulated["report"]["changed_code_exceptions"][0]["evidence_refs"])
+        self.assertEqual(original, self.projection)
+        self.assertEqual(prompt_bytes, prompt.read_bytes())
+        self.assertEqual(archive_bytes, Path(packet["context_artifact"]["path"]).read_bytes())
+
+    def test_compacted_identity_recovery_requires_owned_pinned_complete_context(self):
+        packet, _, _ = self.compacted_mutation_projection()
+        record = self.projection["records"][0]
+        prompt = Path(record["prompt"])
+        archive = Path(packet["context_artifact"]["path"])
+        original = archive.read_bytes()
+        outside = self.root / "foreign-context.json"
+        outside.write_bytes(original)
+        alias = archive.with_name("alias.json")
+        alias.symlink_to(archive)
+        for fault in (
+            "changed",
+            "missing",
+            "outside",
+            "traversal",
+            "symlink",
+            "unpinned",
+            "incomplete",
+            "malformed",
+            "bad_obligations",
+        ):
+            with self.subTest(fault=fault):
+                archive.write_bytes(original)
+                current = copy.deepcopy(packet)
+                if fault == "changed":
+                    archive.write_bytes(original + b"\n")
+                elif fault == "missing":
+                    archive.unlink()
+                elif fault == "outside":
+                    current["context_artifact"]["path"] = str(outside)
+                elif fault == "traversal":
+                    current["context_artifact"]["path"] = str(
+                        Path(self.projection["run_dir"]) / "../foreign-context.json"
+                    )
+                elif fault == "symlink":
+                    current["context_artifact"]["path"] = str(alias)
+                elif fault == "unpinned":
+                    current["context_artifact"].pop("sha256")
+                else:
+                    value = json.loads(original)
+                    if fault == "incomplete":
+                        value.pop("regression_proof_changed_code_inputs")
+                    elif fault == "malformed":
+                        value["regression_proof_changed_code_inputs"] = []
+                    else:
+                        value["regression_proof_obligations"] = {}
+                    archive.write_text(json.dumps(value))
+                    current["context_artifact"]["sha256"] = sha(archive.read_bytes())
+                prompt.write_text("Review.\nCURRENT HANDOFF DATA\n" + json.dumps(current))
+                with self.assertRaisesRegex(recording.RecordingError, "pinned context identity"):
+                    recording.export(self.projection, self.destination)
+                self.assertFalse(self.destination.exists())
+
+    def test_unrelated_context_is_not_read_for_replay_identity(self):
+        record = self.projection["records"][0]
+        prompt = Path(self.projection["run_dir"]) / "builder.prompt.md"
+        record["prompt"] = str(prompt)
+        packet = {"context_artifact": {"path": "/unowned/missing.json", "fields": {"source_snapshot": {"total": 100}}}}
+        prompt.write_text("Build.\nCURRENT HANDOFF DATA\n" + json.dumps(packet))
+        loaded = recording.load(recording.export(self.projection, self.destination))
+        self.assertEqual("terra", loaded.document["dispatches"][0]["stage"])
 
     def test_export_preserves_explicit_workflow_separately_from_execution_policy(self):
         self.projection["workflow_pin"] = "build"
@@ -773,6 +964,77 @@ class SourceRecoveryTests(unittest.TestCase):
 
 
 class IdentityRebindingTests(unittest.TestCase):
+    def test_reviewed_draft_inference_rebinds_only_the_offered_snapshot(self):
+        import autocode_replay_bindings as bindings
+
+        old = "draft-failure-v1:" + "a" * 64
+        new = "draft-failure-v1:" + "b" * 64
+        receipt = {"snapshot": old, "rationale": "Keep the archived snapshot text " + old}
+        value = {"report": {"concerns": [{"draft_failure_correction": receipt}]}}
+        saved = bindings.bindings(value, {}, {}, "/old/work", "/old/run", [], draft_snapshot=old)
+        self.assertEqual(["draft_inference_snapshot"], [row["symbol"] for row in saved])
+        rebound = recording.rebind(value, saved, {"draft_inference_snapshot": new})
+        self.assertEqual(
+            {"snapshot": new, "rationale": receipt["rationale"]},
+            rebound["report"]["concerns"][0]["draft_failure_correction"],
+        )
+        self.assertEqual([], bindings.bindings(value, {}, {}, "/old/work", "/old/run", [], draft_snapshot=new))
+        with self.assertRaises(ValueError):
+            recording.rebind(value, saved, {"draft_inference_snapshot": None})
+
+    def test_mutation_citations_follow_only_the_same_kill_in_the_current_proof(self):
+        import autocode_changed_code_evidence as evidence
+        import autocode_replay_bindings as bindings
+
+        old = "/old/run/regression/proof-old/mutation-check/mutant-old.log"
+        new = "/new/run/regression/proof-new/mutation-check/mutant-new.log"
+
+        def proof(output, test="test_value"):
+            context = {"source_revision": "source", "proof_context": "context"}
+            mutant = {
+                "line": 2,
+                "end_line": 2,
+                "operator": "constant_return",
+                "outcome": "killed",
+                "evidence": [output],
+                "failed_tests": [test],
+            }
+            return {
+                "changed_code_evidence": context,
+                "changed_code_inputs": {
+                    "mutation": {**context, "files": [{"path": "calc.py", "sha256": "a" * 64, "mutants": [mutant]}]}
+                },
+            }
+
+        value = {"report": {"changed_code_exceptions": [{"evidence_refs": [old]}]}}
+        saved = bindings.bindings(
+            value, {}, {}, "/old/workspace", "/old/run", [], mutations=evidence.mutation_citations(proof(old))
+        )
+        self.assertEqual("mutation_capture", saved[0]["symbol"])
+        aliases = evidence.mutation_citations(proof(old))
+        relative = {"report": {"changed_code_exceptions": [{"evidence_refs": [old.removeprefix("/old/")]}]}}
+        self.assertEqual(saved, bindings.bindings(relative, {}, {}, "/old", "/old/run", [], mutations=aliases))
+        relative["report"]["changed_code_exceptions"][0]["evidence_refs"][0] = "./" + old.removeprefix("/old/")
+        self.assertEqual([], bindings.bindings(relative, {}, {}, "/old", "/old/run", [], mutations=aliases))
+        self.assertEqual(
+            {"report": {"changed_code_exceptions": [{"evidence_refs": [new]}]}},
+            recording.rebind(
+                value, saved, {"mutation_capture": {"citations": evidence.mutation_citations(proof(new))}}
+            ),
+        )
+        archive = "/new/run/replay-checks/recorded-receipt.json"
+        self.assertEqual(
+            {"report": {"changed_code_exceptions": [{"evidence_refs": [archive]}]}},
+            recording.rebind(
+                value,
+                saved,
+                {"mutation_capture": {"citations": evidence.mutation_citations(proof(old)), "archive": archive}},
+            ),
+        )
+        for available in ({}, evidence.mutation_citations(proof(new, "another_test"))):
+            with self.subTest(available=available), self.assertRaisesRegex(ValueError, "no unique current capture"):
+                recording.rebind(value, saved, {"mutation_capture": {"citations": available, "archive": archive}})
+
     def test_only_explicit_json_pointer_fields_change_and_input_is_untouched(self):
         original = {
             "checks": [{"evidence_ref": "/old/workspace/.autocode/check.json"}],

@@ -11,15 +11,18 @@ criterion under the milestone that delivers it: the runner checks a milestone's 
 already accepted, at that milestone's checkpoint, so a test must not depend on a later milestone. Keep criteria
 a test cannot check (documentation, visual design, performance under real load) with an ordinary
 verification_method.
+Keep a worked example's exact inputs and results in its acceptance criterion. When a required behavior or
+important failure case describes that same example, state the rule or failure mode and refer to its criterion
+ID instead of retyping the values. Keep every distinct failure mode and every literal the person supplied.
 Before you return the plan, check each criterion against itself: its examples must agree with each other and
 with its own rule, and with approved_design when there is one. Where the request, the rule and the design leave
 a boundary open (a value exactly at a limit, a tie, an empty input), leave it untested: pick examples clearly
-on each side, and never state the boundary both ways. Rewording a criterion after the Plan Reviewer finds a
-contradiction needs the user's answer even in an unapproved draft (outside the narrow allowed draft proof/example
-corrections). Do not ask the person to repair AutoCode's example wording: keep
-protected behavior and literals, resolve engineering setup yourself, and use the
-ordinary Discovery redraft for an internal technical default. Ask only when the
-requested behavior itself needs a human decision.
+on each side, and never state the boundary both ways. In a plan nobody approved, reword your own criterion
+after the Plan Reviewer finds a contradiction while it still cites every request quote it cited before; text
+saved from the person's answer, feedback or an approved plan still needs their answer. Do not ask the person to
+repair AutoCode's example wording: keep protected behavior and literals, correct your own engineering assumptions
+and implementation details yourself, and use the ordinary Discovery redraft for an internal technical default.
+Ask only when the requested behavior itself needs a human decision.
 A test checks what the program does, never which files the repository contains. Do not write a test that lists
 the repository or working directory and asserts which files exist, or that no other file exists: whoever runs the
 tests (a build, the runner's own checks, CI, a reviewer) adds files there, so such a test fails on correct code.
@@ -37,6 +40,8 @@ must exit 0 unless that declaration says otherwise.
 Behavior that already works and must keep working (the change must not break it) is a guard: write it as the
 same kind of example, with verification_method "guard: <exact supported test name>" when the request
 already names the test; otherwise use "guard: test_<criterion id in lowercase>_<what it checks>".
+A Python test is named by its bare method name alone: an existing test_simple in class SlugifyTest is
+"guard: test_simple", never "guard: SlugifyTest.test_simple" or a module path, which the runner refuses.
 The runner checks that its test passes both before and after the change. Coverage of behavior the product already
 implements — a named scenario, an existing rule, tests added with no product change — is a guard for every
 such criterion. A test: criterion cannot be proven by a test-only diff. A guard needs a real behavior to check;

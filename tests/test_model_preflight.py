@@ -1,6 +1,7 @@
 """Launch probes each billing-routed role model once per run, before stage spend."""
 
 import contextlib
+import copy
 import io
 import json
 import sys
@@ -13,6 +14,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode_model_preflight as preflight
 import autocode_providers
+import autocode_route_fit as route_fit
 import autocode_session_boundary as boundary
 import autocode_supervision as supervision
 import autocode_support as support
@@ -72,6 +74,37 @@ class BillingAwareTests(unittest.TestCase):
         self.assertEqual(["plan/glm", "plan/mimo"], preflight.distinct_models(settings))
 
 
+class BareProbeAgentTests(unittest.TestCase):
+    """#1744: the probe's agent has no tools and a one-line prompt (Kilo 19,053 -> 627 input tokens; OpenCode
+    17,672 -> 218, measured 2026-10-21 on GPT-6 Luna)."""
+
+    def test_an_opencode_family_launch_runs_the_bare_probe_agent(self):
+        for variable, chosen in (
+            ("OPENCODE_CONFIG_CONTENT", {"permission": {"edit": "deny"}}),
+            ("KILO_CONFIG_CONTENT", {"permission": {"read": "allow"}, "model": "openai/gpt-6-luna"}),
+        ):
+            with self.subTest(variable=variable):
+                config = {"plugin": ["activity.mjs"], "agent": {"autocode_sol_x": chosen, "other": {}}}
+                argv = ["kilo", "run", "--agent", "autocode_sol_x", "--model", "openai/gpt-6-luna"]
+                ran, env = preflight.bare(argv, {variable: json.dumps(config), "HOME": "/h"})
+                self.assertEqual(preflight.PROBE_AGENT, ran[ran.index("--agent") + 1])
+                written = json.loads(env[variable])
+                agent = written["agent"][preflight.PROBE_AGENT]
+                self.assertEqual(({"*": False}, {"*": "deny"}), (agent["tools"], agent["permission"]))
+                self.assertEqual(preflight.PROBE_SYSTEM, agent["prompt"])
+                self.assertEqual(chosen.get("model"), agent.get("model"))
+                self.assertEqual(["activity.mjs"], written["plugin"])
+                self.assertEqual("/h", env["HOME"])
+
+    def test_a_launch_without_an_inline_agent_is_left_alone(self):
+        for argv, env in (
+            (["claude", "-p", "x"], {"OPENCODE_CONFIG_CONTENT": "{}"}),
+            (["opencode", "run", "--agent", "a"], {"HOME": "/h"}),
+        ):
+            with self.subTest(argv=argv):
+                self.assertEqual((argv, env), preflight.bare(list(argv), dict(env)))
+
+
 class PreflightCheckTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -110,6 +143,7 @@ class PreflightCheckTests(unittest.TestCase):
             model = kwargs["model"]
             self.calls.append(model)
             kwargs["directory"].mkdir(parents=True, exist_ok=True)
+            self.assertIn(model, events_by_model, "unexpected model probe: " + model)
             rows = events_by_model[model]
             (kwargs["directory"] / "events.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
             return {
@@ -131,6 +165,219 @@ class PreflightCheckTests(unittest.TestCase):
     def run_identity(self):
         return preflight._receipt_identity(self.adapter, self.state["settings"]["transport_identities"]["opencode"])
 
+    def test_standalone_review_uses_its_real_request_instead_of_a_paid_access_ping(self):
+        self.state["next_stage"] = "review_change"
+        self.assertFalse(self.check({}))
+        self.assertFalse(self.check({}))
+        self.assertEqual([], self.calls)
+        self.assertFalse((self.run_dir / "model-preflight.json").exists())
+        self.assertNotIn("stages", self.state)
+        # A later build still needs its own admitted probes; review grants no receipt.
+        self.state["next_stage"] = "terra"
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        self.assertCountEqual(["plan/glm", "plan/mimo"], self.calls)
+
+    def successful_stage(self):
+        output = self.run_dir / "requirements.json"
+        events = self.run_dir / "requirements.jsonl"
+        output.write_text('{"summary": "Requirements understood"}')
+        events.write_text("\n".join(json.dumps(row) for row in OK_EVENTS))
+        return {
+            "stage": "requirements_gather",
+            "engine": "opencode",
+            "provider": "fixture",
+            "model": "plan/glm",
+            "reasoning_effort": None,
+            "launch_route": {"engine": "opencode", "provider": None, "model": "plan/glm", "reasoning_effort": None},
+            "accounted": True,
+            "exit_code": 0,
+            "finished_at": "2026-10-28T00:00:00+00:00",
+            "output": str(output),
+            "events": str(events),
+            "access_preflight_identity": {"schema": 1, "identity": self.run_identity(), "model": "plan/glm"},
+        }
+
+    def relocate(self):
+        previous = copy.deepcopy(self.state["settings"])
+        selected = copy.deepcopy(previous)
+        selected["transport_identities"]["opencode"]["config_path"] = "/relocated/provider.toml"
+        self.state["settings"] = selected
+        self.state["configuration_changes"] = [{"previous": previous, "selected": copy.deepcopy(selected)}]
+
+    def test_relocation_reuses_paid_receipts_without_rewriting_history(self):
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        stages = copy.deepcopy(self.state["stages"])
+        marker = self.run_dir / "model-preflight.json"
+        original = marker.read_bytes()
+        self.relocate()
+        self.calls.clear()
+        self.assertFalse(self.check({}))
+        self.assertEqual([], self.calls)
+        self.assertEqual(stages, self.state["stages"])
+        self.assertEqual(original, marker.read_bytes())
+
+    def test_relocated_completed_call_still_requires_original_events(self):
+        record = self.successful_stage()
+        self.state["stages"] = [record]
+        self.relocate()
+        self.assertTrue(self.check({"plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/mimo"], self.calls)
+        self.calls.clear()
+        Path(record["events"]).unlink()
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS}))
+        self.assertEqual(["plan/glm"], self.calls)
+
+    def test_new_probe_keeps_old_paid_receipts_bound_to_original_location(self):
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        original = copy.deepcopy(receipt_sets(self.run_dir))
+        self.relocate()
+        # A newly due model has no access receipt, even though the old models do.
+        self.state["settings"]["roles"]["astra"]["model"] = "plan/new"
+        self.state["configuration_changes"][0]["previous"]["roles"]["astra"]["model"] = "plan/new"
+        self.state["configuration_changes"][0]["selected"]["roles"]["astra"]["model"] = "plan/new"
+        self.state["next_stage"] = "astra_plan"
+        self.calls.clear()
+        self.assertTrue(self.check({"plan/new": OK_EVENTS}))
+        self.assertEqual(["plan/new"], self.calls)
+        rows = receipt_sets(self.run_dir)
+        self.assertEqual(original, [row for row in rows if row["identity"] == original[0]["identity"]])
+        current = next(row for row in rows if row["identity"] == self.run_identity())
+        self.assertEqual({"plan/new"}, set(current["probed"]))
+
+    def test_current_failed_probe_cannot_be_erased_by_old_location_success(self):
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        self.relocate()
+        marker = self.run_dir / "model-preflight.json"
+        rows = receipt_sets(self.run_dir)
+        rows.append({"identity": self.run_identity(), "probed": {"plan/glm": {"status": "uncertain"}}})
+        marker.write_text(json.dumps({"version": 3, "receipts": rows}))
+        self.calls.clear()
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS}))
+        self.assertEqual(["plan/glm"], self.calls)
+
+    def test_later_failed_stage_invalidates_success_from_old_location(self):
+        record = self.successful_stage()
+        self.relocate()
+        failed = {
+            **record,
+            "exit_code": 1,
+            "access_preflight_identity": {
+                "schema": 1,
+                "identity": self.run_identity(),
+                "model": "plan/glm",
+            },
+        }
+        self.state["stages"] = [record, failed]
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
+
+    def test_successful_real_requirements_call_avoids_duplicate_probe_only_for_that_route(self):
+        self.state["stages"] = [self.successful_stage()]
+        self.assertTrue(self.check({"plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/mimo"], self.calls)
+        self.assertEqual("completed_stage", probed(self.run_dir)["plan/glm"]["source"])
+        self.assertFalse(self.check({}))
+
+    def test_accepted_repair_proves_access_but_never_failed_or_unbound_repairs(self):
+        for invalid in (
+            None,
+            "rejected",
+            "timed_out",
+            "interrupted",
+            "cleanup_error",
+            "unbound",
+            "wrong_effort",
+            "failed_event",
+        ):
+            with self.subTest(invalid=invalid):
+                (self.run_dir / "model-preflight.json").unlink(missing_ok=True)
+                record = copy.deepcopy(self.successful_stage())
+                record.update(stage="requirements_gather_report_repair", report_only=True)
+                if invalid == "unbound":
+                    record.pop("access_preflight_identity")
+                elif invalid == "wrong_effort":
+                    record["access_preflight_identity"]["identity"]["reasoning_effort"] = "high"
+                elif invalid == "failed_event":
+                    Path(record["events"]).write_text("\n".join(json.dumps(x) for x in OK_EVENTS + PAYWALL_EVENTS))
+                elif invalid:
+                    record[invalid] = True
+                self.state["stages"] = [record]
+                self.calls.clear()
+                self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+                self.assertEqual(["plan/glm", "plan/mimo"] if invalid else ["plan/mimo"], self.calls)
+
+    def test_later_failed_call_and_explicit_probe_failure_override_prior_success(self):
+        record = self.successful_stage()
+        self.state["stages"] = [record, {**record, "exit_code": 1}]
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
+        marker = self.run_dir / "model-preflight.json"
+        saved = json.loads(marker.read_text())
+        saved["receipts"][0]["probed"]["plan/glm"] = {"status": "uncertain"}
+        marker.write_text(json.dumps(saved))
+        self.state["stages"] = [record]
+        self.calls.clear()
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS}))
+        self.assertEqual(["plan/glm"], self.calls)
+
+    def test_completed_stage_receipt_does_not_outlive_original_events(self):
+        record = self.successful_stage()
+        self.state["stages"] = [record]
+        self.assertTrue(self.check({"plan/mimo": OK_EVENTS}))
+        Path(record["events"]).unlink()
+        self.calls.clear()
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS}))
+        self.assertEqual(["plan/glm"], self.calls)
+
+    def test_changed_binding_and_incomplete_or_failed_events_require_probe(self):
+        mutations = [
+            lambda row: row["access_preflight_identity"]["identity"].update(transport_sha256="b" * 64),
+            lambda row: row["access_preflight_identity"]["identity"].update(reasoning_effort="high"),
+            lambda row: row["access_preflight_identity"].update(model="other/model"),
+            lambda row: row["access_preflight_identity"].update(schema=True),
+            lambda row: row["launch_route"].update(reasoning_effort="high"),
+            lambda row: row.update(events=str(self.root / "outside.jsonl")),
+            lambda row: Path(row["events"]).write_text("not json"),
+            lambda row: Path(row["events"]).write_text(json.dumps({"type": "step_start"})),
+            lambda row: Path(row["events"]).write_text("\n".join(json.dumps(x) for x in OK_EVENTS + PAYWALL_EVENTS)),
+            lambda row: Path(row["output"]).unlink(),
+        ]
+        (self.root / "outside.jsonl").write_text("\n".join(json.dumps(x) for x in OK_EVENTS))
+        for index, mutate in enumerate(mutations):
+            with self.subTest(case=index):
+                (self.run_dir / "model-preflight.json").unlink(missing_ok=True)
+                record = copy.deepcopy(self.successful_stage())
+                mutate(record)
+                self.state["stages"] = [record]
+                self.calls.clear()
+                self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+                self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
+
+    def test_unbound_or_unsuccessful_real_stage_does_not_replace_access_probe(self):
+        for field, value in (
+            ("access_preflight_identity", None),
+            ("accounted", False),
+            ("exit_code", 1),
+            ("exit_code", False),
+            ("finished_at", None),
+            ("timed_out", True),
+            ("interrupted", True),
+            ("rejected", True),
+            ("dry_run", True),
+            ("replay", {"source": "fixture"}),
+            ("engine", "codex"),
+            ("provider", "other"),
+        ):
+            with self.subTest(field=field, value=value):
+                self.state.pop("stages", None)
+                (self.run_dir / "model-preflight.json").unlink(missing_ok=True)
+                record = self.successful_stage()
+                record[field] = value
+                self.state["stages"] = [record]
+                self.calls.clear()
+                self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
+                self.assertCountEqual(["plan/glm", "plan/mimo"], self.calls)
+
     def test_each_distinct_model_is_probed_once_per_run(self):
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
         self.assertTrue(self.check(events))
@@ -141,6 +388,25 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual(self.run_identity(), saved["identity"])
         self.assertEqual({"plan/glm", "plan/mimo"}, set(saved["probed"]))
         self.assertEqual("ok", saved["probed"]["plan/mimo"]["status"])
+
+    def test_the_resolvers_own_model_is_probed_only_before_its_first_stage(self):
+        # #1744: GPT-6 Astra's probe cost ~$0.19 of a small run's $1.31, and the Resolver runs only after a send-back.
+        self.state["settings"]["roles"]["astra"] = {"model": "plan/astra"}
+        events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS, "plan/astra": OK_EVENTS}
+        self.state["next_stage"] = "recognize_workflow"
+        self.assertTrue(self.check(events))
+        self.assertEqual(["plan/mimo", "plan/glm"], self.calls)
+        self.state["next_stage"] = "terra"
+        self.assertFalse(self.check(events))
+        self.state["next_stage"] = "astra_resolve"
+        self.assertTrue(self.check(events))
+        self.assertEqual(["plan/mimo", "plan/glm", "plan/astra"], self.calls)
+        self.assertFalse(self.check(events), "a passed probe is never repeated")
+
+    def test_a_deferred_roles_model_that_another_role_runs_is_probed_at_the_start(self):
+        self.state["next_stage"] = "recognize_workflow"  # astra shares plan/glm with sol
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/mimo", "plan/glm"], self.calls)
 
     def test_changed_provider_configuration_reprobes_the_same_models(self):
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
@@ -205,6 +471,113 @@ class PreflightCheckTests(unittest.TestCase):
 
         self.assertFalse(self.check(events))
         self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
+
+    def test_a_saved_route_probes_at_its_roles_effort_and_certifies_the_level(self):
+        # #2057: every route, saved or selected, proves the level it will launch at.
+        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        probed = []
+        execute = self.fake_execute({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
+
+        def spy(**kwargs):
+            probed.append((kwargs["model"], kwargs.get("effort")))
+            return execute(**kwargs)
+
+        with patch.object(preflight.transport, "execute", side_effect=spy):
+            runner = types.SimpleNamespace(opencode=self.adapter)
+            self.assertTrue(preflight.check(runner, self.state, self.run_dir, self.root))
+        self.assertEqual({("plan/glm", "high"), ("plan/glm", None), ("plan/mimo", None)}, set(probed))
+        levels = {
+            entry["identity"].get("reasoning_effort"): set(entry["probed"]) for entry in receipt_sets(self.run_dir)
+        }
+        self.assertEqual({None: {"plan/glm", "plan/mimo"}, "high": {"plan/glm"}}, levels)
+        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
+        self.assertFalse(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}), "both receipts are reused")
+
+    def test_a_saved_receipt_certifies_its_level_without_another_probe(self):
+        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
+        self.assertTrue(self.check(events))
+        self.state["settings"].pop("certified_variants")
+        self.assertFalse(self.check(events))
+        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
+        self.assertEqual(3, len(self.calls), "the receipt is evidence; no new request")
+
+    def test_an_uncertain_probe_does_not_certify_its_level(self):
+        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["completion"] = {"model": "plan/mimo", "reasoning_effort": "medium"}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": GARBLED_EVENTS}))
+        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
+
+    def test_one_model_at_two_saved_levels_is_probed_and_certified_twice(self):
+        del self.state["settings"]["roles"]["astra"]
+        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["completion"] = {"model": "plan/glm", "reasoning_effort": "medium"}
+        events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
+        self.assertTrue(self.check(events))
+        self.assertEqual(["plan/glm", "plan/glm", "plan/mimo"], sorted(self.calls))
+        self.assertEqual(["medium", "high"], self.state["settings"]["certified_variants"]["plan/glm"])
+        self.assertFalse(self.check(events))
+        self.assertEqual(3, len(self.calls), "each level's receipt is reused")
+
+    def test_a_person_named_level_its_model_does_not_declare_pauses_before_any_probe(self):
+        # #2104: the access preflight is the first launch boundary, so it fits like route_fit.launch.
+        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "medium"}
+        self.state["settings"]["effort_origins"] = {"sol": "user_explicit"}
+        self.state["settings"]["route_selection"] = {
+            "candidates": {"sol": [{"model": "plan/glm", "levels": ["high", "low", "max"]}]}
+        }
+        with patch.object(preflight, "probe", side_effect=AssertionError("a probe ran before the fit")):
+            with self.assertRaises(route_fit.EffortUnsupported) as caught:
+                self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
+        self.assertEqual(route_fit.STATUS, caught.exception.status)
+        self.assertIn("--sol-reasoning-effort", str(caught.exception))
+        self.assertIn("low, high, max", str(caught.exception))
+        self.assertEqual([], self.calls, "no model was launched")
+
+    def test_a_runner_chosen_level_is_probed_at_the_level_the_model_declares(self):
+        self.state["settings"]["roles"] = {"sol": {"model": "plan/glm", "reasoning_effort": "medium"}}
+        self.state["settings"]["route_selection"] = {
+            "candidates": {"sol": [{"model": "plan/glm", "levels": ["high", "low", "max"]}]}
+        }
+        execute = self.fake_execute({"plan/glm": OK_EVENTS})
+        seen = []
+
+        def spy(**kwargs):
+            seen.append((kwargs["model"], kwargs.get("effort")))
+            return execute(**kwargs)
+
+        with patch.object(preflight.transport, "execute", side_effect=spy):
+            runner = types.SimpleNamespace(opencode=self.adapter)
+            self.assertTrue(preflight.check(runner, self.state, self.run_dir, self.root))
+        self.assertEqual([("plan/glm", "high")], seen)
+        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
+        self.assertEqual(
+            "medium", self.state["settings"]["roles"]["sol"]["reasoning_effort"], "the saved route is untouched"
+        )
+
+    def test_a_tool_refusing_the_probed_level_names_its_roles_flag(self):
+        # #2108: with no declared listing the fit cannot decide, so the tool's own refusal at the
+        # probe is the evidence; it must reach the run as the pause its stage launch would.
+        from providers.kilocode import KiloEffortError
+
+        self.state["settings"]["roles"] = {"glm": {"model": "plan/glm", "reasoning_effort": "medium"}}
+        seen = []
+
+        def launch(role, *args, **kwargs):
+            seen.append(role)
+            raise KiloEffortError(
+                "Kilo model plan/glm does not support reasoning variant 'medium'; supported variants: high, low, max. "
+                "Name one of them with --glm-reasoning-effort high; no model request was launched"
+            )
+
+        self.adapter.launch = launch
+        runner = types.SimpleNamespace(opencode=self.adapter)
+        with self.assertRaises(support.Paused) as caught:
+            preflight.check(runner, self.state, self.run_dir, self.root)
+        self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
+        self.assertIn("--glm-reasoning-effort high", str(caught.exception))
+        self.assertEqual(["glm"], seen, "the probe launch carries the role it proves")
 
     def test_non_billing_adapters_make_no_probe_calls(self):
         runner = types.SimpleNamespace(opencode=types.SimpleNamespace(_config={"command": ["fake"]}))
@@ -671,8 +1044,7 @@ class SelectionPreflightTests(unittest.TestCase):
             self.check(events, self.selection())
         self.assertEqual("PAUSED_BUDGET", caught.exception.status)
 
-    def test_saved_route_probes_still_run_at_low_and_skip_non_billing_tools(self):
-        # The legacy path is unchanged: low effort, and an adapter without [auth] is not probed.
+    def test_saved_routes_skip_a_non_billing_tool(self):
         runner = types.SimpleNamespace(opencode=self.adapter)
         state = {"settings": {"engine": "opencode", "roles": {"terra": {"model": "zai-coding-plan/glm-5.3"}}}}
         events = {"zai-coding-plan/glm-5.3": OK_EVENTS}

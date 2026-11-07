@@ -107,4 +107,12 @@ def project(
         "source_revision": report.get("source_revision"),
         "inspected_source_revision": current_revision,
         "coverage": coverage,
+        "changed_code_evidence": deepcopy(mapping(state.get("regression_proof")).get("changed_code_evidence")),
+        "changed_code_repairs": deepcopy(
+            [
+                row
+                for row in state.get("regression_proofs") or []
+                if isinstance(row, dict) and row.get("kind") == "changed_code_rework"
+            ]
+        ),
     }

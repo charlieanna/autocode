@@ -36,6 +36,39 @@ def source_name(name):
     )
 
 
+def stage_source(workspace):
+    """Stage literal Git-visible source names, including deletions, never run data."""
+    names = git(
+        workspace,
+        "-c",
+        "core.fileMode=true",
+        "ls-files",
+        "--cached",
+        "--modified",
+        "--deleted",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        binary=True,
+    )
+    selected = sorted({os.fsdecode(name) for name in names.split(b"\0") if name and source_name(os.fsdecode(name))})
+    for start in range(0, len(selected), 500):
+        git(
+            workspace,
+            "-c",
+            "core.fileMode=true",
+            "add",
+            "-A",
+            "--",
+            *(":(literal)" + name for name in selected[start : start + 500]),
+        )
+    staged = git(workspace, "diff", "--cached", "--name-only", "-z", binary=True).split(b"\0")
+    if any(
+        name in (b".autocode", b".autocode-ui") or name.startswith((b".autocode/", b".autocode-ui/")) for name in staged
+    ):
+        raise ValueError("Run data is already staged; remove .autocode paths from the index before preparing a PR")
+
+
 def require_safe_public_names(workspace, base_commit):
     """Refuse source names that would change in a public Git/HTML wrapper."""
     changed = git(workspace, "diff", "--no-renames", "--name-only", "-z", base_commit, binary=True)

@@ -4,6 +4,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +20,53 @@ DENIED = (
     if containment.backend() == containment.SEATBELT
     else "Read-only file system|No such file or directory|Permission denied"
 )
+
+
+@unittest.skipUnless(NATIVE_PROBLEM is None, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
+class PytestToolchainTests(unittest.TestCase):
+    # The required Ubuntu suite installs .[test] and the real kernel boundary.
+    # The minimal native-only job selects SelectedToolchainTests without pytest.
+    def test_pytest_console_runs_real_assertions_and_keeps_file_denials(self):
+        console = Path(sys.executable).parent / "pytest"
+        self.assertTrue(console.is_file(), "install .[test] on the test interpreter")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory).resolve()
+            root = home / "project"
+            root.mkdir()
+            outside = home / "outside"
+            outside.write_text("private fixture")
+            source = root / "test_good.py"
+            contents = (
+                "from pathlib import Path\nimport pytest\n"
+                "def test_assertion():\n    assert 2 + 3 == 5\n"
+                "def test_outside_read_is_denied():\n"
+                f"    with pytest.raises(OSError): Path({str(outside)!r}).read_text()\n"
+                "def test_source_write_is_denied():\n"
+                "    with pytest.raises(OSError): Path(__file__).write_text('changed')\n"
+            )
+            source.write_text(contents)
+            (root / "test_bad.py").write_text("def test_failure():\n    assert 1 == 2\n")
+            subprocess.run(["/usr/bin/git", "init", "--quiet", str(root)], check=True)
+            selected = toolchain.discover(root, [shlex.join([str(console), "-q", "test_good.py"])], os.environ)
+            boundary = containment.prepare(
+                root, read_roots=selected["read_roots"], links=selected["links"], environment=os.environ
+            )
+            for command in selected["probes"]:
+                result = subprocess.run(
+                    [boundary["shell"], "-c", command], cwd=root, capture_output=True, text=True, timeout=30
+                )
+                self.assertEqual(0, result.returncode, (command, result.stderr))
+            for name, code, message in (("good", 0, "3 passed"), ("bad", 1, "1 failed")):
+                command = "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 " + shlex.join(
+                    [str(console), "-q", "-p", "no:cacheprovider", f"test_{name}.py"]
+                )
+                result = subprocess.run(
+                    [boundary["shell"], "-c", command], cwd=root, capture_output=True, text=True, timeout=30
+                )
+                self.assertEqual(code, result.returncode, (result.stdout, result.stderr))
+                self.assertIn(message, result.stdout)
+            self.assertEqual(contents, source.read_text())
+            self.assertEqual("private fixture", outside.read_text())
 
 
 @unittest.skipUnless(NATIVE_PROBLEM is None, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")

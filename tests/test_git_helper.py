@@ -9,7 +9,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import autocode_program as program
 import autocode_util as util
 import autocode_workspaces as workspaces
 
@@ -70,16 +69,15 @@ class GitHelperTests(unittest.TestCase):
         self.assertIs(util.git, workspaces.git)
 
 
-class ProgramWorktreeLockTests(unittest.TestCase):
-    def test_a_program_worktree_waits_for_a_task_worktree_being_created_in_the_same_project(self):
-        # #180 serialized task worktree creation across processes with a file lock, but a program only used a
-        # thread lock, so a program run and a task run started together could still collide.
-        with tempfile.TemporaryDirectory(prefix="program-lock-") as temporary:
+class WorktreeLockTests(unittest.TestCase):
+    def test_a_task_worktree_waits_for_another_being_created_in_the_same_project(self):
+        # #180 serialized task worktree creation across processes with a file lock: two tasks started
+        # together in one project each run `git worktree add`, which git does not make safe.
+        with tempfile.TemporaryDirectory(prefix="worktree-lock-") as temporary:
             project = Path(temporary) / "project"
             project.mkdir()
             plain(project, "init", "-q", "-b", "main")
             plain(project, "commit", "-q", "--allow-empty", "-m", "base")
-            base = plain(project, "rev-parse", "HEAD")
             held, release, added = threading.Event(), threading.Event(), []
 
             def other_process():
@@ -94,14 +92,15 @@ class ProgramWorktreeLockTests(unittest.TestCase):
             with patch.object(
                 workspaces,
                 "git",
-                side_effect=lambda *args, **kwargs: (added.append(time.monotonic()), real(*args, **kwargs))[1],
+                side_effect=lambda *args, **kwargs: (
+                    "worktree" in args and added.append(time.monotonic()),
+                    real(*args, **kwargs),
+                )[1],
             ):
-                worker = threading.Thread(
-                    target=program._worktree, args=(project, "program-x", "autocode/program-x/integration", base)
-                )
+                worker = threading.Thread(target=workspaces.create, args=(project, "task x"))
                 worker.start()
                 time.sleep(0.6)
-                self.assertEqual([], added, "the program added a worktree while a task worktree was being created")
+                self.assertEqual([], added, "a worktree was added while another was being created")
                 released = time.monotonic()
                 release.set()
                 worker.join(30)

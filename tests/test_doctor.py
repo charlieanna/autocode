@@ -103,6 +103,38 @@ class EngineTests(unittest.TestCase):
             checks = doctor.engine_checks(on_path("codex"), fake_runner({("codex", "login", "status"): (code, "")}))
             self.assertEqual(status, {c.name: c.status for c in checks}["engine:codex"])
 
+    def test_an_ambient_api_key_on_a_codex_setup_names_the_exact_unset_command(self):
+        with tempfile.TemporaryDirectory() as home:
+            check = doctor.codex_billing_check(
+                environ={"PATH": "/usr/bin:/bin", "OPENAI_API_KEY": "sk-fixture", "CODEX_HOME": home},
+            )
+        self.assertEqual(doctor.MISSING, check.status)
+        self.assertIn("OPENAI_API_KEY", check.detail)
+        self.assertIn("PAUSED_BILLING_ROUTE", check.detail)
+        self.assertIn("unset OPENAI_API_KEY", check.fix)
+        self.assertIn("opencode auth login", check.fix)
+        self.assertNotIn("connections setup", check.fix)  # the direct connection is retired (#2049)
+
+    def test_a_codex_config_override_is_named_with_its_file(self):
+        with tempfile.TemporaryDirectory() as home:
+            config = Path(home) / "config.toml"
+            config.write_text('model_provider = "litellm"\nopenai_base_url = "https://gateway.example/v1"\n')
+            check = doctor.codex_billing_check(environ={"CODEX_HOME": home})
+        self.assertEqual(doctor.MISSING, check.status)
+        self.assertIn(str(config), check.detail)
+        self.assertIn("model_provider", check.detail)
+        self.assertIn("openai_base_url", check.detail)
+        self.assertIn(f"remove those lines from {config}", check.fix)
+
+    def test_a_clean_codex_environment_passes_and_engine_checks_include_the_row(self):
+        with tempfile.TemporaryDirectory() as home:
+            check = doctor.codex_billing_check(environ={"CODEX_HOME": home})
+        self.assertEqual(doctor.OK, check.status)
+        checks = doctor.engine_checks(on_path("codex"), fake_runner({("codex", "login", "status"): (0, "")}))
+        self.assertIn("billing:codex", {c.name: c.status for c in checks})
+        absent = doctor.engine_checks(on_path(), fake_runner({}))
+        self.assertNotIn("billing:codex", {c.name: c.status for c in absent})
+
     def test_the_default_engine_must_be_ready_and_a_ready_codex_is_named_as_the_alternative(self):
         codex_only = doctor.engine_checks(on_path("codex"), fake_runner({("codex", "login", "status"): (0, "")}))
         verdict = doctor.engine_verdict(codex_only, None)
@@ -251,6 +283,55 @@ class EngineTests(unittest.TestCase):
         self.assertNotIn("routes", codex)  # Codex's own transport has no OpenCode routes
         self.assertEqual(doctor.OK, codex["engine"].status)
 
+    def test_a_route_the_run_would_never_take_is_not_reported_missing(self):
+        """#1995: a Kilo login that serves its Z.AI plan under another prefix still passes doctor."""
+        import autocode_route_discovery as discovery
+
+        listed = ["zai-coding-plan/glm-5.3", "openai/gpt-6-luna", "openai/gpt-6-sol", "openai/gpt-6-astra"]
+        kilo = SimpleNamespace(
+            NAME="kilocode",
+            DEFAULT_MODELS={
+                "requirements": "zhipuai-coding-plan/glm-5.3",
+                "glm": "zhipuai-coding-plan/glm-5.3",
+                "terra": "openai/gpt-6-luna",
+                "plan_reviewer": "openai/gpt-6-sol",
+                "sol": "zhipuai-coding-plan/glm-5.3",
+                "completion": "zhipuai-coding-plan/glm-5.3",
+                "astra": "openai/gpt-6-astra",
+            },
+            auth_table=lambda: {"command": ["kilo"], "routes": []},
+            available_models=lambda workspace=None: listed,
+        )
+        found = {
+            "tool": "kilocode",
+            "accounts": [],
+            "candidates": [
+                {"model": model, "tool": "kilocode", "account": "Z.AI Coding Plan", "billing": "subscription"}
+                for model in listed
+            ],
+        }
+        with patch.object(discovery, "discover", return_value=found):
+            check = doctor.route_check("kilocode", None, lambda name: kilo)
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("automatic selection replaces", check.detail)
+        self.assertIn("zhipuai-coding-plan/glm-5.3 -> zai-coding-plan/glm-5.3", check.detail)
+
+    def test_a_selection_that_cannot_field_a_set_keeps_the_gap_and_says_why(self):
+        """The profile gap stays a gap when the tool's listings cannot be read (#1995)."""
+        import autocode_route_discovery as discovery
+
+        kilo = SimpleNamespace(
+            NAME="kilocode",
+            DEFAULT_MODELS={"requirements": "zhipuai-coding-plan/glm-5.3"},
+            auth_table=lambda: {"command": ["kilo"], "routes": []},
+            available_models=lambda workspace=None: ["zai-coding-plan/glm-5.3"],
+        )
+        with patch.object(discovery, "discover", side_effect=RuntimeError("Cannot read the tool's model listing")):
+            check = doctor.route_check("kilocode", None, lambda name: kilo)
+        self.assertEqual(doctor.MISSING, check.status)
+        self.assertIn("zhipuai-coding-plan/glm-5.3 (Requirements)", check.detail)
+        self.assertIn("automatic selection cannot cover it", check.detail)
+
     def test_old_python_is_missing(self):
         self.assertEqual(doctor.MISSING, doctor.python_check((3, 10, 9)).status)
         self.assertEqual(doctor.OK, doctor.python_check((3, 11, 0)).status)
@@ -371,6 +452,49 @@ class ClaudeTests(unittest.TestCase):
         )
         self.assertNotIn("engine:claude", checks)
 
+    def test_a_missing_default_engine_names_the_claude_code_already_on_path(self):
+        # Only Claude Code installed: the default OpenCode is missing, and the verdict must say what to
+        # pass instead of sending the person to install OpenCode first.
+        checks = self.checks(None, on_path("claude"), {})
+        self.assertEqual(doctor.MISSING, checks["engine"].status)
+        self.assertEqual(
+            "OpenCode (the default for a new run) is not ready; Claude Code is on PATH", checks["engine"].detail
+        )
+        self.assertIn("or pass --engine claude", checks["engine"].fix)
+        # And how to stop typing it on every task (the fix named only the flag).
+        self.assertIn('engine = "claude" in the project\'s .autocode/config.toml', checks["engine"].fix)
+        self.assertIn('default_provider = "claude" in ~/.config/autocode/config.toml', checks["engine"].fix)
+        self.assertNotIn("engine:claude", checks, "the login check belongs to doctor --engine claude")
+        checks = self.checks(None, on_path(), {})
+        self.assertEqual("OpenCode (the default for a new run) is not ready", checks["engine"].detail)
+        self.assertNotIn("--engine claude", checks["engine"].fix)
+
+    def test_a_logged_in_claude_code_is_the_engine_when_nothing_chose_one_and_opencode_is_absent(self):
+        # #2049: no flag, no config, no OpenCode. The run takes Claude Code, and doctor checks that.
+        checks = self.checks(None, on_path("claude"), self.LOGGED_IN)
+        self.assertEqual(doctor.OK, checks["engine:claude"].status)
+        self.assertEqual(doctor.OK, checks["engine"].status)
+        self.assertEqual(
+            "engine claude (chosen from your connected accounts: Claude Code is connected and OpenCode is not "
+            "installed) is ready",
+            checks["engine"].detail,
+        )
+        # Codex alone, logged in: the same rule names the Codex engine.
+        checks = self.checks(None, on_path("codex"), {("codex", "login", "status"): (0, "")})
+        self.assertEqual(doctor.OK, checks["engine"].status)
+        self.assertTrue(checks["engine"].detail.startswith("engine codex (chosen from your connected accounts"))
+        # The settings rows say what a run would use, as the run says it.
+        found = {}
+        doctor.all_checks(self.config, None, on_path("claude"), fake_runner(self.LOGGED_IN), found=found)
+        rows = {row["key"]: row for row in doctor.project_settings(self.config, found["connected"])[1]}
+        self.assertEqual(("claude", "connected accounts"), (rows["engine"]["value"], rows["engine"]["source"]))
+        self.assertEqual(("claude", "connected accounts"), (rows["provider"]["value"], rows["provider"]["source"]))
+        # An explicit default provider is never overridden by the connected accounts.
+        with patch.dict(os.environ, {"AUTOCODE_PROVIDER": "fixturetool"}):
+            checks = self.checks(None, on_path("claude"), self.LOGGED_IN)
+        self.assertIn("provider fixturetool", checks["engine"].detail)
+        self.assertNotIn("engine:claude", checks)
+
     def test_a_claude_default_provider_takes_the_same_checks(self):
         with patch.dict(os.environ, {"AUTOCODE_PROVIDER": "claude"}):
             checks = self.checks(None, on_path("claude", "opencode"), self.LOGGED_IN)
@@ -429,6 +553,22 @@ class WorkspaceTests(unittest.TestCase):
         checks = doctor.workspace_check(self.root)
         self.assertEqual(doctor.WARN, {c.name: c.status for c in checks}["workspace:clean"])
         self.assertTrue(doctor.passed(checks))
+
+    def test_autocodes_own_learned_record_is_not_an_uncommitted_change(self):
+        """A first run leaves .autocode/project.json untracked on purpose; doctor does not blame the person (#2350)."""
+        self.git("init", "-q")
+        self.git("commit", "-q", "--allow-empty", "-m", "start")
+        (self.root / ".autocode").mkdir()
+        (self.root / ".autocode" / ".gitignore").write_text("*\n!/config.toml\n!/project.json\n")
+        (self.root / ".autocode" / "project.json").write_text("{}")
+        (self.root / ".autocode" / "runs").mkdir()
+        (self.root / ".autocode" / "runs" / "state.json").write_text("{}")  # ignored, as every run record is
+        self.assertEqual({"workspace": doctor.OK}, self.statuses())
+        (self.root / "notes.txt").write_text("draft")
+        checks = doctor.workspace_check(self.root)
+        clean = {c.name: c for c in checks}["workspace:clean"]
+        self.assertEqual(doctor.WARN, clean.status)
+        self.assertTrue(clean.detail.startswith("1 uncommitted change(s)"), clean.detail)
 
 
 class LocalComposeTests(unittest.TestCase):
@@ -560,7 +700,9 @@ class ContainmentTests(unittest.TestCase):
         with self.host():
             checks = doctor.all_checks(self.workspace, None, on_path("opencode"), runner, self.resolve, found=found)
         status = found["containment"]
-        self.assertEqual([(("opencode", "--version"), self.workspace)], [c for c in calls if c[0][0] == "opencode"])
+        self.assertEqual(
+            [(("opencode", "--version"), self.workspace)], [c for c in calls if c[0][:2] == ("opencode", "--version")]
+        )
         rows = {c.name: c for c in checks}
         self.assertEqual("OpenCode 1.18.33", rows["engine:opencode"].detail)
         self.assertEqual(doctor.containment_check(status), rows["containment"])
@@ -664,6 +806,31 @@ class CliTests(unittest.TestCase):
         self.assertIn(sandbox or "works; no opencode is on PATH", check["detail"])
         self.assertIsNone(codex["containment"])
         self.assertNotIn("containment", {c["name"] for c in codex["checks"]})
+
+    def test_the_user_file_is_shown_and_a_project_key_in_it_is_named_as_ignored(self):
+        """#2400: engine = "codex" in ~/.config/autocode/config.toml was silently ignored."""
+        with tempfile.TemporaryDirectory() as folder:
+            config = Path(folder) / "autocode" / "config.toml"
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": folder}):
+                absent = doctor.user_settings_check()
+                config.parent.mkdir()
+                config.write_text('default_provider = "kilocode"\nplan_review_call_limit = 3\n')
+                known = doctor.user_settings_check()
+                config.write_text('engine = "codex"\nmax-cost-usd = 5\ndefualt_provider = "codex"\n')
+                ignored = doctor.user_settings_check()
+                config.write_text('engine = "codex\n')
+                broken = doctor.user_settings_check()
+        self.assertEqual((doctor.OK, "none"), (absent.status, absent.detail[:4]))
+        self.assertEqual(doctor.OK, known.status)
+        self.assertIn("default_provider, plan_review_call_limit", known.detail)
+        self.assertEqual(doctor.WARN, ignored.status)
+        self.assertIn("sets 'engine', 'max-cost-usd', 'defualt_provider', which a run never reads", ignored.detail)
+        self.assertIn("takes only default_provider, plan_review_call_limit", ignored.fix)
+        self.assertIn("engine, max-cost-usd belong in the project's .autocode/config.toml", ignored.fix)
+        self.assertEqual(doctor.MISSING, broken.status)
+        self.assertIn("cannot be read as TOML", broken.detail)
+        self.assertFalse(doctor.passed([broken]))
+        self.assertTrue(doctor.passed([ignored]))
 
     def test_doctor_shows_where_each_project_setting_comes_from_and_fails_on_a_refused_file(self):
         # #707: a new run's settings from .autocode/config.toml or [tool.autocode], with their source.
@@ -776,6 +943,112 @@ class SharedHostCheckTests(unittest.TestCase):
         shutil.rmtree(folder, ignore_errors=True)
 
 
+class InstalledUserAdviceTests(unittest.TestCase):
+    """A released install is not sent to maintainer-only steps (onboarding walkthrough, 2026-10-27)."""
+
+    def test_no_conformance_row_for_an_engine_that_is_not_installed(self):
+        names = [check.name for check in doctor.engine_checks(which=on_path(), runner=fake_runner({}))]
+        self.assertIn("engine:opencode", names)
+        self.assertNotIn("conformance:opencode", names)
+
+    def test_an_untested_version_points_users_at_the_tested_list(self):
+        check = doctor.conformance_check("opencode", "0.0.1-untested")
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("docs/providers.md#conformance-matrix", check.fix)
+
+    def test_a_single_installed_copy_is_not_called_editable(self):
+        here = Path(doctor.util.__file__).resolve().parent
+        check = doctor.install_drift_check(checkout=here, installed=here)
+        self.assertEqual(doctor.OK, check.status)
+        self.assertNotIn("editable", check.detail)
+
+
+class SessionCheckTests(unittest.TestCase):
+    """A root shell in a container holds CAP_SYS_ADMIN, so every stage is refused; doctor must say so."""
+
+    def refuse(self, error):
+        def require():
+            raise error
+
+        return require
+
+    def test_privileged_shell_fails_doctor_and_names_the_drop(self):
+        check = doctor.session_check(
+            self.refuse(
+                doctor.session_boundary.UnsupportedBoundary(
+                    "Provider session ownership refuses CAP_SYS_PTRACE or CAP_SYS_ADMIN"
+                )
+            )
+        )
+        self.assertEqual(doctor.MISSING, check.status)
+        self.assertIn("the offline demo included", check.detail)
+        self.assertIn("setpriv --bounding-set=-sys_admin,-sys_ptrace autocode", check.fix)
+        self.assertFalse(doctor.passed([check]))
+
+    def test_other_unsupported_hosts_fail_with_their_own_reason(self):
+        check = doctor.session_check(
+            self.refuse(doctor.session_boundary.UnsupportedBoundary("Proc namespace does not match"))
+        )
+        self.assertEqual(doctor.MISSING, check.status)
+        self.assertIn("Proc namespace does not match", check.detail)
+        self.assertNotIn("setpriv", check.fix)
+
+    def test_macos_portable_supervision_and_a_supported_host_pass(self):
+        portable = doctor.session_check(self.refuse(doctor.session_boundary.PortableHost("macOS")))
+        self.assertEqual(doctor.OK, portable.status)
+        self.assertEqual(doctor.OK, doctor.session_check(lambda: None).status)
+
+    def test_all_checks_carries_the_session_check(self):
+        workspace = Path(tempfile.mkdtemp(prefix="doctor-session-"))
+        self.addCleanup(shutil.rmtree, workspace, True)
+        self.assertIn("session", [check.name for check in doctor.all_checks(workspace, runner=fake_runner({}))])
+
+
+class PathCheckTests(unittest.TestCase):
+    """#1761: a venv install works through .venv/bin/autocode while a new shell says command not found."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="doctor-path-")
+        self.addCleanup(directory.cleanup)
+        self.bin = Path(directory.name) / "venv" / "bin"
+        self.bin.mkdir(parents=True)
+        (self.bin / "autocode").write_text("#!/bin/sh\n")
+
+    def test_an_install_off_path_warns_and_names_its_directory(self):
+        check = doctor.path_check(which=on_path(), scripts=str(self.bin), environ={})
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("command not found", check.detail)
+        self.assertIn(f'export PATH="{self.bin}:$PATH"', check.fix)
+        self.assertIn(f"source {self.bin / 'activate'}", check.fix)
+        self.assertIn("pipx install autocode-supervisor", check.fix)
+
+    def test_without_a_script_to_point_at_the_fix_is_pipx(self):
+        check = doctor.path_check(which=on_path(), scripts=str(self.bin.parent / "elsewhere"), environ={})
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertNotIn("export PATH", check.fix)
+        self.assertIn("pipx install autocode-supervisor", check.fix)
+
+    def test_on_path_only_through_an_activated_venv_says_a_new_shell_needs_it_again(self):
+        found = str(self.bin / "autocode")
+        check = doctor.path_check(
+            which=lambda name: found, scripts=str(self.bin), environ={"VIRTUAL_ENV": str(self.bin.parent)}
+        )
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("a new shell finds it only after", check.detail)
+
+    def test_on_path_for_good_is_ok(self):
+        check = doctor.path_check(which=on_path("autocode"), scripts=str(self.bin), environ={})
+        self.assertEqual(doctor.Check("path", doctor.OK, "/bin/autocode"), check)
+
+    def test_a_missing_path_entry_never_fails_doctor(self):
+        workspace = Path(tempfile.mkdtemp(prefix="doctor-path-ws-"))
+        self.addCleanup(shutil.rmtree, workspace, True)
+        checks = doctor.all_checks(workspace, which=on_path(), runner=fake_runner({}))
+        row = next(check for check in checks if check.name == "path")
+        self.assertEqual(doctor.WARN, row.status)
+        self.assertEqual(doctor.passed(checks), doctor.passed([c for c in checks if c.name != "path"]))
+
+
 class InstallDriftCheckTests(unittest.TestCase):
     """#972: a separately-installed copy that diverges must warn; the healthy
     linked/editable and single-copy configurations must never warn."""
@@ -804,7 +1077,7 @@ class InstallDriftCheckTests(unittest.TestCase):
         shared = self.tree("tools", {"autocode_util.py": "x = 1\n"})
         check = doctor.install_drift_check(checkout=shared, installed=shared)
         self.assertEqual(doctor.OK, check.status)
-        self.assertIn("linked", check.detail)
+        self.assertIn("the copy executing now", check.detail)
 
     def test_identical_trees_match(self):
         checkout = self.tree("checkout", {"autocode_util.py": "x = 1\n", "autocode.py": "main\n"})

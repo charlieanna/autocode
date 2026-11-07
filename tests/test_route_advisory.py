@@ -27,7 +27,9 @@ class RouteAdvisoryTests(unittest.TestCase):
         after["roles"]["glm"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
         held = copy.deepcopy((before, after))
         [message] = advisory.warnings(before, after)
-        self.assertIn("Requirements -> Builder", message)
+        # The glm slot runs the Planner's work (954f51e3 relabelled it from Requirements).
+        self.assertIn("Planner -> Builder", message)
+        self.assertIn("--glm-model / --terra-model", message)
         self.assertIn("glm", before["roles"]["glm"]["model"])
         self.assertIn("mimo-v2.6-pro", message)
         self.assertIn("original authorship", message)
@@ -48,8 +50,12 @@ class RouteAdvisoryTests(unittest.TestCase):
         messages = advisory.warnings(before, after)
         self.assertEqual(3, len(messages))
         self.assertIn("Requirements -> Builder", messages[0])
-        self.assertIn("Requirements -> Builder", messages[1])
+        self.assertIn("--requirements-model / --terra-model", messages[0])
+        # The glm and astra slots both run the Planner's work; their flags tell the links apart.
+        self.assertIn("Planner -> Builder", messages[1])
+        self.assertIn("--glm-model / --terra-model", messages[1])
         self.assertIn("Planner -> Builder", messages[2])
+        self.assertIn("--astra-model / --terra-model", messages[2])
 
     def test_v2_uses_actual_planner_route_and_job_names(self):
         before = settings(requirements="glm-5.3", glm="gpt-6-sol", astra="mimo-v2.6-pro", terra="mimo-v2.6-pro")
@@ -78,12 +84,25 @@ class RouteAdvisoryTests(unittest.TestCase):
         self.assertEqual([], advisory.warnings({}, selected))
         self.assertEqual([], advisory.warnings(settings(glm="glm-5.3"), settings(glm="mimo-v2.6-pro")))
 
-    def test_exact_gpt_aliases_match_but_different_tiers_do_not(self):
+    def test_gpt_aliases_and_tiers_share_the_openai_family_but_other_prefixes_do_not(self):
         self.assertTrue(identity.shared_family("gpt-6-sol", "openai/gpt-6-sol"))
-        self.assertFalse(identity.shared_family("gpt-6-sol", "openai/gpt-6-astra"))
+        self.assertTrue(identity.shared_family("gpt-6-sol", "openai/gpt-6-astra"))
         self.assertFalse(identity.shared_family("custom/gpt-6-sol", "gpt-6-sol"))
         self.assertFalse(identity.shared_family("openai/custom-model", "custom-model"))
         self.assertFalse(identity.shared_family("", ""))
+
+    def test_a_codex_run_reports_one_shared_gpt_model_not_the_gpt_family(self):
+        # Codex reaches only GPT models, so the independence rule counts one model there, not the family.
+        before = settings(requirements="gpt-5.6-sol", glm="gpt-5.6-sol", astra="gpt-5.6-sol", terra="gpt-5.6-terra")
+        before["engine"] = "codex"
+        after = copy.deepcopy(before)
+        after["roles"]["astra"]["model"] = "gpt-5.6-terra"
+        [message] = advisory.warnings(before, after)
+        self.assertIn("Planner -> Builder", message)
+        self.assertIn("gpt-5.6-terra / gpt-5.6-terra", message)
+        # On any other engine every GPT model is one family: the link was shared already, nothing is new.
+        del before["engine"], after["engine"]
+        self.assertEqual([], advisory.warnings(before, after))
 
     def test_single_model_opt_in_retains_advisory_for_a_new_link(self):
         before = settings(glm="glm-5.3", terra="mimo-v2.6-pro")

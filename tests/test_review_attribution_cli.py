@@ -13,6 +13,8 @@ from pathlib import Path
 from autocode_taskrun import TaskRun
 from harness import catalog
 from harness.driver import fake_setup, saved_run_flags
+from harness.processes import run_cli
+from harness.project import materialize
 
 
 @unittest.skipUnless(sys.platform == "linux", "supervised fake-provider checks require supported Linux")
@@ -34,6 +36,12 @@ class ReviewAttributionCLI(unittest.TestCase):
                 )
             )
             (project / "change.patch").write_text(reviewed_patch)
+            # Exact named input must outrank generic review words in a crowded
+            # workspace; this is the real public review path, not a prompt mock.
+            noise = project / "archive/review/merge/patch/before"
+            noise.mkdir(parents=True)
+            for index in range(45):
+                (noise / f"{index}.txt").write_text("unrelated fixture\n")
             for args in (
                 ("init", "-q"),
                 ("add", "-A"),
@@ -55,7 +63,7 @@ class ReviewAttributionCLI(unittest.TestCase):
                         "findings": [
                             {
                                 "id": "F1",
-                                "severity": "blocking",
+                                "severity": "blockign",
                                 "file": "calc.py",
                                 "lines": [5],
                                 "summary": "Empty parse returns None",
@@ -73,15 +81,25 @@ class ReviewAttributionCLI(unittest.TestCase):
                 project,
                 "Review change.patch before merge",
                 options=saved_run_flags(flags),
-                start_options=("--workflow", "review"),
+                start_options=("--workflow", "review", "--spec-first"),
                 env={**os.environ, **fake_env, "AUTOCODE_HOME": str(root / "registry")},
                 cwd=root,
                 timeout=180,
             )
             view = run.advance_until_input()
             self.assertTrue(view["done"], view)
-            result = view["evidence"]["workflow_result"]
+            result = view["review_result"]
             self.assertEqual("approve", result["outcome"])
+            self.assertEqual("current", result["freshness"])
+            attempts = view["usage"]["accounting"]["attempts"]
+            self.assertTrue(attempts)
+            self.assertTrue(all(row.get("stage") == "review_change" for row in attempts), attempts)
+            self.assertEqual(1, len(attempts), "A spelling correction must not launch another review/repair")
+            prompt = Path(attempts[0]["output"]).with_suffix(".prompt.md").read_text()
+            handoff = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            self.assertEqual("change.patch", handoff["workspace_inventory"]["files"][0])
+            original_report = json.loads(Path(attempts[0]["output"]).with_suffix(".reported.json").read_text())
+            self.assertEqual("blockign", original_report["findings"][0]["severity"])
             report_path = run.workspace / "review/findings.json"
             raw = report_path.read_bytes()
             report = json.loads(raw)
@@ -96,5 +114,141 @@ class ReviewAttributionCLI(unittest.TestCase):
             self.assertEqual(original, (run.workspace / "calc.py").read_text())
             self.assertEqual(original, (project / "calc.py").read_text())
             canonical = run.evidence_report(require_current=False)
-            self.assertEqual(result, canonical["document"]["workflow_result"])
+            recorded = canonical["document"]["workflow_result"]
+            self.assertEqual(recorded, view["evidence"]["workflow_result"])
+            self.assertNotIn("freshness", recorded)
+            self.assertEqual(result["source_revision"], recorded["source_revision"])
+            self.assertEqual(recorded, {key: result[key] for key in recorded})
             self.assertIn("pre-existing observations", canonical["markdown"])
+            # Inspection is read-only and does not silently extend an old review.
+            self.assertEqual(result, run.status()["review_result"])
+            code = run.workspace / "calc.py"
+            code.write_text(original + "# changed after review\n")
+            stale = run.status()["review_result"]
+            self.assertEqual(("approve", "stale_or_unverified"), (stale["outcome"], stale["freshness"]))
+            code.write_text(original)
+            self.assertEqual("current", run.status()["review_result"]["freshness"])
+            report_path.write_bytes(raw + b"\n")
+            self.assertEqual("stale_or_unverified", run.status()["review_result"]["freshness"])
+            report_path.unlink()
+            self.assertEqual("stale_or_unverified", run.status()["review_result"]["freshness"])
+
+    def test_advisory_typo_completes_once_without_losing_the_finding_or_raw_response(self):
+        with tempfile.TemporaryDirectory(prefix="review-severity-cli-") as tmp:
+            root = Path(tmp).resolve()
+            scenario = catalog.load("review-clean-pr")
+            project = materialize(scenario.seed, root / "project")
+            solution = root / "solution"
+            (solution / "review").mkdir(parents=True)
+            (solution / "review/findings.json").write_text(
+                json.dumps(
+                    {
+                        "verdict": "approve",
+                        "findings": [
+                            {
+                                "id": "F2",
+                                "severity": "advisary",
+                                "file": "README.md",
+                                "lines": [],
+                                "summary": "Retained nonblocking observation",
+                                "evidence": "Original observation text",
+                            }
+                        ],
+                    }
+                )
+            )
+            flags, fake_env = fake_setup(scenario, root, solution)
+            run = TaskRun.start(
+                project,
+                "Review this change without changing application source",
+                options=saved_run_flags(flags),
+                start_options=("--workflow", "review", "--spec-first"),
+                env={**os.environ, **fake_env, "AUTOCODE_HOME": str(root / "registry")},
+                cwd=root,
+                timeout=180,
+            )
+            view = run.advance_until_input()
+            self.assertTrue(view["done"], view)
+            self.assertEqual(
+                ("approve", "current"), (view["review_result"]["outcome"], view["review_result"]["freshness"])
+            )
+            attempts = view["usage"]["accounting"]["attempts"]
+            self.assertEqual(["review_change"], [row["stage"] for row in attempts])
+            report = json.loads((run.workspace / "review/findings.json").read_text())
+            self.assertEqual({"blocking": 0, "advisory": 1, "pre_existing": 0, "inconclusive": 0}, report["counts"])
+            finding = report["findings"][0]
+            self.assertEqual(
+                ("F2", "advisory", "Original observation text"),
+                (finding["id"], finding["severity"], finding["evidence"]),
+            )
+            raw = json.loads(Path(attempts[0]["output"]).with_suffix(".reported.json").read_text())
+            self.assertEqual("advisary", raw["findings"][0]["severity"])
+            self.assertEqual(
+                view["evidence"]["workflow_result"],
+                run.evidence_report(require_current=False)["document"]["workflow_result"],
+            )
+
+    def test_new_feature_failure_on_both_sides_remains_a_blocker_on_changed_lines(self):
+        with tempfile.TemporaryDirectory(prefix="review-new-feature-cli-") as tmp:
+            root = Path(tmp).resolve()
+            scenario = catalog.load("review-vacuous-tests")
+            project = materialize(scenario.seed, root / "project")
+            flags, fake_env = fake_setup(scenario, root, scenario.reference)
+            run = TaskRun.start(
+                project,
+                scenario.brief,
+                options=saved_run_flags(flags),
+                start_options=("--workflow", "review"),
+                env={**os.environ, **fake_env, "AUTOCODE_HOME": str(root / "registry")},
+                cwd=root,
+                timeout=180,
+            )
+            view = run.advance_until_input()
+            self.assertTrue(view["done"], view)
+            self.assertEqual("request_changes", view["evidence"]["workflow_result"]["outcome"])
+            report = json.loads((run.workspace / "review/findings.json").read_text())
+            finding = next(row for row in report["findings"] if row["id"] == "F1")
+            self.assertTrue(finding["proven_by"])
+            disposition = finding["disposition"]
+            self.assertEqual("inconclusive", disposition["kind"])
+            self.assertIn("changed source", disposition["reason"])
+            base = json.loads(Path(disposition["base_proof"]["path"]).read_text())
+            changed = json.loads(Path(disposition["changed_proof"]["path"]).read_text())
+            for name in finding["proven_by"]:
+                self.assertEqual(base["failure_details"][name], changed["failure_details"][name])
+            self.assertEqual(
+                (scenario.seed / "regclient/policies.py").read_bytes(),
+                (run.workspace / "regclient/policies.py").read_bytes(),
+            )
+
+    def test_blocking_nit_control_is_rejected_by_the_unchanged_catalog_oracle(self):
+        with tempfile.TemporaryDirectory(prefix="review-nit-control-") as tmp:
+            root = Path(tmp).resolve()
+            repo = Path(__file__).resolve().parents[1]
+            completed = run_cli(
+                [
+                    sys.executable,
+                    str(repo / "scenarios/run.py"),
+                    "run",
+                    "review-clean-pr",
+                    "--fake",
+                    "--fake-solution",
+                    "broken/blocks-on-a-nit",
+                    "--out",
+                    str(root / "results"),
+                    "--timeout-minutes",
+                    "5",
+                ],
+                env={**os.environ, "AUTOCODE_HOME": str(root / "registry")},
+                cwd=repo,
+                timeout=360,
+            )
+            files = list((root / "results").glob("*/result.json"))
+            self.assertEqual(1, len(files), completed.stdout + completed.stderr)
+            result = json.loads(files[0].read_text())
+            self.assertEqual(1, completed.returncode, result)
+            self.assertEqual("FALSE_COMPLETE", result["verdict"], result)
+            self.assertEqual("TASK_COMPLETE", result["runner_status"], result)
+            checks = {row["name"]: row["ok"] for row in result["checks"]}
+            self.assertFalse(checks["no_blocking_findings"], result)
+            self.assertFalse(checks["verdict_approves"], result)

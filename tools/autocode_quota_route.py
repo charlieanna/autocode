@@ -33,35 +33,58 @@ import re
 from pathlib import Path
 
 try:
+    from . import autocode_context_window as context_window
     from . import autocode_output_cap as output_cap
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
+    from . import autocode_route_fit as route_fit
+    from . import autocode_verifier_independence as verifier_independence
 except ImportError:
+    import autocode_context_window as context_window
     import autocode_output_cap as output_cap
     import autocode_provider_refusal as provider_refusal
     import autocode_role_route as role_route
     import autocode_role_transport as role_transport
     import autocode_roles as roles
+    import autocode_route_fit as route_fit
+    import autocode_verifier_independence as verifier_independence
 
 PREFIX = "route-"
 CATEGORY = "quota"  # a non-inferable question category (autocode_goals); all model stops use it
 QUOTA_STATUS = "PAUSED_BUDGET"
 REFUSAL_STATUS = provider_refusal.STATUS
 OUTPUT_STATUS = output_cap.STATUS
-STATUSES = (QUOTA_STATUS, REFUSAL_STATUS, OUTPUT_STATUS)
+# The request no longer fit the model's context window, or the provider compacted the conversation (#1942):
+# a person names a model with a larger window, or gives the job a smaller task.
+CONTEXT_STATUS = context_window.STATUS
+STATUSES = (QUOTA_STATUS, REFUSAL_STATUS, OUTPUT_STATUS, CONTEXT_STATUS)
+AUTH_STATUS = "PAUSED_AUTH"
+# Authentication rerouting is limited to retained workflow jobs with exact tokens.
+TIMEOUT_STATUS = "PAUSED_PROVIDER_TIMEOUT"
+JOB_STATUSES = STATUSES + (AUTH_STATUS, TIMEOUT_STATUS)
+JOB_PREFLIGHT_PAUSES = (AUTH_STATUS, "PAUSED_BILLING_ROUTE")
+# The cross-model guard is the same kind of model question: a person names the
+# verifier's next model. It is not a provider stop, so it is kept out of STATUSES
+# (which classify attempt failures) and added to MODEL_STOPS for --answer.
+CROSS_MODEL_STATUS = "PAUSED_CROSS_MODEL"
+CROSS_CAUSE = "cross_model"
+MODEL_STOPS = JOB_STATUSES + (CROSS_MODEL_STATUS,)
 _STOPPED = {
     QUOTA_STATUS: "stopped on quota",
     REFUSAL_STATUS: "its provider's content filter refused",
     OUTPUT_STATUS: "exhausted its response output limit",
+    CONTEXT_STATUS: "ran out of its model's context window",
+    AUTH_STATUS: "failed provider authentication",
+    TIMEOUT_STATUS: "exceeded its execution time limit",
 }
 KIND = "route_assignment"
 # Roles a person can route by flag on resume (autocode_args: --<role>-model).
 ROLES = ("astra", "terra", "sol", "completion", "glm", "requirements", "resolver", "plan_reviewer")
 # Workflow-job models are changed by an answer with the exact job token, never a
 # resume flag. The stuck-stage Investigator answer also saves its preparation pin.
-JOB_ROLES = ("architect", "analyst", "investigator", "stuck_investigator")
+JOB_ROLES = ("architect", "analyst", "investigator", "stuck_investigator", "acceptance_tester")
 ROUTABLE = ROLES + JOB_ROLES
 _JOB_PAUSES = ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED")  # autocode_job_failure.PAUSES
 _OPENCODE_MODEL = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}")
@@ -137,6 +160,28 @@ def _routable(state: RunState, record: dict) -> str | None:
     return None
 
 
+def job_stop_status(failure: dict) -> str | None:
+    """Include retained pre-auth/timeout-routing failures without mutating their evidence.
+
+    A stage-deadline stop (``deadline_stop``) is not a model stop: it is retried exactly (#2605).
+    """
+    if deadline_stop(failure) and not failure.get("pause_status"):
+        return None
+    return failure.get("pause_status") or {"provider_auth": AUTH_STATUS, "timeout": TIMEOUT_STATUS}.get(
+        str(failure.get("kind") or "")
+    )
+
+
+def deadline_stop(failure: dict) -> bool:
+    """A workflow job stopped by its hard stage deadline: AutoCode's own limit, never a question about models.
+
+    autocode_job_deadline extends the deadline first; once that is spent the job takes its exact
+    retry on the same model (#2605). Another limit (the exploration budget, ``progress``) still
+    asks its model question, and a failure saved before the kind was recorded keeps its own.
+    """
+    return failure.get("kind") == "timeout" and failure.get("timeout_kind") == "stage"
+
+
 def job_pause_current(state: RunState) -> bool:
     """True when ``job_failure`` is the pause the run is in now.
 
@@ -146,7 +191,20 @@ def job_pause_current(state: RunState) -> bool:
     only set ``job_failure``, keep the exact retry.
     """
     failure = state.get("job_failure") or {}
-    if not failure or state.get("status") not in _JOB_PAUSES:
+    if not failure:
+        return False
+    status = state.get("status")
+    if status in JOB_PREFLIGHT_PAUSES:
+        authorization = state.get("job_retry_authorization") or {}
+        if (
+            state.get("active_stage")
+            or authorization.get("consumed") is not False
+            or authorization.get("token") != failure.get("job_retry_token")
+            or authorization.get("stage") != failure.get("stage")
+            or state.get("next_stage") != failure.get("stage")
+        ):
+            return False
+    elif status not in _JOB_PAUSES:
         return False
     recovery = state.get("recovery_context") or {}
     if not recovery:
@@ -162,7 +220,7 @@ def job_pause_current(state: RunState) -> bool:
 def _job_row(state: RunState) -> dict | None:
     """The archived attempt of a workflow job paused on quota or a refusal (autocode_job_failure), or None."""
     failure = state.get("job_failure") or {}
-    if not job_pause_current(state) or failure.get("pause_status") not in STATUSES:
+    if not job_pause_current(state) or job_stop_status(failure) not in JOB_STATUSES:
         return None
     return next(
         (
@@ -178,9 +236,9 @@ def _job_row(state: RunState) -> dict | None:
 
 
 def job_question(state: RunState) -> dict | None:
-    """The saved model question, or a bound legacy stopped Investigator projection.
+    """The saved model question, or a bound legacy stopped-job projection.
 
-    Older Investigator stops omitted the question. Reconstruct only from that
+    Older Investigator and acceptance-writer stops omitted the question. Reconstruct only from that
     exact archived physical attempt, its captured source and launch configuration;
     this read grants no retry authority and never changes the saved state.
     """
@@ -188,13 +246,22 @@ def job_question(state: RunState) -> dict | None:
     if isinstance(failure.get("route"), dict):
         return failure["route"]
     row = _job_row(state)
-    role = "stuck_investigator"
+    timeout_role = (
+        {"investigate_bug": "investigator", "write_acceptance_tests": "acceptance_tester"}.get(
+            str(failure.get("stage") or "")
+        )
+        if failure.get("kind") == "timeout"
+        else None
+    )
+    role = timeout_role or "stuck_investigator"
     config = failure.get("configuration")
     bound = (config.get("roles") or {}).get(role) if isinstance(config, dict) else None
     launched = (row or {}).get("launch_route") or {}
     if (
-        failure.get("stage") != "investigate_stuck"
+        (failure.get("stage") != "investigate_stuck" and not timeout_role)
+        or (timeout_role and (state.get("active_stage") is not None or state.get("active_runner_check") is not None))
         or not row
+        or (timeout_role and row.get("timed_out") is not True)
         or row.get("worker_attempt")
         or not row.get("rejected")
         or _routable(state, row) != role
@@ -210,7 +277,7 @@ def job_question(state: RunState) -> dict | None:
     ):
         return None
     return question(
-        state, {"role": role, "stage": row["stage"], "model": bound["model"], "pause_status": failure["pause_status"]}
+        state, {"role": role, "stage": row["stage"], "model": bound["model"], "pause_status": job_stop_status(failure)}
     )
 
 
@@ -251,7 +318,7 @@ def stopped_attempt(state: RunState, *, failure_status) -> dict | None:
     events = record.get("events")
     role = _routable(state, record)
     if kind == "job":
-        status = state["job_failure"]["pause_status"]  # classified when the job stopped
+        status = job_stop_status(state["job_failure"])  # classified when the job stopped
     else:
         try:
             status = failure_status(events) if events and Path(events).is_file() else None
@@ -262,7 +329,7 @@ def stopped_attempt(state: RunState, *, failure_status) -> dict | None:
             status = failure_status(events, record=record)
         except (OSError, ValueError, TypeError):
             status = None
-    if not role or status not in STATUSES:
+    if not role or status not in (JOB_STATUSES if kind == "job" else STATUSES):
         return None
     bound = (
         state["job_failure"].get("configuration")
@@ -326,18 +393,107 @@ def question(
         "cause": "quota",
         "stopped_model": stopped_on,
     }
+    if attempt.get("pause_status") == AUTH_STATUS:
+        asked.update(
+            cause="authentication",
+            question=f"{job}'s provider authentication failed; name another model or repair its login",
+            why=(
+                f"The {job} could not authenticate on {stopped_on}. Repair that provider's credentials and retry "
+                "unchanged, or explicitly name a model for the same engine. AutoCode never switches models or "
+                "copies credentials on its own. The exact retry retains the failed attempt, usage and limits."
+            ),
+        )
+        return asked
+    if attempt.get("pause_status") == TIMEOUT_STATUS:
+        asked.update(
+            cause="timeout",
+            question=f"{job} exceeded its execution time limit; name another model or retry unchanged",
+            why=(
+                f"The {job} did not finish on {stopped_on} within its saved time limit. "
+                "An unchanged retry can time out again. Enter the current model to explicitly keep it, "
+                "or name another model for this job only. AutoCode never changes routes, effort or limits on its own; "
+                "the archived attempt and recorded usage are retained."
+            ),
+        )
+        lighter = lower_effort(state, role, stopped_on)
+        if lighter:
+            # The lever that worked live (#1902): the same model at a lighter variant it declares, offered
+            # first. Still a person's answer; nothing moves until it is given.
+            asked.update(
+                question=(
+                    f"{job} exceeded its execution time limit; retry {stopped_on} at {lighter['to']} effort, "
+                    "name another model, or retry unchanged"
+                ),
+                lower_effort=lighter,
+                candidates=[lighter["answer"]],
+                recommendation=(
+                    f"Recommended: the same model at a lower effort it declares, {lighter['to']} (was "
+                    f"{lighter['from']}): --answer {asked['id']}={lighter['answer']} --job-retry-token - "
+                    "(reads AUTOCODE_JOB_RETRY_TOKEN)."
+                ),
+            )
+            asked["why"] += " " + asked["recommendation"]
+        return asked
+    if attempt.get("pause_status") == CONTEXT_STATUS:
+        asked.update(
+            cause="context_window",
+            question=f"{job}'s request no longer fit its model's context window; name a model with a larger window",
+            why=(
+                f"The {job} stopped on {stopped_on}: its request exceeded the model's context window, or the provider "
+                "compacted (summarized) the conversation to make it fit, so the response was not produced from the "
+                "whole handoff and is not accepted. An unchanged retry would send the same request. AutoCode never "
+                f"changes the model on its own. Name a model with a larger context window for the same engine "
+                f"({engine(settings, role)}) that passes the producer/checker independence rules, or set the attempt "
+                "aside and give the job a smaller task (a narrower --package, or a split milestone). The attempt and "
+                "its usage remain retained."
+            ),
+        )
+        return asked
     if attempt.get("pause_status") == OUTPUT_STATUS:
+        cap = attempt.get("output_token_cap")
+        setting = ""
+        if isinstance(cap, dict) and cap.get("tokens"):
+            variable = cap.get("variable") or output_cap.VARIABLE
+            setting = (
+                f" The recorded output-limit setting is {cap['tokens']} tokens, reasoning included "
+                f"({variable}, {output_cap.SET_BY.get(cap.get('set_by') or '') or cap.get('set_by') or variable}); "
+                f"on a route that honors it, set {variable} to a larger number of tokens before resuming."
+            )
         asked.update(
             cause="output_limit",
             question=f"{job}'s response exhausted its output limit; name another model to continue on",
             why=(
                 f"The {job} stopped on {stopped_on}: reasoning and report text shared the response output limit, "
                 "and no complete report was emitted. An unchanged retry can exhaust it again. "
-                "AutoCode never changes the model or token cap on its own. Name a model with more output "
+                "AutoCode never changes the model or token cap on its own."
+                + setting
+                + " Name a model with more output "
                 f"headroom for the same engine ({engine(settings, role)}) that passes the producer/checker "
                 "independence rules. The incomplete attempt and its usage remain retained."
             ),
         )
+        if cross_check is not None:
+            passing, refused = candidates(
+                state,
+                role,
+                stopped_on,
+                cross_check=cross_check,
+                configured_tool=configured_tool,
+                job=job,
+                current=current,
+                rule=rule,
+            )
+            asked["candidates"] = passing
+            asked["recommendation"] = (
+                f"Configured models that pass the launch rules for the {job}, to check for output headroom: "
+                f"{', '.join(passing)}."
+                if passing
+                else f"No other configured model passes the launch rules for the {job} (refused: {', '.join(refused)}); "
+                "name one from another provider."
+                if refused
+                else f"No model from another provider is configured; name one for the {job}."
+            )
+            asked["why"] += " " + asked["recommendation"]
         return asked
     if attempt.get("pause_status") != REFUSAL_STATUS:
         return asked
@@ -374,6 +530,62 @@ def question(
         )
         asked["why"] += " " + asked["recommendation"]
     return asked
+
+
+def lower_effort(state: RunState, role: str, model) -> dict | None:
+    """The next lower reasoning variant ``model`` declares below the level ``role`` stopped at, or None.
+
+    The level is the one the stopped job's exact retry is bound to (else the saved route's), fitted to the
+    declared variants as its launch fitted it (autocode_route_fit). Only a level the tool lists, or a probe
+    passed, is offered: with neither, nothing is (an unsupported level is never proposed).
+    """
+    settings = state.get("settings") or {}
+    if not isinstance(model, str) or not model:
+        return None
+    bound = ((state.get("job_failure") or {}).get("configuration") or {}).get("roles") or {}
+    route = bound.get(role)
+    if not isinstance(route, dict):
+        route = (settings.get("roles") or {}).get(role) or {}
+    levels = route_fit.declared_for(settings, model) or route_fit.certified_for(settings, model)
+    levels = [level for level in levels or () if level in route_fit.SCALE]
+    effort = route.get("reasoning_effort")
+    if not levels or effort not in route_fit.SCALE:
+        return None
+    launched = route_fit.nearest(effort, levels)
+    lower = [level for level in levels if route_fit.SCALE.index(level) < route_fit.SCALE.index(launched)]
+    if not lower:
+        return None
+    return {"model": model, "from": launched, "to": lower[-1], "answer": f"{model}@{lower[-1]}"}
+
+
+def split_effort(answer: str) -> tuple[str, str | None]:
+    """(model, effort) from a model answer ``MODEL@LEVEL``; (answer, None) without a known level suffix."""
+    model, separator, level = answer.rpartition("@")
+    level = level.strip().lower()
+    if not separator or not model.strip() or level not in route_fit.SCALE:
+        return answer, None
+    return model.strip(), level
+
+
+def check_effort(state: RunState, role: str, model: str, effort: str, *, job: str | None = None) -> None:
+    """Refuse a named ``effort`` that ``model`` does not declare, by the one fit rule (autocode_route_fit).
+
+    The level is a person's, so it never moves: a listing without it refuses, naming the declared ones;
+    with no listing the launch check decides, as for any person-named level.
+    """
+    trial = copy.deepcopy(state.get("settings") or {})
+    route = (trial.get("roles") or {}).get(role)
+    if not isinstance(route, dict):
+        raise ValueError(f"This run has no {job or role} route to assign")
+    route.update(model=model, reasoning_effort=effort)
+    trial.setdefault("effort_origins", {})[role] = route_fit.USER_EXPLICIT
+    try:
+        route_fit.fit(trial, role)
+    except route_fit.EffortUnsupported as error:
+        raise ValueError(
+            f"{model} does not declare reasoning variant {effort!r} for the {job or role}; it declares "
+            f"{', '.join(error.declared)}. Answer with one of those: --answer {PREFIX}{role}={model}@LEVEL"
+        ) from None
 
 
 def _provider(model) -> str | None:
@@ -444,6 +656,13 @@ def advice(asked: dict, attempt_id: str | None, *, kind: str = "stage", answerab
                 "; or, once the quota resets, retry it unchanged with --resume-paused --retry-failed-stage "
                 "--job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
             )
+        if asked.get("cause") == "timeout":
+            text += "; or retry unchanged with --resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
+        if asked.get("cause") == "authentication":
+            text += (
+                "; or, after repairing provider authentication, retry it unchanged with --resume-paused "
+                "--retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
+            )
         return text + "." + (" " + asked["recommendation"] if asked.get("recommendation") else "")
     steps = (
         [
@@ -490,11 +709,72 @@ def answers_route(questions, origin: dict | None, role: str) -> bool:
     return (origin or {}).get("pause_status") in STATUSES and asked_route(questions, PREFIX + role) is not None
 
 
+def cross_model_question(state: RunState) -> dict | None:
+    """The model question for the verifier whose route breaks independence, or None.
+
+    ``PAUSED_CROSS_MODEL`` is not a provider stop and has no attempt: the question
+    is derived from the saved routes, so it needs no issued token. ``candidates``
+    lists configured models for the same engine that would pass the launch and
+    cross-model rules; the person may still name another.
+    """
+    rows = verifier_independence.clashes(state.get("settings") or {})
+    if not rows:
+        return None
+    row = rows[0]
+    role = row["verifier"]
+    settings = state.get("settings") or {}
+    current = ((settings.get("roles") or {}).get(role) or {}).get("model")
+    job = roles.screen_name(role, state)
+    asked = {
+        "id": PREFIX + role,
+        "question": f"{job} would grade its own work ({row['label']}: {row['problem']}); name the {job}'s model",
+        "why": (
+            f"The {row['label']} route shares a model family ({row['problem']}). "
+            f"A verifier never runs the model that produced the work it judges. "
+            f"Name a model for the same engine ({engine(settings, role)}) for the {job} "
+            f"that does not share {row['producer_model']}'s family. "
+            "AutoCode never switches models on its own."
+        ),
+        "options": [],
+        "proposed_default": "",
+        "kind": "decision",
+        "category": CATEGORY,
+        "delegable": False,
+        "route_role": role,
+        "job": job,
+        "current_model": current,
+        "engine": engine(settings, role),
+        "cause": CROSS_CAUSE,
+        "stopped_model": current,
+    }
+    passing, refused = candidates(
+        state,
+        role,
+        current,
+        cross_check=cross_model_check(role),
+        job=job,
+        current=current,
+    )
+    # candidates() skips the current model as ``refused_model``; for this stop the
+    # refusal is the family clash, so the same exclusion is what we want.
+    asked["candidates"] = passing
+    asked["recommendation"] = (
+        f"Configured models that pass the launch rules for the {job}: {', '.join(passing)}."
+        if passing
+        else f"No other configured model passes the launch rules for the {job}"
+        + (f" (refused: {', '.join(refused)})" if refused else "")
+        + "; name one that does not share the producer's family."
+    )
+    asked["why"] += " " + asked["recommendation"]
+    return asked
+
+
 def parse_answer(answers, questions, origin: dict) -> tuple[dict, str]:
-    """(question, model) from ``--answer route-<role>=MODEL`` at a quota or refusal stop; ValueError otherwise."""
-    if (origin or {}).get("pause_status") not in STATUSES:
+    """(question, model) from ``--answer route-<role>=MODEL`` at a model stop; ValueError otherwise."""
+    if (origin or {}).get("pause_status") not in MODEL_STOPS:
         raise ValueError(
-            "Only a quota, content-filter or output-limit stop is answered with a model; use --resolver-response for this request"
+            "Only a quota, content-filter, output-limit, context-window, failed-job authentication, stopped-job timeout or cross-model stop is answered with a model; "
+            "use --resolver-response for this request"
         )
     if len(answers) != 1:
         raise ValueError("Answer the model question on its own: --answer route-ROLE=MODEL")
@@ -517,12 +797,15 @@ def validate(
     cross_check,
     job: str | None = None,
     current: str | None = None,
+    allow_unchanged: bool = False,
 ) -> None:
     """Refuse a model a launch would refuse: wrong format for the engine, unchanged, or a cross-model clash.
 
     ``job`` names the role as the question does (``Tester``), never by its code name. ``current`` is the
     model the stopped attempt ran on when the role's saved route has moved since (a parallel Builder whose
     sibling's answer already moved it, #465); unchanged means unchanged from that model.
+    Only a retained, fully stopped timeout job permits ``allow_unchanged``: its
+    token-bound answer explicitly confirms the existing model without launching it.
     """
     settings = state.get("settings") or {}
     route = (settings.get("roles") or {}).get(role)
@@ -540,15 +823,39 @@ def validate(
         problem = f"{job} needs a model name without spaces"
     if problem:
         raise ValueError(problem)
-    if (current or route.get("model")) == model:
+    if not allow_unchanged and (current or route.get("model")) == model:
         raise ValueError(f"The {job} already uses {model}; name a different model")
     clash = _clashes(settings, role, model, cross_check)
     if clash:
         raise ValueError(clash)
 
 
+def cross_model_check(role: str):
+    """``cross_check`` for a cross-model answer: raise like the dispatch guard when ``role`` still clashes.
+
+    Only the pairs ``role`` is in count. Another pair that also breaks independence is
+    asked about next: the dispatch guard pauses on it again before any launch, so an
+    answer that fixes this pair is never refused for a clash it cannot fix.
+    """
+
+    def check(trial: dict) -> None:
+        problems = [
+            f"{row['label']}: {row['problem']}"
+            for row in verifier_independence.clashes(trial.get("settings") or {})
+            if role in (row["producer"], row["verifier"])
+        ]
+        if problems:
+            error = RuntimeError("; ".join(problems))
+            error.status = CROSS_MODEL_STATUS  # type: ignore[attr-defined]
+            raise error
+
+    return check
+
+
 def _clashes(settings: dict, role: str, model: str, cross_check) -> str | None:
     """The cross-model refusal a launch would raise with ``model`` on ``role``, or None."""
+    if cross_check is None:
+        return None
     trial = {"settings": copy.deepcopy(settings)}
     trial["settings"]["roles"][role]["model"] = model
     try:
@@ -584,10 +891,13 @@ def assign(
     request_id: str | None = None,
     current: str | None = None,
     actor: str = "user_cli",
+    effort: str | None = None,
 ) -> dict:
     """Set the role's model, drop its session and append the route_assignment record; return the record.
 
     The record's ``from`` is ``current`` (as for ``validate``) when given, else the role's saved route.
+    ``effort`` is a level the person named with the model (``MODEL@LEVEL``, checked by ``check_effort``):
+    saved as theirs and recorded as the assignment's ``effort``.
     """
     settings = state["settings"]
     route = settings["roles"][role]
@@ -610,6 +920,21 @@ def assign(
         record["request_id"] = request_id
     _carry(state, role, route.get("model"), model)
     route["model"] = model
+    # The role keeps its effort; the named model may not declare it (#2006). One fit rule (#2057):
+    # a runner-chosen effort moves to the nearest declared variant and is recorded; a person-named
+    # one the model does not declare refuses with its flag.
+    if effort is not None:
+        record["effort"] = {"from": route.get("reasoning_effort"), "to": effort, "named": True}
+        route["reasoning_effort"] = effort
+        settings.setdefault("effort_origins", {})[role] = route_fit.USER_EXPLICIT
+        (settings.get("effort_fits") or {}).pop(role, None)
+        if settings.get("effort_fits") == {}:
+            settings.pop("effort_fits")
+    fitted = route_fit.fit(settings, role)
+    if effort is None and fitted.reason == "fitted":
+        route["reasoning_effort"] = fitted.effort
+        record["effort"] = {"from": fitted.from_effort, "to": fitted.effort}
+        route_fit.record(settings, role, fitted, cause="route_answer")
     if role == "stuck_investigator":
         record["investigator_settings_present"] = "stuck_investigation" in settings
         investigation = settings.setdefault("stuck_investigation", {})
@@ -670,6 +995,8 @@ def resume_refusal(
         "route_role": role,
         "cause": "output_limit"
         if attempt.get("pause_status") == OUTPUT_STATUS
+        else "context_window"
+        if attempt.get("pause_status") == CONTEXT_STATUS
         else "content_filter"
         if attempt.get("pause_status") == REFUSAL_STATUS
         else "quota",

@@ -62,8 +62,13 @@ class RequirementsChatTests(unittest.TestCase):
         pinned = {"task": "Look over my change", "settings": {"spec_first": True}}
         workflows.begin(pinned, chat.STAGE)
         workflows.pin(pinned, "review")
-        self.assertTrue(chat.gather_first(pinned))
-        self.assertEqual((chat.STAGE, "review"), (pinned["next_stage"], pinned["workflow"]["kind"]))
+        self.assertFalse(chat.gather_first(pinned))
+        self.assertEqual(("review_change", "review"), (pinned["next_stage"], pinned["workflow"]["kind"]))
+        for kind in ("build", "discuss", "design"):
+            state = {"task": "Work on this", "settings": {"spec_first": True}}
+            workflows.begin(state, chat.STAGE)
+            workflows.pin(state, kind)
+            self.assertTrue(chat.gather_first(state), kind)
         for state in (
             {"task": "hi", "settings": {}},
             {"task": "hi", "settings": {"spec_first": True}, "turns": [{"say": "hi"}]},
@@ -177,12 +182,15 @@ class RequirementsChatTests(unittest.TestCase):
         pinned = self.approved(workflow={"kind": "review", "then": chat.STAGE})
         self.assertTrue(chat.recognize_after_approval(pinned))
         self.assertEqual(workflows.REVIEW_STAGE, pinned["next_stage"])
+        # Every chat turn begins at Requirements (#1860), so a follow-up's approval starts its job too.
+        follow_up = self.approved(turns=[{"say": "earlier"}])
+        self.assertTrue(chat.recognize_after_approval(follow_up))
+        self.assertEqual(workflows.STAGE, follow_up["next_stage"])
         for state in (
             self.approved("Also add a total row", next_stage=chat.STAGE),
             self.approved(workflow={"kind": "build", "then": chat.STAGE}),
             self.approved(pending_questions=[{"id": "Q2"}]),
             self.approved(settings={}),
-            self.approved(turns=[{"say": "earlier"}]),
         ):
             with self.subTest(state=state):
                 before = copy.deepcopy(state)
@@ -191,6 +199,91 @@ class RequirementsChatTests(unittest.TestCase):
         legacy = self.approved()
         legacy.pop("workflow")
         self.assertFalse(chat.recognize_after_approval(legacy))
+
+    def named(self, job, **change):
+        """An approved chat whose Requirements report named ``job`` (#1846)."""
+        state = self.approved(**change)
+        report = {**state["requirements_handoff"]["report"], "job": job, "design_document": ""}
+        state["requirements_handoff"] = {"report": report, "output": None}
+        state["answers"] = {review.review_question(state)["id"]: {"text": "plan"}}
+        return state
+
+    def test_an_approval_starts_the_job_requirements_named_without_the_recognizer(self):
+        for job, first in (
+            ("build", review.NEXT),
+            ("bugfix", workflows.FIRST_STAGE["bugfix"]),
+            ("review", workflows.REVIEW_STAGE),
+            ("design", workflows.FIRST_STAGE["design"]),
+        ):
+            with self.subTest(job=job):
+                state = self.named(job)
+                self.assertTrue(chat.recognize_after_approval(state))
+                self.assertEqual(first, state["next_stage"])
+                self.assertEqual(
+                    (job, "model", "requirements_gather"),
+                    tuple(state["workflow"].get(key) for key in ("kind", "source", "named_by")),
+                )
+                self.assertIn("Requirements understood: CSV export", workflows.approval_note(state))
+        # "none" (still chatting) or an unknown value names no job: the recognizer decides, as before.
+        for job in ("none", "deploy"):
+            with self.subTest(job=job):
+                state = self.named(job)
+                self.assertTrue(chat.recognize_after_approval(state))
+                self.assertEqual(workflows.STAGE, state["next_stage"])
+
+    def test_standard_bugfix_confirmation_starts_planner_for_named_and_pinned_jobs(self):
+        for pinned in (False, True):
+            with self.subTest(pinned=pinned):
+                state = self.named("bugfix")
+                state["settings"]["implementation_flow"] = "standard"
+                if pinned:
+                    state["workflow"]["kind"] = "bugfix"
+                    state["workflow"]["source"] = "user"
+                self.assertNotIn("investigate", review.review_question(state)["question"])
+                chat.recognize_after_approval(state)
+                self.assertEqual("astra_discovery", state["next_stage"])
+
+    def test_a_named_question_starts_the_analyst_without_asking_for_approval(self):
+        def asked(**change):
+            state = self.named("discuss", **change)
+            state.pop("answers")
+            return state
+
+        state = asked()
+        self.assertTrue(chat.answer_now(state, {"output": None}))
+        self.assertEqual((workflows.DISCUSS_STAGE, "discuss"), (state["next_stage"], state["workflow"]["kind"]))
+        pinned = asked(workflow={"kind": "discuss", "then": chat.STAGE})
+        self.assertTrue(chat.answer_now(pinned, {"output": None}))
+        self.assertEqual(workflows.DISCUSS_STAGE, pinned["next_stage"])
+        # On every flow (#1860): a plain CLI run, and a follow-up after an earlier turn's Analyst.
+        for state in (
+            asked(settings={}),
+            asked(turns=[{"say": "earlier", "stage_index": 1}], stages=[{"stage": workflows.DISCUSS_STAGE}]),
+        ):
+            with self.subTest(state=state):
+                self.assertTrue(chat.answer_now(state, {"output": None}))
+                self.assertEqual(workflows.DISCUSS_STAGE, state["next_stage"])
+        for state in (
+            asked(requirements_handoff={"report": {"job": "discuss", "open_questions": [{"id": "Q1"}]}}),
+            asked(stages=[{"stage": workflows.DISCUSS_STAGE}]),
+            asked(turns=[{"say": "earlier", "stage_index": 0}], stages=[{"stage": workflows.DISCUSS_STAGE}]),
+            self.named("review"),
+        ):
+            with self.subTest(state=state):
+                before = copy.deepcopy(state)
+                self.assertFalse(chat.answer_now(state, {"output": None}))
+                self.assertEqual(before, state)
+
+    def test_only_jobs_that_build_code_need_behaviors_and_acceptance_tests(self):
+        self.assertEqual(
+            [True, True, False, False, False, True],
+            [review.builds_code(job) for job in ("build", "bugfix", "review", "design", "discuss", None)],
+        )
+        state = {"workflow": {"kind": None}, "requirements_handoff": {"report": {"job": "discuss"}}}
+        self.assertEqual("discuss", review.job(state))
+        self.assertEqual("build", review.job(state, {"job": "build"}))
+        self.assertIsNone(review.job(state, {"job": "deploy"}))
+        self.assertEqual("review", review.job({**state, "workflow": {"kind": "review"}}), "A known kind wins")
 
     def test_an_approved_build_is_planned_and_a_later_request_is_gathered_again(self):
         build = {"workflow": "build", "reason": "Adds a feature", "signals": []}
@@ -267,6 +360,14 @@ class RequirementsChatTests(unittest.TestCase):
             prompt, _ = autoplanner.context(state, chat.STAGE, root / "state.json")
             packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
             self.assertIn("reports/export.py", json.dumps(packet.get("workspace_inventory")))
+            # #1822: the prompt's source_refs rule must match the runner's complete-handoff check.
+            instruction = prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0]
+            self.assertIn("clear, correctly spelled English", instruction)
+            self.assertIn("instead of quoting their typos or shorthand", instruction)
+            self.assertIn("source_quote evidence verbatim", instruction)
+            self.assertIn("at least one existing workspace file", instruction)
+            self.assertIn("Never cite .autocode/", instruction)
+            self.assertIn("source_refs may be empty only when the inventory lists no file", instruction)
 
     def test_partial_reply_decodes_text_without_showing_json_or_other_fields(self):
         for raw, expected in [
@@ -314,6 +415,48 @@ class RequirementsChatTests(unittest.TestCase):
                 self.assertEqual("", chat.streaming_reply(state, Path("/unused-run")))
                 state["pending_report_repair"] = {"original": invalid}
                 self.assertEqual("", chat.streaming_reply(state, Path("/unused-run")))
+
+    def test_the_latest_assistant_reply_replaces_an_earlier_shorter_one(self):
+        """Codex writes whole agent_message items; a later one is the refined reply."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = root / "requirements.jsonl"
+            state = {"settings": {"spec_first": True}, "active_stage": {"stage": chat.STAGE, "events": str(events)}}
+            first = {
+                "type": "item.completed",
+                "item": {"id": "item_0", "type": "agent_message", "text": '{"assistant_reply":"I’ll check…"}'},
+            }
+            second = {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_1",
+                    "type": "agent_message",
+                    "text": '{"assistant_reply":"What should this build?","acceptance_tests":[]}',
+                },
+            }
+            events.write_text(json.dumps(first) + "\n")
+            self.assertEqual("I’ll check…", chat.streaming_reply(state, root))
+            with events.open("a") as target:
+                target.write(json.dumps(second) + "\n")
+            self.assertEqual("What should this build?", chat.streaming_reply(state, root))
+
+    def test_a_growing_item_update_streams_its_decoded_reply(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = root / "requirements.jsonl"
+            state = {"settings": {"spec_first": True}, "active_stage": {"stage": chat.STAGE, "events": str(events)}}
+            for text, expected in (
+                ('{"assistant_reply":"Hel', "Hel"),
+                ('{"assistant_reply":"Hello the', "Hello the"),
+                ('{"assistant_reply":"Hello there","acceptance_tests":[]}', "Hello there"),
+            ):
+                events.write_text(
+                    json.dumps(
+                        {"type": "item.updated", "item": {"id": "item_0", "type": "agent_message", "text": text}}
+                    )
+                    + "\n"
+                )
+                self.assertEqual(expected, chat.streaming_reply(state, root))
 
 
 if __name__ == "__main__":

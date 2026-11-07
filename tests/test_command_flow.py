@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 import autocode as runner
+import autocode_chat_history as chat_history
 import autocode_providers
 import autocode_run_view as run_view
 import autocode_workspaces
@@ -167,6 +168,32 @@ class ConfigToolFlow(unittest.TestCase):
             ["git", "-C", str(selected), "log", "-1", "--format=%s"], check=True, capture_output=True, text=True
         )
         self.assertEqual("Autocode project baseline", baseline.stdout.strip())
+
+    def test_a_chat_in_a_folder_that_is_not_a_repository_names_the_project_it_moved_into(self):
+        self.configure_fixture()
+        selected = self.root / "no-repository"
+        selected.mkdir()
+        (selected / "README.md").write_text("# notes\n")
+
+        result = subprocess.run(
+            [*self.entry, "--provider", "fixturetool", "--workspace", str(selected), "--chat", "Build a greeting tool"],
+            cwd=self.root,
+            env=self.env,
+            input="CLI\nyes\n",
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+        project = next(path for path in (selected / "autocode-projects").iterdir())
+        state = json.loads((next((project / ".autocode/runs").iterdir()) / "state.json").read_text())
+        self.assertEqual({"selected": str(selected), "project": str(project)}, state["workspace_bootstrap"])
+        # A client reads the conversation, so the disclosure is a message, not only view.workspace.
+        messages = run_view.view(state)["chat"]["messages"]
+        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, messages[1]["id"])
+        self.assertIn(str(selected), messages[1]["text"])
+        self.assertIn(str(project), messages[1]["text"])
 
     def test_config_tool_completes_with_a_capture_receipt(self):
         result = subprocess.run(

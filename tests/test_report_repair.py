@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_stage_recovery as stage_recovery
+import autocode_stuck_job as stuck_job
 from autocode_taskrun import TaskRun, TaskRunError
 from goal_fixtures import body
 
@@ -23,6 +25,69 @@ runner, support = base.runner, base.s
 
 class RepairTests(unittest.TestCase):
     setUp = base.RetrofitTest.setUp
+
+    def test_ac13_guidance_distinguishes_receipts_event_ids_placeholders(self):
+        from providers import opencode
+        from providers.command import CommandProvider
+        from providers.kilocode import KiloProvider
+        from units import common
+
+        self.state["next_stage"] = "sol"
+        self.queue(
+            stage="sol",
+            role="sol",
+            engine="opencode",
+            schema=str(runner.SCHEMA_DIR / "v2/sol-report.schema.json"),
+            error=ValueError("Check is not supported by an exact executed Validator event"),
+            event_rows=[
+                event(
+                    "tool_use",
+                    tool="bash",
+                    state={
+                        "status": "completed",
+                        "input": {"command": "python3 -m unittest -q"},
+                        "metadata": {"exit": 0},
+                        "output": "synthetic observation",
+                    },
+                ),
+                terminal(),
+            ],
+        )
+        repair = self.repair_request()["prompt"]
+        handoff = json.loads(repair.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(
+            [{"command": "python3 -m unittest -q", "exit_code": 0, "evidence_ref": "event:prt_tool_use"}],
+            handoff["original_executed_checks"],
+        )
+        with patch.object(common.goals, "execution_guard"):
+            request = common.execution_request(self.state, "sol", self.run / "state.json", runner.SCHEMA_DIR)
+        config = {"name": "synthetic", "command": ["fixture"], "roles": {}, "output": "opencode_events"}
+        facades = [
+            opencode,
+            CommandProvider(config, self.root / "provider.toml"),
+            KiloProvider(config, self.root / "kilo.toml"),
+        ]
+        for purpose, raw in (("tester", request.prompt), ("full_repair", repair)):
+            for facade in facades:
+                with self.subTest(purpose=purpose, facade=type(facade).__name__):
+                    prompt = facade.prompt_for_schema(raw, request.schema, self.run / "events.jsonl")
+                    self.assertEqual(opencode.prompt_for_schema(raw, request.schema, self.run / "events.jsonl"), prompt)
+                    text = prompt.split("CURRENT HANDOFF DATA\n", 1)[0].lower()
+                    if purpose == "full_repair":
+                        text += "\n" + handoff["finding_identity_policy"].lower()
+                    self.assertRegex(text, r"(?s)prefer.{0,160}(?:capture|receipt)")
+                    self.assertIn("event:", text)
+                    self.assertRegex(text, r"(?s)(?:concrete|exact|nonempty|non-empty).{0,180}(?:event|reference|id)")
+                    self.assertRegex(text, r"(?s)(?:null.{0,180}(?:bare|placeholder)|(?:bare|placeholder).{0,180}null)")
+                    self.assertRegex(
+                        text, r"(?s)(?:never|do not|must not).{0,180}(?:invent|private|read.{0,30}(?:log|id))"
+                    )
+                    if purpose == "full_repair":
+                        self.assertRegex(
+                            text,
+                            r"(?s)(?:original_executed_checks.{0,400}(?:null|omit)|"
+                            r"(?:null|omit).{0,400}original_executed_checks)",
+                        )
 
     def test_repair_launch_keeps_the_original_pre_upgrade_schema_bytes(self):
         self.state["next_stage"] = "astra_review"
@@ -388,6 +453,43 @@ class RepairTests(unittest.TestCase):
         # The correction borrows no repair budget: the full repair remains available.
         self.assertEqual(0, self.state["pending_report_repair"]["attempts"])
 
+    def test_fresh_kilo_repair_receives_report_and_schema_on_its_first_call(self):
+        # The actual restricted Kilo launch discards resume_session. A reminder
+        # alone therefore has neither the previous answer nor its schema.
+        self.state["next_stage"] = "terra"
+        rejected = "Completed implementation, but this final report is not JSON."
+        pending = self.queue(
+            error=self.FORMAT_ERROR,
+            engine="opencode",
+            provider="kilocode",
+            supports_sessions=True,
+            report=rejected,
+        )
+        calls = []
+
+        def fresh_provider(**kwargs):
+            calls.append(kwargs)
+            self.assertIsNone(kwargs.get("resume_session"))
+            self.assertIn("CURRENT HANDOFF DATA\n", kwargs["prompt"])
+            handoff = json.loads(kwargs["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+            self.assertEqual(rejected, handoff["rejected_report"]["content"])
+            self.assertEqual(Path(pending["original"]["schema"]), kwargs["schema"])
+            self.assertEqual(str(kwargs["schema"]), handoff["original"]["schema"])
+            self.assertFalse(kwargs["allow_write"])
+            self.assertTrue(kwargs["report_only"])
+            return {"summary": "Re-serialized saved report"}, {"stage": "terra_report_repair"}
+
+        with (
+            patch.object(runner, "run_role", side_effect=fresh_provider),
+            patch.object(runner, "account_stage"),
+            patch.object(runner, "accept_repaired_report") as accepted,
+        ):
+            runner.execute_report_repair(self.state, self.run, self.root)
+        self.assertEqual(1, len(calls))
+        accepted.assert_called_once()
+        self.assertEqual(1, pending["attempts"])
+        self.assertNotIn("correction_attempted", pending)
+
     def test_failed_correction_falls_back_to_the_unchanged_full_repair(self):
         self.state["next_stage"] = "terra"
         self.queue(error=self.FORMAT_ERROR, engine="opencode")
@@ -425,10 +527,82 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(["Build a planner.", "Declare the test file in M2."], data["source_texts"])
         self.assertNotIn("Fix an existing test race.", data["source_texts"])
         self.assertEqual(
-            [{"basis": "user_feedback", "event_id": correction["id"], "text": correction["text"]}],
+            # No prior requirement shares the correction's wording, so it names no candidate link.
+            [
+                {
+                    "basis": "user_feedback",
+                    "event_id": correction["id"],
+                    "text": correction["text"],
+                    "previous_requirement_ids": [],
+                }
+            ],
             data["requirements_correction_sources"],
         )
         self.assertIn("current Builder task and approved contract are inherited obligations", prompt)
+
+    def test_requirements_source_ref_repair_names_the_citable_workspace_files(self):
+        # #1822: a greenfield repo held only README.md. The complete handoff cited nothing, the repair
+        # handoff repeated only the validator error, the first repair cited an archived .autocode/ log,
+        # and the second returned empty again. The repair must name the files and the rule.
+        (self.root / "README.md").write_text("Note sync.\n")
+        archived = self.run / "archived-requirements-gather-01" / "events.jsonl"
+        archived.parent.mkdir(parents=True)
+        archived.write_text("{}\n")
+        # A pytest cache sorts ahead of README.md and holds its own README.md, which the citation check refuses.
+        (self.root / ".pytest_cache").mkdir()
+        (self.root / ".pytest_cache" / "README.md").write_text("pytest cache directory\n")
+        self.state["settings"]["roles"]["requirements"] = {"model": "requirements-model"}
+        self.state["next_stage"] = "requirements_gather"
+        rejected = {
+            "summary": "Sync the notes folder.",
+            "required_behaviors": ["Keep every note"],
+            "acceptance_tests": ["A deleted note is not restored"],
+            "source_refs": [],
+        }
+        self.queue(
+            stage="requirements_gather",
+            role="requirements",
+            error=ValueError("Report must cite existing source in source_refs"),
+            report=json.dumps(rejected),
+        )
+
+        prompt = self.repair_request()["prompt"]
+        data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+
+        self.assertEqual(["README.md"], data["workspace_inventory"]["files"])
+        self.assertNotIn(".autocode", json.dumps(data["workspace_inventory"]))
+        self.assertNotIn(".pytest_cache", json.dumps(data["workspace_inventory"]))
+        self.assertIn("at least one existing workspace file", prompt)
+        self.assertIn("Never cite .autocode/", prompt)
+        self.assertIn("source_refs may be empty only when the inventory lists no file", prompt)
+
+    def test_a_discovery_citation_repair_receives_the_code_refs_rule_and_citable_files(self):
+        # #2487: a discovery repair that cited a joint candidate input under .autocode/ must
+        # hear the ownership rule and see the citable files, not only the validator error
+        # it would otherwise relearn per rejection.
+        (self.root / "README.md").write_text("Service note.\n")
+        owned = self.root / ".autocode" / "candidate-inputs" / "alpha" / "app.py"
+        owned.parent.mkdir(parents=True)
+        owned.write_text("print('candidate')\n")
+        self.state["settings"]["roles"]["glm"] = {"model": "glm-model"}
+        self.state["next_stage"] = "astra_discovery"
+        rejected = {"summary": "Plan the greeting service.", "code_refs": [".autocode/candidate-inputs/alpha/app.py:1"]}
+        self.queue(
+            stage="astra_discovery",
+            role="glm",
+            error=ValueError(
+                "code_refs entry .autocode/candidate-inputs/alpha/app.py:1 is a file the runner or "
+                "a tool owns (.autocode/, .git/, __pycache__/ and caches): cite source files, which "
+                "outlive the run"
+            ),
+            report=json.dumps(rejected),
+        )
+        prompt = self.repair_request()["prompt"]
+        data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(["README.md"], data["workspace_inventory"]["files"])
+        self.assertIn("Never cite .autocode/", prompt)
+        self.assertIn("code_refs name the actual repository-relative source files you read", prompt)
+        self.assertIn("is a task input, not a citation", prompt)
 
     def test_planner_repair_receives_the_requirements_its_trace_must_cover(self):
         # Without the rows a repair of a trace with a missing requirement_id guessed "R1" (2026-10-02).
@@ -591,7 +765,16 @@ class RepairTests(unittest.TestCase):
                     self.assertIn("Each responses[].evidence_refs must be nonempty", prompt)
                 self.assertEqual(error, data["error"])
                 self.assertEqual(rejected, data["rejected_report"]["content"])
-                self.assertEqual(schema_bytes, request["schema"].read_bytes())
+                self.assertEqual(schema_bytes, schema.read_bytes())
+                self.assertEqual(
+                    json.loads(schema_bytes),
+                    runner.report_edits.validation_schema(json.loads(request["schema"].read_text())),
+                )
+                if stage not in runner.report_edits.STAGES:
+                    self.assertEqual(schema_bytes, request["schema"].read_bytes())
+                else:
+                    self.assertIn("repair_report", json.loads(request["schema"].read_text())["properties"])
+                    self.assertIn("BOUNDED REPORT EDITS", prompt)
                 self.assertFalse(request["allow_write"])
                 self.assertTrue(request["report_only"])
 
@@ -610,6 +793,55 @@ class RepairTests(unittest.TestCase):
                 self.queue(stage="glm_revise", role="astra", schema=str(schema))
                 prompt = self.repair_request()["prompt"]
                 self.assertNotIn(runner.planning.PROGRESSIVE_POLICY, prompt)
+
+    def test_gocode_report_repair_uses_the_full_schema_on_the_wire(self):
+        self.state["next_stage"] = "astra_discovery"
+        self.state["settings"]["engine"] = "opencode"
+        self.state["settings"]["roles"]["astra"]["provider"] = "gocode"
+        schema = self.run / "discovery.schema.json"
+        original = {
+            "type": "object",
+            "properties": {"summary": {"type": "string"}},
+            "required": ["summary"],
+            "additionalProperties": False,
+        }
+        schema.write_text(json.dumps(original))
+        self.queue(
+            stage="astra_discovery",
+            role="astra",
+            schema=str(schema),
+            report=json.dumps({"summary": "Rejected draft"}),
+            error=ValueError("Missing discovery evidence"),
+        )
+
+        request = self.repair_request()
+
+        self.assertEqual(original, json.loads(request["schema"].read_text()))
+        self.assertNotIn("repair_report", json.loads(request["schema"].read_text())["properties"])
+        rejected = Path(self.state["pending_report_repair"]["original"]["output"])
+        repair_schema = rejected.with_name(rejected.stem + ".repair-edits.schema.json")
+        self.assertIn("repair_report", json.loads(repair_schema.read_text())["properties"])
+
+    def assert_repair_restarted(self):
+        """A repair that cannot launch is archived and its stage starts afresh; no person is asked."""
+        pending = copy.deepcopy(self.state["pending_report_repair"])
+        with patch.object(runner, "run_role") as launch, self.assertRaises(runner.ReportRepairQueued):
+            runner.execute_report_repair(self.state, self.run, self.root)
+        launch.assert_not_called()
+        saved = support.read(self.run / "state.json")
+        for current in (self.state, saved):
+            self.assertNotIn("pending_report_repair", current)
+            self.assertNotIn("active_stage", current)
+            self.assertEqual(("RUNNING", pending["original"]["stage"]), (current["status"], current["next_stage"]))
+            archived = current["report_repair_archive"][-1]
+            self.assertEqual(pending["original"], archived["repair"]["original"])
+            self.assertEqual(pending["attempts"], archived["repair"]["attempts"])
+            self.assertIn("cannot launch from its saved inputs", archived["reason"])
+        restart = saved["user_events"][-1]
+        self.assertEqual("automatic_unlaunchable_repair_restart", restart["kind"])
+        self.assertEqual(pending["original"]["source_revision"], restart["source_revision"])
+        self.assertNotIn("autocode resume", restart["reason"] + saved.get("stop_reason", ""))
+        return saved
 
     def assert_repair_blocked(self, status="PAUSED_REPORT_REPAIR_INPUT"):
         attempts = self.state["pending_report_repair"]["attempts"]
@@ -782,6 +1014,12 @@ class RepairTests(unittest.TestCase):
                 "bytes": len(text.encode("utf-8")),
                 "truncated": False,
                 "format": "text",
+                "parse_error": {
+                    "message": "Expecting property name enclosed in double quotes",
+                    "position": len(text),
+                    "line": 1,
+                    "column": len(text) + 1,
+                },
                 "content": text,
             },
             data["rejected_report"],
@@ -910,7 +1148,7 @@ class RepairTests(unittest.TestCase):
         self.assert_repair_blocked("PAUSED_STALE_VALIDATION")
 
     def test_report_byte_limit_accepts_complete_boundary_and_rejects_overflow(self):
-        self.assertEqual(128 * 1024, runner.REPAIR_REPORT_BYTES)
+        self.assertEqual(512 * 1024, runner.REPAIR_REPORT_BYTES)
         initial = copy.deepcopy(self.state)
         for format_, prefix, suffix in [("json", '{"summary":"', '"}'), ("text", "malformed: ", " :end")]:
             with self.subTest(format=format_):
@@ -937,9 +1175,26 @@ class RepairTests(unittest.TestCase):
                     pending = self.queue(report=None, response_text=record[key])
                 path = Path(pending["original"][key])
                 self.assertEqual(runner.REPAIR_REPORT_BYTES + 1, path.stat().st_size)
-                self.assert_repair_blocked()
+                self.assert_repair_restarted()
                 self.assertEqual((text + "\n").encode("utf-8"), path.read_bytes())
                 self.assertEqual(pending["pins"][str(path)], support.file_hash(path))
+
+    def test_repairs_that_keep_failing_to_launch_on_unchanged_source_go_to_the_investigator(self):
+        oversized = "x" * (runner.REPAIR_REPORT_BYTES + 1)
+        for _ in range(stage_recovery.RESTARTS_PER_SOURCE):
+            self.queue(report=oversized)
+            self.assert_repair_restarted()
+        self.queue(report=oversized)
+        with patch.object(runner, "run_role") as launch, self.assertRaises(support.Paused) as error:
+            runner.execute_report_repair(self.state, self.run, self.root)
+        launch.assert_not_called()
+        self.assertEqual("PAUSED_REPEATED_FAILURE", error.exception.status)
+        self.assertIn("could not launch 3 times on unchanged source", str(error.exception))
+        self.assertNotIn("autocode resume", str(error.exception))
+        self.assertIn(error.exception.status, stuck_job.STATUSES)
+        saved = support.read(self.run / "state.json")
+        self.assertEqual("PAUSED_REPEATED_FAILURE", saved["status"])
+        self.assertIn("pending_report_repair", saved)
 
     def test_latest_rejected_report_overflow_does_not_charge_second_attempt(self):
         self.queue()["attempts"] = 1
@@ -947,7 +1202,7 @@ class RepairTests(unittest.TestCase):
         with self.assertRaises(runner.ReportRepairQueued):
             self.reject_repair(6, ValueError("Malformed large repair"), report=oversized)
         pending = self.state["pending_report_repair"]
-        self.assert_repair_blocked()
+        self.assert_repair_restarted()
         self.assertEqual(oversized, Path(pending["latest_rejected"]["output"]).read_text())
         self.assertEqual("{}", Path(pending["original"]["output"]).read_text())
 
@@ -962,7 +1217,7 @@ class RepairTests(unittest.TestCase):
             path = Path(pending[key]["output"])
             self.assertLess(path.stat().st_size, runner.REPAIR_REPORT_BYTES)
             self.assertEqual(support.read(path), runner.repair_report_source(pending[key])["content"])
-        self.assert_repair_blocked()
+        self.assert_repair_restarted()
         self.assertEqual(original, Path(pending["original"]["output"]).read_text())
         self.assertEqual(latest, Path(pending["latest_rejected"]["output"]).read_text())
 
@@ -983,7 +1238,7 @@ class RepairTests(unittest.TestCase):
         self.state = copy.deepcopy(initial)
         self.state["acceptance_criteria"][0]["criterion"] += "x" * (padding + 1)
         support.atomic_json(self.run / "state.json", self.state)
-        self.assert_repair_blocked()
+        self.assert_repair_restarted()
         self.assertEqual(
             len(initial["acceptance_criteria"][0]["criterion"]) + padding + 1,
             len(self.state["acceptance_criteria"][0]["criterion"]),
@@ -1006,7 +1261,7 @@ class RepairTests(unittest.TestCase):
                 self.assertNotIn("\n", packet.strip())
                 self.assertIn(json.dumps(schema, separators=(",", ":")), head)
 
-    def test_provider_decorated_handoff_overflow_never_publishes_or_launches_and_refunds_attempt(self):
+    def test_provider_decorated_handoff_overflow_never_launches_and_starts_a_fresh_attempt(self):
         self.state["settings"]["engine"] = "opencode"
         self.queue()
         initial = copy.deepcopy(self.state)
@@ -1024,9 +1279,9 @@ class RepairTests(unittest.TestCase):
             patch.object(runner.processes, "preflight", return_value=None),
             patch.object(runner.subprocess, "Popen", side_effect=AssertionError("No provider may launch")) as launch,
         ):
-            with self.assertRaises(support.Paused) as error:
+            with self.assertRaises(runner.ReportRepairQueued) as error:
                 runner.execute_report_repair(self.state, self.run, self.root)
-        self.assertEqual("PAUSED_REPORT_REPAIR_INPUT", error.exception.status)
+        self.assertEqual("PAUSED_REPORT_REPAIR_INPUT", error.exception.__cause__.status)
         schema_prompt.assert_called_once()
         args = schema_prompt.call_args.args
         self.assertEqual(runner.REPAIR_HANDOFF_BYTES - 1, len(args[0].encode("utf-8")))
@@ -1036,10 +1291,13 @@ class RepairTests(unittest.TestCase):
         self.assertNotIn("active_stage", self.state)
         saved = support.read(self.run / "state.json")
         self.assertNotIn("active_stage", saved)
-        self.assertEqual(0, self.state["pending_report_repair"]["attempts"])
-        self.assertEqual(0, saved["pending_report_repair"]["attempts"])
+        # The spent repair is archived with its attempt refunded, and the stage starts afresh.
+        for current in (self.state, saved):
+            self.assertNotIn("pending_report_repair", current)
+            self.assertEqual(0, current["report_repair_archive"][-1]["repair"]["attempts"])
+            self.assertEqual(("RUNNING", "terra"), (current["status"], current["next_stage"]))
 
-    def test_oversized_command_receipts_pause_instead_of_truncating_or_launching(self):
+    def test_oversized_command_receipts_start_a_fresh_attempt_instead_of_truncating_or_launching(self):
         command = "exact-command-" + "x" * runner.REPAIR_HANDOFF_BYTES
         rows = [
             {"type": "thread.started", "thread_id": "t-session"},
@@ -1052,7 +1310,7 @@ class RepairTests(unittest.TestCase):
         pending = self.queue(event_rows=rows)
         path = Path(pending["original"]["events"])
         contents = path.read_bytes()
-        self.assert_repair_blocked()
+        self.assert_repair_restarted()
         self.assertEqual(contents, path.read_bytes())
         self.assertEqual(command, support.events(path)[1]["item"]["command"])
 
@@ -1358,6 +1616,94 @@ class RepairTests(unittest.TestCase):
                 if stage == "terra":  # the session that wrote the rejected report is not resumed
                     self.assertNotIn("terra", self.state["sessions"])
 
+    def test_terminal_reasoning_only_response_is_input_not_an_accepted_report(self):
+        output = self.run / "empty-repair.json"
+        events = self.run / "empty-repair.jsonl"
+        events.write_text("\n".join(json.dumps(row) for row in [event("step_start"), terminal()]) + "\n")
+        record = {
+            "engine": "opencode",
+            "events": str(events),
+            "output": str(output),
+            "report_only": True,
+            "stage": "glm_revise_report_repair",
+        }
+        with self.assertRaises(support.Paused):
+            runner.repair_report_source(record)
+        source = runner.repair_report_source(record, allow_empty=True)
+        self.assertTrue(source["empty_response"])
+        self.assertEqual("", source["content"])
+        with self.assertRaises(RuntimeError):
+            runner.load_stage_report(record)
+
+    def test_empty_repair_does_not_bypass_original_or_latest_pins(self):
+        self.state["next_stage"] = "glm_revise"
+        pending = self.queue(stage="glm_revise", report='{"summary": "retained",}')
+        pending["attempts"] = 1
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(6, self.FORMAT_ERROR, report="")
+        for record in (pending["original"], pending["latest_rejected"]):
+            path = Path(record["output"])
+            original = path.read_bytes()
+            try:
+                path.write_text("tampered")
+                self.assert_repair_blocked("PAUSED_STALE_VALIDATION")
+            finally:
+                path.write_bytes(original)
+
+    def test_saved_empty_planning_repair_hold_keeps_its_remaining_attempt(self):
+        self.state["settings"]["joint_planning"] = True
+        self.state["next_stage"] = "glm_revise"
+        pending = self.queue(stage="glm_revise", report='{"summary": "retained",}')
+        pending["attempts"] = 1
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(6, self.FORMAT_ERROR, report="")
+        self.state["status"] = "PAUSED_REPORT_REPAIR_INPUT"
+        before = copy.deepcopy(self.state)
+        self.assertFalse(runner.prepare_planning_retry(self.state, self.run))
+        self.assertEqual(before, self.state)
+        data = json.loads(self.repair_request()["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertTrue(data["rejected_report"]["empty_response"])
+        self.assertEqual('{"summary": "retained",}', data["original_report"]["content"])
+        self.assertIn("parse_error", data["original_report"])
+        self.assertEqual(2, self.state["pending_report_repair"]["attempts"])
+
+    def empty_execution_repair(self, stage):
+        """The live #2426 shape on an execution stage: one repair left, the first returned nothing."""
+        self.state["next_stage"] = stage
+        pending = self.queue(report='{"summary": "retained"}')
+        pending["original"].update(stage=stage, role=stage)
+        pending["attempts"] = 1
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(6, self.FORMAT_ERROR, report="")
+        return pending
+
+    def test_empty_execution_repair_uses_original_within_existing_allowance(self):
+        before = copy.deepcopy(self.state)
+        for stage in ("terra", "sol"):
+            with self.subTest(stage=stage):
+                self.state = copy.deepcopy(before)
+                self.empty_execution_repair(stage)
+                data = json.loads(self.repair_request()["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertTrue(data["rejected_report"]["empty_response"])
+                self.assertEqual({"summary": "retained"}, data["original_report"]["content"])
+                self.assertEqual(2, self.state["pending_report_repair"]["attempts"])
+
+    def test_saved_empty_execution_repair_hold_keeps_its_remaining_attempt(self):
+        self.empty_execution_repair("sol")
+        self.state["status"] = "PAUSED_REPORT_REPAIR_INPUT"
+        before = copy.deepcopy(self.state)
+        self.assertFalse(runner.prepare_exhausted_execution_report_retry(self.state, self.run, self.root))
+        self.assertEqual(before, self.state)
+        data = json.loads(self.repair_request()["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertTrue(data["rejected_report"]["empty_response"])
+        self.assertEqual(2, self.state["pending_report_repair"]["attempts"])
+
+    def test_empty_execution_original_starts_a_fresh_attempt(self):
+        self.state["next_stage"] = "terra"
+        self.queue(report="")
+        # Nothing remains to correct, so the runner discards the repair for a fresh attempt itself.
+        self.assert_repair_restarted()
+
     def test_unlaunchable_repair_without_a_pending_repair_admits_nothing(self):
         self.state["settings"]["joint_planning"] = True
         for stage in ("terra", "astra_finalize"):
@@ -1380,7 +1726,9 @@ class RepairTests(unittest.TestCase):
         with self.assertRaises(support.Paused) as stopped:
             runner.prepare_exhausted_execution_report_retry(self.state, self.run, self.root)
         self.assertEqual("PAUSED_REPEATED_FAILURE", stopped.exception.status)
-        self.assertEqual(expected, self.state["pending_report_repair"])
+        # #1899: the hold reconciles the repair it leaves behind, so the retry it names is admissible.
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual(expected, self.state["report_repair_archive"][-1]["repair"])
 
     def test_abandoned_sol_repair_retries_sol_instead_of_astra_review(self):
         pending = self.queue()
@@ -1525,6 +1873,27 @@ class RepairTests(unittest.TestCase):
         )
         self.assertEqual("", runner.jobs.repair_rules("terra"))
 
+    def test_a_probing_job_repair_keeps_its_own_rules_and_the_probe_definition(self):
+        # Live run 2026-10-21: the Analyst repair wrote "probe": "event:prt_…" because the repair prompt
+        # carries the report schema, where a probe is only a string, and no stage prompt to define it (#1769).
+        for stage in ("answer_question", "investigate_bug", "review_design", "check_design"):
+            with self.subTest(stage=stage):
+                rules = runner.jobs.repair_rules(stage)
+                self.assertIn("A probe is a shell command run from the repository root", rules)
+                self.assertIn("is not a citation", rules)
+        # The Designer keeps its own repair rules beside it, and a build-pipeline stage keeps none.
+        self.assertIn("Keep every concern id from previous_review", runner.jobs.repair_rules("review_design"))
+        self.assertEqual("", runner.jobs.repair_rules("terra"))
+
+    def test_an_analyst_repair_is_told_its_probe_must_fail_on_a_counterexample(self):
+        # Live run 20261021-001305-chat-25ca74: the second repair's probe was `python3 -c 'assert 2 + 2 == 4'`,
+        # which the runner accepted; a repair that is now refused for it must be told why (#1769).
+        for stage in ("answer_question", "review_design", "check_design", "investigate_bug"):
+            with self.subTest(stage=stage):
+                rules = runner.jobs.repair_rules(stage)
+                self.assertIn("A probed row also needs counterexample", rules)
+                self.assertIn("read from the source, not run", rules)
+
     def test_a_validator_pass_without_checks_gets_a_report_repair(self):
         # Live run 2026-09-29: the Validator ran its check but returned "checks": [], and the run paused.
         with self.assertRaisesRegex(ValueError, "lacks successful executed checks"):
@@ -1537,6 +1906,85 @@ class RepairTests(unittest.TestCase):
                 self.root,
                 self.run,
             )
+
+    def test_a_pass_citing_a_failed_check_is_not_sent_to_report_repair(self):
+        # Live run 2026-10-21: check 4 was a negative assertion whose shell command exited 1
+        # while the assertion held; two report-only repairs could not change that exit code (#1852).
+        events = self.run / "failed-events.jsonl"
+        command = "sh -c 'for f in package.json; do [ -e \"$f\" ] && exit 1; done'"
+        events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {"id": "prt_9", "type": "command_execution", "command": command, "exit_code": 1},
+                }
+            )
+            + "\n"
+        )
+        with self.assertRaises(runner.report_repair_queue.ExecutionEvidenceRequired) as raised:
+            runner.autopilot.apply_review_result(
+                runner,
+                self.state,
+                "sol",
+                {
+                    "verdict": "PASS",
+                    "checks": [{"command": command, "exit_code": 1, "evidence_ref": "event:prt_9"}],
+                    "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["check:1"]}],
+                },
+                {"events": str(events), "source_revision": "r", "output": "sol-01.json"},
+                self.root,
+                self.run,
+            )
+        self.assertIn("check 1 (exit 1)", str(raised.exception))
+        self.assertIn("every listed check to exit 0", str(raised.exception))
+
+    def test_an_uncited_failed_exploratory_check_stays_repairable_but_names_the_rule(self):
+        events = self.run / "exploratory-events.jsonl"
+        events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "prt_7",
+                        "type": "command_execution",
+                        "command": "grep -q unexpected package.json",
+                        "exit_code": 1,
+                    },
+                }
+            )
+            + "\n"
+        )
+        with self.assertRaises(ValueError) as raised:
+            runner.autopilot.apply_review_result(
+                runner,
+                self.state,
+                "sol",
+                {
+                    "verdict": "PASS",
+                    "checks": [
+                        {"command": "grep -q unexpected package.json", "exit_code": 1, "evidence_ref": "event:prt_7"}
+                    ],
+                    "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": []}],
+                },
+                {"events": str(events), "source_revision": "r", "output": "sol-01.json"},
+                self.root,
+                self.run,
+            )
+        self.assertNotIsInstance(raised.exception, runner.report_repair_queue.ExecutionEvidenceRequired)
+        self.assertIn("every listed check must exit 0", str(raised.exception))
+
+    def test_an_execution_evidence_error_is_not_queued_for_report_repair(self):
+        self.state["settings"]["report_repair"] = {"max_attempts": 2}
+        record = self.stage_record()
+        with self.assertRaises(runner.support.Paused) as paused:
+            runner.reject_completed_stage(
+                self.state,
+                self.run,
+                record,
+                runner.report_repair_queue.ExecutionEvidenceRequired("cites failed check 1 (exit 1)"),
+            )
+        self.assertEqual("PAUSED_INVALID_OUTPUT", paused.exception.status)
+        self.assertNotIn("pending_report_repair", self.state)
 
     def test_a_criterion_citing_something_the_runner_did_not_verify_gets_a_report_repair(self):
         # A PASS row whose evidence is prose proves nothing the runner replayed (#1070).
@@ -1959,6 +2407,7 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--report', type=Path, required=True)
+        parser.add_argument('--schema', type=Path, required=True)
         parser.add_argument('--runtime', type=Path, required=True)
         parser.add_argument('--base-fixture', type=Path, required=True)
         parser.add_argument('--probe', type=Path, required=True)
@@ -1990,7 +2439,8 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
             # Existing handwritten fixture supplies schema-valid plans/reports.
             # Its greeting implementation is exercised by capture below.
             result = subprocess.run(
-                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report)],
+                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report),
+                 '--output-schema', str(args.schema)],
                 input=prompt, text=True, capture_output=True, check=True,
             )
             return json.loads(args.report.read_text()), result.stdout
@@ -2113,6 +2563,8 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
             str(provider),
             "--report",
             "{report}",
+            "--schema",
+            "{schema}",
             "--runtime",
             str(source / "autocode.py"),
             "--base-fixture",
@@ -2126,7 +2578,14 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
         ]
         roles = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
         config.write_text(
-            'name = "receipt_repair_fixture"\noutput = "report_file"\nprompt = "stdin"\n'
+            'name = "receipt_repair_fixture"\noutput = '
+            + json.dumps(getattr(self, "PROVIDER_OUTPUT", "report_file"))
+            + '\nprompt = "stdin"\n'
+            + (
+                'resume = ["--session", "{session}"]\n'
+                if getattr(self, "PROVIDER_OUTPUT", "report_file") == "opencode_events"
+                else ""
+            )
             + "command = "
             + json.dumps(command)
             + "\n"
@@ -2212,6 +2671,215 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
         reopened = run.status()
         self.assertFalse(reopened["done"], reopened)
         self.assertEqual(observed, self.probe.read_bytes())
+
+
+class ExactEventRepairPublicCliTests(unittest.TestCase):
+    """Real TaskRun gates with native event evidence, not a report-file transport."""
+
+    setUp = test_subprocess.SubprocessFlow.setUp
+    start_receipt_fixture = ReceiptRepairPublicCliTests.start_receipt_fixture
+    observations = ReceiptRepairPublicCliTests.observations
+    PROVIDER_OUTPUT = "opencode_events"
+
+    PROVIDER_SOURCE = textwrap.dedent(r"""
+        import argparse
+        import json
+        import shlex
+        import subprocess
+        import sys
+        import uuid
+        from pathlib import Path
+
+        parser = argparse.ArgumentParser()
+        for name in ('report', 'schema', 'runtime', 'base-fixture', 'probe'):
+            parser.add_argument('--' + name, type=Path, required=True)
+        parser.add_argument('--fault', required=True)
+        parser.add_argument('--sandbox', required=True)
+        parser.add_argument('--session')
+        args = parser.parse_args()
+        prompt = sys.stdin.read()
+        data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        repairing = bool(data.get('report_repair'))
+        stage = data['original']['stage'] if repairing else data.get('stage', '')
+        session = 'synthetic-' + uuid.uuid4().hex
+        session = args.session or session
+
+        def emit(kind, **part):
+            print(json.dumps({'type': kind, 'sessionID': session, 'part': {
+                'id': 'synthetic-' + kind, 'sessionID': session, 'messageID': 'synthetic-message', **part,
+            }}), flush=True)
+
+        def observe(kind, **values):
+            with args.probe.open('a') as handle:
+                handle.write(json.dumps({'kind': kind, 'stage': stage, 'repairing': repairing, **values}) + '\n')
+
+        def execute(event_id):
+            argv = [sys.executable, '-m', 'unittest', '-v', 'test_greet.py']
+            if not Path('test_greet.py').is_file():
+                argv = [sys.executable, '-c', 'print("synthetic planning observation")']
+            result = subprocess.run(argv, text=True, capture_output=True)
+            command = shlex.join(argv)
+            if stage == 'sol' and args.fault == 'old_verdict' and not repairing:
+                # A saved verdict is display data, not a fresh authoritative command event.
+                emit('tool_use', id='synthetic-old-proof', tool='read', state={
+                    'status': 'completed', 'input': {'filePath': 'prior-report.json'},
+                    'output': json.dumps({
+                        'verdict': 'PASS', 'source_revision': 'synthetic-old-source',
+                        'checks': [{'command': command, 'exit_code': 0, 'evidence_ref': 'event:' + event_id}],
+                    }),
+                })
+            else:
+                emit('tool_use', id=event_id, tool='bash', state={
+                    'status': 'completed', 'input': {'command': command},
+                    'metadata': {'exit': result.returncode}, 'output': result.stdout + result.stderr,
+                })
+            observe('execution', event_id=event_id, command=command, exit_code=result.returncode)
+            assert result.returncode == 0, result.stdout + result.stderr
+            return command
+
+        def replace_refs(value, reference):
+            if isinstance(value, dict):
+                return {key: replace_refs(item, reference) for key, item in value.items()}
+            if isinstance(value, list):
+                return [replace_refs(item, reference) for item in value]
+            return reference if value == 'event:check' else value
+
+        observe('provider', sandbox=args.sandbox)
+        emit('step_start')
+        if stage == 'sol' and repairing:
+            assert args.sandbox == 'read-only'
+            originals = data['original_executed_checks']
+            if args.fault == 'old_verdict':
+                assert originals == [], 'A saved PASS must not supply execution authority'
+            else:
+                assert len(originals) == 1 and originals[0]['evidence_ref'].startswith('event:synthetic-original-')
+                assert originals[0]['exit_code'] == 0
+            report = data['rejected_report']['content']
+            reference = originals[0]['evidence_ref'] if originals else 'event:synthetic-original-sol'
+            if args.fault == 'unknown':
+                reference = 'event:synthetic-unknown'
+            elif args.fault == 'repair_only':
+                execute('synthetic-repair-only')
+                reference = 'event:synthetic-repair-only'
+            elif args.fault == 'foreign_attempt':
+                # This ID exists in the Builder attempt, never in the original Tester.
+                reference = 'event:synthetic-original-terra'
+            report['checks'] = [{'command': None, 'exit_code': None, 'evidence_ref': reference}]
+            report['criterion_results'][0]['evidence_refs'] = [reference]
+            observe('repair', original_executed_checks=originals, selected_reference=reference,
+                    verdict=report['verdict'], checks=report['checks'])
+        else:
+            delegated = subprocess.run(
+                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report),
+                 '--output-schema', str(args.schema)],
+                input=prompt, text=True, capture_output=True, check=True,
+            )
+            report = json.loads(args.report.read_text())
+            event_id = 'synthetic-original-' + stage
+            command = execute(event_id)
+            reference = 'event:' + event_id
+            if args.fault == 'report_file' and stage != 'sol':
+                # Preserve the existing receipt-only provider policy for every other stage.
+                reference = '.autocode/evidence/synthetic-' + uuid.uuid4().hex + '.json'
+                captured = subprocess.run(
+                    [*shlex.split(data['capture_command']), '--output', reference, '--', *shlex.split(command)],
+                    text=True, capture_output=True, check=True,
+                )
+                emit('tool_use', id='synthetic-capture-' + stage, tool='bash', state={
+                    'status': 'completed', 'input': {'command': shlex.join([
+                        *shlex.split(data['capture_command']), '--output', reference, '--', *shlex.split(command),
+                    ])}, 'metadata': {'exit': 0}, 'output': captured.stdout,
+                })
+            report = replace_refs(report, reference)
+            if report.get('commands_run'):
+                report['commands_run'] = [command]
+            if report.get('checks_run'):
+                report['checks_run'] = [command]
+            for check in report.get('checks', []):
+                check.update(command=command, exit_code=0, evidence_ref=reference)
+            if stage == 'sol':
+                assert len(report['checks']) == 1
+                # Only this metadata error requires repair; the executed check is genuine.
+                report['checks'][0]['command'] = 'python3 -m unittest -q'
+                if args.fault == 'fail_report':
+                    report['verdict'] = 'FAIL'
+                    report['criterion_results'][0]['status'] = 'FAIL'
+        args.report.write_text(json.dumps(report))
+        emit('text', text=json.dumps(report))
+        emit('step_finish', reason='stop', tokens={
+            'input': 10, 'output': 10, 'reasoning': 0, 'cache': {'read': 0, 'write': 0},
+        })
+    """)
+
+    def test_ac14_fake_repair_completes_clean_replay(self):
+        # Each subtest owns an isolated public run, including its negative-control evidence.
+        for fault in (
+            "valid",
+            "unknown",
+            "repair_only",
+            "foreign_attempt",
+            "old_verdict",
+            "fail_report",
+            "report_file",
+        ):
+            with self.subTest(fault=fault):
+                with contextlib.ExitStack() as cleanup:
+                    fixture = ExactEventRepairPublicCliTests(methodName="test_ac14_fake_repair_completes_clean_replay")
+                    fixture.setUp()
+                    cleanup.callback(fixture.doCleanups)
+                    if fault == "report_file":
+                        fixture.PROVIDER_OUTPUT = "report_file"
+                    run = fixture.start_receipt_fixture(fault)
+                    view = run.advance_until_input()
+                    status_summary = {key: view.get(key) for key in ("status", "done", "stop_reason")}
+                    rows = fixture.observations()
+                    providers = [row for row in rows if row["kind"] == "provider"]
+                    repairs = [row for row in rows if row["kind"] == "repair"]
+                    self.assertTrue(repairs, rows)
+                    self.assertTrue(
+                        all(
+                            row["checks"][0]["command"] is None and row["checks"][0]["exit_code"] is None
+                            for row in repairs
+                        )
+                    )
+                    if fault == "valid":
+                        self.assertEqual("TASK_COMPLETE", view["status"], status_summary)
+                        self.assertTrue(view["done"], status_summary)
+                        self.assertEqual(1, view["efficiency"]["by_category"]["report_repair"]["attempts"])
+                        self.assertEqual(1, sum(row["stage"] == "sol" and not row["repairing"] for row in providers))
+                        self.assertEqual(1, len(repairs))
+                        self.assertTrue(
+                            any(row["stage"] == "astra_review" and not row["repairing"] for row in providers)
+                        )
+                        self.assertFalse(any(row["stage"] == "investigate_stuck" for row in providers))
+                        self.assertFalse(any(row["repairing"] for row in rows if row["kind"] == "execution"))
+                        self.assertEqual(
+                            repairs[0]["original_executed_checks"][0]["evidence_ref"], repairs[0]["selected_reference"]
+                        )
+                        replay = view["evidence"]["check_replay"]
+                        self.assertEqual("PASS", replay["verdict"], replay)
+                        self.assertEqual(view["evidence"]["validator_source_revision"], replay["source_revision"])
+                        self.assertTrue(replay["checks"], replay)
+                        self.assertTrue(all(row["exit_code"] == 0 for row in replay["checks"]))
+                    else:
+                        self.assertFalse(view["done"], status_summary)
+                        self.assertNotEqual("TASK_COMPLETE", view["status"], status_summary)
+                        # A preserved FAIL can be inspected by Completion Reviewer;
+                        # rejected evidence must never reach that accepted-report boundary.
+                        if fault != "fail_report":
+                            self.assertFalse(
+                                any(row["stage"] == "astra_review" and not row["repairing"] for row in providers)
+                            )
+                        if fault in ("unknown", "repair_only", "foreign_attempt", "old_verdict"):
+                            self.assertTrue(
+                                all(
+                                    row["selected_reference"]
+                                    not in {check["evidence_ref"] for check in row["original_executed_checks"]}
+                                    for row in repairs
+                                )
+                            )
+                        if fault == "fail_report":
+                            self.assertTrue(all(row["verdict"] == "FAIL" for row in repairs))
 
 
 if __name__ == "__main__":

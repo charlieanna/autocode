@@ -17,9 +17,9 @@ import autocode_review_presentation as presentation
 
 FILES = {
     "C_A": ["contract/schema.json", "dependency_trace.json"],
-    "C_B": ["server/handler.py"],
-    "C_C": ["client/fetch.py"],
-    "C_D": ["integration/check.py"],
+    "C_B": ["server/__init__.py", "server/handler.py", "server/test_handler.py"],
+    "C_C": ["client/__init__.py", "client/fetch.py", "client/test_fetch.py"],
+    "C_D": ["integration/__init__.py", "integration/check.py", "integration/test_check.py"],
 }
 
 

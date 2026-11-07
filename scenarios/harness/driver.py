@@ -95,7 +95,7 @@ def leaves_for_person(need: dict) -> bool:
 def attribute(gates: list[dict], run_dir) -> None:
     """Record on each of ``gates`` that names no run yet that it was given to the task run in ``run_dir``.
 
-    A program or components scenario records one ``approvals`` list for all its task runs, so each gate the
+    A components scenario records one ``approvals`` list for all its task runs, so each gate the
     harness gives one of them says which, and harness.approval_provenance matches it to that run's own rows. A
     scenario of one run names none: every gate is that run's. Nothing is named before a run exists."""
     if run_dir is None:
@@ -176,6 +176,7 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
     bindir = root / "bin"
     bindir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(FAKE_PROVIDER, bindir / "codex")
+    shutil.copy2(FAKE_PROVIDER.with_name("fake_changed_code.py"), bindir / "fake_changed_code.py")
     (bindir / "codex").chmod(0o755)
     config = root / "fake-config.json"
     config.write_text(
@@ -191,6 +192,7 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
                 "probe": scenario.fake_probe,
                 "milestones": list(scenario.fake_milestones),
                 "criteria": dict(scenario.fake_criteria),
+                "supersedes": dict(scenario.fake_supersedes),
                 "turn_paths": [list(row) for row in scenario.fake_turn_paths],
             }
         )
@@ -201,21 +203,22 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
     # base URL there pauses joint planning even when API keys are absent).
     codex_home = root / "codex-home"
     codex_home.mkdir(parents=True, exist_ok=True)
-    config_env = {}
+    # Likewise the host's ~/.config/autocode: a default_provider or provider config there would change
+    # what a fake run does on that machine only (#1938). This run's user config home starts empty.
+    config_home = root / "user-config"
+    config_home.mkdir(parents=True, exist_ok=True)
     if scenario.fake_plan_review_call_limit is not None:
         # The fixture author declares this before the run starts. Use the same public configuration
         # as a person, scoped to this fake run; the driver never invents an allowance at a pause.
-        config_home = root / "user-config"
         user_config = config_home / "autocode" / "config.toml"
         user_config.parent.mkdir(parents=True, exist_ok=True)
         user_config.write_text(f"plan_review_call_limit = {scenario.fake_plan_review_call_limit}\n")
-        config_env["XDG_CONFIG_HOME"] = str(config_home)
     return flags, {
         "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
         "SCENARIO_FAKE_CONFIG": str(config),
         "CODEX_HOME": str(codex_home),
         STRIP_BILLING_AUTH: "1",
-        **config_env,
+        "XDG_CONFIG_HOME": str(config_home),
     }
 
 
@@ -341,8 +344,8 @@ class Driver:
         # Every gate the harness passed on the person's behalf (result.json "approvals"): the plan
         # (``approve_plan``), each human-review criterion (``review``), more planning review calls
         # (``planning_budget``) and a budget pause the scenario's person acknowledged (``acknowledge``);
-        # a program driver adds its agreement, a components run its --auto-approve. In a program or
-        # components scenario each gate given to one of its task runs also names that run (``attribute``).
+        # a components run adds its --auto-approve. In a components scenario each gate given to one of
+        # its task runs also names that run (``attribute``).
         self.approvals: list[dict] = []
         self.run_dir: Path | None = None
         self.log = root / "steps.jsonl"
@@ -519,6 +522,14 @@ class Driver:
                 (target / path).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(self.project / path, target / path)
         return target
+
+    def resume_after_crash(self) -> None:
+        """Take the Resume a controller exit offers after a completed, accounted report (#1698).
+
+        The person decides to continue such a run; the view names `--resume-paused` for it."""
+        view = self.view()
+        if view["needs"]["kind"] == "resume" and (view.get("controller") or {}).get("completed_stage"):
+            self.call("resume", "--resume-paused")
 
     def until_stopped(self, say_at: str | None = None) -> dict:
         """Drive until the run is done or needs something the driver does not serve.

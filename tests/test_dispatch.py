@@ -265,6 +265,26 @@ class DispatchTests(unittest.TestCase):
                 for mid in (["M1"] if missing_member else ["M1", "M2"])
             ],
         }
+        human = [c["id"] for c in self.state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]]
+        if human:
+            value["unverified_criteria"] = []
+            value["criterion_results"] = [
+                {
+                    "id": c["id"],
+                    "status": "NOT_VERIFIED" if c["id"] == "C3" else "PASS",
+                    "evidence_refs": ["event:check"],
+                }
+                for c in self.state["goal_contract"]["body"]["acceptance_criteria"]
+            ]
+            value["end_to_end_result"].update(
+                status="NOT_VERIFIED",
+                technical_result={
+                    "status": "PASS",
+                    "summary": "Automated checks passed",
+                    "evidence_refs": ["event:check"],
+                },
+                pending_human_criteria=human,
+            )
         runner.apply_result(
             self.state,
             "sol",
@@ -334,6 +354,15 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual([], d.select(self.state))
         self.assertFalse(d.disjoint(["src"], ["src/module.py"]))
         self.assertTrue(d.disjoint(["src/api"], ["src/api2"]))
+
+    def test_a_dispatch_with_nothing_to_build_in_parallel_says_so_and_when_it_ran(self):
+        self.prepare()
+        self.state["settings"]["orchestration"]["max_parallel"] = 1
+        record = self.build()
+        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("No tasks can be built in parallel now; one Builder takes the next task", record["summary"])
+        # Without started_at the chat's "Recent steps" drops this step after a turn.
+        self.assertLessEqual(record["started_at"], record["finished_at"])
 
     def test_unapproved_or_stale_contract_cannot_launch(self):
         self.prepare()

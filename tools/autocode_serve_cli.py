@@ -67,6 +67,8 @@ def parser():
 
 def _run(args):
     """The run's workspace, directory and saved state, read-only; the run must live in that workspace."""
+    if not args.workspace.is_dir():  # named, not an errno from a strict resolve
+        raise ValueError(f"No such workspace directory: {args.workspace}")
     workspace = args.workspace.resolve(strict=True)
     if args.run_dir is None:
         run = TaskRun.attach(workspace)
@@ -74,6 +76,8 @@ def _run(args):
             raise ValueError(f"No saved run in {workspace}")
         run_dir = Path(run.run_dir).resolve(strict=True)
     else:
+        if not args.run_dir.is_dir():
+            raise ValueError(f"No such run directory: {args.run_dir}")
         run_dir = args.run_dir.resolve(strict=True)
     if not run_dir.is_relative_to(workspace / ".autocode" / "runs"):
         raise ValueError(f"{run_dir} is not a run of {workspace}; pass the run's own --workspace")

@@ -40,8 +40,13 @@ AREAS = (
 # Covered by the design and the code: durable event_id dedupe in billing and notifications (a rare
 # duplicate notification is accepted), an idempotent producer, and per-key sizing.
 INVENTED = ("idempotency", "throughput")
-# A reply runs the recognizer and the Architect (and the Architect's report repair) and nothing else.
-ARCHITECT_ONLY = ("recognize_workflow", "review_design", "review_design_report_repair")
+# A reply runs Requirements, which names the job, and the Architect (and their report repairs) and nothing else.
+ARCHITECT_ONLY = (
+    "requirements_gather",
+    "requirements_gather_report_repair",
+    "review_design",
+    "review_design_report_repair",
+)
 
 
 def about(text):
@@ -222,7 +227,9 @@ def conversation_checks(run, report):
     for number, turn in enumerate(turns, start=1):
         checks += [
             Check(f"turn{number}_{c.name}", c.ok, c.detail)
-            for c in run_checks(turn, workflow="design", no_build=True, no_requirements=True, max_questions=0)
+            for c in run_checks(
+                turn, workflow="design", no_build=True, after_requirements="review_design", max_questions=0
+            )
         ]
         changed = turn.get("changed_files")
         checks.append(Check(f"turn{number}_changed_only_the_review", changed == [REPORT], f"changed {changed}"))

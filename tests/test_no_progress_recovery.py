@@ -126,7 +126,8 @@ class NoProgressBoundTests(unittest.TestCase):
     def hold_without_a_recovery(self, *options):
         """The unchanged-batch count at 3 with no automatic recovery recorded since the run began."""
         state = self.stop_before_builder(*options)
-        self.assertNotIn("automatic_recoveries_since_resume", state)
+        # The planning stages that saved reports renewed the streak at 0 (#1820); none was spent.
+        self.assertEqual(0, state.get("automatic_recoveries_since_resume", 0))
         self.assertFalse(state.get("automatic_timeout_recoveries"))
         state["no_progress_batches"] = 3
         return state
@@ -290,7 +291,7 @@ class NoProgressBoundTests(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", finished["status"])
         self.assertTrue((self.project / "greet.py").is_file())
         self.assertFalse(finished.get("recovery_grants"))
-        self.assertNotIn("automatic_recoveries_since_resume", finished)
+        self.assertEqual(0, finished.get("automatic_recoveries_since_resume", 0))
 
     def test_a_bound_that_does_not_admit_the_count_never_launches_the_builder(self):
         held, _ = self.hold()

@@ -133,8 +133,12 @@ class SelectedReviewMutationTests(unittest.TestCase):
             invocation = python_tests.parse(call["command"])
             self.assertIsNotNone(invocation)
             self.assertEqual("unittest", invocation.kind)
-            self.assertEqual("-v", invocation.arguments[0])
-            self.assertCountEqual(SELECTED, invocation.arguments[1:])
+            # Discovery keeps its import root and options; each reviewed ID is one -k selector (63bae126).
+            arguments = list(invocation.arguments)
+            selectors = [arguments[index + 1] for index, word in enumerate(arguments) if word == "-k"]
+            options = [word for index, word in enumerate(arguments) if word != "-k" and arguments[index - 1] != "-k"]
+            self.assertEqual(["discover", "-s", "tests", "-v"], options)
+            self.assertCountEqual(SELECTED, selectors)
             self.assertEqual(("env", "LANG=C"), invocation.prefix[:2])
             caches.extend(word for word in invocation.prefix if word.startswith("PYTHONPYCACHEPREFIX="))
         self.assertEqual(len(run.calls), len(set(caches)))

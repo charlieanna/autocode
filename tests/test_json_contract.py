@@ -24,6 +24,7 @@ import shlex
 import subprocess
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_util as util
 
@@ -178,6 +179,77 @@ class JsonContractTests(unittest.TestCase):
         saved = self.run_payload("saved", acted)
         self.assertEqual((True, None), (saved["result"]["saved"], saved["result"]["error"]))
         self.assertEqual("continue", saved["view"]["needs"]["kind"])
+
+
+class SchemaCoverageTests(unittest.TestCase):
+    def test_execution_identity_schema_covers_known_unknown_and_invalid_types(self):
+        import autocode_route_evidence as evidence
+        import autocode_run_view as run_view
+
+        schema = SCHEMA["properties"]["view"]["properties"]["usage"]
+        facts = evidence.launch_identity(
+            role="terra",
+            engine="codex",
+            provider="codex",
+            model="gpt-6-sol",
+            effort="medium",
+            runtime_commit="a" * 40,
+            settings={},
+        )
+        stage = {
+            "stage": "terra",
+            "role": "terra",
+            "engine": "codex",
+            "model": "gpt-6-sol",
+            "execution_identity": facts,
+        }
+        shown = run_view.view({"status": "RUNNING", "stages": [stage]})["usage"]
+        self.assertEqual(facts, shown["accounting"]["attempts"][0]["execution_identity"])
+        util.validate_schema(shown, schema)
+        shown["accounting"]["attempts"][0]["execution_identity"] = {}
+        util.validate_schema(shown, schema)
+        for invalid in (None, [], "unknown"):
+            with self.subTest(invalid=invalid):
+                shown["accounting"]["attempts"][0]["execution_identity"] = invalid
+                with self.assertRaises(ValueError):
+                    util.validate_schema(shown, schema)
+        del shown["accounting"]["attempts"][0]["execution_identity"]
+        with self.assertRaisesRegex(ValueError, "missing execution_identity"):
+            util.validate_schema(shown, schema)
+
+    def test_coordination_and_inherited_routes_match_the_public_schema(self):
+        import autocode_coordination_store as coordination
+        import autocode_run_view as run_view
+
+        document = {
+            "phase": "fixing",
+            "revision": 4,
+            "active": "history",
+            "members": [{"target": "history", "run_dir": "/runs/history"}],
+            "member_statuses": {"history": "RUNNING"},
+        }
+        state = {
+            "status": "RUNNING",
+            "settings": {"engine": "codex", "roles": {"terra": {"engine": "codex", "model": "gpt-5.6-terra"}}},
+        }
+        with patch.object(coordination, "read", return_value=document):
+            view = run_view.view(state, run_dir=Path("/runs/checkout"))
+        self.assertEqual("history", view["coordination"]["active"])
+        self.assertEqual(state["settings"], view["related_profile"]["settings"])
+        for name in ("coordination", "related_profile", "scope"):
+            util.validate_schema(view[name], SCHEMA["properties"]["view"]["properties"][name])
+
+    def test_every_field_the_view_always_returns_is_required_by_the_schema(self):
+        # #1905 found eight such fields missing from the schema; required, removing one fails the contract above.
+        import autocode_run_view as run_view
+
+        states = (
+            {"status": "RUNNING", "version": 3, "settings": {}, "stages": []},
+            {"status": "TASK_COMPLETE", "version": 3, "settings": {}, "stages": [], "run_dir": "/r", "workspace": "/w"},
+            {"status": "PAUSED_REQUESTED", "version": 2, "settings": {}, "stages": []},
+        )
+        always = set.intersection(*(set(run_view.view(state)) for state in states))
+        self.assertEqual(set(), always - set(SCHEMA["properties"]["view"]["required"]))
 
 
 if __name__ == "__main__":

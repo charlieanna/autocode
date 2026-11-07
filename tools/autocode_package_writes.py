@@ -66,7 +66,6 @@ Investigator's handoff, ``settings.protected_tests``.
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -83,6 +82,7 @@ try:
     from . import autocode_source_scope as source_scope
     from . import autocode_util as util
     from . import autocode_verify as verify
+    from .autocode_runner_files import runner_files as _runner_files
 except ImportError:
     import autocode_bug_job as bug_job
     import autocode_findings as findings_ledger
@@ -92,18 +92,12 @@ except ImportError:
     import autocode_source_scope as source_scope
     import autocode_util as util
     import autocode_verify as verify
+    from autocode_runner_files import runner_files as _runner_files
 
 SOURCE = "runner"
 # The dispatches the candidate is judged before: the Tester and the Completion Reviewer (the checkpoint
 # stage is either, autocode_roles). The Builder's own dispatch is not one; its handoff names the scope.
 STAGES = ("sol", "astra_checkpoint", "astra_review")
-# The runner-written files whose content the run recorded: (state key, path field, hash field). The
-# design check's blockers joined with #711's hash; rows saved without one stay path-only (``_by_path``).
-REPORTS = (
-    ("review", "report_path", "report_sha256"),
-    ("design_review", "report_path", "report_sha256"),
-    ("design_check", "blockers", "blockers_sha256"),
-)
 
 
 def context(settings, stage="terra") -> dict | None:
@@ -175,49 +169,6 @@ def _held(state: RunState, workspace, outside) -> tuple[list[str], dict[str, str
             continue
         gone[path] = "no longer a Git repository" if there else "deleted"
     return kept, gone
-
-
-def _note_unchanged(state: RunState, workspace, note) -> bool:
-    """Whether the bug-fix workflow's diagnosis note at ``note`` is what autocode_bug_job.apply wrote.
-
-    A reproduced one is identified by autocode_bug_job.diagnosis_artifact (its pinned report and
-    content). One that did not reproduce has nothing to pin (autocode_bug_job.check refuses its probe),
-    yet apply wrote it and the investigation stays in state across --follow-up turns: it is unchanged
-    while it is a regular, non-executable file whose parsed content is the saved investigation's note,
-    proven by nothing."""
-    found = state.get("investigation") or {}
-    if found.get("outcome") == "reproduced":
-        return (bug_job.diagnosis_artifact(state, workspace) or {}).get("path") == note
-    target = Path(workspace, note)
-    try:
-        if target.is_symlink() or not target.is_file() or target.stat().st_mode & 0o111:
-            return False
-        return json.loads(target.read_bytes()) == {**bug_job.note(found), "proven_by": ""}
-    except (OSError, ValueError, TypeError, KeyError):
-        return False
-
-
-def _runner_files(state: RunState, workspace) -> tuple[set[str], set[str]]:
-    """(the runner-written files whose content the run recorded, those of them that are unchanged)."""
-    recorded, unchanged = set(), set()
-    note = (state.get("investigation") or {}).get("note_path")
-    if isinstance(note, str) and note.strip():
-        recorded.add(note)
-        if _note_unchanged(state, workspace, note):
-            unchanged.add(note)
-    for key, path_field, hash_field in REPORTS:
-        row = state.get(key)
-        path, saved = (row.get(path_field), row.get(hash_field)) if isinstance(row, dict) else (None, None)
-        if not (isinstance(path, str) and path.strip() and saved):
-            continue
-        recorded.add(path)
-        target = Path(workspace, path)
-        try:
-            if not target.is_symlink() and target.is_file() and util.file_hash(target) == saved:
-                unchanged.add(path)
-        except OSError:
-            pass
-    return recorded, unchanged
 
 
 def _by_path(state: RunState) -> set[str]:

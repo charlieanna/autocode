@@ -9,6 +9,7 @@ this context after its existing process supervisor has cleaned the provider.
 
 from __future__ import annotations
 
+import io
 import json
 import math
 import os
@@ -40,6 +41,14 @@ except ImportError:
 
 class SupervisionError(processes.ProcessError):
     pass
+
+
+class LaunchRefused(SupervisionError):
+    """The host refused the launch before any process started (#2296).
+
+    Nothing ran: no keeper, no provider, no receipt. The caller may treat the
+    attempt as not started instead of as an uncertain stage.
+    """
 
 
 class LaunchLimitExpired(SupervisionError):
@@ -181,21 +190,103 @@ def launch_envelope(child):
     return value
 
 
-def receipt(metadata):
-    """Read a bounded receipt bound to one launch; missing/invalid is unknown."""
+_RECEIPT_READ_PHASES = frozenset({"metadata", "open", "stat", "read", "parse", "validate"})
+_RECEIPT_READ_REASONS = frozenset(
+    {
+        "metadata_invalid",
+        "not_found",
+        "access_denied",
+        "io_error",
+        "size_limit",
+        "text_decode_invalid",
+        "json_invalid",
+        "value_invalid",
+        "object_invalid",
+        "schema_invalid",
+        "nonce_mismatch",
+        "owner_mismatch",
+        "keeper_mismatch",
+        "provider_mismatch",
+    }
+)
+
+
+def _open_receipt(path):
+    """Allow 100 ms of initial-open visibility lag during atomic replacement."""
+    for attempt in range(5):
+        try:
+            return path.open("rb")
+        except FileNotFoundError:
+            if attempt == 4:
+                raise
+            # A Mac Docker bind can briefly hide the replaced directory entry.
+            # Never cache old evidence or retry failures after a descriptor opens.
+            time.sleep(0.025)
+
+
+def _read_receipt_once(metadata):
+    """Size-check and authenticate the bytes of one opened receipt."""
+    phase = "metadata"
     try:
         path = Path(metadata["receipt"])
-        if path.stat().st_size > receipts.MAX_RECEIPT_BYTES:
-            return None
-        value = json.loads(path.read_text())
-        if not isinstance(value, dict) or value.get("schema") != 1:
-            return None
+        phase = "open"
+        with _open_receipt(path) as stream:
+            phase = "stat"
+            if os.fstat(stream.fileno()).st_size > receipts.MAX_RECEIPT_BYTES:
+                return None, (phase, "size_limit")
+            phase = "read"
+            data = stream.read(receipts.MAX_RECEIPT_BYTES + 1)
+        if len(data) > receipts.MAX_RECEIPT_BYTES:
+            return None, (phase, "size_limit")
+        # Preserve Path.read_text's default encoding, newline and decoder semantics.
+        with io.TextIOWrapper(io.BytesIO(data)) as text_stream:
+            text = text_stream.read()
+        phase = "parse"
+        value = json.loads(text)
+        phase = "validate"
+        if not isinstance(value, dict):
+            return None, (phase, "object_invalid")
+        if value.get("schema") != 1:
+            return None, (phase, "schema_invalid")
         for key in ("nonce", "owner", "keeper", "provider"):
             if value.get(key) != metadata.get(key):
-                return None
-        return value
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
+                return None, (phase, key + "_mismatch")
+        return value, None
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        if phase == "metadata":
+            reason = "metadata_invalid"
+        elif isinstance(error, FileNotFoundError):
+            reason = "not_found"
+        elif isinstance(error, PermissionError):
+            reason = "access_denied"
+        elif isinstance(error, OSError):
+            reason = "io_error"
+        elif phase == "read" and isinstance(error, UnicodeError):
+            reason = "text_decode_invalid"
+        elif phase == "parse" and isinstance(error, json.JSONDecodeError):
+            reason = "json_invalid"
+        else:
+            reason = "value_invalid"
+        return None, (phase, reason)
+
+
+def _read_receipt(metadata):
+    """Allow bounded parse visibility lag, always reopening and authenticating.
+
+    A transient malformed read is not ownership evidence. Only a fresh complete
+    receipt can supply it; identity, schema, access and I/O failures stop at once.
+    Persistent corruption remains unknown after at most 100 ms of parse waits.
+    """
+    for attempt in range(5):
+        value, diagnostic = _read_receipt_once(metadata)
+        if diagnostic != ("parse", "json_invalid") or attempt == 4:
+            return value, diagnostic
+        time.sleep(0.025)
+
+
+def receipt(metadata):
+    """Read a bounded receipt bound to one launch; missing/invalid is unknown."""
+    return _read_receipt(metadata)[0]
 
 
 def observe(metadata):
@@ -311,12 +402,14 @@ def _send(fd, value):
         data = data[os.write(fd, data) :]
 
 
-def _terminal_clean(value):
+def _terminal_clean(value, *, allow_deadline=False):
     return bool(
         value
         and value.get("phase") == "stopped"
         and value.get("cleanup_error") is None
-        and value.get("cause") in receipts.NORMAL_CAUSES
+        and (
+            value.get("cause") in receipts.NORMAL_CAUSES or (allow_deadline and value.get("cause") == "stage_deadline")
+        )
     )
 
 
@@ -351,9 +444,11 @@ def session_handoff_reply(metadata, raw, deadline):
         or record["requested_session"] != creator["pid"]
     ):
         raise SupervisionError("Invalid session ownership creator")
-    current = receipt(metadata)
+    current, diagnostic = _read_receipt(metadata)
     if current is None:
-        raise SupervisionError("Session ownership receipt is unavailable")
+        error = SupervisionError("Session ownership receipt is unavailable")
+        error.__dict__["_receipt_diagnostic"] = diagnostic
+        raise error
     if _terminal_clean(current):
         return None
     if current.get("phase") != "armed" or current.get("cleanup_error") is not None:
@@ -367,6 +462,51 @@ def session_handoff_reply(metadata, raw, deadline):
     if not handoff.admit_session(metadata, record, deadline):
         return cancelled
     return {"session_admitted": notice["request"], "guard": metadata["nonce"]}
+
+
+# Fixed diagnostics only: exception payloads may contain paths, provider output or secrets.
+_SESSION_HANDOFF_REASONS = {
+    "Invalid session ownership handoff": "invalid_notice",
+    "Invalid session ownership creator": "invalid_creator",
+    "Session ownership receipt is unavailable": "receipt_unavailable",
+    "Session ownership is no longer armed": "receipt_not_armed",
+    "Enclosing keeper is unavailable": "enclosing_keeper_unavailable",
+    "Enclosing keeper did not retain session ownership": "enclosing_ownership_unverified",
+    "Keeper exited before acknowledging ownership": "acknowledgement_unavailable",
+    "Keeper acknowledgement exceeded its limit": "acknowledgement_too_large",
+    "Keeper did not arm within the launch limit": "acknowledgement_deadline",
+}
+
+
+def _session_handoff_failure(error, phase):
+    known = (
+        (SupervisionError, "SupervisionError"),
+        (LaunchLimitExpired, "LaunchLimitExpired"),
+        (processes.ProcessError, "ProcessError"),
+        (OSError, "OSError"),
+        (BrokenPipeError, "BrokenPipeError"),
+        (PermissionError, "PermissionError"),
+        (ConnectionResetError, "ConnectionResetError"),
+        (ValueError, "ValueError"),
+        (json.JSONDecodeError, "JSONDecodeError"),
+    )
+    name = next((name for kind, name in known if type(error) is kind), "Exception")
+    message = None
+    if (type(error) is SupervisionError or type(error) is LaunchLimitExpired) and len(error.args) == 1:
+        message = error.args[0] if type(error.args[0]) is str else None
+    reason = _SESSION_HANDOFF_REASONS.get(message, "unclassified")
+    detail = ""
+    if type(error) is SupervisionError and reason == "receipt_unavailable":
+        diagnostic = error.__dict__.get("_receipt_diagnostic")
+        if (
+            type(diagnostic) is tuple
+            and len(diagnostic) == 2
+            and all(type(label) is str and len(label) <= 32 for label in diagnostic)
+            and diagnostic[0] in _RECEIPT_READ_PHASES
+            and diagnostic[1] in _RECEIPT_READ_REASONS
+        ):
+            detail = f"; receipt_phase={diagnostic[0]}; receipt_reason={diagnostic[1]}"
+    return f"Session ownership handoff failed: {name}; phase={phase}; reason={reason}" + detail
 
 
 def _stop_direct(child):
@@ -454,7 +594,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
             provider_boundary = False
             _note_portable_host()
         except boundary.BoundaryError as error:
-            raise SupervisionError(f"Provider session boundary unavailable; no provider launched: {error}") from error
+            raise LaunchRefused(f"Provider session boundary unavailable; no provider launched: {error}") from error
     # The held envelope authenticates the exact values passed to this Popen,
     # not caller-owned containers that can change during its checkpoint.
     command = list(command)
@@ -678,24 +818,36 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
         def watch_keeper():
             callback_open = True
             while not stopped.is_set():
+                phase = "wait_callback"
                 try:
                     if callback_open and select.select([callback_parent], [], [], 0.05)[0]:
+                        phase = "read_callback"
                         raw = callback_parent.recv(65537)
                         if not raw:
                             callback_open = False
                         else:
+                            phase = "check_ownership"
                             answer = session_handoff_reply(metadata, raw, time.monotonic() + 15)
                             if answer is not None:
+                                phase = "send_acknowledgement"
                                 callback_parent.send(json.dumps(answer).encode())
                     elif not callback_open:
                         stopped.wait(0.05)  # EOF remains readable; do not spin on it.
                 except BaseException as error:
                     # Clean publication can race the reply socket's closure.
-                    if stopped.is_set() or (isinstance(error, OSError) and _terminal_clean(receipt(metadata))):
+                    # A clean deadline closes this socket too. Let final receipt
+                    # and keeper-exit validation raise VerifiedStop; do not turn
+                    # an already verified timeout into unknown cleanup. This
+                    # does not widen normal command or ownership-grant success.
+                    if stopped.is_set() or (
+                        isinstance(error, OSError) and _terminal_clean(receipt(metadata), allow_deadline=True)
+                    ):
                         return
-                    errors.append(f"Session ownership handoff failed: {type(error).__name__}")
-                    with suppress(OSError):
-                        close_fd(control_w)
+                    try:
+                        errors.append(_session_handoff_failure(error, phase))
+                    finally:
+                        with suppress(OSError):
+                            close_fd(control_w)
                     return
                 code = keeper.poll()
                 if code is not None:

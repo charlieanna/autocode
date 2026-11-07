@@ -16,6 +16,7 @@ runs the commands.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shlex
 import time
@@ -28,6 +29,7 @@ try:
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
     from . import autocode_test_cases as test_cases
+    from . import autocode_verification_schedule as verification_schedule
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_diff_coverage as diff_coverage
@@ -35,6 +37,7 @@ except ImportError:
     import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
     import autocode_test_cases as test_cases
+    import autocode_verification_schedule as verification_schedule
 
 BUDGET_SECONDS = 900
 # A mutant that never returns (a negated loop condition) should not spend every other mutant's time:
@@ -92,7 +95,46 @@ def judge(receipt, tests) -> tuple[str, list[str]]:
     return ("survived", passed) if passed and receipt.get("exit_code") == 0 else ("not_run", [])
 
 
-def collect(framework_name, command, cases, proof, tree, evidence_dir, files, diff_text, run, *, clock=time.monotonic):
+def proved_outcome(receipt, tests) -> tuple[str, list[str]]:
+    """A completed named test must observe a mutation; a broken runner proves nothing.
+
+    Advisory studies keep their historical outcome vocabulary. Completion enforcement
+    additionally requires complete results for exactly the selected tests and refuses
+    collection/setup failures, missing tests and skipped tests.
+    """
+    if not receipt or receipt.get("error") or receipt.get("interrupted"):
+        return "not_run", []
+    if receipt.get("timed_out"):
+        return "timeout", []
+    results = receipt.get("results") or {}
+    if not verification_schedule.complete_results(receipt) or any(
+        results.get(key) for key in ("setup_errors", "skipped", "collection_errors", "uncollected")
+    ):
+        return "not_run", []
+    passed, failed = set(results.get("passed") or []), set(results.get("failed") or [])
+    if passed | failed != set(tests):
+        return "not_run", []
+    if failed and type(receipt.get("exit_code")) is int and receipt["exit_code"] != 0:
+        return "killed", sorted(failed)
+    if not failed and receipt.get("exit_code") == 0:
+        return "survived", sorted(passed)
+    return "not_run", []
+
+
+def collect(
+    framework_name,
+    command,
+    cases,
+    proof,
+    tree,
+    evidence_dir,
+    files,
+    diff_text,
+    run,
+    *,
+    clock=time.monotonic,
+    enforcement=False,
+):
     """Mutate the changed product lines in ``tree`` and run the proving tests against each mutant.
 
     ``proof`` holds the judged test lists (fail_to_pass, pass_to_pass, not_run_on_base, unstable);
@@ -111,13 +153,40 @@ def collect(framework_name, command, cases, proof, tree, evidence_dir, files, di
         )
     try:
         tests = proving_tests(cases, proof, framework_name)
-        return _collect(framework_name, command, tests, tree, Path(evidence_dir), files, diff_text, run, clock)
+        return _collect(
+            framework_name,
+            command,
+            tests,
+            tree,
+            Path(evidence_dir),
+            files,
+            diff_text,
+            run,
+            clock,
+            strict=enforcement,
+            enforcement=enforcement,
+        )
+    except command_receipt.OwnershipUncertain as error:
+        if enforcement:
+            raise
+        return record(f"the mutation check stopped: {type(error).__name__}: {error}")
     except Exception as error:  # report only: whatever goes wrong here, the proof itself stands
         return record(f"the mutation check stopped: {type(error).__name__}: {error}")
 
 
 def collect_selected_tests(
-    framework_name, command, test_ids, tree, evidence_dir, files, diff_text, run, *, clock=time.monotonic, deadline=None
+    framework_name,
+    command,
+    test_ids,
+    tree,
+    evidence_dir,
+    files,
+    diff_text,
+    run,
+    *,
+    clock=time.monotonic,
+    deadline=None,
+    enforcement=False,
 ):
     """Report mutations against independently observed passing tests, without inventing named cases.
 
@@ -147,6 +216,7 @@ def collect_selected_tests(
             clock,
             deadline=deadline,
             strict=True,
+            enforcement=enforcement,
         )
     except command_receipt.OwnershipUncertain:
         raise
@@ -155,7 +225,19 @@ def collect_selected_tests(
 
 
 def _collect(
-    framework_name, command, tests, tree, evidence, files, diff_text, run, clock, *, deadline=None, strict=False
+    framework_name,
+    command,
+    tests,
+    tree,
+    evidence,
+    files,
+    diff_text,
+    run,
+    clock,
+    *,
+    deadline=None,
+    strict=False,
+    enforcement=False,
 ) -> dict:
     if not tests:
         return record("no judged test is named after a due case, so the mutation check ran no test")
@@ -176,13 +258,20 @@ def _collect(
         try:
             source, times = target.read_bytes(), target.stat()
             changed = mutants.changed_lines(diff_coverage.hunks(diff_text([(path, status)])))
-            made, notes = mutants.python_mutants(path, source, set().union(*changed.values()))
+            made, notes = mutants.python_mutants(
+                path,
+                source,
+                set().union(*changed.values()),
+                **({"limit": max(1, len(source))} if enforcement else {}),
+            )
         except Exception as error:  # this file's note; the other files are still mutated
             if strict and isinstance(error, command_receipt.OwnershipUncertain):
                 raise
             row["notes"].append(f"{path}: not mutated: {type(error).__name__}: {error}")
             continue
         row["notes"] += notes
+        if enforcement:
+            row["sha256"] = hashlib.sha256(source).hexdigest()
         planned += [(row, target, source, times, mutant) for mutant in made]
     if not planned:
         return record("no changed product line has a mutation site, so the mutation check ran no test", rows)
@@ -194,7 +283,7 @@ def _collect(
         if reference_limit <= 0:
             return record("the 900-second mutation budget expired before the unmutated run", rows)
     reference = run(isolated(narrowed, evidence / "pycache" / "unmutated"), "unmutated", reference_limit)
-    outcome, passed = judge(reference, tests)
+    outcome, passed = (proved_outcome if enforcement else judge)(reference, tests)
     if outcome != "survived" or (strict and set(passed) != set(tests)):
         return record(
             "the proving tests did not pass unmutated in the mutation check's own run, so no mutant ran", rows
@@ -203,6 +292,8 @@ def _collect(
     unrun = 0
     for number, (row, target, source, times, mutant) in enumerate(planned, 1):
         entry = {"line": mutant.line, "operator": mutant.operator, "before": mutant.before, "after": mutant.after}
+        if enforcement:
+            entry.update(end_line=mutant.end_line, source_sha256=mutant.source_sha256, failed_tests=[], evidence=[])
         remaining = deadline - clock()
         if remaining < MUTANT_FLOOR_SECONDS:
             unrun += 1
@@ -223,7 +314,10 @@ def _collect(
             if not ownership_uncertain:
                 target.write_bytes(source)
                 os.utime(target, ns=(times.st_atime_ns, times.st_mtime_ns))
-        outcome, survived = judge(receipt, passed)
+        outcome, observed = (proved_outcome if enforcement else judge)(receipt, passed)
+        survived = observed if outcome == "survived" else []
+        if enforcement:
+            entry.update(failed_tests=observed if outcome == "killed" else [], evidence=[receipt["output"]])
         if strict and outcome == "survived" and set(survived) != set(passed):
             outcome, survived = "not_run", []
         if outcome == "timeout" and limit < bound:  # the budget cut it short, not the mutant
@@ -232,7 +326,15 @@ def _collect(
     note = (
         f"the {BUDGET_SECONDS}-second budget ran out with {unrun} of {len(planned)} mutants not run" if unrun else None
     )
-    return record(note, rows, collected=True)
+    result = record(note, rows, collected=True)
+    if enforcement:
+        result.update(
+            selected_tests=tests,
+            reference_output=reference["output"],
+            selection="all_eligible_changed_sites",
+            limit_per_file=max(len(source) for _, _, source, _, _ in planned),
+        )
+    return result
 
 
 def survivors(check, case_tests) -> dict:

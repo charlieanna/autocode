@@ -17,7 +17,7 @@ function fixture(view='task-detail') {
     console,Date,Set,Promise,$,n:(tag,text)=>new Element(tag,text),
     document:{createTextNode:text=>new Element('text',text),querySelectorAll:selector=>selector==='[data-stale-disabled]'?controls.filter(control=>control.dataset.staleDisabled!==undefined):controls},
     api(url){events.push(['read',url]);return new Promise((resolve,reject)=>requests.push({url,resolve,reject}));},
-    setup(data){events.push(['setup',data]);},renderTasks(data){events.push(['list',data]);},renderConversations(){},renderInbox(){},expireNotices(){},
+    setup(data){events.push(['setup',data]);},renderTasks(data){events.push(['list',data]);},renderConversations(data){events.push(['conversations',data]);},renderInbox(){},expireNotices(){},
     captureControls(){return {...focus};},restoreFocus(value){events.push(['focus',value]);},
     dashboardNotice(message){$('#dashboard-notice').textContent=message;},markMonitorStale(){events.push(['stale']);},
     removedProject:()=>false,renderTaskProjectActions(){},reviewTaskArchive(){},renderTaskOverview(){},
@@ -25,12 +25,12 @@ function fixture(view='task-detail') {
     renderTaskReasoning(){},renderConversation(){},renderBrief(){},renderAstraPlan(){},renderPlanRail(){},renderInlineTaskAction(){},renderExecution(){},renderLiveControls(){},renderTaskNow(){},renderThreadCheckpoint(){},activateTab(){},settleThreadScroll(){},
     renderDraftConversation(doc){vm.runInContext('latestConversation=receivedConversation',Object.assign(context,{receivedConversation:doc}));$('#draft-send').disabled=false;$('#attach-submit').disabled=false;events.push(['conversation',doc]);}
   });
-  vm.runInContext(`let seq=1,currentView=${JSON.stringify(view)},chosen={workspace:'/p',run:'/p/task'},activeConversation='draft-one',latestData=null,latestRun={workspace:'/p',run:'/p/task'},latestConversation={id:'draft-one'},taskReadError='',taskReadAt=1,actionProblem='',currentTab='now';const archivePending=new Set();`,context);
+  vm.runInContext(`let seq=1,currentView=${JSON.stringify(view)},chosen={workspace:'/p',run:'/p/task'},activeConversation='draft-one',latestData=null,latestDataSignature='',latestRun={workspace:'/p',run:'/p/task'},latestConversation={id:'draft-one'},taskReadError='',taskReadAt=1,actionProblem='',currentTab='now';const archivePending=new Set();`,context);
   // Include real title/project identity dependencies and the no-pending-link polling state.
   vm.runInContext(`let pendingShortRun='',pendingShortProject=null;`+source.slice(source.indexOf('const basename ='),source.indexOf("document.addEventListener('focusin'"))+source.slice(source.indexOf('function concise('),source.indexOf('function taskStarted('))+source.slice(source.indexOf('function runProjectWorkspace('),source.indexOf('function dashboardProjects('))+source.slice(source.indexOf('function renderTaskProjectIdentity('),source.indexOf('function renderTaskProjectActions('))+source.slice(source.indexOf('function unavailableShortProject('),source.indexOf('function taskScopeTitle(')),context);
   vm.runInContext(source.slice(source.indexOf('function disableStaleControls()'),source.indexOf('function renderThreadCheckpoint(')),context);
-  vm.runInContext(source.slice(source.indexOf('async function refreshOnce()'),source.indexOf('async function refresh(){')),context);
-  return {context,$,events,focus,read:expression=>vm.runInContext(expression,context),request:prefix=>{const request=requests.find(entry=>entry.url.startsWith(prefix));assert(request,'Expected an independent read for '+prefix);return request;}};
+  vm.runInContext(source.slice(source.indexOf('async function refreshOnce('),source.indexOf('async function refresh(',source.indexOf('async function refreshOnce('))),context);
+  return {context,$,events,focus,read:expression=>vm.runInContext(expression,context),request:prefix=>{const request=requests.slice().reverse().find(entry=>entry.url.startsWith(prefix)&&!entry.settled);assert(request,'Expected an independent read for '+prefix);request.settled=true;return request;}};
 }
 const run={workspace:'/p',run:'/p/task',task:'Selected task',status:'PAUSED'};
 (async()=>{
@@ -51,6 +51,34 @@ const run={workspace:'/p',run:'/p/task',task:'Selected task',status:'PAUSED'};
     const f=fixture(),poll=f.context.refreshOnce();f.request('/api/runs').reject(Error('Registry offline'));await flush();
     assert.equal(f.read('taskReadError'),'');assert.equal(f.events.filter(event=>event[0]==='stale').length,0);
     f.request('/api/run?').resolve(run);await poll;assert.equal(f.read('latestRun.task'),'Selected task');assert.equal(f.$('#continue-run').disabled,false);
+  }
+  {
+    const f=fixture(),poll=f.context.refreshOnce(false,true);
+    assert.deepEqual(f.events.filter(event=>event[0]==='read').map(event=>event[1]),['/api/run?workspace=%2Fp&run=%2Fp%2Ftask'],'detail polling must not rediscover every task');
+    f.request('/api/run?').resolve(run);await poll;
+    assert.equal(f.read('latestRun.task'),'Selected task');
+    assert.equal(f.events.filter(event=>event[0]==='setup').length,0);
+  }
+  {
+    const f=fixture(),snapshot={runs:[run]};
+    for(let index=0;index<2;index++){
+      const poll=f.context.refreshOnce();
+      f.request('/api/runs').resolve(snapshot);
+      f.request('/api/run?').resolve(run);
+      await poll;
+    }
+    assert.equal(f.events.filter(event=>event[0]==='setup').length,1,'unchanged snapshots must skip setup');
+    assert.equal(f.events.filter(event=>event[0]==='list').length,1,'unchanged snapshots must skip list rendering');
+    assert.equal(f.events.filter(event=>event[0]==='conversations').length,1,'unchanged snapshots must skip conversation rendering');
+    assert.equal(f.$('#sync-state').textContent,'Task checked just now','unchanged snapshots must still advance the list freshness indicator');
+    assert.equal(f.read('latestRun.task'),'Selected task','selected task refreshes must remain independent');
+    const changed=f.context.refreshOnce();
+    f.request('/api/runs').resolve({runs:[{...run,status:'RUNNING'}]});
+    f.request('/api/run?').resolve({...run,status:'RUNNING'});
+    await changed;
+    assert.equal(f.events.filter(event=>event[0]==='setup').length,2,'changed snapshots must still update setup');
+    assert.equal(f.events.filter(event=>event[0]==='list').length,2,'changed snapshots must still render task updates');
+    assert.equal(f.events.filter(event=>event[0]==='conversations').length,2,'changed snapshots must still render conversations');
   }
   for(const stateError of [false,true]){
     const f=fixture(),poll=f.context.refreshOnce();

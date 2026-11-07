@@ -116,6 +116,45 @@ class ConnectionTests(unittest.TestCase):
         code, _ = self.call("login", "--provider", "company")
         self.assertEqual(2, code)
 
+    def test_the_list_marks_the_provider_new_runs_use(self):
+        with mock.patch.dict(os.environ, {"AUTOCODE_PROVIDER": "kilocode"}):
+            rows = connections.view()["connections"]
+        self.assertEqual(["kilocode"], [row["id"] for row in rows if row.get("default")])
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AUTOCODE_PROVIDER", None)
+            self.assertEqual(
+                ["opencode"], [row["id"] for row in connections.view()["connections"] if row.get("default")]
+            )
+
+    def test_codex_is_listed_as_an_engine_backend_and_checked_through_its_login_status(self):
+        """The list had no Codex row, so a client could not offer a signed-in Codex (#2357)."""
+        with mock.patch.object(connections.shutil, "which", return_value=None):
+            row = next(row for row in connections.view()["connections"] if row["id"] == "codex")
+        self.assertEqual(("Codex", "unavailable", []), (row["label"], row["connection_status"], row["actions"]))
+        with mock.patch.object(connections.shutil, "which", return_value="/usr/bin/codex"):
+            row = connections.connection_view("codex")
+            self.assertEqual("not_checked", row["connection_status"])
+            self.assertEqual(
+                [
+                    ["connections", "check", "--provider", "codex", "--json"],
+                    ["connections", "login", "--provider", "codex"],
+                ],
+                [item["next_command"] for item in row["actions"]],
+            )
+            for code, expected in ((0, "credentials_present"), (1, "sign_in_required"), (2, "check_failed")):
+                with (
+                    self.subTest(code=code),
+                    mock.patch.object(
+                        connections.subprocess,
+                        "run",
+                        return_value=subprocess.CompletedProcess([], code, "Logged in using ChatGPT", ""),
+                    ) as run,
+                ):
+                    checked = connections.connection_view("codex", check=True)
+                    self.assertEqual(expected, checked["connection_status"])
+                    self.assertEqual(["codex", "login", "status"], run.call_args.args[0])
+                    self.assertNotIn("ChatGPT", json.dumps(checked))
+
     def test_empty_kilo_auth_list_is_not_a_successful_login(self):
         for output, status in (
             ("0 credentials", "sign_in_required"),
@@ -129,6 +168,52 @@ class ConnectionTests(unittest.TestCase):
             ):
                 row = connections.connection_view("kilocode", check=True)
             self.assertEqual(status, row["connection_status"])
+
+    def test_claude_login_that_would_bill_an_api_key_is_not_reported_signed_in(self):
+        """A claude.ai login whose key comes from apiKeyHelper paused every run with PAUSED_BILLING_ROUTE
+        while the connection check called it signed in; the check now applies the run's billing rule."""
+        cases = (
+            ({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty"}, "credentials_present", None),
+            (
+                {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty", "apiKeySource": "none"},
+                "credentials_present",
+                None,
+            ),
+            (
+                {
+                    "loggedIn": True,
+                    "authMethod": "claude.ai",
+                    "apiProvider": "firstParty",
+                    "apiKeySource": "apiKeyHelper",
+                    "email": "SECRET@example.com",
+                },
+                "sign_in_required",
+                "apiKeyHelper",
+            ),
+            (
+                {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "bedrock"},
+                "sign_in_required",
+                "bedrock",
+            ),
+            ({"loggedIn": True, "authMethod": "api_key", "apiProvider": "firstParty"}, "sign_in_required", "api_key"),
+            ({"loggedIn": False}, "sign_in_required", None),
+        )
+        for status, expected, named in cases:
+            with (
+                self.subTest(status=status),
+                mock.patch.object(connections.shutil, "which", return_value="/claude"),
+                mock.patch.object(
+                    connections.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 0, json.dumps(status), ""),
+                ),
+            ):
+                row = connections.connection_view("claude", check=True)
+            self.assertEqual(expected, row["connection_status"])
+            self.assertNotIn("SECRET", json.dumps(row))
+            if named:
+                self.assertIn(named, row["detail"])
+                self.assertIn("subscription", row["detail"])
 
     def test_check_timeout_is_explicit_and_does_not_disclose_errors(self):
         self.configure()

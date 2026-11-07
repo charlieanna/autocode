@@ -37,12 +37,14 @@ try:
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_run_messages as run_messages
     from . import autocode_run_status as run_status
     from . import autocode_util as util
 except ImportError:
     import autocode_goals as goals
     import autocode_interventions as interventions
     import autocode_pause_authority as pause_authority
+    import autocode_run_messages as run_messages
     import autocode_run_status as run_status
     import autocode_util as util
 
@@ -50,6 +52,10 @@ except ImportError:
 STOP_KIND = "stop"
 STOP_STATUS = "PAUSED_INTERVENTION"
 STOP_REASON = "Durable stop applied at a saved boundary; this run launches no further stages."
+
+
+# The actor of a stop AutoCode records itself when it cannot continue (#2485), never a person's request.
+RUNNER_ACTOR = "autocode"
 
 
 def is_stop_receipt(receipt: Any) -> bool:
@@ -85,8 +91,43 @@ def pending_stop(run_dir: Path) -> dict[str, Any] | None:
     )
 
 
+def outcome(state: RunState) -> dict[str, Any] | None:
+    """The finished, failed outcome AutoCode recorded when it could not continue, if one stands."""
+    receipt = applied_stop(state)
+    value = receipt.get("outcome") if receipt and receipt.get("actor") == RUNNER_ACTOR else None
+    return value if isinstance(value, dict) else None
+
+
 def stop_reason(state: RunState) -> str:
+    ended = outcome(state)
+    if ended and isinstance(ended.get("reason"), str) and ended["reason"]:
+        return f"{run_status.ENDED_PREFIX}{ended['reason']} This run launches no further stages."
     return STOP_REASON
+
+
+def end(state: RunState, reason: str, evidence: dict[str, Any], *, at: str) -> None:
+    """End the run with a finished, failed outcome AutoCode decided itself (#2485).
+
+    For a stop no automatic step can get past, where asking a person would hand them AutoCode's
+    machinery (AGENTS.md "What a person is asked"). The outcome is an applied stop receipt, so
+    every rule that keeps a person's stop in force keeps this one, and it records ``reason`` and
+    ``evidence`` (the incident and its evidence packet) where the view and the report read them.
+    It is idempotent for the same outcome.
+    """
+    if applied_stop(state) is not None:
+        return
+    ended = {"result": "could_not_finish", "reason": reason, "evidence": evidence}
+    receipt = {
+        "id": "autocode-outcome-" + util.digest(ended)[:16],
+        "kind": STOP_KIND,
+        "text": "",
+        "actor": RUNNER_ACTOR,
+        "outcome": ended,
+        "applied_at": at,
+    }
+    state.setdefault("applied_interventions", []).append(receipt)
+    state["stop_intent"] = {"request_ids": [receipt["id"]], "applied_at": at, "actor": RUNNER_ACTOR}
+    assert_stopped(state)
 
 
 def assert_stopped(state: RunState) -> bool:
@@ -121,7 +162,9 @@ def state_writer(ordinary_write: Callable, persist_stopped: Callable) -> Callabl
 
     def write(path, value, *, before_commit=None, after_commit=None):
         if Path(path).name == "state.json" and isinstance(value, dict):
-            value.setdefault("intervention_capability", {}).update(supports_stop=True)
+            value.setdefault("intervention_capability", {}).update(
+                supports_stop=True, supports_messages=True, supports_message_context=True
+            )
             if applied_stop(value):
                 assert_stopped(value)
                 return (
@@ -168,6 +211,12 @@ def interrupted_pause(state: RunState) -> dict[str, Any] | None:
     An earlier pause intervention not yet resumed already names the pause it interrupted: a
     second one keeps that pause, never its own (#486 review).
     """
+    if interventions.pending_admission_pause(state.get("status"), state.get("stop_reason")):
+        # The accepted inbox is what stopped admission. Its successful consumption
+        # resolves that boundary; retain an older independent hold, if one exists.
+        intent = state.get("pause_intent") or {}
+        held = intent.get("held_pause")
+        return dict(held) if held and not intent.get("acknowledged_at") else None
     return pause_authority.interrupted(state) or pause_authority.held_pause(state, own_status=STOP_STATUS)
 
 
@@ -190,6 +239,7 @@ def boundary_effects(
     pauses = [item for item in consumed if item["kind"] == "pause"]
     stops = [item for item in consumed if is_stop_receipt(item)]
     feedback = [item for item in consumed if item["kind"] == "feedback"]
+    messages = [item for item in consumed if item["kind"] == "message"]
     held = None
     if (
         interrupted
@@ -217,7 +267,7 @@ def boundary_effects(
         state["stop_intent"] = {"request_ids": [item["id"] for item in stops], "applied_at": now()}
     if stops:
         run_status.pause(state, STOP_STATUS, STOP_REASON)
-    elif not feedback:
+    elif not feedback and (pauses or not messages):
         run_status.pause(state, STOP_STATUS, "Queued pause was applied; explicitly resume when ready.")
     if held:
         # Any pause is returned to; only an operational one then waits for its own authority.
@@ -230,12 +280,16 @@ def boundary_effects(
         state["stop_reason"] = f"{state.get('stop_reason', '')} {returned}".strip()
     # A completion proposal is retained in its report, but cannot commit while
     # an earlier accepted pause is still awaiting explicit continuation.
-    if state.get("next_stage") is None:
+    if state.get("next_stage") is None and (pauses or stops or feedback):
         state["next_stage"] = "astra_review"
     if state.get("status") != "TASK_COMPLETE":
         state.pop("completed_at", None)
         state.pop("completion_actor", None)
         state.pop("final_decision", None)
+    if messages and not pauses and not stops:
+        run_messages.activate(state)
+        if state.get("status") == "RUNNING":
+            state["stop_reason"] = "Message saved; continuing with its conversation at the next safe boundary."
 
 
 def acknowledge_pause(state: RunState, at: str) -> None:
@@ -321,9 +375,15 @@ def consume(
     ``released``: this invocation already released the held pause with that
     pause's own authority, so the batch interrupts nothing (#486 review).
     """
-    if applied_stop(state) is not None:
+    applied = applied_stop(state)
+    if applied is not None:
         assert_stopped(state)
-        raise util.Paused(STOP_STATUS, stop_reason(state))
+        if applied.get("actor") != RUNNER_ACTOR:
+            # A person's stop keeps every later boundary refused (ac26). The runner's own
+            # outcome (#2485, #2597) rides its deciding boundary commit: the classification
+            # apply that ends the run is the step whose save makes the outcome durable, and
+            # every admission gate (refuse_admission, the status checks) still refuses after.
+            raise util.Paused(STOP_STATUS, stop_reason(state))
     interrupted = None if released else interrupted_pause(state)  # before feedback replaces the status
 
     def write_state():
@@ -340,13 +400,19 @@ def consume(
     def apply_boundary_effects(consumed_now):
         boundary_effects(state, consumed_now, now, interrupted)
 
-    return bool(
+    consumed = bool(
         interventions.consume(
             run_dir,
             state,
             write_state=write_state,
             apply_feedback=apply_feedback,
+            apply_message=lambda receipt, applied: run_messages.receive(state, receipt),
             before_commit=apply_boundary_effects,
             lock_held=lock_held,
         )
     )
+    if not consumed and run_messages.activate(state):
+        state["stop_reason"] = "Message saved; continuing with its conversation at the next safe boundary."
+        write_state()
+        return True
+    return consumed

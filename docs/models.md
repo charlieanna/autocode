@@ -95,14 +95,29 @@ struggling pauses the run instead. The Builder instead gets its
 Builder on `openai/gpt-6-sol` (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.
 
+The Planner has one stronger attempt of its own (`autocode_planner_escalation`, owner
+decision 2026-10-23). In an adaptive run, when the Plan Reviewer's second challenge in a
+planning cycle still has a blocking concern about the revised plan, the next revision runs
+on Claude Opus 5.5 High, or on GPT-6 Sol High when the Plan Reviewer is a Claude model. Only
+a blocking concern counts: schema errors, silences and output caps go through report repair
+and recovery as before. A target is used only when the run's provider serves it, the saved
+accounts permit it, it is a different model from the Planner's and it is outside the Plan
+Reviewer's family; otherwise the Planner stays. The climb is a `reasoning_escalations` row
+with trigger `plan_sent_back`, the Planner's session is rotated, and the route stays climbed
+for the rest of the run, so a run climbs at most once. A second challenge runs only when the
+review allowance leaves room for it (a large plan, `plan_review_call_limit` of 3 or more, or
+`0`, in `~/.config/autocode/config.toml`): under the default allowance of two calls the first revision goes straight to the
+final review and the Planner never climbs. If the stronger revision is still blocked, the
+final review returns the open concerns to you as blocking questions.
+
 Two scripted scenarios check these rows end to end, through `autocode --status --json`
 ([catalog](../scenarios/README.md#catalog)). In `escalation-converts` the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, `passed`, and the run completes; `escalation_outcomes`
 stamps that attempt and the ordinary retry before it `passed` too. In `escalation-ladder-end`
-that attempt fails too: the row reads `paused`, as both stamps do, and the run pauses at
-`PAUSED_BUILDER_RETRY_LIMIT` with the stuck-stage Investigator's diagnosis in its stop reason.
-`scenarios/test_escalation.py` also checks that a `--builder-strong-model` the tool does not
+that attempt fails too: the row reads `paused`, as both stamps do, and the run ends with
+AutoCode's recorded could-not-finish outcome, its reason carrying the stuck-stage Investigator's
+diagnosis. `scenarios/test_escalation.py` also checks that a `--builder-strong-model` the tool does not
 list refuses the new run before any model call.
 
 The Resolver runs on a route of its own, `resolver`. It starts as a copy of the `astra`
@@ -135,7 +150,7 @@ Other engines keep their own defaults, set where each engine is configured:
 
 | Engine or provider | Defaults |
 | --- | --- |
-| `--engine codex` | `gpt-5.6-terra` for the Builder; `gpt-5.6-sol` for the Resolver, Tester and Completion Reviewer (`DEFAULT_ROLE_MODELS` in `tools/autocode.py`) |
+| `--engine codex` | `gpt-5.6-terra` for the Builder; `gpt-5.6-sol` for the Resolver, Tester and Completion Reviewer (`DEFAULT_ROLE_MODELS` in `tools/autocode_configure.py`); with `--joint-planning`, Requirements and the Planner take the Resolver's model and a new Plan Reviewer takes `gpt-6-astra`, or `gpt-5.6-sol` when the Planner runs `gpt-6-astra` (`CODEX_PLAN_REVIEWER_MODELS`) |
 | `--engine claude` (or `--provider claude`) | `claude-haiku-4-5-20251001` for the Builder; `claude-sonnet-5-5` for Requirements, the Planner and the Tester; `claude-opus-5-5` for the Plan Reviewer, the Resolver and the Completion Reviewer; every role at `medium` (`tools/providers/claude.py`, [Claude Code provider](providers.md#claude-code-provider)) |
 | `--provider kilocode` | `openai/gpt-5.6-terra` for the Builder, `zai-coding-plan/glm-5.3` for the Planner, `openai/gpt-5.6-sol` for every other role (`tools/providers/configs/kilocode.toml`) |
 | a user-level provider | whatever its `~/.config/autocode/providers/<name>.toml` `[roles]` specify |
@@ -162,10 +177,59 @@ and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that 
 > names are in saved run state. They are not model choices: `--terra-model
 > zai-coding-plan/glm-5.3` selects the model used for the Builder role.
 
+## Choosing each stage's model
+
+You choose the model and reasoning level of each stage once, and every new task uses them
+(owner decision 2026-10-30). `autocode setup` offers this right after connecting your
+accounts; `autocode stages choose` asks again whenever you want to change them, and
+`autocode stages` lists what each stage runs now. For each stage it says what the stage does,
+gives advice on what suits it, and lists the models your backend offers with the reasoning
+levels each model takes:
+
+| Stage | What it does | What suits it |
+| --- | --- | --- |
+| Requirements | Turns your idea into requirements; asks you only about real ambiguity | A capable all-round model at medium |
+| Planner | Drafts the plan and revises it after review | A capable model at high |
+| Plan Reviewer | Challenges the plan and makes the final planning call; its model also runs the Investigator, the Analyst, the Designer and the Design Reviewer | Your strongest judge at high, never the Planner's model |
+| Builder | Writes the code for one task; several run in parallel | A fast, cheaper model at medium |
+| Tester | Checks each Builder's work and proves its tests fail without the change; its model also writes the acceptance tests and runs the Code Reviewer | A strong model at high, never the Builder's |
+| Completion Reviewer | Decides whether the task is done or goes back for more work | A strong judge at medium, never the Builder's model |
+| Resolver and per-task Planner | Steps in when a stage stops progressing; plans each task's steps | Your strongest model at high |
+
+The workflow jobs have no list of their own: each starts from the stage that names it. The
+Investigator of a bug fix takes the Plan Reviewer's model and level; the Analyst, the Designer
+and the Design Reviewer take its model at a capped level; the acceptance tests and the Code
+Reviewer run on the Tester's. A Plan Reviewer level you did not choose runs one rung lower on a
+small, clear task ([adaptive planning](adaptive-planning.md)); a level you chose is kept.
+
+The models come from your backend: for OpenCode and Kilo, the models your connected accounts
+serve, with the reasoning levels and family their own listing declares (a model that cannot
+call tools is left out); for Claude Code, Haiku, Sonnet and Opus; for Codex, the GPT models
+AutoCode runs on it. A configured command provider without declared account routes offers the
+models in its own configured list; AutoCode leaves account and billing details unknown, and the
+provider checks the selected model again before launch. A model the stage's checker or producer
+already runs is shown as not available, with the reason, because a checker never grades its own model's work
+([independence](#default-models)); on Claude Code and Codex two different models of that
+vendor may check each other. No price is read.
+
+The choices are kept in `~/.config/autocode/stages.toml`, one table per backend, so switching
+backends uses that backend's own choices. Each new task reads them before it begins, as if you
+had typed that stage's `--ROLE-model` and `--ROLE-reasoning-effort` flags, and prints
+`Stage choices from …` naming the stages it took. A flag on the command line and the project's
+own `.autocode/config.toml` still win for that run; `--single-model` takes no saved choice, and
+a shared `--reasoning-effort` keeps the saved levels out. A task already running keeps the
+routes it started with. A stage you have not chosen keeps its default, or the route automatic
+selection picks for it (below). `autocode stages set STAGE --model MODEL --effort LEVEL` and
+`autocode stages reset [STAGE]` change one stage without asking.
+
+A saved level differs from a typed one in one way: for the three review stages it is a ceiling
+([reasoning effort](#reasoning-effort)). Every other stage runs at the level you saved.
+
 ## Choosing models automatically
 
 New CLI and `TaskRun.start` runs choose models automatically from the selected tool's
-connected accounts. No model flags or pinned profile are needed. One tool serves the
+connected accounts for every stage you have not [chosen yourself](#choosing-each-stages-model).
+No model flags or pinned profile are needed. One tool serves the
 run by default; explicit per-role tool bindings and model/effort flags still win.
 A fully pinned profile keeps its existing preflight and recovery policy because there
 is no automatic choice to make. `--single-model` keeps its explicit same-model policy. Saved runs retain their routes
@@ -177,13 +241,21 @@ routes under the normal catalogue, billing and independence guards. Explicit
 `--auto-select` instead refuses before spending. Preview the choices and exclusions
 with `autocode models --selection --provider NAME`; this reads local listings only.
 
+Selection also needs the installed OpenCode version to have a row in the
+[conformance matrix](providers.md#conformance-matrix) whose result allows ordinary runs
+(`known-good` or `accepted-for-ordinary-runs`, #2060). On any other version the default
+launch prints why and uses the fixed routes, and `--auto-select` refuses. `autocode doctor`
+shows the installed version's row; a new version qualifies once
+`tools/provider_conformance.py` has passed on it and its row is added.
+
 OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight
 proves each distinct model/effort on its actual tool within the run's time/cost cap;
 receipts survive resume. Recovery checks independence against the current saved routes, including explicit
 assignments and catalogue substitutions. It stays within the saved connected accounts, and
-exhaustion asks for intervention. A stuck-run Investigator reuses an independent saved
+exhaustion asks for intervention. A model a flag pinned (`--terra-model`, and the other per-role
+flags) is never switched on its own: its stop asks, as before automatic selection. A stuck-run Investigator reuses an independent saved
 reviewer route and its supported level; it cannot silently use a fixed paid-gateway
 default. Explicit `--investigator-model` remains an override. A newly connected account
 is never silently added.
@@ -195,17 +267,70 @@ The rules the choice keeps:
   that role, with the evidence that admitted it: AutoCode's own runs qualify a model,
   and a public benchmark admits it only provisionally until such a run confirms it.
   The table changes by pull request, like the price table it is priced from. A model
-  not in the table is never chosen automatically, however cheap.
+  not in the table is never chosen automatically, however cheap. After a live run proves
+  a route, `tools/qualify_routes.py --run-dir RUN --scenario NAME --profile PROFILE`
+  merges that run into the table, refusing anything that did not declare
+  `--evidence-provenance live` and finish `TASK_COMPLETE`; it launches no model.
+  Each merge also appends a `runs` record to the entry: the date, run, scenario and
+  profile, the role's accepted attempts on that route, and their minutes and cost
+  (null when an attempt did not record one). `autocode models --selection` shows each
+  listed entry's evidence, such as `provisional: no AutoCode run yet` or
+  the number/date of recorded runs (#2059). Historical `minutes`, `cost_usd` and
+  `attempts` cover only accepted attempts on that role/model; their display labels
+  the scope, excluded failed/repair amounts and known-run denominator. New records
+  additionally carry versioned `attempt_accounting` for all attempts on that role/model,
+  including rejected, timed-out, interrupted and report-only work. Duration is summed
+  recorded active time, not task wall time. Provider-reported and historical-estimated
+  amounts stay separate, with known subtotals and coverage; missing/uncertain usage
+  is not zero. Native shared receipts retain the existing accounting attribution.
+  New attempts also freeze bounded `execution_identity` at launch: role slot,
+  engine/tool, exact model, effective effort and runner commit when known.
+  Public accounting carries those facts; qualification records group them under
+  `execution_evidence` with known/unknown attempt counts. They are not reconstructed
+  from later settings. Billing classification is recorded only for the exact saved
+  selected model/tool, with its basis; a permitted account pool is not proof of the
+  account charged. Direct connections record configured endpoint origin, protocol,
+  provider key slot and SHA-256, keeping tenant paths and credentials out of public
+  evidence. Other backends' endpoints remain unknown when not recorded. Blank/null
+  effort preserves the provider-default convention; a modified or unknown runner
+  commit is not a complete code-byte fingerprint. These records do not establish
+  cross-endpoint compatibility, an external benchmark verdict or comparative merit.
+  Legacy and all-attempt cohorts are not pooled. None of these role measurements is
+  a whole-task cost per accepted fix, an invoice or new comparative qualification.
+  Rejected/repair-only attempts still do not qualify a route, and no historical
+  record is silently backfilled. Provisional entries stay selectable (owner decision, 2026-10-26) until benchmark runs
+  have filled these records.
 - **Within a role's qualified models, the cheapest route wins.** A subscription route
   counts as cheaper than any pay-per-token one, then the price-table cost orders them,
   and a route whose access is already proven beats one that would need a probe. The
   checkers are never downgraded to save money: they start on their cheapest *qualified*
-  model, and only a failure ever moves a role up.
+  model, and only a failure ever moves a role up. A role whose table entries carry a
+  `preference` is ordered by it first: the Plan Reviewer is GPT-6 Sol when the ChatGPT
+  login is connected, then Claude Opus, and MiMo is not used for review (owner decision,
+  2026-10-20: MiMo spent 32-45k reasoning tokens and up to 15 minutes per plan review).
+  With neither connected, the run stops before any work and offers those two logins.
+  A model the table marks `excluded` for a role is never chosen for it, even when a profile
+  pinned it and a live run completed on it; `tools/qualify_routes.py` names the exclusion
+  instead of adding an entry, so the Plan Reviewer's MiMo v2.6 Pro exclusion is that record.
+  The Builder likewise prefers GPT-6 Luna at medium effort (owner decision, 2026-10-21), then GPT-6 Sol, then MiMo v2.6
+  Flash, then Claude Opus, then the cheapest of GLM 5.3, MiMo v2.6 Pro and DeepSeek (owner
+  decision, 2026-10-20: on ladder-07 a Luna Builder took 36-66 s and a Sol Builder 66 s
+  against MiMo v2.6 Pro's 404-474 s, and the whole task 16-35 min against 34-46 min). A
+  small task's first Builder attempt still runs at low effort (`autocode_light_builder`).
+  Because a checker never grades its own family, an OpenAI Builder is checked by GLM as
+  Tester and Completion Reviewer; when only GPT models could check an OpenAI build, MiMo
+  Flash builds instead. The Completion Reviewer prefers GPT-6 Sol only when no GPT model
+  built. Requirements, Planner and Tester stay on the cheapest qualified models.
 - **Independence is never lowered quietly.** Every producer and checker pair stays on
   different model families (`tools/autocode_verifier_independence.py`); when the
   connected accounts cannot provide that, the run stops before any work and says what
   is missing in account terms ("connect a second model family"), never by suggesting
-  `--single-model`.
+  `--single-model`. GLM, MiMo, Claude and OpenAI's GPT models are each one family, so no
+  Claude model checks another Claude model's work, and no GPT model another GPT model's
+  (Luna's build is never tested by Sol), on Kilo, OpenCode or a custom provider (owner
+  decision, 2026-10-20). The built-in Claude Code and Codex engines reach only their own
+  vendor's models, so there different models of that vendor check each other (for example
+  Sonnet's work is reviewed by Opus); a model never checks itself.
 - **No invented reasoning levels.** A route gets a reasoning level only when the model
   advertises it; otherwise the model uses its own default.
 - **Explicit choices win.** `--<role>-model`, `--provider`, `--role-transport` and
@@ -217,13 +342,16 @@ accounts you allow to one route per role, or a stop that names what is missing. 
 chosen route is recorded with its origin (`auto_selected`) in the route record the
 status view shows. `autocode models --selection` shows the whole reasoning: the
 logins the tool reports, the route chosen for each role with its cost, and why every
-other qualified model lost (not connected on any login, a cheaper qualified route
-won, or it would check its own family's work).
+other qualified model lost (not connected on any login, a preferred or cheaper
+qualified route won, or it would check its own family's work).
 
 Before the first stage, the [model-access preflight](#when-a-model-is-not-in-your-plans)
 probes exactly the chosen routes that are still unproven, one tiny call each at the
 role's own reasoning level, within the run's cost cap — including built-in OpenCode
-routes, which saved-run probes never touched.
+routes, which saved-run probes never touched. On OpenCode and Kilo a probe runs as a bare
+agent with no tools and a one-line system prompt, a few hundred input tokens instead of the
+coding agent's ~18k. The Resolver's own model (usually GPT-6 Astra) is probed only before the
+first stage that runs it, since most runs never need a Resolver (#1744).
 
 ## Builder retry policy
 
@@ -306,8 +434,8 @@ no `provider/` prefix (the built-in claude provider), a Tester or Completion Rev
 when the cross-model guard would refuse it (it runs the strong model in the tool's spelling, or
 another model of its GLM or MiMo family) and the checker model is one the run already routes a
 role to; one that may only spell the strong model another way (`openai/X` for `X`) cannot move.
-When one cannot move, the run pauses (`PAUSED_BUILDER_RETRY_LIMIT`) before any route
-changes, and the stop reason says why. `provider/model` names, as KiloCode uses, keep the rule above.
+When one cannot move, the run ends with AutoCode's recorded could-not-finish outcome before any
+route changes, and the outcome's reason says why. `provider/model` names, as KiloCode uses, keep the rule above.
 
 A parallel Builder cannot move the checkers that will check its batch. When its stronger
 attempt would run on the checkers' model, it stops with `SERIAL_ESCALATION` instead
@@ -374,7 +502,8 @@ autocode "Your rough idea" --utility-model ollama/qwen3:8b
 
 The stages it serves are listed in one place, `UTILITY_STAGES` in
 `tools/autocode_roles.py`. Today that is the Job recognizer
-(`recognize_workflow`), which picks one of the five workflows. The route copies
+(`recognize_workflow`), which picks one of the five workflows on a flow without
+a Requirements stage; elsewhere Requirements names the job (#1860). The route copies
 the Plan Reviewer's engine, provider and reasoning effort and replaces only the
 model (`--utility-reasoning-effort` sets its own effort). A run started without
 the flag saves no utility route, so every stage keeps the route it had before.
@@ -422,13 +551,62 @@ pull request) and the rate each default route is priced at, or "no rate" for a m
 without a row, whose cost is then unknown rather than zero. The money cap
 (`--max-cost-usd`, [Money cap](execution.md#money-cap)) counts spend at these rates.
 
+## Reasoning effort
+
+A role runs at one reasoning effort, chosen from the variants its model declares. Kilo
+and OpenCode report those variants in their local model listings; when a tool reports
+none, AutoCode records the effort as unverified and the tool's own check decides. The
+flags are `--reasoning-effort LEVEL` for every role and `--<role>-reasoning-effort LEVEL`
+for one (`--glm-reasoning-effort`, `--astra-reasoning-effort`, `--terra-reasoning-effort`,
+`--sol-reasoning-effort`, and the matching flag for the other jobs).
+
+A level from your [stage choices](#choosing-each-stages-model) is a ceiling for the Plan
+Reviewer, the Tester and the Completion Reviewer (owner decision 2026-11-05). Each launch
+of one of those reviews decides the level on its own, from the run's own records, and never asks you:
+
+- On a small, clear task the review runs one level below your level, so high becomes
+  medium. A task is small and clear when Requirements judged the request clear and the
+  drafted plan is small: one milestone touching at most four files. Before the plan is
+  sized, the brief's own size decides.
+- The level one below must be one the model offers. A new run reads the levels from the
+  tool's own listing once, when it starts. GLM 5.3 offers low, high and max, so a GLM review stays at high
+  rather than drop two levels, and so does a model whose levels the run cannot list.
+- A review that already ran for this task runs at your level: a rejected answer, a
+  send-back or a second look. So does a route that climbed the effort ladder, and the Plan
+  Reviewer of a run started with `--plan-review-full`.
+
+Each review launch records its decision on its stage record as `effort_choice`: the
+level, your ceiling, the reason, and the task's clarity, brief size and plan size. The
+status view's usage attempts carry it, `/details` in the terminal chat shows the level
+each attempt ran at, and the live log says when a review runs below your level. A level
+typed as a flag (`--sol-reasoning-effort`, `--reasoning-effort`) or given as an answer is
+exact. A level the runner chose keeps its own tiers: the Plan Reviewer's reduced depth for
+small clear briefs and the Builder's light first attempt (`autocode_light_builder`).
+
+An effort AutoCode derives itself — a reduced Builder tier, a climb on the effort ladder,
+a single-model run — moves to the nearest declared variant and records the move as
+`effort_fits`. An effort a person named never moves. When the model does not declare it,
+the run pauses as `PAUSED_EFFORT_UNSUPPORTED` before the stage launches, naming the model,
+the level you chose and the levels it does declare. Answer with one of those and continue:
+
+```sh
+autocode --answer effort-glm=high
+autocode --resume-paused
+```
+
+The status view's `needs` carries the same question as `needs.effort` (`question_id`
+`effort-ROLE`, `role`, `job`, `model`, `requested`, `declared`, `nearest`), and
+`--answer` records the level you name as your own choice. A level the model does not
+declare is refused with nothing saved. See [KiloCode](providers.md#kilocode).
+
 ## When a role's quota runs out
 
 A provider that reports a used-up quota, usage limit or credits stops the stage with
 `PAUSED_BUDGET`, and so does a used-up daily, weekly or monthly plan limit sent as an
 HTTP 429 (Z.AI's "Weekly/Monthly Limit Exhausted"); a per-minute rate limit does not.
-The stopped attempt is kept, never replayed, and AutoCode asks you which model the
-role should continue on, for example:
+The stopped attempt is kept and never replayed. Unless the run can switch the role on
+its own (see the end of this section), AutoCode asks you which model the role should
+continue on, for example:
 
 ```text
 [route-sol] Tester's quota is exhausted; name the model to continue on
@@ -475,9 +653,24 @@ route is what it is — and the changes under `route_assignments`; while the
 question is open, `needs.route` names the role and its current model. The new model
 stays on the role until you change it again, including past the next milestone.
 
-There is no fallback list, configuration table or automatic switch: a quota stop is
-always your decision. Capacity errors retry the same model, rate limits pause as
-before, and authentication failures never ask for a model.
+A run that chose its models automatically ([Choosing models automatically](#choosing-models-automatically))
+first switches the role on its own. It takes the next qualified model on an account the
+run already uses, keeps every checker independent of its producer, and prints a line such
+as `Builder: MODEL stopped (PAUSED_BUDGET); switched to NEW_MODEL on ACCOUNT without asking`.
+The switch sets the stopped attempt aside the same way an answer does, is recorded as a
+`route_assignment` whose actor is `runner`, and counts as an automatic recovery. When the new
+model bills another way than the stopped one (a subscription route replaced by a pay-per-token
+one, by the billing discovery recorded), the record carries `billing: {from, to}`, which the
+status view's `route_assignments` shows, and the line ends `; it bills pay per token where
+MODEL was subscription` (#2061). AutoCode
+asks instead when no such model remains, when you pinned the role's model with a flag,
+when a pause was requested, and for native runs and workflow jobs. The same switch applies
+to content-filter and output-limit stops.
+
+A run on fixed routes (`--no-auto-select`, or a launch whose automatic selection fell
+back to them) has no fallback list or configuration table: its quota stop is always your
+decision. Capacity errors retry the same model, rate limits pause as before, and
+authentication failures never ask for a model.
 
 ### When the stopped role is a workflow job
 
@@ -523,7 +716,9 @@ Builder: the provider's content filter refused the response on xiaomi-token-plan
 ```
 
 The same model is likely to refuse the same request again, so the attempt is kept and never
-replayed, and AutoCode asks the question a quota stop asks, answered the same way:
+replayed. AutoCode handles it as a quota stop: a run that chose its models automatically
+switches on its own where it can ([above](#when-a-roles-quota-runs-out)); otherwise it asks
+the question a quota stop asks, answered the same way:
 
 ```text
 [route-terra] Builder's model was refused by its provider's content filter; name another model to continue on
@@ -563,10 +758,12 @@ one.
 
 ## When a response reaches its output limit
 
-An authenticated terminal output-limit stop (`PAUSED_OUTPUT_CAP`) asks for another model
-on the same engine with the existing availability and checker-independence rules.
+An authenticated terminal output-limit stop (`PAUSED_OUTPUT_CAP`) switches models on its
+own on a run that chose them automatically, as a quota stop does
+([above](#when-a-roles-quota-runs-out)). Otherwise it asks for another model on the same
+engine with the existing availability and checker-independence rules.
 The answer retains the incomplete attempt and usage; continuation is explicit. Builder
-and Requirements never automatically retry this stop. See [Output cap](providers.md#output-cap)
+and Requirements never automatically retry this stop on the same model. See [Output cap](providers.md#output-cap)
 for cap settings and the existing bounded read-only report repair.
 
 ## A parallel Builder stopped on its model

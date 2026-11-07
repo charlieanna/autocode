@@ -31,9 +31,18 @@ class InteractionTiming(TypedDict):
 
 # Every key tools/ reads or writes on a run state dict.
 # Generated from the source; add a new one here in the same change that introduces it.
+# scope_exclusion_corrections (#2467): person-authorized exact rewords of authenticated
+# peer exclusions. Written only by autocode_goal_lifecycle.install_draft (through
+# autocode_scope_question.record_installed_corrections, which validates each declared
+# reword independently of the revision guard: saved person basis, current authenticated
+# assignment, exact current boundary text, same-peer replacement present in the installed
+# body); read only by autocode_scope_question.effective_exclusions, which re-binds every
+# receipt to the workspace-scope identity, the turn and the assignment-membership digest
+# it was recorded under.
 KEYS: frozenset[str] = frozenset(
     {
         "_authorized_bound_change",
+        "scope_exclusion_corrections",
         "runner",
         "_fixture_accepted",
         "_fixture_attempt",
@@ -54,7 +63,6 @@ KEYS: frozenset[str] = frozenset(
         "active_stage_workers",
         "affected_paths",
         "agent_request",
-        "agreement",
         "alive",
         "answer",
         "answers",
@@ -69,8 +77,9 @@ KEYS: frozenset[str] = frozenset(
         "builder_retries",
         "builder_retry_decisions",
         "builder_retry_key",
-        "change_requests",
+        "changed_code_fallback",
         "changed_files",
+        "changeset_approval",
         "checked",
         "checkpoint_continuation",
         "checkpoint_history",
@@ -116,6 +125,7 @@ KEYS: frozenset[str] = frozenset(
         "evidence_export",
         "evidence_locations",
         "execution_checkpoints",
+        "execution",
         "failure_history",
         "failure_retry_authorizations",
         "figma_file",
@@ -135,12 +145,11 @@ KEYS: frozenset[str] = frozenset(
         "inherited_spend",
         "input",
         "intake_input_hash",
-        "integration",
-        "interfaces",
         "intervention_ack_pending",
         "interaction_timing",
         "intervention_capability",
         "investigation",
+        "investigation_refresh",
         "investigation_request",
         "iteration",
         "job_failure",
@@ -188,6 +197,7 @@ KEYS: frozenset[str] = frozenset(
         "phase",
         "plan",
         "plan_source",
+        "planned_check_reworks",
         "planning",
         "planning_artifact_history",
         "planning_artifact_reconciliation",
@@ -203,7 +213,6 @@ KEYS: frozenset[str] = frozenset(
         "progress_checkpoint",
         "progress_messages",
         "progress_sequence",
-        "program_guidance",
         "progressive",
         "project_memory",
         "project_worked_in_place",
@@ -234,13 +243,11 @@ KEYS: frozenset[str] = frozenset(
         "resolver_human_proposal",
         "resolver_human_request",
         "retained_candidate_handoffs",
-        "retired_integrations",
         "review",
         "run_dir",
         "session_rotations",
         "sessions",
         "settings",
-        "skeleton",
         "source_log",
         "source_revision",
         "source_snapshot",
@@ -250,6 +257,7 @@ KEYS: frozenset[str] = frozenset(
         "stop_reason",
         "stuck_investigation",
         "stuck_investigations",
+        "superseded_corrections",
         "targeted_consultation",
         "task",
         "task_archive",
@@ -276,7 +284,8 @@ KEYS: frozenset[str] = frozenset(
         "visual_acceptance_receipts",
         "workflow",
         "workspace",
-        "workstreams",
+        "workspace_scope",
+        "workspace_bootstrap",
     }
 )
 
@@ -294,7 +303,17 @@ class RunState(TypedDict, total=False):
     task_sha256: str  # written by task_input.assign; run_view derives it from saved text, including legacy runs
     task_id: str  # current task id; written by goals
     workspace: str  # the project (or task worktree) root
+    # workspace_scope_state.record owns external work. planning_scope owns its
+    # optional pending_handoff/resumed_handoff; action_scope consumes the exact
+    # completed report after authenticated assignment, without another model call.
+    workspace_scope: dict
+    changeset_approval: dict  # changeset_barrier.approve writes exact set/standalone grant; checkpoint publication and execution guard read it
     project_workspace: str  # the project a task worktree belongs to
+    # The folder a launch selected that held no Git repository, and the project AutoCode created to
+    # run in: {selected, project}, equal when an empty folder became the project itself. Written once
+    # by autocode_run_setup when it bootstraps; read only by autocode_chat_history, which says so once
+    # in the conversation instead of leaving a client to infer it from workspace (#1908).
+    workspace_bootstrap: dict
     project_memory: dict  # project_memory_lifecycle owns launch input/tags/publication; Requirements reads context
     run_dir: str  # this run's .autocode/runs/<id>
     status: str  # RUNNING / PAUSED_* / TASK_COMPLETE; written by the runner
@@ -305,19 +324,27 @@ class RunState(TypedDict, total=False):
     next_stage: str | None  # controller queues a stage; completion clears it
     sessions: dict  # provider session ids by role
     history: list  # finished stage records (autocode_run_view)
+    # provider_launch freezes optional execution_identity per attempt; usage exposes
+    # the bounded facts and qualify_routes records them without legacy backfill.
     stages: list  # saved stage records; written by the runner
     active_stage: dict | None  # the in-flight stage record
     settings: dict  # roles, budgets, engine, workflow mode; configure owns effort_origins (reviewer effort policy)
     prompts_hash: str  # written once by run_setup; read by run_view/evidence_export; launch prompt set
     acceptance_criteria: list  # the approved criteria; written by goals
-    acceptance_tests: dict  # spec-first Tester receipts + redirected_from; written by autocode_acceptance_tests(_job), read by its route/check and run_view
+    # Original tests the runner sent back to plan review as supersedes entries, once each; written and read only by
+    # autocode_superseded_correction (#2748 follow-up).
+    superseded_corrections: list
+    # Builder rounds the runner queued because an approved plan check failed on the candidate, bounded per
+    # command; written by autocode_planned_check_rework, read there and by autocode_resolver_recovery.
+    planned_check_reworks: list
+    acceptance_tests: dict  # spec-first receipts, redirect and contract-bound pending test names; route pins names, job writes receipts; read by job/check/run_view
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
     # The approved contract; written by goals. A revision loaded with --goal-file also names that file in
     # its record's plan_file (autocode_goal_file writes it, and reads it for the approval stop;
     # autocode_plan_file_origin reads it for run_view's approved_contract and the evidence report).
     goal_contract: dict | None
     current_task: dict | None  # the task the Builder is on
-    user_events: list  # goals writes answers/approvals; plan_chat writes plan_message intent/reply_after/forwarded receipts; technical_questions and timeouts append receipts
+    user_events: list  # classification_recovery retains resumed repair boundary history; goals writes answers/approvals; gate_chat/plan_chat/run_messages write bound conversational intent/reply_after/forwarded receipts; technical_questions and timeouts append receipts
     answers: dict  # question id -> answer text
     pending_questions: list  # lifecycle writes questions; operational_change pins offered timeout settings
     user_request: dict | None  # a pending decision request
@@ -347,13 +374,15 @@ class RunState(TypedDict, total=False):
     # diagnosis_binding, read by autopilot.queue_resolution before reuse.
     resolution_request: dict | None
     stuck_investigation: dict  # stuck_job writes a request; removed when no investigation is active
-    stuck_investigations: list  # the investigation history
+    stuck_investigations: list  # history; planning_advice binds planning advice, never the spent retry identity
     # autocode_report_repair_queue.queue writes it for a rejected completed report (autocode.reject_completed_stage,
     # native PlanningCalls.reject), stage_recovery for truncated reviews and missing executed-event evidence;
     # execute_report_repair runs it, repaired_result, the resume and recovery archives and native
     # PlanningCalls.archive_rerouted_repair (its route changed) consume it;
     # stuck_job holds and restores it around an investigation.
-    pending_report_repair: dict  # Requirements chat reads original.events for provisional display during repair.
+    # Queue owns pinned original_error; repair prompts retain it beside the latest error.
+    # Requirements chat reads original.events for provisional display during repair.
+    pending_report_repair: dict
     uncertain_artifacts: list  # attempts whose cleanup is unverified
     job_failure: dict  # job_failure writes the classified failure; quota_route reads it
     failure_history: dict  # failure identity -> attempts (builder_failure)
@@ -367,7 +396,6 @@ class RunState(TypedDict, total=False):
     # the initial task; goals/follow_up append at the answer/feedback ledger
     # boundaries; autocode_brief_obligations.sources reads it (legacy runs: positional).
     source_log: list
-    program_guidance: list  # a program's corrections of the displayed plan (autocode_program_guidance writes, units.autoplanner reads)
     last_decision: dict | None  # the latest plan decision
     contract_history: list  # prior contract revisions; chat_history reads plans matched to approval receipts
     # Who resumed the run out of each pause (#722): {at, pause_status, provenance}, appended by
@@ -379,17 +407,18 @@ class RunState(TypedDict, total=False):
 
     # --- orchestration / progressive ---
     orchestration_batch: dict | None  # a parallel Builder batch
-    workstreams: list  # a program workstreams
     parent_run: str | None  # the parent of a child run
     progressive: dict | None  # progressive-planning record
     milestone_progress: dict  # per-milestone progress (autocode_milestones)
 
     # --- others (see KEYS for the full set) ---
     workflow: dict  # workflows.begin/apply/pin write the recognition record; absent before recognition
-    integration: dict | None  # program integration state
     turns: list  # follow_up writes; chat_history reads previous.chat_response for retained completed-turn text
     replay_result: dict | None  # replay_checks owns archival obligation/result; view reads it, never current proof
     regression_proof: dict | None  # the bug-fix fail-before/pass-after proof
+    changed_code_fallback: (
+        dict | None
+    )  # regression.record_unmeasured writes why changed code went unmeasured; evidence only
     active_runner_check: dict | None  # an in-flight runner-owned check
     evidence_export: dict | None  # written only by evidence_export.record; read by public view/TaskRun
     finished_at: str | None  # legacy completion time read by evidence_export; no new writer
@@ -410,18 +439,16 @@ class RunState(TypedDict, total=False):
     active_stage_workers: Any
     affected_paths: Any
     agent_request: Any
-    agreement: Any
     alive: Any
     answer: Any
     applied_interventions: Any
     automatic_capacity_recoveries: Any
     automatic_permission_recoveries: Any
-    automatic_recoveries_since_resume: int  # recovery_accounting spends/grants; recovery_limits reads
+    automatic_recoveries_since_resume: int  # legacy name: recovery_accounting tracks failures since valid saved stage
     automatic_timeout_recoveries: list[dict]  # stage_recovery appends; recovery_accounting reads legacy spend
     builder_failure_hold: Any
     builder_retry_decisions: Any
     builder_retry_key: Any
-    change_requests: Any
     changed_files: Any
     checked: Any
     checkpoint_continuation: Any
@@ -465,6 +492,9 @@ class RunState(TypedDict, total=False):
     events: Any
     evidence_locations: Any
     execution_checkpoints: Any
+    execution: dict  # worker_binding alone writes service launch/owner identity; status/view read it
+    # Retry writers retain audit records; Resolver retries may include exact resolver_route_change
+    # before/after provenance, read only by recovery binding normalization (never spending credit).
     failure_retry_authorizations: Any
     figma_file: Any
     final_audit_request: Any
@@ -476,10 +506,10 @@ class RunState(TypedDict, total=False):
     implementation_handoffs: Any
     input: Any
     intake_input_hash: Any
-    interfaces: Any
     intervention_ack_pending: Any
     intervention_capability: Any
-    investigation: Any
+    investigation_refresh: dict  # diagnosis_refresh owns pending report/feedback/source pins and accepted history
+    investigation: Any  # bug_job report; investigation_evidence owns nested discovery_evidence, read by planning
     investigation_request: Any
     job_retry_authorization: Any
     key: Any
@@ -549,10 +579,13 @@ class RunState(TypedDict, total=False):
     resolver_human_proposal: Any  # a Resolver proposal awaiting a human; goals writes, dependency pops
     resolver_human_request: Any
     retained_candidate_handoffs: Any
-    retired_integrations: Any
-    review: Any
+    review: Any  # review_job writes outcome, report digest and post-report source_revision; status inspects freshness
     session_rotations: Any
-    skeleton: Any
+    # Person-authorized exact rewords of authenticated peer exclusions (#2467):
+    # appended only by autocode_scope_question.record_installed_corrections through
+    # goals.install_draft; read only by autocode_scope_question, which re-binds each
+    # receipt to the scope identity, turn and assignment digest it was recorded under.
+    scope_exclusion_corrections: list[dict]
     source_revision: Any
     git_delivery: Any  # controller-owned commit + receipt pin; completion gate reads it
     source_snapshot: Any

@@ -8,23 +8,33 @@ except ImportError:
     import autocode_prompts as prompts
 
 
+import copy
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_cmd_only_report as cmd_only
     from . import autocode_opencode as opencode
     from . import autocode_support as support
+    from .autocode_report_bounds import MAX_REPORT_BYTES
     from .autocode_util import read as read_json
     from .providers import claude as claude_provider
 except ImportError:
     import autocode_cmd_only_report as cmd_only
     import autocode_opencode as opencode
     import autocode_support as support
+    from autocode_report_bounds import MAX_REPORT_BYTES
     from autocode_util import read as read_json
     from providers import claude as claude_provider
 
-REPAIR_REPORT_BYTES = 128 * 1024
+# Complete reports can contain hundreds of required per-line decisions. Keep
+# the existing hard artifact ceiling for both exact text and parsed content.
+REPAIR_REPORT_BYTES = MAX_REPORT_BYTES
+REPAIR_ARTIFACT_BYTES = MAX_REPORT_BYTES
 TRUNCATED_REVIEW_STAGES = ("sol", "astra_review", "astra_checkpoint", "astra_challenge", "astra_finalize")
 # Saved repair inputs never shrink, so a repair refused for them cannot launch on a later resume;
 # an explicit resume archives it and starts a fresh attempt of the stage (autocode_stage_recovery).
@@ -87,7 +97,7 @@ def _write_json(path, value):
     support.atomic_json(Path(path), value)
 
 
-def repair_report_source(record):
+def repair_report_source(record, *, allow_empty=False):
     """Return a bounded report artifact or an explicitly incomplete transcript."""
     output = Path(record["output"])
     response = Path(record.get("response_text") or output.with_suffix(".response.txt"))
@@ -125,27 +135,69 @@ def repair_report_source(record):
             _write_json(output, value)
         record["response_text"] = str(response)
     path = output if output.is_file() else response
-    if not path.is_file() or path.stat().st_size > REPAIR_REPORT_BYTES:
+    if not path.is_file() or path.stat().st_size > REPAIR_ARTIFACT_BYTES:
         raise support.Paused(
             "PAUSED_REPORT_REPAIR_INPUT",
-            f"Repair report is missing or exceeds {REPAIR_REPORT_BYTES} bytes: {path}; "
+            f"Repair report is missing or exceeds the {REPAIR_ARTIFACT_BYTES}-byte artifact bound: {path}; "
             "inspect the saved artifact instead of truncating or reconstructing it." + REPAIR_INPUT_ROUTE,
         )
     text = path.read_text()
-    if not text.strip():
+    empty = not text.strip()
+    if empty and not (allow_empty and record.get("report_only")):
         raise support.Paused("PAUSED_REPORT_REPAIR_INPUT", f"Repair report is empty: {path}." + REPAIR_INPUT_ROUTE)
+    parse_error = None
     try:
         content, format_ = json.loads(text), "json"
+    except json.JSONDecodeError as error:
+        content, format_ = text, "text"
+        # Keep the decoder's location beside the exact pinned text. The generic
+        # provider failure remains unchanged; these are diagnostics, not a repair
+        # or authority to accept/drop any part of the rejected report (#2359).
+        parse_error = {
+            "message": error.msg,
+            "position": error.pos,
+            "line": error.lineno,
+            "column": error.colno,
+        }
     except ValueError:
         content, format_ = text, "text"
+    size = len(text.encode("utf-8"))
+    if size > REPAIR_REPORT_BYTES:
+        raise support.Paused(
+            "PAUSED_REPORT_REPAIR_INPUT",
+            f"Repair report content exceeds {REPAIR_REPORT_BYTES} bytes: {path}; "
+            "inspect the saved artifact instead of truncating or reconstructing it." + REPAIR_INPUT_ROUTE,
+        )
     return {
         "path": str(path),
         "sha256": support.file_hash(path),
         "format": format_,
-        "bytes": len(text.encode("utf-8")),
+        **({"empty_response": True} if empty else {}),
+        **({"parse_error": parse_error} if parse_error is not None else {}),
+        "bytes": size,
         "truncated": False,
         "content": content,
+        **({"repair_response": True} if format_ == "text" and record.get("report_only") else {}),
     }
+
+
+def has_repairable_empty_latest(pending):
+    """A saved planning hold still has its original input; this grants no attempt."""
+    latest = (pending or {}).get("latest_rejected")
+    if (
+        not latest
+        or not latest.get("report_only")
+        or latest.get("exit_code") != 0
+        or latest.get("timed_out")
+        or latest.get("interrupted")
+    ):
+        return False
+    try:
+        original = repair_report_source(pending["original"])
+        current = repair_report_source(latest, allow_empty=True)
+    except (OSError, ValueError, RuntimeError, support.Paused):
+        return False
+    return bool(current.get("empty_response") and not original.get("truncated"))
 
 
 def valid_truncated_report_attempt(record, stage_completed):
@@ -192,3 +244,75 @@ def repair_report_instruction(pending):
     if truncated:
         return prompts.get("fragments/report-source/repair-report-instruction-02.md")
     return prompts.get("fragments/report-source/repair-report-instruction.md")
+
+
+def load_stage_report(runtime, record, workspace=None, evidence_record=None, state: RunState | None = None):
+    """Validate provider output, retaining raw bytes before hydrating review IDs."""
+    runtime.readonly_events.assert_unchanged_review(record, workspace=workspace)
+    if evidence_record:
+        runtime.readonly_events.assert_unchanged_review(evidence_record, workspace=workspace)
+    runtime.rework_policy.verify_existing(record)
+    value = runtime.completed_provider_report(
+        record,
+        opencode_report=runtime.role_transport.report_reader(state, record, runtime.opencode, workspace),
+        read_object=runtime.util.read_object,
+        persist=runtime.write_json,
+    )
+    reported = copy.deepcopy(runtime.cmd_only.refuse(value, record.get("schema")))  # never a report, never run (#512)
+    value = runtime.report_edits.expand(value, record)
+    value = (
+        runtime.planning.fill_trace_id(state, str(record.get("stage", "")).removesuffix("_report_repair"), value)
+        if state
+        else value
+    )
+    value = runtime.default_missing_provenance(
+        runtime.normalize_plan_challenge_blocking(
+            runtime.planning_metadata.normalize_planning_metadata(value, state, record), record
+        ),
+        record,
+    )
+    evidence_record = evidence_record or record
+    validation = value.get("validation", value)
+    checks = validation.get("checks") if isinstance(validation, dict) else None
+    if isinstance(checks, list) and (
+        (record.get("stage") == "sol" and workspace is not None)
+        or any(isinstance(check, dict) and None in (check.get("exit_code"), check.get("command")) for check in checks)
+    ):
+        if workspace is None:
+            raise ValueError("Cannot derive check metadata without the validation workspace")
+        runtime.support.verify_checks(
+            checks, workspace, evidence_record["events"], **runtime.check_evidence_options(evidence_record)
+        )
+    # A Tester's extra citation beside a verified check costs a repair; the raw report stays as .reported.json.
+    runtime.check_refs.tidy_tester_citations(record, validation, workspace, (state or {}).get("settings"))
+    value = runtime.report_identity.adopt(
+        value, record, state
+    )  # a mistyped echo on a bound launch is no repair (#2135)
+    schema = runtime.support.review_validation_schema(
+        runtime.report_edits.validation_schema(runtime.read_json(Path(record["schema"]))), state, record, value
+    )
+    value = runtime.support.normalize_loaded_report(value, schema, record)
+    # finding_dispositions may be present in reports validated against schemas
+    # saved before the field was introduced. Strip it before validation rather
+    # than rejecting a correct report.
+    if "finding_dispositions" not in schema.get("properties", {}) and "finding_dispositions" in value:
+        stripped = {k: v for k, v in value.items() if k != "finding_dispositions"}
+        runtime.support.validate_schema(stripped, schema)
+    else:
+        runtime.support.validate_schema(value, schema)
+    value = runtime.support.hydrate_review_report(value, state, record)
+    if value != reported:
+        original = Path(record["output"]).with_suffix(".reported.json")
+        if original.exists():
+            if runtime.read_json(original) != reported:
+                raise ValueError("Preserved raw report differs; reconcile before normalization")
+        else:
+            runtime.write_json(original, reported)
+        record["reported_output"] = str(original)
+        reported_checks = reported.get("validation", reported).get("checks") or []
+        record["derived_check_metadata"] = runtime.support.derived_check_fields(
+            checks or [], reported_checks, evidence_record.get("events")
+        )
+    if (record.get("engine") == "opencode" and record.get("output_mode") != "report_file") or value != reported:
+        runtime.write_json(Path(record["output"]), value)
+    return runtime.rework_policy.capture(record, value) if workspace is not None else value

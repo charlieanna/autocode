@@ -362,7 +362,7 @@ def _fish_command(name: str, command: Command) -> list[str]:
 
 def fish(found: Inventory) -> str:
     lines = [
-        # Whether the command typed first is one of $argv: `program plan` is not the `plan` command.
+        # Whether the command typed first is one of $argv: `output read` is not a `read` command.
         "function __autocode_first",
         "    set -l words (commandline -opc)",
         "    set -q words[2]; and contains -- $words[2] $argv",
@@ -412,7 +412,7 @@ def parser() -> argparse.ArgumentParser:
         epilog="Load it in this shell:\n" + "\n".join(f"  {LOAD[shell]}" for shell in SHELLS),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    result.add_argument("shell", choices=SHELLS)
+    result.add_argument("shell", choices=SHELLS, help="The shell to generate the script for")
     return result
 
 

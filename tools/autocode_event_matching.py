@@ -9,6 +9,7 @@ nothing from AutoCode.
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 from pathlib import Path
@@ -79,3 +80,58 @@ def workspace_wrapped_command(executed, reported, workspace):
     if body.endswith(" 2>&1"):
         body = body[:-5]
     return body == reported
+
+
+def ambiguous_native_command_ids(text):
+    """IDs with conflicting completed native commands; repeated updates are one part.
+
+    Normalization keeps the final update for each part. Hydrating an omitted
+    command must not let that hide conflicting execution facts under the same ID.
+    """
+    identities, messages, exits = {}, {}, {}
+    ambiguous = set()
+    for line in text.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get("type") != "tool_use" or not isinstance(row.get("sessionID"), str):
+            # The native normalizer ignores rows without a string session owner.
+            continue
+        part = row.get("part")
+        if not isinstance(part, dict) or not isinstance(part.get("id"), str):
+            continue
+        key = part["id"]
+        if part.get("sessionID") not in (None, row.get("sessionID")):
+            ambiguous.add(key)
+        state = part.get("state")
+        if (
+            not isinstance(state, dict)
+            or state.get("status") != "completed"
+            or part.get("tool") not in ("bash", "shell")
+        ):
+            continue
+        inputs = state.get("input")
+        command = inputs.get("command") if isinstance(inputs, dict) else None
+        if not isinstance(command, str):
+            continue
+        # A completed command is an identity fact even before its exit arrives.
+        identity = (row["sessionID"], command)
+        if identities.setdefault(key, identity) != identity:
+            ambiguous.add(key)
+        message = part.get("messageID")
+        # An absent message locator is not a conflicting identity fact. A later
+        # update may fill it; two different supplied locators remain ambiguous.
+        if message is not None and messages.setdefault(key, message) != message:
+            ambiguous.add(key)
+        metadata = state.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        code = metadata.get("exit")
+        if "exit" not in metadata and isinstance(metadata.get("metadata"), dict):
+            code = metadata["metadata"].get("exit")
+        # Missing/non-integer exits grant no proof and may refine later. Two
+        # different known exits for the same part remain conflicting facts.
+        if type(code) is int and exits.setdefault(key, code) != code:
+            ambiguous.add(key)
+    return ambiguous

@@ -2,7 +2,7 @@
 
 This formats existing controls; it grants no permission and never changes state.
 Controller tokens use the CLI's private environment channel, so copying a shown
-command does not put them in the launched process's argv. ANSWER, MODEL and N
+command does not put them in the launched process's argv. ANSWER, MODEL, EFFORT and N
 remain values a person must supply rather than decisions made by presentation.
 """
 
@@ -55,6 +55,7 @@ def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=F
     elif kind == "answer":
         token = need.get("resolver_token")
         route = need.get("route") or {}
+        effort = need.get("effort") or {}
         operational = need.get("resolver_scope") in ("blocker", "operational_exhaustion") and not route
         if operational and token and need.get("resolver_request_id"):
             flags = [
@@ -71,6 +72,13 @@ def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=F
             question = route.get("question_id") or need["questions"][0].get("id")
             if question:
                 flags = ["--answer", f"{question}={'MODEL' if route else 'ANSWER'}", "--resolver-token", token]
+        elif route.get("question_id"):
+            # A cross-model stop derives its question from the saved routes; no issued
+            # token binds it. The answer is its own action; --resume-paused comes next.
+            flags = ["--answer", f"{route['question_id']}=MODEL"]
+        elif effort.get("question_id"):
+            # An unsupported named effort (#2057), likewise derived from the saved routes.
+            flags = ["--answer", f"{effort['question_id']}=EFFORT"]
         if not flags:
             flags = ["--no-chat"]  # No issued token: relaunch to publish the current request.
     elif kind == "retry_job" and not need.get("job_retry_token"):
@@ -82,6 +90,8 @@ def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=F
         if not action and kind == "retry_job":
             action = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
         flags = _action_flags(action or "--resume-paused", need)
+    elif kind == "continue" and need.get("action"):
+        flags = _action_flags(need["action"], need)
     else:
         flags = ["--no-chat"]
     private = {}
@@ -139,3 +149,21 @@ def summary(view):
     if view.get("next_command"):
         lines.append("Next command: " + view["next_command"])
     return "\n".join(lines)
+
+
+SCREEN = 20
+
+
+def trailer(view, rendered):
+    """Repeat the command after a presentation longer than a screen (#2301).
+
+    The header's command scrolls off above a long brief, so the last line names it again,
+    unless the presentation's own last screen already does (the approval screen, #381).
+    """
+    command = view.get("next_command")
+    lines = rendered.splitlines()
+    if not command or not view.get("pause_category") or len(lines) <= SCREEN:
+        return ""
+    if command in "\n".join(lines[-SCREEN:]):
+        return ""
+    return "Next command: " + command

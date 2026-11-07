@@ -27,18 +27,19 @@ from pathlib import Path
 try:
     from .autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
     from .autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command  # noqa: F401 - compatibility API
-    from .autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report, normalize_absent_authority  # noqa: F401 - compatibility API
+    from .autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report, normalize_absent_authority, normalize_loaded_report  # noqa: F401 - compatibility API
     from . import autocode_output_filter as output_filter, autocode_request_usage as request_usage  # noqa: F401 - compatibility API
     from . import autocode_evidence_snapshot as evidence_snapshot  # noqa: F401 - compatibility API
     from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,  # noqa: F401 - compatibility API
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)  # noqa: F401 - compatibility API
     from . import autocode_receipts as receipts, autocode_receipt_repair_context as receipt_repair, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
     from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal, autocode_output_cap as output_cap, autocode_provider_auth as provider_auth  # noqa: F401 - compatibility API
+    from . import autocode_context_window as context_window  # noqa: F401 - compatibility API
     from .autocode_event_matching import same_command  # noqa: F401 - compatibility API
 except ImportError:
     from autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
     from autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command  # noqa: F401 - compatibility API
-    from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report, normalize_absent_authority  # noqa: F401 - compatibility API
+    from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report, normalize_absent_authority, normalize_loaded_report  # noqa: F401 - compatibility API
     import autocode_output_filter as output_filter
     import autocode_request_usage as request_usage  # noqa: F401 - compatibility API
     import autocode_evidence_snapshot as evidence_snapshot  # noqa: F401 - compatibility API
@@ -53,6 +54,7 @@ except ImportError:
     import autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
     import autocode_output_cap as output_cap
     import autocode_provider_auth as provider_auth
+    import autocode_context_window as context_window
     from autocode_event_matching import same_command  # noqa: F401 - compatibility API
 # fmt: on
 # isort: on
@@ -105,8 +107,11 @@ def failure_status(path, *, record=None):
         # stage may already have partial work; retain its reconciliation/no-replay
         # authority while exit_message and job classification name the cause.
         return "PAUSED_AUTH" if record is None else "PAUSED_PROVIDER_UNCERTAIN"
-    # A failed turn's accounting (its token counts and cost) is never its error: they can contain 429.
-    said = [{key: value for key, value in e.items() if key not in ("usage", "cost_usd")} for e in failures]
+    # A failed turn's accounting (its token counts, cost and cost state) is never its error:
+    # they can contain 429 (a total, a clock, a session id).
+    said = [
+        {key: value for key, value in e.items() if key not in ("usage", "cost_usd", "cost_state")} for e in failures
+    ]
     # A command-line tool can end with the failed request as plain text instead (#562).
     text = "\n".join([json.dumps(said), *provider_error_lines.trailing(path)]).lower()
     # Structured length authority precedes prose/numeric matching: token counts can contain 429.
@@ -125,6 +130,10 @@ def failure_status(path, *, record=None):
         ):
             return output_cap.STATUS
         return "PAUSED_PROVIDER_UNCERTAIN"
+    # The request no longer fit the model's context window, or the provider compacted the conversation: the
+    # response was never whole, and a person may name a model with a larger window (#1942).
+    if context_window.found(rows):
+        return context_window.STATUS
     # A content-filter refusal is about this model, not the work: the same model is likely to refuse again.
     if provider_refusal.refusal(failures):
         return provider_refusal.STATUS
@@ -166,7 +175,10 @@ def summarize_events(path, destination):
 def implementation_evidence_paths(refs, events_path):
     """Resolve actual executed-event references to their preserved event log.
 
-    File references retain containment checks; events identify one completed command.
+    File references retain containment checks; events identify one completed command. A bare
+    ``event:`` binds to the stage's latest completed command with a known exit code, as a Validator
+    check's does (#2253): a Claude Code stage never sees the ``item_N`` IDs the runner assigns, so
+    it cannot name one without guessing. An ID no recorded command has is still rejected.
     """
     resolved = []
     completed = None
@@ -178,7 +190,12 @@ def implementation_evidence_paths(refs, events_path):
                     for e in events(events_path)
                     if e.get("type") == "item.completed" and e.get("item", {}).get("type") == "command_execution"
                 ]
-            matches = [item for item in completed if item.get("id") == ref[len("event:") :]]
+            wanted = ref[len("event:") :]
+            if wanted:
+                matches = [item for item in completed if item.get("id") == wanted]
+            else:
+                exited = [item for item in completed if type(item.get("exit_code")) is int]
+                matches = exited[-1:]
             if len(matches) != 1 or type(matches[0].get("exit_code")) is not int:
                 raise ValueError(f"Implementation evidence references a missing executed event: {ref}")
             resolved.append(str(events_path))
@@ -216,8 +233,14 @@ def _authenticate_check_receipt(receipt, path, workspace, tool_outputs, *, recei
         if not capture_context or receipt.get("capture_context") != capture_context:
             raise ValueError("Capture receipt does not belong to this validation attempt")
         return "attempt_bound_capture"
-    # capture prints one JSON object. Match structurally even if event text
-    # adds shell notices. No word-search for PASS/COMPLETE is used.
+    # capture prints one JSON object, then its attestation of the receipt's bytes on stderr
+    # (autocode_receipts.attestation_line). Match structurally even if event text adds shell
+    # notices or a display filter dropped the receipt line. No word-search for PASS/COMPLETE.
+    try:
+        receipt_bytes = path.read_bytes()
+        attested = receipt_bytes if json.loads(receipt_bytes) == receipt else None
+    except (OSError, ValueError):
+        attested = None
     matched = False
     for item in tool_outputs:
         if item["type"] == "tool_output":
@@ -233,9 +256,21 @@ def _authenticate_check_receipt(receipt, path, workspace, tool_outputs, *, recei
                 continue
         for line in item.get("aggregated_output", "").splitlines():
             with contextlib.suppress(ValueError):
-                matched |= json.loads(line) == receipt
+                value = json.loads(line)
+                matched |= value == receipt or (attested is not None and receipts.attests(value, attested))
     if not matched:
-        raise ValueError("No independently executed Validator tool event matches receipt")
+        names = {str(path), os.path.relpath(path.resolve(), Path(workspace).resolve())}
+        shortened = receipts.display_filter([item.get("command") for item in tool_outputs], names)
+        raise ValueError(
+            "No independently executed Validator tool event matches receipt"
+            + (
+                f": its capture command sent the output through `{shortened}`, which dropped both the receipt"
+                " line and capture's short exit_code line. Run capture again without filtering its output"
+                " and cite that new receipt."
+                if shortened
+                else ""
+            )
+        )
     return "executed_capture_event"
 
 
@@ -285,19 +320,27 @@ def _receipt_mismatch_error(check, receipt, path, workspace, tool_outputs, *, re
 
 def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_context=None):
     """Verify checks against executed events or attempt-bound, output-hashed receipts.
-    Fill only absent exit codes from unique evidence."""
+    Fill omitted commands and exit codes only from unique authenticated evidence."""
     rows = [] if receipt_only else events(event_path)
     tool_outputs = [
         e["item"]
         for e in rows
         if e.get("type") == "item.completed" and e.get("item", {}).get("type") in ("command_execution", "tool_output")
     ]
+    ambiguous_ids = (
+        event_matching.ambiguous_native_command_ids(Path(event_path).read_text(errors="replace"))
+        if not receipt_only
+        and any(isinstance(check, dict) and check.get("command") is None for check in checks)
+        and Path(event_path).exists()
+        else set()
+    )
     normalized = copy.deepcopy(checks)
     for check in normalized:
         if (
             not isinstance(check, dict)
-            or not isinstance(check.get("command"), str)
             or not isinstance(check.get("evidence_ref"), str)
+            or not isinstance(check.get("command"), str)
+            and check.get("command") is not None
         ):
             raise ValueError("Check needs a command and evidence reference")
         missing_exit = check.get("exit_code") is None
@@ -307,6 +350,9 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
             if receipt_only:
                 raise ValueError("Report-file providers require capture receipts, not event references")
             event_id = check["evidence_ref"].split(":", 1)[1]
+            missing_command = check.get("command") is None
+            if missing_command and not event_id:
+                raise ValueError("Check needs a command and evidence reference")
             matches = [
                 e["item"]
                 for e in rows
@@ -316,7 +362,9 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
             ]
             if len(matches) == 1 and isinstance(matches[0].get("command"), str):
                 executed = matches[0]["command"]
-                same = same_command(executed, check["command"])
+                if missing_command and event_id in ambiguous_ids:
+                    raise ValueError("Check is not supported by an exact executed Validator event")
+                same = missing_command or same_command(executed, check["command"])
                 if not same and event_matching.workspace_wrapped_command(executed, check["command"], workspace):
                     same = True
                     check["command"] = executed
@@ -325,11 +373,13 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                     and type(matches[0].get("exit_code")) is int
                     and (missing_exit or matches[0]["exit_code"] == check["exit_code"])
                 ):
+                    if missing_command:
+                        check["command"] = executed
                     check["exit_code"] = matches[0]["exit_code"]
                     continue
             # A model sees no event IDs or exit codes, so a check may cite a bare "event:": it binds to the LATEST
             # run of its exact command, exit-less runs included, whose exit must be known and match (EVD-06).
-            if not matches:
+            if not matches and not missing_command:
                 alternates = [
                     e["item"]
                     for e in rows
@@ -352,7 +402,10 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                     check["exit_code"] = latest["exit_code"]
                     check["command"] = latest["command"]
                     continue
-            raise ValueError("Check is not supported by an exact executed Validator event")
+            raise ValueError(
+                "Check is not supported by an exact executed Validator event"
+                + receipts.compound_hint(check.get("command"), [item.get("command") for item in tool_outputs])
+            )
         path = Path(check["evidence_ref"])
         path = path if path.is_absolute() else Path(workspace) / path
         if not path.resolve().is_relative_to(Path(workspace).resolve() / ".autocode"):
@@ -363,6 +416,8 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
             raise ValueError(
                 f"Cannot read check receipt {path}: {error}. Cite the exact captured receipt path."
             ) from error
+        if check["command"] is None and isinstance(receipt.get("command"), list):
+            check["command"] = shlex.join(str(part) for part in receipt["command"])
         if (
             not isinstance(receipt.get("command"), list)
             or not all(isinstance(part, str) for part in receipt["command"])
@@ -388,13 +443,38 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
         original.update(derived)
 
 
+def derived_check_fields(checks, reported_checks, events_path):
+    """Which omitted command/exit fields the runner filled from authenticated evidence."""
+    derived = []
+    for index, check in enumerate(checks):
+        reported = reported_checks[index] if index < len(reported_checks) else {}
+        derived += [
+            {
+                "check_index": index,
+                "field": field,
+                "value": check[field],
+                "evidence_ref": check["evidence_ref"],
+                "events": events_path,
+            }
+            for field in ("exit_code", "command")
+            if reported.get(field) is None
+        ]
+    return derived
+
+
 def local_settings():
     """Read only nonsecret settings; never open auth.json or emit auth headers."""
     config_path = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml"
     config = tomllib.loads(config_path.read_text()) if config_path.exists() else {}
     keys = ("model", "model_reasoning_effort", "model_provider", "openai_base_url")
     settings = {k: config.get(k) for k in keys}
-    auth = subprocess.run(["codex", "login", "status"], capture_output=True, text=True)
+    try:
+        auth = subprocess.run(["codex", "login", "status"], capture_output=True, text=True)
+    except OSError as error:  # a bare errno told nobody which engine or what to do (#2307)
+        raise RuntimeError(
+            "Codex is not on PATH; no provider request was launched. Run `autocode doctor` to see what this "
+            "host has: an installed Claude Code or OpenCode runs with --engine claude or --engine opencode"
+        ) from error
     message = auth.stdout + auth.stderr
     settings["auth_mode"] = "ChatGPT" if "using ChatGPT" in message else "unknown"
     settings["environment_auth_present"] = any(k in os.environ for k in ("OPENAI_API_KEY", "CODEX_API_KEY"))

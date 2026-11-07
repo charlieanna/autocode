@@ -4,11 +4,15 @@
 
 How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
-code outside the runner (the scenario harness, `autocode program`, the
+code outside the runner (the scenario harness, `autocode issue`, the
 [coding-agent skill and MCP server](agent-step.md), and the planned
 architecture and multi-component layer) to control a run. Such code must not import
 runner internals such as `autocode.py` or read `state.json` directly; that file has
 about 140 keys and changes without notice.
+
+A task run is bound to one workspace, one Git tree. The multi-component layer drives
+several task runs, but all of them come from the same repository; it cannot link runs in
+separate repositories. See [Work that spans several repositories](multi-repo.md).
 
 Every step is one CLI invocation, and the run's state lives on disk. A caller
 that crashes can reattach to the same run directory with
@@ -17,6 +21,257 @@ learned the run directory (it returns the workspace's only run, or `None`). In a
 workspace where someone else may also run AutoCode, note `TaskRun.runs_in(workspace)`
 before the start and pass it as `attach(workspace, exclude=...)`, so that only a run
 created since can be adopted.
+
+## Automatic coordination from chat
+
+For an unresolved bug with grounded external scope, `view.coordination` names
+`status_command`, `next_command` and `cancel_command`. The terminal client reads
+`autocode coordinate status --run-dir RUN --json` and executes only its named
+actions. It does not read child state, select repositories or compose tests.
+The cheap anchor offer also publishes `integration` (`workspace`, `run_dir`, or
+null), so a viewer can begin bounded public status reads when the joint run is
+prepared during a long start action. This display identity grants no advancement
+authority; the coordinator remains the sole owner of the action.
+`/repos` displays the shared local source catalog; configure its roots with
+`autocode registry roots add PATH` and standalone repositories with
+`autocode registry repositories add PATH`.
+
+Initial Requirements and Investigator requests receive a pinned, bounded inventory
+of all configured sources, including external roots. The launch directory is
+optional context. Catalog file citations use `catalog/ID/path:line` and are
+accepted only when the cited ordinary file matches the pinned Git blob. The task
+retains the inventory at `planning/source-catalog.json`; changed catalogs,
+revisions or altered receipts cannot silently replace its evidence. Built-in
+read-only intake shells receive only the validated catalog directories as extra
+read roots; this grants no Builder write authority. Clear source-grounded bug
+requirements flow into the complete plan without a separate Requirements
+confirmation. Genuine unresolved business questions still pause for an answer.
+This also applies to the coordinator's joint verification task, whose workflow
+is `build`: its saved current joint identity or first-start intent authenticates
+that machinery. A retired, mismatched or ordinary standalone build retains its
+normal Requirements flow. No Requirements confirmation is recorded on the
+person's behalf, and the consolidated plan still requires exact approval.
+
+`view.request_sources` carries the authenticated live human source texts as
+`{id, kind, text}` records, including Requirements clarifications. It excludes
+model prose and discarded answers. Coordination pins those exact records and
+carries their text into every member and joint brief. A changed source inventory
+invalidates the saved coordination and its approval, even if the opening task
+and repository scope are unchanged. Older unapproved, idle coordinations adopt
+the current inventory and refresh incomplete member briefs through public,
+receipted feedback actions. Interrupted feedback is reconciled against its
+public chat receipt; an uncertain outcome is never submitted twice. Approved
+or active work cannot use this recovery to replace its request.
+
+The coordination view's `accounting` snapshot contains `version`, `anchor`, and
+`runs`: one bounded public ledger per distinct source, repository or retained
+joint attempt. Each row exposes `run_dir`, the cost's `spent_usd`, `inherited_usd`
+and `complete`, and `usage.accounting.tokens`. A not-yet-started repository has
+zero usage; missing usage from an observed attempt stays unknown. This snapshot
+is display data and changes no spending cap, pricing rule or approval token.
+Clients can update the active run's row from its public status while keeping the
+other rows, subtract inherited spend when adding ledgers, and retain a known
+incomplete total when a price or token count is missing. Reopening reads the
+whole inventory again; repository switching must not reset the task total.
+
+The version-1 coordination view identifies the anchor, record revision, phase,
+member workspaces/runs/PRs, `done`, `needs`, and optional `next_command` and
+`approval`. The joint-test baseline and plan are prepared before any Builder.
+One approval binds the original request and its human-source inventory, source-catalog snapshot, repository
+membership and pinned baselines, plus every exact member and joint-plan token.
+Clients reread before approving. Pass its token privately as `--token -` with
+`AUTOCODE_COORDINATION_TOKEN`; providers never receive that variable. A missing
+or changed token authorizes nothing. A later revision of the coordinated plans
+(after a joint mismatch repair or a replanned joint test) whose every member and
+joint plan keeps the approved contract (acceptance criteria, constraints,
+permission boundaries, scope exclusions and Git delivery) is approved by the
+coordinator under that same approval as the automatic `carry_approval` step,
+recorded in the coordination state with the targets it covered; a revision that
+changes any of those, or adds a repository the person has not seen, is offered
+for approval again. A criterion's source citations are provenance, not a term:
+a repair's follow-up instruction becomes a run source and may add citations
+without changing the approved work (#2565). Repository-choice actions exist only for
+current catalog candidates. After member runs complete, a named
+`coordinate bind` action snapshots exact candidate trees, including deletions,
+for the already-approved joint test. Cancellation prevents further dispatch and
+submits only current members' named boundary-pause actions.
+
+An approved automatic producer member whose due criteria are all `guard:` cases
+may deliver preservation tests alone. Its proof requires those named tests to
+pass on both the baseline and candidate, without a permission answer. Any product
+change retains the ordinary bugfix fail-before/pass-after requirement. Standalone
+bug fixes and the joint verification task do not receive this member allowance;
+the joint gate still requires the real combined regression to fail on baseline
+and pass on exact candidates.
+Completion review rechecks the proof when its preservation mode changes, even
+after repeated failures on unchanged source. A passing preservation proof also
+expires when that mode no longer applies; stable contexts keep normal reuse.
+A fresh authenticated preservation proof can retire an obsolete private completion
+blocker caused solely by the old product-code-only proof rule. The core archives
+the prior runner receipt and private proposal, then runs independent completion
+review. It grants no completion or approval and never withdraws published questions,
+permission requests, or blockers for other causes.
+When the spec-first Tester already wrote every due guard, an unchanged Builder
+may submit those exact archived test files for fresh independent review. The core
+checks approved producer membership, case coverage, receipt/source identities,
+file hashes, ownership and unchanged snapshots. This records a candidate handoff;
+regression proof, review and the joint gate still run normally.
+Concurrent member checkpoints wait up to ten seconds for the shared approval
+record lock. A longer hold still refuses the write; contention never releases
+approvals or starts a provider without its ordinary admission checks.
+If a linked repository assignment is recorded before its child action is refused,
+the coordinator offers that assignment again while the child still holds the
+exact scope question. Reopening takes the existing named advance action; it
+requires no repository selection or human answer. Other questions and stale
+scope identities remain untouched, and assignment grants no plan approval. A runtime-only
+repair may refresh the authenticated scope receipt before retiring it, including
+a prior refused-action pause. Source, contract, settings, accounting and other
+frontier changes still invalidate it; no answer or approval is manufactured.
+A fresh authenticated proof can also settle a runner finding on unchanged source
+when the retained earlier proof failed entirely at Go test collection because
+its disk was full. The core checks owned receipt chronology, matching source,
+log hashes and supervision receipts, and refuses any actual failing test name,
+mixed error or stale scope. Reviewer findings still require that reviewer
+to resolve or retract them; no product edit is manufactured for an environment
+repair, and no completion or approval follows from this reconciliation alone.
+
+At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
+known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own
+`next_command` argument array. Terminal chat shows these, fills only its
+`--max-cost-usd N` slot with the person's finite amount, confirms the whole-set
+total, rereads the offer and sends its token privately using
+`AUTOCODE_COORDINATION_TOKEN`. `coordinate budget` rejects changed checkpoints,
+active workers, uncertain or cancelled operations, insufficient amounts and
+zero/unlimited caps. It retains prior member, integration and verifier costs and
+all other settings. An existing sufficient shared cap may be reasserted.
+The action acknowledges only the displayed member's cost pause through TaskRun,
+with that run's current public recovery token and its derived share of the cap.
+It grants no plan approval, proof waiver or general recovery retry. Durable
+intent precedes the resume; an uncertain reply is retained for inspection and
+never automatically replayed. No saved member state is edited by coordination.
+
+A settled cancellation offers `needs.kind=coordination_resume`. Its named
+`coordinate resume --token TOKEN --max-cost-usd N` action retains all work,
+attempts and accounting and launches no model. Terminal chat confirms the
+selected policy and rereads the exact kind and token. When the saved cap is
+still admitted, chat confirms resuming with those existing spending settings
+without asking for a new amount. An exhausted finite cap still requires an
+explicit budget decision. A finite amount keeps
+the planning allocation unchanged; an explicit `0` removes the shared spending
+cap and disables its planning allocation limit. The retained allocation and
+prior cap stay in history. Subsequent participant advances receive an explicit
+zero cap so they cannot silently inherit an old spending limit. Other limits,
+routes, approvals and verification gates remain unchanged. A child pause still
+requires its own public recovery. An archived attempt with a current retry token
+and positively dead owner, keeper and provider may recover coordination while
+retaining that child retry gate. If successful abandonment removed the active
+metadata, the exact finished, rejected attempt in the public accounting ledger
+must instead match the gate's run, stage, attempt and archive, with verified
+original-source restoration. Missing or mismatched archival evidence, malformed
+metadata and failed process inspection still refuse. Incomplete pricing refuses a finite cap; an
+already uncapped coordination may preserve its explicit zero cap and unknown
+costs, without inventing prices or authorizing a retry. Active or uncertain work,
+changed source/catalog/checkpoint and duplicate requests refuse. Cancellation
+receipts are retained; a newer cancellation always takes precedence.
+
+New coordinations with a finite cost cap reserve 70% for implementation and
+verification. Their shared planning allowance is 30% of the original cap,
+including the anchor's planning, every member's planning, report repairs and
+all retained joint attempts. While a run is planning its derived whole-run cap
+also respects that allowance; approved implementation uses the remaining task
+envelope. Replanning, viewer restart and reasserting a shared cap do not renew
+the planning allowance. Exhaustion refuses further dispatch, including when a projected next attempt
+exceeds the allowance. Unpriced planning returns `needs.kind=blocked` without
+a spending action. Saved coordinations without this policy retain their original limits.
+At a settled planning stop with complete pricing and unused whole-set money,
+`needs.kind=planning_budget` offers a distinct `coordinate planning-budget`
+action. The explicit `--max-planning-cost-usd N` is a total planning allocation,
+not an additional grant; it cannot exceed the whole-set cap minus nonplanning
+spend. Its token binds the durable coordination and public participant/source,
+route, approval, accounting and attempt frontier. The action records the old
+allocation and all spending, launches no model and approves no plan. Replaying
+its token refuses without changing the allocation. Terminal chat shows the
+bounds and unchanged total cap, confirms the amount and rereads before sending
+the private token. A child cost pause still needs its separate existing public
+acknowledgement. No restart or same-cap acknowledgement increases planning money.
+Unavailable, uncertain, active or unpriced work remains blocked.
+
+These are stage-boundary checks, not a guarantee about the price of an in-flight
+request; toolchain and baseline readiness remain separate prerequisite checks.
+
+The coordinator drives each member using `TaskRun`. `related_profile` is the
+public configuration export: selected role routes, efforts, providers, run limits
+and policies, without sessions or approvals. Fresh related runs accept a pinned
+`--related-profile FILE --related-profile-sha256 SHA256`; this cannot be applied
+to a saved run. `TaskRun.assign_linked_scope(identity)` consumes only a current
+core-owned changeset assignment. It retires the exact covered scope question;
+it neither invents a human answer nor approves a plan.
+
+An integration task starts from original baselines, then receives the candidate
+copies only through the named binding action. It runs the approved joint test and
+returns differences to members through follow-ups. A revised plan renews the
+single coordinated approval. Publication
+requires every member's canonical completion evidence, exact matching integration
+copies, and the integration run's current authenticated completion report with
+independent criterion verdicts and runner fail-before/pass-after proof. Approved
+prose methods and named `test:`/`guard:` bindings remain unchanged. A native
+verification receipt has `kind: task_run`; its `record` names the canonical report,
+and its binding and digests are rechecked through TaskRun's inspected status before
+publication and on reopen. Its model costs are already counted in the joint run.
+Older completed plans without a native regression-proof record still use standalone
+`verify`; their records retain the existing freshness reader. A present but stale
+or failing native proof is refused rather than falling back.
+The coordinator owns durable publication intent and reconciles branch/PR identity
+before any retry. It never merges. Manual change-set completion alone is not
+automatic coordination completion.
+
+A coordinated member names the repositories that own its external work by their
+exact member names (or a genuinely grounded repository name); its member context
+says so, and a role label such as `Checkout display member` is refused by the
+report contract, so the normal bounded report repair attempts the correction. A
+repair that does not converge leaves the member stopped on that visible failure;
+the refused obligation is never silently dropped (ordinary filtering of ungrounded
+scope is unchanged). For labels earlier runs already accepted, discovery resolves
+the trailing member role noun against the authorized catalog only, and only when
+the catalog's own exact, noun, parenthetical and coordinated matches found
+nothing: every alias-prefix identity is enumerated, a job word or phrase naming
+another repository refuses the label, one identity that is already linked and
+still available reuses that member automatically, and anything else stays the
+person's repository gate.
+
+Automatic coordination currently runs in owned terminal chats. A `durable_local`
+anchor is refused without changing its saved execution policy. See
+[multi-repository setup and limits](multi-repo.md).
+
+## Per-attempt execution identity (#2059)
+
+New provider launches add bounded `execution_identity` to their saved attempt and
+public `usage.accounting.attempts` row. Schema 1 records the actual route slot,
+engine/tool, model, effective effort, runner source commit when known, a saved
+selected-route billing classification/basis, and optional configured endpoint
+identity (origin, SHA-256, protocol and API provider slot). It contains no key,
+credential URL, tenant path or environment dump. An endpoint hash describes the
+configured target, not an observed HTTP redirect or invoice. Opaque backend
+endpoints and unrecorded billing remain null; account/model discovery is unchanged.
+
+The effective `reasoning_effort` is separate from `launch_route`'s saved route
+configuration: existing fit/first-Builder policies may differ. Empty/null effort
+can mean the provider default and is not replaced with a guessed level. Invalid
+or contradictory identity records project as unknown; old attempts are not
+backfilled from the viewer's current settings/runtime. These are additive
+measurement fields, not action authority, route qualification or a new client.
+
+## Remote team service proposal (#2023)
+
+The [single-host team-service contract](team-service-contract.md) proposes an
+additive authenticated service over this interface. It is **not implemented or
+approved**. Current local tokens and Git/`--as` provenance do not authenticate a
+remote person. The proposal records opaque remote envelopes, current named-action
+bindings, separate admission/execution/delivery states and explicit public core
+gaps. Its [synthetic examples](examples/team-service-v1.json) are design data,
+not live responses. No existing client, task policy, route, approval or host
+configuration changes through this documentation. The owner decision is needed
+before implementing the service extension or its dependent runtime slices.
 
 ## Python client
 
@@ -33,7 +288,11 @@ project inside `workspace/autocode-projects/` and runs there. A destination
 named under the selected folder's `.autocode/runs` keeps its name: the run is
 created under the bootstrapped project instead, and commands may keep using the
 selected folder and that name as the run's handle. The status view names the
-effective `workspace` and `run_dir`.
+effective `workspace` and `run_dir`. When the launch does this bootstrapping, the
+run also says so once in its chat history (`view.chat.messages`, message id
+`workspace-bootstrap`), naming the folder that was selected and the project the
+work happens in, so a client shows the move instead of leaving the person to infer
+it from `view.workspace`.
 
 This example accepts the displayed plan and chooses question defaults or the first
 listed option. An interactive client should collect the person’s answer instead,
@@ -70,9 +329,11 @@ code the run starts from (`base_commit`), not part of its change. `options`
 (engine and model flags) are passed whenever the run starts or advances. Any
 rejected command raises `TaskRunError` with AutoCode's message.
 
-AutoCode self-builds require a linked Git worktree and an executing controller
-outside that workspace. `TaskRun.start` accepts a caller-owned linked worktree;
-an ordinary CLI launch creates its own worktree by default. An unsafe new run
+An AutoCode self-build requires an executing controller outside the task
+workspace, so the task cannot edit the code that runs it. With such a controller
+(an installed `autocode`, or another checkout), an AutoCode checkout is an ordinary
+project and `TaskRun.start` or `--in-place` works in it directly, main checkout
+included; an ordinary CLI launch creates its own worktree by default. An unsafe new run
 or advancing invocation is refused before starting a provider. Saved status,
 explanations and dry runs remain readable without changing the checkpoint.
 
@@ -85,8 +346,8 @@ Builder's starting code separately. Legacy runs without a saved identity report
 revision for this saved identity. The existing resume warning names a change
 in the controller revision.
 
-To build AutoCode itself from a source checkout, keep that checkout fixed and
-create a separate workspace:
+To build AutoCode itself with the controller from that same source checkout, keep
+that checkout fixed and create a separate workspace:
 
 ```sh
 git -C /path/to/autocode worktree add --detach /path/to/autocode-self-build HEAD
@@ -132,8 +393,8 @@ launch-only setting. A valid older rootless run needs no root flag to edit its
 plan. The recovery card, progress line and issue/finder guidance distinguish
 these two cases without promising that an unchanged resume repairs either one.
 
-A caller that keeps each invocation's output, as `autocode program` keeps a
-workstream's `stdout.log`, `stderr.log` and exit code, reads it from the client:
+A caller that keeps each invocation's output, such as its `stdout.log`, `stderr.log`
+and exit code, reads it from the client:
 
 - `TaskRun.last_advance` is the `subprocess.CompletedProcess` of the latest call that
   starts or advances the run (start, advance, resume and retries), also when AutoCode
@@ -178,6 +439,9 @@ an opaque `context`, and an optional `input` offer. Messages project existing
 human receipts and saved completed replies. At a follow-up, the prior reply is
 retained under that turn's historical record; display text grants no approval
 and does not become a new requirement. Status reads do not write a transcript.
+The Requirements question the run waits on is a message whose `id` starts with
+`requirements-question-` and names that question, so each new question is a new
+message a client shows once (#1792).
 
 During a running step, optional `progress` is an array of core-authored display
 lines: the inspected current activity, saved task/requirement counts and up to
@@ -186,6 +450,48 @@ its report was accepted or its checks passed. Unknown activity stays unconfirmed
 queued and stopped steps are not described as running. Clients render these lines
 without deriving stage names or success from private state. Older cores may omit
 the field.
+
+While a supervised step works, optional `activity` is an array of at most 20
+display events from the running attempt's own provider event file, oldest first:
+`{kind, text, status}` with `kind` one of `command`, `edit` or `tool`, `status`
+one of `running`, `done` or `failed`, and, for an `edit`, the `paths` it names
+(relative to the project when they are inside it, at most 8). `text` is one
+bounded line: a command's first line, the files changed, or the tool called.
+Model prose, reasoning and tool output are never copied, and only the tail of a
+file inside the run directory is read. `done` and `failed` describe the tool
+call, not the work: a command that exited 0 is not a passed check, an edit is
+not an accepted change, and nothing here is proof, approval or authority to
+retry. Activity that is not confirmed as supervised, a finished or stopped step
+and a paused run have none, and the field is then omitted. Codex-style items
+(also what the built-in Claude provider writes) and OpenCode or Kilo tool parts
+are read; other event shapes show nothing. Older cores may omit the field.
+
+Under the same guards, optional `last_output_at` is when that event file was last
+written (UTC, to the second): the one fact that tells a quiet stage from a busy
+one before it fails. It says when the provider last emitted anything, not what,
+and is never proof of progress or a liveness decision; the terminal chat's status
+row shows it as "last output 12s ago" and, after two minutes, "no output for 4m05s".
+
+While a supervised step or parallel Builder works, optional `log` is the
+terminal chat's live agent log (owner decision 2026-10-21): an array of display
+entries `{id, agent, kind, text}` from each working attempt's own provider event
+file, oldest first per attempt, at most 40 per attempt and 8 parallel Builders.
+`agent` is the job's screen name, with the task for a Builder
+(`Builder · task M2`); `id` stays the same across reads so a client can keep
+entries beyond the newest and update a growing one in place. `kind` is
+`thinking` (model reasoning), `message` (model prose), or one of `activity`'s
+`command`, `edit` and `tool` with the same `status` and `paths`. Unlike
+`activity`, reasoning and message prose are copied: collapsed to one line,
+credential-shaped text redacted, and cut to the newest 400 characters. Tool
+output is never copied. The Orchestrator runs no model, so its newest dispatch since the person's
+last turn appears as one `message` entry from agent `Orchestrator` with the
+runner's own summary, such as which tasks it builds in parallel or that one
+Builder takes the next task. A review running one level below the person's saved stage
+choice (see [models](models.md#reasoning-effort)) starts with one `message` entry from its own
+agent saying the level and why. Each parallel Builder's attempt must itself be confirmed
+as supervised, and only a file inside that attempt's run directory is read. The
+entries are display only, never a report, proof, approval or authority to retry.
+The field is omitted when nothing is working. Older cores may omit the field.
 
 During spec-first Requirements chat, `phase: "requirements"` lets clients show
 the conversation without the empty task dashboard. An assistant message may
@@ -198,16 +504,32 @@ the first message of a spec-first run, whatever it says: a greeting or an
 off-topic question gets a short answer and a question about what to build or
 change. Until Requirements finds work to do, the person's newest reply becomes
 the task; the source log keeps the first message and each reply as separate
-sources. The Job recognizer runs once the person approves what Requirements
-understood, and judges the job from that understanding. Model access probes for
+sources. Requirements names the job it understood (#1846), as it does on every
+run (#1860). A question goes straight to the Analyst without a confirmation; any
+other job starts once the person approves what Requirements understood. The Job
+recognizer runs, after that approval, only when Requirements named no job. Model access probes for
 planning and execution roles wait until the user confirms the requirements.
 
 When the only pending question is the core's current requirements review,
 `review` offers its `question_id`, exact `answer`, `label` and bound `summary`.
 A client may display that summary and submit the ordinary named answer action.
-This confirms the understanding and releases plan preparation and review.
+This confirms the understanding and starts the job Requirements named: plan
+preparation and review for a build, the investigation for a bug fix, the review
+or the design work. The `label` and `spend_confirmation` say which.
 The resulting execution plan still needs its own displayed-token approval.
-The optional `review.spend_confirmation` supplies the modal's `title`, `detail`
+`chat.gate` identifies a conversational understanding or plan approval. Typed
+replies go through `chat.input`, including approvals, rejections, questions and
+qualified replies. Requirements interprets replies to its understanding; the
+saved Plan Reviewer interprets replies to its reviewed plan. This bounded exchange
+uses saved evidence without rediscovering repositories or rewriting the plan.
+The returned `gate.decision`, when present, binds the interpreted confirmation to
+that gate. The client rechecks the conversation context and gate, then submits
+the existing named answer or exact-token plan approval action. Interpretation
+alone neither approves implementation nor changes spending limits. A requested
+change goes through the normal planning and review gates; discussion preserves
+the current artifact. Clients show the planning-spend detail before inviting a
+conversational understanding reply, rather than asking for a second yes/no reply.
+For clients without conversational gates, the optional `review.spend_confirmation` supplies the modal's `title`, `detail`
 and confirm-button `label` before submitting that review's planning answer.
 `match: "trim_lower"` mechanically matches the answer after whitespace trimming
 and lowercasing, as the core does; corrections do not trigger the planning modal.
@@ -225,18 +547,23 @@ regression proof allows the controller to create the scoped commit before the
 independent Tester inspects it. The committed revision receives fresh runner proof
 and independent verification before completion. Plans without executable regression
 cases retain the final completion boundary. Existing Git hooks are honored.
-Stage workers still cannot commit. Push, merge and deployment are separate actions.
+Stage workers must leave delivery to the controller. Push, merge and deployment are separate actions.
 
 Delivery refuses preexisting dirty launch work, staged changes, changes outside
-the approved affected paths, or a moved HEAD. A durable receipt prevents repeating
+the approved affected paths, or an unrelated moved HEAD. If a worker nevertheless
+commits, the controller can reconcile a clean, linear chain witnessed by this
+run's successful Builder source captures under the same approved plan. It preserves
+the checked files and replaces that chain with the approved atomic commit, records
+the original commits in the delivery receipt, and requires fresh proof and review.
+Unwitnessed commits, merges and dirty trees remain refused. A durable receipt prevents repeating
 a successful commit after a lost response. Uncertain Git writes or source changes
-in a hook stop for reconciliation. The initial supported route is the ordinary
-build review workflow. Older plans promising an atomic commit only in prose require
+in a hook stop for reconciliation. The supported routes are the ordinary build
+review workflow and the bugfix workflow. Older plans promising an atomic commit only in prose require
 a revised, explicitly approved structured delivery contract; prose cannot authorize
 a Git write and cannot silently satisfy the completion gate.
 
 `input` is null when free text is not an admitted action. Otherwise it names
-`kind` (`feedback`, `follow_up`, or `resolver_response`), a display `label`, and `next_command` with
+`kind` (`feedback`, `follow_up`, `resolver_response`, or `message`), a display `label`, and `next_command` with
 one literal `MESSAGE` placeholder. A client replaces that argument with the
 person's text, checks that the command names the same workspace/run, and runs it
 as an argument array without a shell. Compare against the view's `workspace` and
@@ -244,12 +571,104 @@ as an argument array without a shell. Compare against the view's `workspace` and
 location, which can differ from the handle the client started with. The headless
 conformance client's `message_command()` implements this same parsing boundary.
 
+While a capable spec-first run works, `message` offers the pending-only
+`intervention submit --kind message` action. It also has a `REQUEST_ID` placeholder;
+the client creates one identity for the submission and reuses it when reconciling
+an uncertain receipt. This saves the person's text without approving a plan,
+changing requirements or interrupting the active provider. Requirements answers
+at the next admitted saved boundary. A question preserves the saved plan; an
+explicit change takes ordinary planning and review. The confirmed receipt's
+`message_id` is the public chat message ID, so a local echo is shown only once.
+The terminal keeps an unconfirmed draft, including when a plan prompt arrives
+before its receipt is reconciled. An older worker without message support and
+a coordinated member viewed on its own do not advertise this action.
+
+A coordinating owner may include `--context-file PATH` on a message submission.
+The file is bounded to 128 KiB and contains `kind: coordinated_task` and one to
+12 `participants`, each with an exact `target` label, `status` and public `plan`
+(object or null). It confers no path, repository or execution authority. The
+original text and context together bind the receipt and its idempotent retry.
+A runtime must advertise `interventions.runner_capability.supports_message_context`;
+older writers refuse this context instead of silently ignoring it. Requirements
+returns its assessment and `affected_targets` (empty for a question). A routed
+change does not alter the source run: its owner must reconcile and route the
+original human text through ordinary planning and review. The assistant row in
+`chat.messages` exposes optional `conversation` metadata: `request_id`, `intent`,
+`affected_targets` and `context_sha256`. A question restores the source checkpoint
+and never becomes a new requirement. The coordinated owner schedules this assessment through its existing advance action. New coordinations
+also bind the source run's ledger in their budget: later Requirements replies
+count toward the same task and planning allowance. The current full source ledger
+replaces its frozen initial snapshot in calculations; that original snapshot is
+retained for evidence and legacy records. Unknown prices remain unknown.
+
+
+Coordinated status includes the stable coordination `id` and an optional `conversation` object with `requests`,
+`results` and a pending-only `input` offer. Its `coordination_message` command is
+`autocode coordinate message --run-dir RUN --request-id REQUEST_ID --text MESSAGE --json`.
+The client fills only those placeholders and binds the command to the displayed
+anchor. Exact retries return the same receipt; different text under the same
+identity refuses. Publication closes new submissions. Accepting a message does
+not approve, resume or dispatch work. The terminal retains the anchor offer while
+a member owns the live display. Questions and changes can also be typed at the
+coordinated plan prompt; free text never approves. Unconfirmed submissions keep
+their request identity for exact retry, and saved Requirements replies are shown
+once across polling. Switching to another chat clears the old task offer.
+After a command fails, terminal chat also accepts a reply through a fresh
+`coordination_message` offer. It keeps the same sender for uncertain receipt
+reconciliation. A message is pending input, never approval or authority to retry
+the failed command; without a public message offer, no text is submitted.
+
+The existing coordinator asks active participants for their named boundary pause,
+waits for saved work, and invokes source Requirements with current public plans.
+Its observer never starts a second worker. Questions preserve plans, approvals
+and joint evidence. For a change, the coordinator archives superseded authority
+and routes the original human text to affected authorized members and their
+dependents through ordinary feedback/review. It resumes only its own exclusively
+held pauses. If its boundary pause hid an authenticated repository-scope
+question, the participant first names `--resume-paused` to restore that exact
+question. This step acknowledges the pause without answering scope, approving a
+plan or launching a provider. Source, contract, settings and accounting changes
+still refuse restoration; only the existing runtime-only receipt refresh is
+permitted. Separate user stops, operational holds and uncertain receipts remain
+held. All Requirements usage counts against the same task and planning limits.
+Once every participant has settled, an independent queued participant hold does
+not prevent Requirements from assessing a task message. The hold is neither
+consumed nor resumed. A captured answer appears in `conversation.results` while
+its routing is still held; that display is not permission to apply a change.
+Questions can finish without changing participant authority. Changes wait for
+the independent hold to be reconciled before invalidation or feedback delivery.
+Unreadable intervention evidence and source conversation holds still refuse.
+
+`TaskRun.intervention_status()` reads the existing public status document's
+`view` and sibling `interventions` together, so coordinators can verify pause
+ownership without reading another run's private state. Missing or malformed
+intervention evidence refuses instead of implying that no hold exists.
+
+
 A client compares the displayed `context` with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
 The ordinary CLI independently rechecks admission when saving the action.
+At a semantic Resolver or completion stop (`RESOLVER_PENDING` or
+`PAUSED_COMPLETION_GATE` with `needs.kind=resume`), permitted corrective feedback
+uses this same named offer. Terminal chat lets the person type the correction at
+the Continue prompt. A held operational pause, blocker or human-review gate does
+not gain a feedback bypass; the existing pause-authority policy still decides.
+One blocker stop does gain it, as its own decision rather than a bypass: after a
+blocker was answered with `provide_information` and the response holds the current
+frontier at an approved contract, that hold exists to take the contract decision it
+asked about, so the view offers the same `feedback` action and the CLI admits
+`--feedback` (and, consistently, the `--edit-goal` path the stop reason names).
+The correction invalidates the approval and starts ordinary re-planning toward a
+fresh, unapproved draft and a fresh approval — fresh set approval too, for a linked
+run. The informational reply alone still changes nothing (#2434).
 An operational `resolver_response` offer binds `provide_information` to the current
 Resolver request ID and token in `needs`. It supplies corrective information only;
 retry grants, scope changes, model routing and resuming remain separate actions.
+Resolver frontier bindings also include the runner's Python source contents,
+using relative names rather than its installation path. A runner repair expires
+an old response hold so ordinary continuation can reconsider the stop. This
+grants no approval, permission or additional recovery allowance; unchanged runner
+contents retain the hold even when installed in another directory.
 In spec-first chat runs, a message at plan approval is interpreted by the saved Requirements
 route when the client continues. Questions receive an assistant reply while preserving the reviewed
 plan and its token; requested or mixed corrections enter normal requirements/review again and need
@@ -296,7 +715,10 @@ Stale revisions, conflicting request IDs and stale question tokens are refused.
 During joint planning, technical decisions with a proposed default are resolved internally and
 sent through drafting and review again. They are retained as `user_events` receipts with
 `actor=autocode` and `kind=technical_decision`, outside the human `answers` ledger and chat history.
-They cannot authorize a protected contract change or approve a plan. Genuine questions about the
+They cannot authorize a protected contract change or approve a plan, and they never renew the
+plan-review allowance: the redraft continues the planning cycle that asked, carrying its spent
+review calls, its first review and its revision (`planning.inherited_review` in the saved state),
+and with one review call left the final review decides on the redraft. Genuine questions about the
 requested outcome, behavior, cost, permissions or side effects still require a human answer, as do
 unresolved facts and rejected assumptions. A repeated identical technical question goes to report
 repair instead of another planning loop. Non-joint runs keep their existing question path.
@@ -377,6 +799,14 @@ actions. A live owner or provider and a busy exclusion lock remain active;
 unverifiable ownership is reported precisely without guessing absence.
 Existing approval, source and provider cleanup gates still apply.
 
+A controller exit while applying a returned, accounted report also projects this
+pause after fresh inspection confirms all supervised processes stopped with
+successful cleanup and the regular report file remains inside the run directory.
+`status()["controller"]["completed_stage"]` is `true` at that boundary. Resume
+revalidates the retained report without abandoning it or replaying that provider
+call. Usage, model routes, limits and plan-approval gates stay in force. An
+unaccounted, interrupted or missing result keeps its existing recovery controls.
+
 ### Pausing a working run
 
 While a run works (a live stage, a fresh birth-bound controller, or a controller
@@ -391,6 +821,276 @@ then the run pauses with its next stage selected; the ordinary
 boundary, `requested` is true and `next_command` is null. The field is null when
 nothing is working, when the recorded runner cannot consume interventions, and
 for a stopped run. It never interrupts a step in progress or stops the run.
+
+### Durable local workers
+
+Durable execution is an explicit new-run choice. `modes list --json` adds an
+`execution` object with default `owned` and a `durable_local` availability row.
+The latter carries the exact `next_command` argument-array envelope:
+
+```json
+["autocode", "worker", "launch", "--workspace", "WORKSPACE", "--run-dir", "RUN_DIR",
+ "--checkpoint", "CHECKPOINT", "--"]
+```
+
+For a fresh run, fill its absolute selected workspace, fresh immediate run
+destination, and `CHECKPOINT` with `-`; append the ordinary literal new-task
+arguments. Continuing a durable run uses `view.execution.next_command`, whose
+paths and checkpoint are already bound, followed by the existing named action
+and its exact human tokens. No shell is involved. The wrapper owns workspace,
+run-directory and noninteractive flags; do not repeat those inside the action.
+The core checks the checkpoint again under the existing run lock before
+configuration, reconciliation, a new controller epoch or provider dispatch.
+An admitted human answer, feedback, approval or resume keeps that same controller
+in the ordinary loop until the next human boundary; it does not depend on a
+viewer taking another Continue action. Explicit unit stops and inspection
+actions retain their boundaries. Attaching to an idle saved durable run reads
+only: the TUI offers Enter to take its current named Continue action, after
+rechecking that exact boundary. It does not silently dispatch on reconnect.
+
+`worker launch` seals a private launch-intent receipt before calling the service
+manager. The default request ID fingerprints the exact action, checkpoint and
+private authorization-token fingerprints; an explicit `--request-id` may instead
+identify the caller's request. Identical repeats reconcile that one receipt;
+changed content conflicts. A dispatching receipt can never re-arm itself, even
+if the service was collected or its response was lost. `worker inspect ID`
+and `worker launches --workspace PATH [--run-dir PATH]` are read-only. The launch
+reply's `inspect_command` names the inspection action. `ready` acknowledges a
+matching committed run/controller binding; it does not assert worker liveness,
+successful provider execution or task completion. Those remain in normal status.
+
+The first adapter uses an already configured Linux systemd user service, `Type=exec`,
+without a PTY or inherited input/output pipes, persistent private output, no
+automatic restart and existing linger. Admission refuses an unavailable manager,
+systemd before 254, missing linger or editable controller/launch storage inside
+the task workspace. Only the manager's matching MainPID and InvocationID can
+enter the exact receipt on the pinned runtime and host boot. The existing core
+controller, task lock, checkout lock and provider supervision retain ownership.
+Runtime changes, missing run folders and uncertain persistence refuse adoption;
+reboot is interruption, not automatic replay. The launcher never enables a
+service or changes host login policy.
+
+`TaskRun.start_durable(workspace, run_dir, brief, ...)` returns `(run, receipt)`
+without waiting for model completion. `run.inspect_launch(receipt)` reconciles
+its named read and adopts effective bootstrap paths only after binding. Read
+the normal status, retain the action and exact human decision tokens, and call
+`run.dispatch_durable(named_command, view=inspected_view)` to launch one action.
+It returns another receipt. The synchronous `start`/`advance` APIs retain their
+ordinary owned-worker semantics; using them to write a durable run is refused.
+The client driver reads no private task or launch file. Other clients may observe
+a durable run; they need the named worker transport before writing it. An ordinary
+root CLI write is refused rather than silently changing worker lifetime.
+
+`view.observation` contains the selected effective paths, a token for canonical
+committed checkpoint contents and the read's `sampled_at`; it is neither an
+atomic snapshot of every artifact nor action authority. `view.execution` records
+the saved mode, launch ID and controller epoch and, for durable mode, the named
+transport. Service inspection is separate from the existing controller/liveness
+and completion evidence. Legacy absence never implies detach support.
+
+### Asynchronous viewer direction (#1879; implementation pending)
+
+**Owner-approved direction, implementation pending (2026-10-23).** The owner
+approved [PR #1985](https://github.com/charlieanna/autocode/pull/1985)'s lifecycle
+direction in the Codex chat: "Approve the proposed lifecycle." The source
+inventory below was checked against master `348670930`. Current runtime behavior
+remains in force until the dependent implementation qualifies. The field examples
+describe the agreed semantics; clients cannot assume they are exported yet.
+This decision and read-only attachment do not approve an individual task plan or
+authorize an additional model call.
+
+Existing guarantees should be extended rather than replaced:
+
+| Foundation | Existing evidence and limit |
+| --- | --- |
+| Single controller/writer and surviving provider exclusion | `autocode_controller_owner`, the run lock and `autocode_checkout_lock`; `tests/test_controller_owner.py` and `tests/test_checkout_lock.py`. A second viewer is not a second owner. These checks alone do not prove SSH survival. |
+| Checked liveness and unknown inspection | `autocode_liveness` separates owner, keeper and provider; `autocode_wait_command` observes controller loss. Access failure is not proof of a dead worker. |
+| Boundary pause | The current `pause.next_command` uses a client request ID; intervention tests cover identical retry and conflicting payload, including after application. This is not a blanket guarantee for other actions. |
+| Core Requirements conversation | `send_conversation` and `refresh_conversation` bind message IDs/revisions, reconcile saved acknowledgements and hold uncertain advances; `tests/test_conversation_session_cli.py` and `tests/test_conversation_policy.py`. Ordinary/legacy runs need not have this journal. |
+| Approval, recovery and restore | Current plan/review/request tokens, recovery token and exact comparison control their own actions; see Commands, Exact stopped-run recovery and Saved code checkpoints. There is no universal retry receipt across all families. |
+| Responsive observation | Bounded polling and its cancellation tests already exist. TUI history/verification display is E1; no whole-view freshness or durable detach guarantee follows from it. |
+
+#### Agreed lifetime and authority
+
+The agreed first delivery is **opt-in durable local execution on persistent
+Linux**, with a core-owned launcher and the ordinary task controller. The TUI
+observes it through this interface. The launcher must establish independent
+terminal/session lifetime, persistent output and a reconciliable launch identity
+before returning a durable-ready receipt; a separate process group alone is
+insufficient. A local user-service arrangement is the preferred first host
+adapter, provided its existing configuration survives SSH/session loss. A host
+without that demonstrated capability retains the current owned-worker mode.
+Enabling a service or changing host login/linger policy is a separate operator
+action, never a silent prerequisite installed by the TUI.
+
+The launcher is part of the core runtime, not another task controller. It starts
+the existing loop under the existing locks and birth-bound ownership. A service
+name is not proof of ownership, and a lost launch receipt is reconciled by the
+core before any retry. At a human gate the controller can finish with its ready
+receipt; continuing later is another serialized invocation of the same run.
+The exact launch action/capability schema and host adapter must be reviewed with
+their deterministic qualification before this opt-in mode is exposed.
+
+| Event in the agreed durable mode | Required outcome |
+| --- | --- |
+| Normal viewer quit, Ctrl-D, SIGHUP, viewer SIGKILL or SSH disconnect | Only the viewer leaves. It neither pauses nor signals the worker. Reattach is read-only and launches no provider. |
+| First or repeated Ctrl-C | Request the currently named boundary pause; repeated keys do not escalate to an implicit worker kill. An unavailable pause offer is reported as such. |
+| Explicit pause | Submit the existing request-ID-bound pause offer. Save the active step, then wait at the core's boundary. |
+| Explicit stop or interrupt | Use a core-named action with its own confirmation and scope. No new immediate-kill control is included in the first delivery; missing controls remain unavailable. Stop, when offered, remains terminal for the conversation. |
+| Worker/controller loss while a viewer survives | Show the current controller/liveness inspection and retained attempt. Use the existing reconciliation action only when offered; never infer a paid replay from a quiet log. |
+| Lost ordinary supervisor | Fresh status may name private `--reconcile-only -` when owner, keeper and provider are positively dead. It classifies the retained unfinished attempt as uncertain under the run lock without provider setup, artifact adoption, settings changes or model calls. A changed checkpoint, live/unknown role or stop refuses, and status does not offer it while a stop is applied or still pending (the next relaunch applies that stop). Native visual workers and durable service actions remain outside this control. Archiving that uncertain attempt then follows as the core's own named `--abandon-stage` step; any retry is a separate named decision. |
+| Host reboot | Work is interrupted, not transparently resumed. After reconnect, inspect ownership and attempts and expose the ordinary recovery boundary. Unknown provider outcomes stay uncertain. |
+| Two viewers act on one gate | Both may inspect. The first current action admitted under the core's locks changes the run; a competing stale token is refused and refreshed. No client leader or second controller is introduced. |
+
+The current owned-worker Ctrl-C sequence remains documented for legacy mode
+until an explicit migration decision. It must not silently acquire durable-mode
+semantics. Multiple viewers initially share the same authorized local OS
+identity; this proposal adds no remote authentication service or Jira/RPC API.
+Jira/Fargate orchestration remains a separate layer using `TaskRun`.
+
+#### Observation, decision and attention requirements
+
+Keep `controller`, `liveness`, `status`, `needs`, `delivery`, `verification` and
+the named actions authoritative for their existing meanings. Add only the
+missing capability and observation metadata, for example:
+
+```json
+{
+  "execution": {
+    "version": 1,
+    "mode": "durable_local",
+    "detach_supported": true,
+    "launch_id": "opaque-core-launch-id",
+    "controller_epoch": "opaque-owner-receipt-id"
+  },
+  "observation": {
+    "version": 1,
+    "workspace": "/project",
+    "run_dir": "/project/.autocode/runs/run-a",
+    "checkpoint_token": "opaque-committed-checkpoint-token",
+    "sampled_at": "2026-10-24T00:00:00Z"
+  }
+}
+```
+
+`checkpoint_token` identifies committed checkpoint bytes; it is not a sequence
+number or a token granting an action. `controller_epoch` distinguishes owner
+incarnations, not task completion. `sampled_at` describes the read, not meaningful
+progress or an atomic snapshot of every external evidence/log file. Existing
+attempt/log identities keep their narrower scopes. Clients bind each local read
+to its requested identity and request generation, discard cancelled/older local
+results and never order checkpoints by a wall clock or a hash. A failed read
+retains the last view as unavailable; it does not rewrite worker state.
+
+Before applying a decision, obtain a current view and retain the exact plan,
+question, review, recovery or comparison token the person inspected. A newer
+view cannot silently answer or approve on their behalf. Each action family
+needs its own conflict/lost-receipt contract:
+
+| Action family | Required reconciliation rule |
+| --- | --- |
+| Read, attach and detach | No run writes, provider dispatch or approval. Detach is local viewer exit, not a new core task-state transition. |
+| Pause/intervention | Reuse the existing request ID and exact payload; return its original receipt. A changed payload is a conflict. |
+| Core conversation send/refresh | Reuse its existing request-ID/revision and acknowledgement rules. An unresolved advancing outcome holds rather than dispatching again. |
+| Plan/review approval and answers | Validate the displayed token under the lock. Preserve existing per-family replay behavior; a missing command receipt requires fresh inspection, not a synthesized success. |
+| Feedback, follow-up and plan messages | Verify their existing context/revision/request-ID coverage separately. Add missing conditional receipts in the core before claiming automatic reconnect retry for that family. Unsupported cases remain explicit handoffs. |
+| Retry, recovery and restore | Keep the exact attempt/source/recovery/comparison binding and current cleanup evidence. A transport failure or reconnect grants no extra retry, model substitution or limit change. |
+
+Persistent attention (#1885) is exposed in `view.attention` and each `runs --json`
+row. Version 1 identifies a pending human boundary using the saved run incarnation
+and existing decision context. A completed outcome uses the existing same-chat
+turn receipt, so an identical follow-up's completion has a different ID. Missing
+saved identity means unknown; it is never invented from text or source equality.
+The item contains its workspace/run, kind, fixed label and bounded, redacted task
+snippet. It carries no answer or approval authority.
+
+`attention.acknowledge.next_command` is an exact argument array for
+`autocode attention ack --workspace W --run-dir R --item-id ID`.
+`TaskRun.acknowledge_attention(view)` submits that offer without advancing the run.
+An acknowledgement never changes the task checkpoint, current question, plan
+token, delivery acceptance, provider attempts or budgets. New acknowledgements
+require the item still be current. Repeating an acknowledged ID returns its
+original receipt even after the task resolves; a different run cannot inherit it.
+A lost reply is uncertain until that same ID is inspected or explicitly retried.
+This reconciliation applies to acknowledgement only, not other action families.
+
+The authorized local OS identity shares receipts across viewers. Storage defaults
+to `$XDG_STATE_HOME/autocode/attention` (otherwise
+`~/.local/state/autocode/attention`); `AUTOCODE_ATTENTION_HOME` selects an isolated
+profile. It must be a private owned directory outside the editable task workspace;
+receipts are private atomic files bound to the local UID and run paths. Reads
+create nothing. Unavailable, corrupt, unowned, symlinked or unsupported storage
+projects unknown and offers no acknowledgement action. There is no remote
+identity service, notification service or workspace-owned acknowledgement file.
+
+The TUI's F8 or `/attention` drawer restores current saved alerts, including after
+a viewer restart. Cold-start inventory is silent; a newly observed unread ID is
+announced once in that viewer's current bounded cohort. An acknowledged item
+stays inspectable while current but does not announce again. The selected run
+uses its own prompt and the global unread badge. Background runs and the prior
+run while composing a local new-chat draft receive the notice. Independently
+running viewers may each announce a newly observed item; delivery is not a
+universal exactly-once alarm guarantee.
+Resolved/superseded items disappear from current inventory; this is not an alert
+history journal. Unread storage is durable, while delivery of a notice is an
+observation. Completion says to inspect evidence, not that current delivery passed.
+
+Inventory uses `runs --all --json` in the existing two-child bounded read pool,
+normally every ten seconds. Per-run status reads take precedence over an inventory
+started before them. The UI retains at most 256 rows and reports overflow;
+an empty `runs --json` inventory returns success with `runs: []` rather than prose.
+`/runs` remains available for the full public list. Failed discovery retains a
+labelled last snapshot and shows unavailability. Drawer rows stay frozen until
+explicit refresh so incoming items cannot change which ID a queued key targets.
+Acknowledgements are asynchronous with a five-second viewer timeout; a slow
+receipt cannot block draft editing. Closing the drawer restores the draft/cursor
+and viewport without switching runs. Opening an item reads current status;
+submitting an answer or approval still uses the exact token the person inspected.
+
+The terminal's `/runs` also uses that bounded pool for its project and global
+listings. The command returns immediately while a refresh is outstanding; its
+completion notice invites `/runs` to inspect the new snapshot. Displayed numbers
+appear automatically for the first requested list, then
+stay fixed until that explicit inspection, so a later read cannot retarget an
+`/open N` being typed. Listing a chat does not open a tab or subscribe to its
+individual status; only chats explicitly opened in this viewer join that set.
+An uncached `/open N` finishes its viewer navigation after fresh listings arrive.
+A newer navigation or a changed source chat/question cancels that pending open;
+a failed listing cannot complete it.
+
+#### Acceptance and rollout before implementation is enabled
+
+| Design case | Required deterministic and supported-host proof |
+| --- | --- |
+| A1: one worker, two viewers | Both observe; competing starts/continues and token decisions admit one writer. Receipts reconcile the exact launch/action without a second provider call. |
+| A2: viewer, worker and host loss | Kill each separately with an in-flight fake provider. Real PTY/SSH loss preserves a healthy durable worker; worker loss projects recovery; reboot never claims continued execution. Uninspectable ownership remains unknown. |
+| A3: stale/out-of-order data | Hold an old read across a newer decision, refresh, run switch and controller epoch. Release it; it cannot replace the current view or authorize an action. Stale human tokens are rejected by the core. |
+| A4: old/new pairs | Omit every proposed field independently. Legacy clients ignore additive fields; new clients show unknown and retain legacy lifetime semantics without advertising detach. A source/controller version change cannot rewrite a held provider attempt. |
+| A5: accepted request, lost response | Lose launch, action and provider receipts at each persistence boundary. Inspect the same launch/request/attempt; no blind provider replay. Identical supported retries return their existing receipt, conflicts refuse, unsupported uncertainty holds. |
+
+Use fake providers and controlled clocks for authority/race cases, then actual
+terminal and SSH/service tests for host lifetime. No paid model is needed.
+Measure keyboard-command response and healthy-read completion while another read
+hangs; propose a controlled-host input target of 250 ms, report actual samples
+and load, and derive fairness from the configured subscription/read bounds rather
+than promising a fixed 25-run freshness number. No spinner, poll or notification
+acknowledgement counts as work progress.
+
+Implementation order after owner agreement: #1881 owns durable launch/reattach
+and host capability; #1882 D2 owns active switching and per-run draft/cursor/view
+context; #1883 E2 consumes observation/identity metadata; #1885 owns durable
+attention and conditional decisions; #1884 F2 consumes separately approved stage
+policy; #1886 owns the integrated fault/terminal/SSH matrix. Existing E1/F1 and
+D1 results remain regression evidence, not proof of these new outcomes.
+
+The consolidated owner decision above covers these lifetime/authority, metadata,
+first-host and response-target choices. Dependent issues should not ask the same
+policy questions again. Exact additive
+schema/actions, compatibility fixtures, host adapter and measured A1–A5 results
+are readiness evidence before enabling the opt-in capability, not a second owner
+approval gate unless the agreed semantics change. Keep current defaults and all
+saved routes, efforts, usage, limits, histories and approvals unchanged. Cross-host
+delivery, host administration and stage-selection policy remain separate decisions.
 
 ## First interaction timing
 
@@ -436,7 +1136,7 @@ table after the intended outcome, or as `None recorded` for a run with none
 ([Who approved](execution.md#who-approved)). Review and discuss reports, which have no approval
 step, have no `approvals` field and no such section, even when the status view lists a resume.
 Neither do verification reports, nor reports written before AutoCode listed approvals, so
-older pairs still authenticate. A program or components report lists its child runs' approvals
+older pairs still authenticate. A components report lists its child runs' approvals
 (below). An older build, bug-fix or design report
 gains the section when AutoCode saves the completed run again; reading its status does not.
 A task report whose approved plan is in the status view also has `plan.goal_hash` and
@@ -445,7 +1145,11 @@ agreed plan's token. Reports written before AutoCode cited them have neither fie
 authenticate; a completed run saved again rebuilds its pair with them.
 When the proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
 them per test case, keyed like `case_tests`, and the Markdown names each one under
-the regression proof; they are reported, not gaps. Review-only mutation reports
+the regression proof. For current task proofs, `verification.changed_code_evidence`
+binds execution, mutation observations and independently checked per-line reasons
+to the exact source/proof context. `verification.changed_code_repairs` retains
+the bounded Builder returns and Investigator handoffs. Legacy report-only proofs
+without this field grant no new changed-line evidence. Review-only mutation reports
 are kept separately in `workflow_result.mutation_check`, with survivors keyed
 by the reviewed tests' actual IDs. Local
 artifact paths are references, not hosted evidence. Unknown usage stays unknown;
@@ -486,8 +1190,6 @@ live or mixed according to the route it actually launches. Tests using a fixture
 must pass `--evidence-provenance fake`. Human plan approval remains a separate
 decision.
 
-Completed programs publish the pair beside their owned program state; their
-public `program run`/`program status` summaries expose `evidence_report` metadata.
 Completed component builds publish it beside `.autocode-components/manifest.json`;
 the component CLI summary and `MultiComponentBuild.evidence_report()` expose it.
 Aggregate documents reference authenticated child `TaskRun.evidence_report()`
@@ -500,10 +1202,10 @@ for later integration checks or runtime smoke.
 An aggregate also lists, under `approvals`, the approvals each child's own report lists
 (#722): child by child, in its `children` order, each row as that report has it plus `child`,
 the child's id. Its Markdown shows them as an Approvals table with a Child column, and says
-what it leaves out: a program agreement (`autocode program approve`) records no approver, a
-program does not list approvals of a plan run it was derived from (`autocode program derive`),
-and a components run does not list approvals of the architecture it was built from. Those runs'
-own reports list them. A child whose
+what it leaves out: a components run does not list approvals of the architecture it was built
+from. That run's own report lists them. A program report an older checkout wrote (before
+`autocode program` moved to the `archive/program` branch) also says that its agreement records
+no approver and that it does not list the approvals of the plan run it was derived from. A child whose
 report lists no approvals, because it was written before AutoCode listed them, is named in the
 aggregate's not-verified list rather than taken to have recorded none. When no child's report
 lists approvals, the aggregate has no `approvals` and no such section, as before.
@@ -550,28 +1252,29 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
 | Name the model a role stopped on quota, a content-filter refusal or an authenticated output limit continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
 | Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
+| Choose an effort the model declares for a role whose named effort it does not (`PAUSED_EFFORT_UNSUPPORTED`, `TaskRun.assign_effort(role, effort)`) | `autocode --answer effort-ROLE=EFFORT`, then resume the pause | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
 | Reject a review (`TaskRun.reject_review(criterion, token, note)`) | `autocode --reject-review CRITERION --review-token TOKEN --review-note TEXT` | 0 saved as feedback for revision, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
-| A program's correction of the displayed plan (`TaskRun.guide_plan(text, token)`) | `autocode --program-guidance TEXT --review-token -` (reads `AUTOCODE_REVIEW_TOKEN`); saved as the program's, never as user feedback | 0 saved, 2 rejected |
 | Follow up a finished run | `autocode --follow-up TEXT` | 0 saved, 2 rejected |
 
 Answers and approvals never launch a model; continue afterwards. A follow-up
 is the next request in the same conversation: on a finished run it records a
-new turn (`turn` in the status view) and reopens the run, which recognizes the
-kind of job again from the new message and continues in the same run
-directory. After a review, a follow-up that asks to act on the findings is
-planned from them: the review's blocking findings are the requirements, so no
-requirements questions are asked, and the plan still goes to the user for
-approval. The rewritten task names what the previous turn wrote (its report or
+new turn (`turn` in the status view) and reopens the run at Requirements,
+which names the kind of job again from the new message, with the earlier turn
+as context (its job, a review's verdict and finding counts, a design turn's
+documents), and continues in the same run directory (#1860). After a review, a
+follow-up that asks to act on the findings is a build planned from them: the
+review's blocking findings are the task list, so no requirements questions are
+asked, and the plan still goes to the user for approval. The rewritten task names what the previous turn wrote (its report or
 note, then the files its stages changed; at most eight paths). After a design
 turn, a follow-up that asks to build the design names that document, so the
-build starts by checking it against the repository (`check_design`) instead of
-gathering requirements. The build is planned afresh from the design: the design
+build goes from Requirements to checking it against the repository
+(`check_design`). The build is planned afresh from the design: the design
 turn's contract and requirements move to the run's history rather than being
 revised, and the new plan still needs approval. After a design review, a
-reply to it (an answer, a correction) is recognized as design and the Architect
+reply to it (an answer, a correction) is named design and the Architect
 revises the same review: concern ids are kept, settled concerns stay as resolved,
 and `review/design-review.json` records every revision
 ([CLI](cli.md#replying-to-a-design-review)). Only a finished run takes
@@ -585,6 +1288,11 @@ is never mistaken for a pause.
 `TaskRun.respond_operational()` uses the separate Resolver response command;
 an operational request cannot be answered with `TaskRun.answer()`, except the
 model question of a quota stop or a content-filter refusal (`needs.route`, see [Models](models.md#when-a-roles-quota-runs-out)):
+At a cross-model independence stop, `TaskRun.answer()` and `assign_model()`
+use the current status view's route question without a resolver token: the core
+derives that decision from saved routes and checks the replacement again. Other
+resolver questions still require their current request token.
+
 `TaskRun.assign_model(role, model)` answers `route-ROLE` with a model a person
 named, updates every existing `--ROLE-model MODEL` or `--ROLE-model=MODEL`
 occurrence in the client's `options`, and leaves the run paused for
@@ -593,6 +1301,9 @@ question open. At a stopped workflow job (`retry_job` with `route`, see
 [Failed workflow jobs](#failed-workflow-jobs)) the same call answers with the job's
 `job_retry_token` instead of a resolver token and leaves the run paused for
 `retry_job()` with the new token.
+That stopped job's view also names the answer as a command, `needs.route.command`, in the same
+shell-quoted form as `next_command` and carrying the job's token, beside the retry `next_command`
+names; a client that shows the retry as a yes/no takes a typed model through it (#2005).
 Each answer consumes the Resolver request whose token it carries, and the
 questions still open come back under a new `resolver_token`, so a token read
 before an earlier answer is rejected. Without `resolver_token`,
@@ -613,6 +1324,14 @@ the status JSON on stdout and the returned TaskRun view keep their existing shap
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
 `PAUSED_TRANSPORT_CHANGED`.
+At an eligible OpenCode/Kilo pause with no retained attempt or report repair,
+`needs.action` and `next_command` name `--resume-paused --accept-transport-change`;
+`needs.recovery_hint` explains that confirming accepts the changed connection
+settings after model/billing checks. It requires a person's confirmation and does
+not approve a plan or replace selected role models. Separately selected per-role
+tools retain their immutable identities and receive no acceptance offer. Other
+engines, uncertain attempts and unrelated pauses keep their existing recovery;
+clients must use the current named action rather than add this flag themselves.
 `TaskRun.accept_source_edit()` uses `--resume-paused --accept-source-edit` when
 a repair is paused at `PAUSED_STALE_HANDOFF` because a person edited the source.
 The approved contract, task, budget, proof and evidence pins stay.
@@ -656,11 +1375,56 @@ offers `accept_source_edit` with `["--resume-paused", "--accept-source-edit"]`,
 the same command `needs.action` names. At a recovery novelty hold, where `needs`
 is the AutoResolver request with a `retry_action`, the card also offers
 `retry_failed_stage` with `["--resume-paused", "--retry-failed-stage"]`: the
-one explicit retry of the held step. A client runs
+one explicit retry of the held step. Before that request is published
+(`RESOLVER_PENDING`), a plain resume would only hold again, so `needs` is a
+`resume` whose `action` and `retry_action` both name that retry, and the card
+offers the same `retry_failed_stage` (#1770). When the hold cannot take it yet, the
+card offers no retry and `needs.retry_unavailable` names what must happen first.
+A hold for an incident that repeated with nothing new does not reach the card
+while its source, settings and scope still hold: AutoCode takes that one scoped
+retry itself and, if the incident repeats again, ends the run with a recorded
+outcome (`recovery.category` `stopped`, `recovery.outcome` with its reason and
+evidence, #2485), so the card shows a finished, failed run and no retry.
+The view and `--retry-failed-stage` apply one shared admission rule
+(`autocode_recovery_limits.scoped_retry_refusal`), so the view never offers a
+retry the CLI refuses on saved state. A client runs
 `autocode --run-dir RUN --expected-recovery-token TOKEN ARGS...` and never
 derives flags from the action's `kind`, so a new action needs no client change.
 Inspection, feedback, decision and conversation actions have no `args`: they
 open a view or ask the person for input instead of running a command.
+
+An operator changing the Resolver's model at its no-progress hold supplies
+`--resolver-model MODEL` (and optionally `--resolver-reasoning-effort EFFORT`)
+together with `--resume-paused --retry-failed-stage`. This records the exact
+Resolver route change alongside one invocation-local retry. The original incident,
+usage and spent allowances remain intact; changing another role, engine, source,
+contract or scope is refused. A model change alone cannot authorize a call, and a
+rejected combined change saves no settings. Clients continue to use only named
+view actions; this operator control does not add a client-side route override.
+
+### What went wrong (`recoveries`)
+
+`view.recovery` describes a stop. `view.recoveries` is the history of what went wrong while the
+run carried on by itself: a list, oldest first and at most the newest 20, built by
+`autocode_recovery_history.project` from the run's own records. Each entry has the same keys:
+
+| Key | Meaning |
+| --- | --- |
+| `id` | Stable for the entry, so a client says each one once |
+| `kind` | `rejected` (a stage's answer was not accepted), `report_repaired` (the work stood and only its report was rewritten), `sent_back` (the changed-code gate returned the Builder for lines with no test that fails when they break and no checked reason), `investigated` (a stage stopped making progress and went to the Investigator), `resolved` (the Resolver chose the next step by its rules) |
+| `at` | When it was recorded (UTC), or null |
+| `job` | The stage's screen name (`autocode_roles`) |
+| `headline` | One line, such as `Builder stuck`, `Tester rewrote its report` or `Builder sent back for untested lines (round 1 of 2)` (the round the record names, out of the rounds the gate allows; a record saved before rounds were recorded has none) |
+| `problem` | What went wrong, or null |
+| `action` | What AutoCode did about it |
+| `by` | The job that handled it: the stage itself, `Investigator` or `Resolver` |
+| `detail` | The Investigator's diagnosis and advice, or null |
+
+The text is redacted and bounded, and a sentence that names a command is left out, since a client
+never shows a person a command to type. A rejection the Investigator was called for appears once,
+as its `investigated` entry. The field is display only: it names no action and grants nothing.
+The terminal chat shows each new entry as a `Recovery ·` notice, the newest three in its side
+panel, and all of them under `/why`.
 
 ## Inspecting current verification
 
@@ -762,8 +1526,47 @@ missing original source or immutable caller binding offers inspection. A termina
 stop or dependency wait offers no recovery command. CLI gates still validate
 freshness and authority when a person executes any displayed command.
 
-For the exact finite total-time recovery, `needs.command_inputs` describes the
-person's numeric decision additively:
+`needs.command_inputs` describes the one number a pause leaves to a person, so a
+client can ask for it instead of handing the command off (#2044). Every bound a
+budget pause names is described, with the same row shape:
+
+| Pause holding the run | `id` | `flag` | `label` | `used` reports |
+| --- | --- | --- | --- | --- |
+| `PAUSED_TIME_LIMIT` | `max_seconds` | `--max-seconds` | Total active time (seconds) | `elapsed`: active seconds |
+| `PAUSED_COST_LIMIT` | `max_cost_usd` | `--max-cost-usd` | Cost cap (whole USD) | known spend in USD |
+| `PAUSED_ITERATION_LIMIT` | `max_iterations` | `--max-iterations` | Total iterations | the current iteration |
+| `PAUSED_MILESTONE_TIME_LIMIT`, `PAUSED_MILESTONE_BUDGET` | `max_milestone_seconds` | `--max-milestone-seconds` | Milestone active time (seconds) | the milestone's counted seconds |
+| `PAUSED_MILESTONE_STALLED` | `max_milestone_replans` | `--max-milestone-replans` | Milestone replans | replans used |
+| `PAUSED_NO_PROGRESS` (its unchanged-batch bound only) | `no_progress_limit` | `--no-progress-limit` | Unchanged implementation batches allowed | unchanged batches counted |
+
+For each, `minimum` is one more than the larger of `current` (the saved bound;
+the cost cap may be fractional) and the count, `maximum` is the largest safe
+integer, and the command is `--resume-paused FLAG N --expected-recovery-token -`
+with the current `recovery.token` in `AUTOCODE_EXPECTED_RECOVERY_TOKEN`. The row
+is offered wherever that bound holds the run: at its own pause, after
+AutoResolver published its operational request for it, and once corrective
+information has been reviewed and held (not while that review is pending). It is
+not offered while the run is active, while an attempt or report repair is
+unreconciled, or where the need names another control (a retry, an edit, a
+model question, a new run).
+
+Where `next_command` is that raise, the row binds to it. Where it is not, because
+the need is a plain `--resume-paused` or AutoResolver's operational response, the
+row also carries `command`: the raise itself, a complete command with the run's
+paths and the private token channel. A client fills the row's `arg_index` in
+that command and takes it, never in `next_command` or in a reply. The terminal
+chat offers it at the pause's yes/no and at the operational reply. The VS Code
+run details and sidebar chat show it as its own number and **Raise limit and
+continue** button beside the plain resume or the recovery reply, confirmed with
+the bound it changes. The browser dashboard's recovery card shows the one row
+`needs.command_inputs` describes, attached or separate, as a number entry once
+the saved pause is inspected; its backend re-reads the status, checks the
+recovery token the card showed and types the number only into the command the
+view names for it. The headless conformance client, the VS Code client and the
+dashboard validate the row the same way
+(`tools/autocode_client_actions.check_input`).
+
+For the finite total-time recovery, for example:
 
 ```json
 {"id":"max_seconds","kind":"integer","flag":"--max-seconds","placeholder":"N",
@@ -781,7 +1584,7 @@ descriptor and token binding before substituting that one argument. A person
 must enter a whole number between `minimum` and `maximum`; there is no default
 and no extraction of numbers from chat. The minimum exceeds both the saved cap
 and consumed active time. An empty, zero, fractional, unsafe or out-of-range
-value grants nothing. Other unresolved `N` placeholders remain client gaps.
+value grants nothing. An `N` with no row is a client gap.
 
 This choice changes only the total active-time cap. It neither changes other
 limits or model routes nor approves a plan. Recovery freshness is rechecked
@@ -815,7 +1618,7 @@ The person confirms the exact total number of calls. This uses the existing
 allowance setter and preserves charged calls, recovery history, other limits,
 routes and plan approval. It does not reset a cycle, change allowance policy or
 approve the plan. Ordinary CLI callers retain their existing explicit zero
-semantics. Other numeric placeholders remain unsupported.
+semantics.
 
 An exhausted `PAUSED_TIMEOUT_RECOVERY` can name one additional finite choice:
 
@@ -845,7 +1648,11 @@ acceptance criterion with its latest recorded outcome and evidence, the
 findings ledger, and, for bug fixes, the runner's own fail-before/pass-after
 regression proof (`verdict`, `fail_to_pass`, `failures`, `unverified`,
 `commands`, `source_revision`, and `case_tests`: each English test case's
-proving tests; `null` otherwise). Each acceptance row also carries
+proving tests; `null` otherwise). Optional
+`follow_up_baseline`, when present on the proof, identifies the immutable completed-turn
+source freshly checked for new follow-up guards. Inherited regressions still use the
+original run reference; this field does not reuse a previous proof or approve a plan.
+Each acceptance row also carries
 `validator_status`: the latest saved validation's result for that criterion
 (`FAIL`, `PASS` or `NOT_VERIFIED`), or `null` when that validation has no row
 for it. A failed criterion must be distinguishable from an unchecked one; the
@@ -889,17 +1696,21 @@ observations from blockers with inconclusive attribution. The findings artifact
 preserves each executable blocker's `disposition` (`kind`, `reason`, `runner`,
 `inputs`, `base_proof`, `changed_proof`); proof references carry `path` and
 `sha256`. Only a validated runner disposition of `pre_existing` exempts a
-blocking finding. Legacy findings and reviews without an explicit patch retain
-blocking behavior. This attribution applies to review findings, not the task's
-acceptance criteria. See [patch attribution](bugs/2026-10-19-review-patch-attribution.md).
+blocking finding. Identical failures only support that exemption when the cited
+file and line range are verified unchanged in the actual applied scratch source;
+changed, unknown and out-of-range locations retain the blocker. Legacy findings
+and reviews without an explicit patch retain blocking behavior. This attribution
+applies to review findings, not the task's acceptance criteria. See [patch attribution](bugs/2026-10-19-review-patch-attribution.md).
 
 `proof_stability` is the proving tests' repeats: `repeats`, `unstable` (each
 test, which side, its kind and the run outcomes), `unrepeated`, `next_step` when
 a test disagreed, and `note`; `null` when the proof did not repeat tests.
 `diff_coverage` is the same proof's line coverage of changed product hunks
 (`collected`, `tool`, `note`, `files`, `uncovered`, `unmeasured`); `null` when the
-proof did not record it. It never blocks completion.
-`mutation_check` is the same proof's report-only mutation check (#699, see
+proof did not record it. The raw coverage report alone grants no completion
+authority. Current task proofs combine authenticated producing receipts with
+mutation evidence in `verification.changed_code_evidence` (#2474).
+`mutation_check` is the same proof's mutation check (#699, #2474, see
 [Named test proof](named-test-proof.md#mutation-check)): `collected`, `note`,
 `limit_per_file`, `budget_seconds`, `files` (each `path`, `notes`, and `mutants`
 with `line`, `operator`, `before`, `after`, `outcome` `killed`, `survived`,
@@ -910,8 +1721,16 @@ case's proving tests that still passed with a product line changed (`test`,
 `path`, `line`, `operator`, `before`, `after`, `text`), `{}` when every mutant
 that ran was killed. Every proof that did not pass, including one refused before
 any test ran, has the note `not run: the proof did not pass` and no survivors;
-`null` when a passing proof had no due test case, or there is no proof. It never
-blocks completion. A review can instead report the original tests in its
+`null` when an older passing proof had no due test case, or there is no proof.
+Current task proofs enumerate eligible Python sites within the existing command
+budget and require observed named-test failures; setup, collection, timeout and
+unrun outcomes never demonstrate a kill. `verification.changed_code_evidence`
+lists exact gap IDs, file hashes/lines, `tested`, `reason_required` or `excepted`,
+the reason/evidence, and the chosen fallback. Missing tools never trigger a
+project install: demonstrated per-line mutation evidence is the deterministic
+fallback, otherwise an explicit independent per-line judgment is required.
+Two direct repairs precede the existing Investigator path within saved run
+limits; no person question is added for these gaps. A review can instead report the original tests in its
 explicit patch: `subject` is `reviewed_patch_tests`, `patch_path` and
 `patch_sha256` identify that patch, `selected_files` and `selected_tests` record
 the independently run pool, and `survivors` is keyed by actual test IDs. These
@@ -943,6 +1762,47 @@ once. A null amount is unknown, never zero: `estimated_usd` and `reported_usd` a
 has that basis, and `spent_usd` is null when no stage is known at all; while `complete` is false,
 `spent_usd` is a floor. `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
 so its `estimated` can differ from `cost.estimated_usd`.
+
+`cost.breakdown` groups that same finished-stage ledger in three alternative ways:
+`by_stage`, `by_process_outcome` (`completed`, `failed`, `interrupted`, `unknown`) and
+`by_billing` (`subscription`, `pay per token`, `unknown`: how the stage's model bills, from the
+billing discovery saved for an automatically selected run, else the model ID's account; an OpenAI
+model's login is not recorded, so it is `unknown`). A subscription stage's `estimated_usd` is the
+API-equivalent figure, not the plan's bill.
+Each row has `stages`, `spent_usd`, `reported_usd`, `estimated_usd`, `unpriced_stages`,
+`partial_stages`, `failed_stages`, `interrupted_stages` and `complete`; stage rows
+also name the `stage` and routing-aware `job`. The groupings overlap and must
+not be added together. `cost.breakdown.unpriced` says why the finished unpriced stages have no
+cost (#1713): `usage_missing` (no input or output token count recorded), `model_unknown` (counts
+but no model identified) and `rate_unavailable` (counts, but the price table has no rate for the
+model), with those models in `models_without_rate`. They are counts of stages, never an amount.
+`cost.breakdown.price_bases` lists the dated rates the estimated stages were priced at, one entry
+per model and rate: `model`, `input`, `output`, `cached_input` where published, `source`,
+`retrieved`, `until` (the UTC date the rate stopped applying; null for the current rate) and
+`stages`. Each stage is priced at the rate in force when it finished.
+Each grouping plus `inherited_usd` reconciles with the known
+run total, subject to six-decimal rounding. Inherited spend has no stage attribution.
+Active attempts and unaccounted workers are excluded, just as in the money-cap
+ledger; the overall `cost.complete` remains false while they run. Unknown cost is
+not zero. A completed process may return a rejecting review, and another attempt
+may be required work: these labels do not claim acceptance or wasted spend.
+The cost line calls out repeated stages and failed/interrupted attempts. For
+observed repetition reasons, consult the existing `efficiency.repeats` projection.
+
+`run_metrics` (schema 1, `tools/autocode_run_metrics.py`) restates the projections above for a
+client to show where a run could cost less, without computing anything itself: `spent_usd` and
+`complete` as in `cost`; `by_job` (each job's `stages`, `attempts`, `spent_usd`, `complete` and
+`share` of the run total, costliest first, from `cost.breakdown.by_stage`); `tokens` (`input`,
+`new`, `cache_write`, `cache_read`, `output` from `usage.accounting.tokens`, the known part when a
+count is incomplete, with `complete`, `cache_read_share` and `cache_write_share` of input); `waste`
+(`failed_attempts` and their `failed_usd` from the deduplicated attempt costs, `repeated_jobs` that
+ran more than once, and `report_repair_usd`); and `single_model`: the Builder's `builder_usd` and
+`builder_share`, the rest as `checking_usd`, a `basis` saying the Builder's spend is a stand-in for
+one model building the change alone and not a measured run, and `produced`, counts from the run's
+own evidence (criteria requested and accepted, regression-proof verdict and fail-to-pass tests,
+clean-replay checks, mutants tried and killed, review findings and blocking ones, and recoveries
+handled). An amount no source knows is null. The terminal chat shows it in its Spend section and
+`/spend`.
 
 `escalation_outcomes` counts the run's escalations and Builder retries by the outcome the runner
 stamped on them (`passed`, `paused`, `open`; `tools/autocode_route_ladder.py`). The runner stamps
@@ -1044,7 +1904,9 @@ its wording may change, so programs read the fields beside it:
 
 - `headline`: `Complete`, `Waiting for you`, `Paused`, `Waiting for another run`,
   `<job> working`, `<job> finished` (its report is saved but not applied yet),
-  `Next: <job>`, `<job> stopped without saving a report` (the recorded workers are
+  `<job> finished · Next: <job>` when the run already knows the job after that
+  finished one (#1711), `Next: <job>`, `<job> stopped without saving a report` (the
+  recorded workers are
   gone; see the top-level `stale` and `next_action`; a stopped runner check is named
   `Runner check (...)`), or the status in words when no stage is known. Job names
   come from `autocode_roles`; `stage` is that name.
@@ -1077,22 +1939,36 @@ its wording may change, so programs read the fields beside it:
 - `for_earlier_request`: true after a `--follow-up` until the follow-up's own plan is
   drafted; the previous request's tasks, requirements and review findings are then
   left out.
+- `retry`, only while the current stage (the active attempt's, else the next one's) is
+  in a run of failures (`tools/autocode_failures.py`): `failures`, how many attempts in
+  a row have failed the same way, and `limit`, how many such failures stop the stage
+  (`PAUSED_REPEATED_FAILURE`). A later outcome of the stage ends the run and the field
+  is omitted. Display only: the retry itself is the core's, and the terminal chat shows
+  it as "2 tries left" or "last try" beside the retrying stage.
 
 No field is a percentage or an estimate from elapsed time.
 
 `displayed_plan` is an optional structured approval projection: `revision`, `hash`,
 `token`, `acceptance_criteria`, `constraints` and `permission_boundaries`. It appears
 only when the last displayed token matches the current sealed contract. Missing,
-modified or stale contracts do not expose it. Criterion `verification_method` and
-`human_review` values are copied without interpreting or coercing model-authored
-text. Automation must check these structured fields and bind the token to
+modified or stale contracts do not expose it. Criterion `verification_method`,
+`human_review`, the optional `current_behavior` (what happens today, from the
+bound diagnosis; #2133) and the optional `supersedes` (original tests the criterion
+replaces, each `file` and `test`; #2748, [protected tests](protected-tests.md#tests-an-approved-plan-replaces)) values are copied without interpreting or coercing model-authored
+text. Where the body carries them it also includes `milestones` (each with at least
+`id` and `objective`) and `end_to_end_flow`: the completion order the approval binds,
+so a person approving a member plan can see a coordinator-owned joint-proof milestone
+in the milestone list instead of only in criteria summaries (#2434); sealed legacy
+bodies predate both fields and simply omit them, keeping every earlier field's shape.
+Automation must check these structured fields and bind the token to
 `needs.token`; do not infer approval authority by parsing headings or review labels
 embedded in `--show-goal` prose. This projection is not approval, execution permission
 or completion proof; the existing CLI approval checks remain authoritative.
 
 `approved_contract` is the plan in force: the contract that was approved, for as long
 as that approval holds. It has `revision`, `hash`, `token` (the `r<revision>:<hash>`
-that was approved), `task_id`, `approved_at` and `body`, the full approved contract
+that was approved), `task_id`, `approved_at`, `approval_source` (`skip_to_build` when the
+person chose on starting the run to approve the reviewed plan, otherwise `person`) and `body`, the full approved contract
 body (outcome, deliverables, acceptance criteria, constraints, permission boundaries,
 end-to-end flow, technical approach, milestones and the rest) copied as saved. It also has
 `goal_hash`, the SHA-256 of that body (what `autocode plan --check FILE` prints for a file
@@ -1116,9 +1992,8 @@ normally the user's, but a small bug fix approved under the workflow policy the 
 agreed to (the short path for small fixes, off for now; see
 [Bug fixes](workflow.md#bug-fixes)) shows it too, and the view does not say which.
 `displayed_plan` is what a person is asked to approve; `approved_contract` is what
-was approved. A coordinating layer such as
-`autocode program` reads a child run's approved criteria here (`program derive` and
-the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
+was approved. A coordinating layer reads a child run's approved criteria here, never
+from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
 
 `approvals` lists every plan and review approval, completion acceptance, goal edit and
@@ -1128,7 +2003,8 @@ person, `workflow_policy` for a small bug fix approved under the workflow policy
 `contract_token` (the plan token approved, or the draft an edit installed; null for a review,
 a completion acceptance or a resume), `criterion` (the accepted criterion, null otherwise),
 `pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`, or the
-one a pause intervention interrupted; null otherwise) and `provenance`: `git_user_name`,
+one a pause intervention interrupted; null otherwise), `source` (`skip_to_build` for a plan
+approved because the run was started with `--skip-to-build`; null otherwise) and `provenance`: `git_user_name`,
 `git_user_email`, `host`, `command` (`autocode`, the `resume` command word when typed, and
 the invocation's option names, never their values) and `claimed_as` (the `--as` name, or
 null). None of it is verified ([Who approved](execution.md#who-approved)). `provenance` is
@@ -1143,7 +2019,9 @@ until the first record.
 assignments, not evidence a stage ran or a prediction of conditional routing or
 escalation. Several slots can serve the same job. The actual history is in
 `usage.accounting.attempts`: each attempt now also includes `job`, derived from
-its stage and workflow, alongside its recorded model and `launch_route`.
+its stage and workflow, alongside its recorded model and `launch_route`, and
+`route_role`, the slot whose route the stage launched when that differs from its
+unit `role` (null otherwise; #2114).
 Clients must keep configured assignments separate from actual attempts; changing
 a saved route does not rewrite an earlier attempt's model or reasoning effort.
 
@@ -1227,14 +2105,17 @@ human decisions remain intact and hold the handoff before either route. Modified
 sealed evidence pauses before dispatch. Every assigned repair still requires
 fresh verification and independent completion acceptance.
 
-`workflow` is the kind of job AutoCode recognized from the request, decided by
-the first stage of every new run (`recognize_workflow`; in a spec-first run, once
-the person approves the requirements): one of `build`,
-`bugfix`, `review`, `design` or `discuss` (see `scenarios/README.md`,
-"Workflows"). It is `null` until that stage has run, and for runs that predate
-it. `workflow_source` is `"model"` when the recognizer decided it and `"user"`
-when `--workflow` named it; `workflow_reason` is the recognizer's one-sentence
-reason. Both are `null` whenever `workflow` is.
+`workflow` is the kind of job AutoCode recognized from the request, named by
+Requirements, the first stage of every new run and follow-up turn (#1846,
+#1860): one of `build`, `bugfix`, `review`, `design` or `discuss` (see
+`scenarios/README.md`, "Workflows"). A flow without a Requirements stage (the
+v2 planning flow, a run without a Requirements role) still begins with the Job
+recognizer (`recognize_workflow`). It is `null` until that stage has run, and
+for runs that predate it. `workflow_source` is `"model"` when a model decided
+it (Requirements or the recognizer) and `"user"` when `--workflow` named it;
+`workflow_reason` is `Requirements understood: <outcome>` (`Requirements named
+no job; planned as a build` when its report named none), or the recognizer's
+one-sentence reason. Both are `null` whenever `workflow` is.
 
 `planning_depth` shows how much planning the run chose and why
 ([adaptive planning](adaptive-planning.md)). It is always present:
@@ -1242,16 +2123,42 @@ reason. Both are `null` whenever `workflow` is.
 | Field | Meaning |
 | --- | --- |
 | `adaptive` | Whether the run plans adaptively (`--adaptive-planning`, the default where it applies); `false` on the fixed sequence |
-| `clarity` | The recognizer's judgment of the request text, `"clear"` or `"vague"`; `null` on the fixed sequence, under `--workflow`, and before recognition |
-| `requirements_skipped` | `true` when recognition judged a build request clear and sent it straight to the Planner, `false` when that judgment kept the Requirements stage (a vague request, a follow-up refreshing its requirements, or `--spec-first`); `null` where clarity decides nothing (another kind of job, a build from an approved design, the fixed sequence, a run saved before this field) |
+| `clarity` | `"clear"` or `"vague"`: the judgment of the request text by the stage that names the job, Requirements (or the recognizer on a flow without Requirements); `null` on the fixed sequence, under `--workflow`, and before the job is named. It no longer skips Requirements; a small clear brief keeps its reduced plan-review depth |
+| `requirements_skipped` | `true` only on a run saved before 2026-10-22 whose recognizer judged a build request clear and sent it straight to the Planner, `false` where such a run's judgment kept the Requirements stage; `null` on every newer run, which always runs Requirements first (#1860), and wherever clarity decided nothing |
 | `plan_size` | `"small"`, `"medium"` or `"large"`, measured from the draft's milestones and the files they touch at its first review; `null` before that review |
 | `size_signals` | The counts behind `plan_size`: `milestones`, `affected_paths`, `acceptance_criteria`, `dependency_edges`; `null` before the first review |
 | `review_limit` | The plan-review call allowance set at the first review (`0` is unlimited); a large plan gets one more call. A later `--planning-review-call-limit` changes the allowance in force, not this record |
 | `challenges` | How many first-style reviews the Plan Reviewer has made |
 | `approved_early` | `true` when the Plan Reviewer approved the Planner's draft at a first-style review, with no revision or final review |
+| `uncited_sentences` | How many source sentences the latest Planner draft's criteria leave uncited, counted by the runner; `0` when none or unknown |
 
 The Plan Reviewer still reviews every build plan and you still approve it; these
 fields only report the decisions.
+
+`stage_policy` records which planning path a bug-fix run took and why
+([compact planning](adaptive-planning.md#compact-planning-for-bug-fixes)). It is `null` until a
+bug-fix run's Investigator has reported (and for every other job); then:
+
+| Field | Meaning |
+| --- | --- |
+| `version` | `1` |
+| `path` | `"compact"` (the runner wrote the draft; the Plan Reviewer reviews it) or `"full"` (the Planner's draft runs) |
+| `reasons` | Every trusted signal that kept the full path, in words (`the run did not opt in (--compact-bugfix-planning)`, `the project declares no sensitive-paths, so every path counts as sensitive`, `the fix touches sensitive paths: ...`, `the compact draft was refused: ...`); `[]` on the compact path |
+| `basis` | The records the decision rests on: `diagnosis_output_hash`, `diagnosis_source_revision` and `requirements_output` |
+| `decisions` | One row for `astra_discovery` (the Planner's draft): `decision` is `"omitted"` or `"included"`, with its `reason`, and `covered_by` names what covers an omission (`runner:compact_draft`, `astra_challenge`, `person:approve_goal`, `runner:regression_proof`) |
+| `fallback` | `null`, or `{"from": "astra_challenge", "reason": ..., "review_call_refunded": true/false}` once a review could not approve the compact draft and the run returned to the full path (the compact review's call is given back to the full path's allowance) |
+
+The record reports a decision the core made from trusted inputs; it grants nothing, and a
+client renders it without acting on it.
+
+`proxied_requirements` lists the requirements the current plan proves only on a stand-in
+(#2068): the user-visible result is rendered by code outside this checkout, so the plan's
+criteria prove an internal value the result is believed to depend on. Each row has
+`requirement_id`, `evidence` (the criteria it cites) and `proxy_reason`. A plan may mark a
+requirement `proxied` only with the person's word: a saved answer cited in `proxy_reason`, or
+until then a blocking decision question about that requirement, which the run asks before the
+plan can be approved. It is `[]` when there are none or no plan yet, and it grants nothing; the
+approval screen lists the same rows under "Proven only on a stand-in".
 
 `needs` is `null` when the run is complete. Otherwise its `kind` says what the
 run is waiting for:
@@ -1263,10 +2170,10 @@ run is waiting for:
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
-| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota, a content-filter refusal or an authenticated output limit | Exact retry after restoring original source; with `route`, name another model first |
-| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
+| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota, a content-filter refusal, an authenticated output limit, authentication failure or a fully stopped exploration-budget timeout (a hard stage deadline is extended by AutoCode and then retried exactly, with no `route`, #2605) | Exact retry after restoring original source; with `route`, name another model first |
+| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; at `PAUSED_ACCEPTANCE_TESTS` (the Tester's pause) `action` is `--feedback 'WHAT TO CHANGE'`, which revises the plan and returns the run to plan approval, `chat.input` offers the same `feedback` message, and `guidance` says that `--resume-paused` reruns the Tester unchanged and helps only once the code changed; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model, or `--resume-paused --retry-failed-stage` (also as `retry_action`) at a recovery novelty hold whose request is not yet published, where a plain resume would hold again; when that hold cannot take the retry yet, `retry_unavailable` instead says why (an owned or uncertain attempt to reconcile, or a different pending decision), the same reason the CLI gives; an attempt that exited cleanly with a recorded finish (a verification hold or stale source check stands on its result) keeps `abandon_stage` and its `--abandon-stage ATTEMPT then --resume-paused` action as a `resume`, because archiving it would discard that result; at a `PAUSED_REPEATED_FAILURE` whose active attempt, uncertain artifacts or pending report repair its retry gate will not authorize over, `retry_unavailable` carries that CLI refusal verbatim and `action` is the plain `--resume-paused`, never the rejected `--retry-failed-stage` (#1897) | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
 | `dependency` | a bound producer run's delivery (see [Dependencies between existing runs](#dependencies-between-existing-runs)) | `reason`, `producer_run`, `producer_workspace` | `autocode wait --run-dir <producer_run> --workspace <producer_workspace>`: returns when the producer needs a person or ends. Nothing to answer on this run: the dependency worker (`python tools/autocode_dependencies.py ... --watch`) calls `--receive-dependency MANIFEST` (`TaskRun.receive_dependency`) when the producer's verified delivery is ready |
-| `continue` | nothing; the run can simply proceed | | Continue |
+| `continue` | no person input; the core may name a deterministic recovery in `action` (for example, setting aside an uncertain attempt that did not finish cleanly, or resuming bounded recovery when the saved progress ledger proves another slot is unnecessary) | `action` when present | Run only the named `next_command`, then read status again |
 
 A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the
@@ -1287,6 +2194,18 @@ answers it (`--answer route-ROLE=MODEL`), and the run then needs a resume. A
 stopped workflow job carries the same `route`, with the same fields, on its
 `retry_job` need ([Failed workflow jobs](#failed-workflow-jobs)).
 
+When a person named a role's reasoning effort and the role's model does not declare
+that level (GLM 5.3 declares `low`, `high` and `max`, not `medium`), the run pauses as
+`PAUSED_EFFORT_UNSUPPORTED` before any stage launches (#2057). Its `answer` need carries
+`effort`: `question_id` (`effort-ROLE`), `role`, `job`, `model`, `requested`, `declared`
+(the levels the model offers) and `nearest` (the declared level nearest the requested
+one; advice, never a default). Its one question lists `declared` as its `options`, has no
+`proposed_default` and is never delegable. `next_command` is `--answer effort-ROLE=EFFORT`
+with no token: a client fills `EFFORT` with one of `declared` a person chose, and refuses
+anything else. The answer saves that level as the person's own choice and launches
+nothing; the run then needs a resume. An effort the runner chose is never asked about:
+the launch moves it to the nearest declared level and records the move.
+
 Approving a plan or a review is a real user decision. Automated callers should
 do it only when a person has delegated that decision to them, as the scenario
 harness does for test runs.
@@ -1306,6 +2225,13 @@ TaskRun methods; adding a scope or a needs-table row requires an execution case.
 | `blocker` | `answer`: use `respond_operational`, not an ordinary answer | Corrective information does not edit the contract or authorize execution |
 | `operational_exhaustion` | `answer`: use `respond_operational`, not an ordinary answer | Existing limits hold; information is considered at the next explicit resume |
 | `intake` | `answer`: answer the Resolver intake question with its current token | Intent is saved; no project plan or execution approval is implied |
+
+AutoResolver never changes the approved contract itself. The resolver policy defines a `replan`
+action (`autocode_resolver.ACTIONS`), but every decision the runner asks of it admits only
+`continue`, `retry` and `escalate`, and a diagnosis only `retry` and `escalate`. A contract change
+always goes through fresh planning and the person's approval of the new plan token. This is
+deliberate: the Resolver adapter does not authorize contract replanning, implementation replay, new
+permissions or completion.
 
 ## Supervision timing in status
 
@@ -1330,6 +2256,173 @@ The CLI also returns `runner_check_workers` with `checked`, `alive` and
 controller makes the checkpoint `stale`; an inaccessible process is unknown,
 not assumed dead. Inspect retained test output before restarting a stale check.
 The check activity never substitutes for a passing proof or independent review.
+
+## Work in another repository
+
+`view.scope` reports work the request places in another repository (#2066). Requirements
+names each part, and the runner keeps it only when its quote is verbatim in the request or
+a saved answer, or when it cites a file in this workspace that shows it.
+
+A late Planner discovery uses the same scope gate. For an artifact-backed completed
+Planner report, the core retains the report at that gate and applies it once after
+the exact linked assignment succeeds. It does not ask the Planner to regenerate
+that same report. Source, input, contract, settings, prompt and runtime changes
+refuse reuse; ordinary draft validation, independent review and exact-plan approval
+still apply. Legacy records without a retained handoff use ordinary planning.
+The internal reuse binding is recomputed from current runner-owned inputs during
+saved-run replay; no model answer supplies or rebinds it.
+
+- `spans_repositories` and `external_parts` (`target`, `work`) list the kept parts.
+- `dropped` names the targets of the parts the runner refused.
+- `decision` is `this_repository` once the person chose it, else `null`.
+- `uncovered` lists the targets this run leaves out.
+- `linked` lists the other runs of this run's change set: the source run and each run
+  linked to it (`changeset`, `target`, `role` `source` or `member`, `workspace`,
+  `run_dir`, which is `null` while a linked run is starting). It is `[]` for a run in no
+  change set.
+- `briefs` holds a ready brief (`repository`, `brief`) for each repository the request
+  spans, this one first, for a person who stops here and runs them separately.
+
+A kept part stops the run before any plan, with one nondelegable question
+(`workspace-scope-<identity>`, kind `answer`). The question binds the current human
+turn and feedback to the exact external work; clients use its offered ID. The same
+gate applies to a reproduced Investigator diagnosis and a follow-up with an existing
+goal. Its only option is `This repository only`. Other
+text is refused, and `--feedback TEXT` changes the request instead. After that answer the
+plan must record each uncovered part in `scope_exclusions` as
+`Not covered: changes in TARGET: WORK`, and `displayed_plan.scope_exclusions` shows it on
+the approval screen. The Planner's packet names the exact entries
+(`scope_exclusions_required`). A saved answer may correct one authenticated boundary's
+exact wording: a user-backed `reworded` declaration whose replacement still names the same
+peer moves that entry to the corrected text in every later draft and packet, while the
+scope and assignment it was recorded under stay the same; a removal, a moved boundary or an
+unbacked declaration keeps the original entry (#2467).
+
+### Linked runs
+
+`autocode changeset link --run-dir RUN --target TARGET --workspace PROJECT [--json] [-- OPTIONS]`
+starts a run in another repository for one of the source run's `scope.external_parts`.
+It is a layer above this interface: it reads the source run's status view and starts the
+linked run with `TaskRun.start`, nothing else.
+
+- `TARGET` must be a target in the source run's `scope.external_parts`.
+- `PROJECT` must be an available project in the AutoCode registry (`autocode registry
+  list`), named by its path or registry id. A path from the task text or a model's report
+  is never used. An operator can register a fresh committed local checkout with
+  `autocode registry add PATH`, without starting a task. Linking runs directly in
+  that selected checkout; choose a dedicated Git worktree if needed.
+- The linked run's brief is the source run's `scope.briefs` entry for `TARGET`. Arguments
+  after `--` are the linked run's run options, such as its engine and models.
+- The link is recorded in `changesets.json` beside the registry, so both commands need
+  the same `AUTOCODE_HOME`. A target is linked once. A link whose run never started is
+  dropped, so it can be made again. Linking from an existing member extends its canonical
+  set, preserving the original source. The same target or workspace cannot be added twice.
+  Ambiguous overlapping records from older versions are refused rather than choosing a
+  different set for status and inventory.
+- `autocode changeset status --run-dir RUN [--json]` shows the change set of any of its
+  runs, each with the status, `needs` kind and `next_command` of its own status view.
+  `autocode changeset list [--json]` lists every change set.
+
+Linking does not answer the source run's scope question: its plan still records the linked
+target as not covered there. Adding a member withdraws any shared execution release, so
+the enlarged set needs a fresh approval of all current plans.
+
+#### Approving the set
+
+`changeset status` shows each run's plan (`runs[].plan`, the complete `displayed_plan` its
+token approves) and `approval`:
+
+- `set_token` is a digest of every run's identity and own plan token. It is `null` until
+  every run offers a complete plan for approval, including a previously approved plan
+  still held after an interrupted set approval. `waiting_on` names runs without an offer.
+- `next_command` is the argument array that approves the set, or `null`. It is also `null`
+  when every run has already completed under its approved plan: an unchanged completed run
+  joins a revised set with that plan, but a set with no new plan has nothing to approve.
+
+`autocode changeset approve --run-dir RUN --set-token TOKEN` reads every run's view again.
+It refuses a token that no longer matches, then records a durable hold for the exact
+membership before approving any member. Each approval uses the public
+`TaskRun.approve_plan(plan_token, changeset_token=set_token)` operation, transported as
+`--approve-goal - --changeset-token -` with `AUTOCODE_APPROVE_GOAL_TOKEN` and
+`AUTOCODE_CHANGESET_TOKEN`. Each core publishes only its own exact approval at its durable
+checkpoint; the coordinator never reads another run's private state.
+
+The shared release is committed only after every member checkpoint has accepted the
+same set. A failed/interrupted approval leaves all members held; inspect the current
+plans and repeat the offered set approval to finish it. A later plan, task turn or
+membership change withdraws the release before that changed checkpoint can commit.
+The core checks the receipt before execution, including resumed and parallel Builder
+work; an already dispatched attempt retains its normal safe-boundary lifecycle.
+
+An explicit individual `--approve-goal` remains available and releases only that exact
+run plan and turn. Reapproval after a held set uses the ordinary AutoResolver plan
+request boundary and cannot clear a different pause, pending question or uncertain
+attempt. An ordinary resume cannot release a held set. `changeset status.record_revision`
+is the monotonic coordination-record revision used to reject stale record mutations.
+
+#### Checking the set together and delivering it
+
+Each run still passes its own completion gate. `changeset status` adds `verification`:
+
+- `waiting_on` lists the runs not yet `TASK_COMPLETE`. Nothing is checked together before then.
+- `check` is the integration command the person named, `result` its last run and `waiver` the
+  person's reason to accept the set without it. A result or waiver carries `check_identity` and
+  `current`. It is current only while the named command and execution target, member run/workspace
+  identities, every run's status and every workspace's code (commit, diff and untracked files,
+  AutoCode's own excluded) match the recorded evidence. Historical results and waivers without
+  the check identity remain readable but are not current; run the check again or record a fresh
+  explicit waiver rather than inferring approval for an unknown command.
+- `done` is true once every run is complete and either no command was named, a current result
+  passed, or a current waiver exists.
+- `merge_order` and `next_command` (the `verify` argument array, while a check is due).
+
+The summary's additive `record_revision` identifies the inspected change-set record. Changing
+the check, verifying and waiving use a conditional write against that revision. If a command,
+membership, waiver or competing check result changes the record while verification runs, its old
+result cannot overwrite the new record or certify a replacement command. The action refuses and
+asks for fresh inspection.
+
+The actions:
+
+- `changeset check-command --run-dir RUN --in TARGET -- COMMAND...` names the command, run
+  with no shell in that run's workspace. `AUTOCODE_CHANGESET_WORKSPACES` holds a JSON object
+  from each run's repository name to its workspace, so the consumer's tests can run against
+  the producer's checkout. This is where the shared interface is checked. Naming a command
+  clears both the previous result and its waiver, including when changing only the target.
+- `changeset verify --run-dir RUN` runs it. A check that changes a workspace does not pass.
+- `changeset waive --run-dir RUN --reason TEXT` records a waiver for the named check, current
+  member runs and code. It grants no waiver for a replacement check.
+- `changeset reopen --run-dir RUN --target TARGET [--message TEXT]` sends that run a
+  follow-up, by default the failed check's command and output.
+- `changeset order --run-dir RUN TARGET...` sets the merge order. By default the source
+  run merges first.
+- `changeset pr-body --run-dir RUN --target TARGET` prints the Markdown section that run's
+  pull request carries: the change set id, every run, the merge order, the check's outcome or
+  the waiver, and the parts no run of the set covers.
+
+#### Change sets in clients
+
+Each `runs --json` row carries `changeset`, the id of the change set its run belongs to, or
+`null`. A client (owner decision 2026-10-25) may read `autocode changeset status --run-dir RUN
+--json` for a run whose status view lists `scope.linked`, and take only the two argument arrays
+it names, after showing what they act on:
+
+- `approval.next_command`, after showing every run's `plan`. It carries the `set_token` of those
+  plans, so a revision in any run makes the core refuse it.
+- `verification.next_command`, the joint check.
+
+Approval displays include each plan's `scope_exclusions` under **Not covered**, including work
+left to another repository. The terminal, GitHub bridge, dashboard and VS Code show these terms
+before approval; a set approval shows them for every member. Recorded replay approval matching
+also includes exclusions and Git delivery, so changing only those terms still requires a new match.
+
+The shared rule is `autocode_client_actions.changeset_action`, mirrored by
+`vscode-extension/src/core/next-command.ts`. The terminal chat's side panel lists the linked
+runs, `/changeset` shows the set and offers these actions, and `/runs` groups the chats of one
+change set. VS Code's Run details shows the set with one button for the action named now. The
+channel bridge posts the set's plans at a plan gate and takes `approve set` only with the set
+token of the plans it posted (`docs/channels.md`). The other `changeset` commands stay the
+person's own.
 
 ## Dependencies between existing runs
 
@@ -1394,12 +2487,28 @@ saved source, route and limits. The CLI equivalent is
 keeps the pause. Stale source/configuration, a token for a different attempt,
 or unresolved restoration is rejected before any model request.
 
-A job stopped by its provider's content filter or on quota also carries
+A person can change only the total time/accounting caps of that exact stopped job with
+`autocode --run-dir RUN --job-retry-token - --max-seconds SECONDS --max-cost-usd USD --no-chat`
+(`AUTOCODE_JOB_RETRY_TOKEN` supplies the displayed token; either total flag may be omitted).
+This standalone settings action checks the original source and captured configuration before
+saving anything. It preserves usage and failed-attempt evidence, keeps the job paused and issues
+a fresh retry token; it grants no retry or plan approval. Read status again and explicitly retry
+with that fresh token. The old token, mixed actions, model/effort changes and other limits are
+refused. Clients may use this operator action only when offered by their public status contract;
+its availability as a CLI command does not authorize a client to invent a cap increase (#2156).
+
+A job stopped by its provider's content filter, on quota, or by its stage time limit also carries
 `needs.route` (the shape of the `answer` need's `route`: `question_id`, `role`,
 `job`, `current_model`, `engine`, `cause`, `stopped_model`, and `candidates` for a
 refusal). The same model is likely to refuse again, so before retrying, a person
 can name another model: `run.assign_model(role, model)` answers
-`--answer route-ROLE=MODEL --job-retry-token TOKEN` with the view's token. A model the
+`--answer route-ROLE=MODEL --job-retry-token TOKEN` with the view's token. The spec-first acceptance-test
+writer uses its own
+`route-acceptance_tester` question; an explicit answer changes only that saved
+writer route, leaving the later Tester (`sol`) and Completion Reviewer unchanged.
+A retained acceptance-writer timeout without a saved question is projected only
+from its matching archived timed-out attempt, source identity and launch configuration.
+This read changes no evidence and grants no retry authority. A model the
 launch would refuse, or the refused model itself, raises and changes nothing. An
 accepted model is saved as a `route_assignment` and the need comes back with a new
 `job_retry_token`; the old one is rejected. Its `route` is asked again against the new
@@ -1412,9 +2521,9 @@ make the exact retry stale), unless it puts back the model the retry is bound to
 The answer carries no other setting: given with a limit or another role's model it
 is refused and nothing is saved, and the CLI refuses it next to
 `--resume-paused --retry-failed-stage` (the retry needs the new token). After a
-refusal or output-limit stop, until a different model is named, the need's `action` is that answer
+refusal, output-limit or timeout stop, until a different model is named, the need's `action` is that answer
 (`--answer route-ROLE=MODEL --job-retry-token TOKEN`) and the recovery card offers
-no `retry_job` action, since the exact retry would replay the stopped model; the
+no `retry_job` action for a refusal or output-limit stop, since the exact retry would replay the stopped model; the
 CLI still accepts the shown token. A quota stop keeps the retry in both, for once
 the quota resets. Once a model
 is named, `progress.needs_you` and the recovery card's `what_happened` ask only for
@@ -1471,6 +2580,20 @@ The CLI equivalent is `autocode checkpoint --workspace WORKTREE --run-dir RUN
 --compare CHECKPOINT`, followed by the mutually exclusive `--restore CHECKPOINT
 --expected-token TOKEN --request-id ID`. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.
+
+Each available row also names `step`, `autocode checkpoint --step CHECKPOINT`, which shows what that
+step itself changed. It is display only, like `--working`: it prints `{checkpoint_id, since,
+changed_files, patch, truncated}`. It reads both sides from saved code: the step before it (`since` is
+that step's id) or, for the first step, the commit it was saved on (`since` is `"start"`, limited to the
+run's own scope), and never the files on disk. It carries no token and restores nothing. A finished
+run's newest step still matches the files, so `compare` shows nothing there, but `step` shows its change.
+
+While a Builder step runs, `code_checkpoints.working` (otherwise null) names one more action in the
+same shape, `autocode checkpoint --working`. It is display only: it prints `{since, changed_files,
+patch, truncated, compared_at}`, the files as they are now against the newest saved step (`since` is
+its id) or, before any step is saved, against the checked-out commit (`since` is `"start"`), limited to
+the run's own scope. It carries no token and restores nothing. The Builder may still be writing, so a
+file changing during the read makes the action refuse; ask again.
 
 Each row of `code_checkpoints` that still has verified source objects also
 names the actions a client may take, in the same shape as a connection
@@ -1545,16 +2668,31 @@ receipts separately from fresh verification.
 Connection setup is a core interface alongside task runs. A client may read
 `autocode connections list --json` before starting a task. The version-1 object
 contains `connections`, each with `id`, `label`, `connection_status`, `detail`, and `actions`.
+The connection new runs use without `--provider` (`AUTOCODE_PROVIDER`, then `default_provider`
+in `~/.config/autocode/config.toml`, else `opencode`) also has `default: true`; it is display
+only, so a client can say what a new chat runs on.
 An action has `id`, `label`, and `next_command`: an argument array following
 `autocode`, not shell text. Clients execute only offered actions. Listing reads
 user-level provider configuration and executable availability; it never launches
-models, reads credential stores, or runs backend commands.
+models, reads credential stores, or runs backend commands. The plain view carries
+`routes: null` and `routes_next_command`
+(`["connections", "list", "--routes", "--json"]`).
+
+That named action adds the route each role would use, chosen from the connected
+tool's own model listing (#2057): `tool`, `routes` (each with `role`, `job`, `model`,
+`tool`, `account`, `billing`, `reasoning_effort`, `origin`), the same text as
+`routes_lines`, and `routes_stop` when no connected account can field a qualified
+route for a role. It reads a listing and never launches a model. A client shows
+`routes_lines` beside the connection; it does not choose a route itself.
 
 `connections check --provider NAME --json` checks the backend without inference.
 Its result is one connection object. `credentials_present` means the backend
 reported credentials, not that every model, billing route or live task passed.
 Other statuses are `not_checked`, `unavailable`, `sign_in_required`, and
 `check_failed`. Status-command output and credential values are never returned.
+For Claude Code, a login that a run would refuse with `PAUSED_BILLING_ROUTE` (an API key,
+an `apiKeyHelper` key, or a Bedrock, Vertex or gateway route) is `sign_in_required`, and its
+`detail` names that route.
 
 `connections login --provider NAME` delegates interactive login to the backend
 in a terminal, inheriting its input and output. The core resolves the offered
@@ -1574,7 +2712,33 @@ with no credential arguments or webview input. Its additional setup states are
 `setup_required` and `configured`; clients must not describe
 `configured` as authenticated live access. The core setup action neither chooses
 a client's default backend nor launches a model. Discovery reads its nonsecret
-metadata; an explicit check validates its private local credential setup.
+metadata; an explicit check validates its private local credential setup. When
+several API providers are configured (issue #2055), the same row instead offers
+an `add` action with `next_command=["connections", "add"]`, executed the same
+interactive way; it adds or rotates one provider's key without touching the
+others.
+
+## Stage choices for clients
+
+A client may let a person choose the model and reasoning level of each stage, as one dropdown per
+stage ([Choosing each stage's model](models.md#choosing-each-stages-model)).
+`autocode stages list --json [--backend NAME]` returns the version-1 view: `backend`, `label`, `file`
+(where the choices are kept), `options_stop` (why no model could be listed, or null) and `stages`, in
+the order a task runs them. Each stage has `id`, `label`, `does` (what the stage does), `advice` (the
+kind of model and level that suits it), `flag` and `effort_flag`, `default` (`model`, `effort`, and
+`offered`: whether the backend offers that model), `chosen` (the saved `model` and `effort`, or null),
+`options`, `set` and `reset`. Each option has `model`, `levels` and `levels_listed` (whether the
+levels come from the tool's own listing), `effort_choices` (the levels a person may pick, or
+`["default"]` for a model that lists none), `family`, `context`, `account`, `billing` and
+`unavailable`: the reason the stage may not run that model beside the others, or null.
+
+A client shows `label`, `does` and `advice`, lists the options, and greys out an option whose
+`unavailable` is set, showing its reason. To save a choice it takes `set.next_command`, an argument
+array following `autocode`, replacing `MODEL` with one of `options[].model` and `EFFORT` with one of
+that option's `effort_choices`, and refuses anything else. `reset.next_command` (null until a choice
+is saved) forgets the stage's choice. Both print the updated view, and a refused choice exits 2 with
+the reason on stderr and saves nothing. The view launches no model and reads no credential. A new
+task reads the choices when it starts; a running task keeps its own.
 
 ## Run modes for clients
 
@@ -1589,13 +2753,21 @@ run keeps the flow it started with. Listing launches nothing and reads no run.
 Optional `spend_confirmation` is `"planning"` for Full mode: start the Requirements
 conversation without a spend dialog, then honor the core's review confirmation
 before preparing the plan. Requirements conversation still uses the selected
-model allowance. Quick mode uses `"start"` because it can plan immediately.
-Missing or unknown metadata retains confirmation at launch for older cores.
+model allowance. A mode with `"start"` (none today) can plan immediately, so a
+client confirms at launch. Missing or unknown metadata retains confirmation at
+launch for older cores.
 
 | Mode | Start flags | What it changes |
 | --- | --- | --- |
 | `full` (default) | `--joint-planning --spec-first` | Requirements talks with the person and confirms what it understood before the plan is prepared ([Spec-first runs](spec-first.md)). |
-| `quick` | `--joint-planning --no-spec-first --adaptive-planning` | A request the Job recognizer judges clear goes straight to the plan without Requirements; a vague one still gets it ([Adaptive planning](adaptive-planning.md)). |
+
+Every chat starts with the Requirements conversation (owner decision,
+2026-10-22), so `full` is the only mode listed. The `quick` mode
+(`--joint-planning --no-spec-first --adaptive-planning`), which let a clear
+request skip Requirements, was removed; the `--adaptive-planning` flag itself
+remains. A client still reads the list rather than assuming one mode, and a
+choice it saved that the list no longer names, such as `quick`, starts the
+default instead of failing.
 
 Every mode keeps the plan approval, the Tester and the Completion Reviewer: a
 mode changes how much planning happens before approval, never what counts as
@@ -1613,3 +2785,97 @@ switches too. `--auto-select` requires selection to
 succeed instead of falling back when discovery or an independent checker is unavailable.
 See [automatic model selection](models.md#choosing-models-automatically) for discovery,
 reasoning levels, bounded preflight, recovery and the read-only selection preview.
+
+### Repeated permission handoffs
+
+`PAUSED_PERMISSION_LOOP` stops a fourth permission handoff after three authenticated
+material decisions at the same task, contract, source and validation result. Changed
+wording, report paths, elapsed time, budget settings and previous answers do not renew
+that allowance. This is a conservative bound on unchanged work, not a semantic claim
+that every question has identical wording or intent. Actual source, contract or
+validation progress admits new decisions; corrective `--feedback` can establish a new
+scope. No prior permission or completion gate is silently bypassed.
+
+The public `needs` includes `permission_decisions`, `permission_decision_limit`, the
+saved blocker reason, and a named feedback action. Plain resume remains held without
+another provider call. All earlier requests, answers and usage remain retained.
+
+### Authentication during an exact job retry
+
+A retained workflow job that failed provider authentication offers the same token-bound
+model answer as other model-related job failures: inspect `view.needs.route`, call
+`TaskRun.assign_model(role, model, job_retry_token=token)`, and then use the newly
+issued `view.needs.job_retry_token` with `TaskRun.retry_job`. The model answer launches
+nothing and preserves effort, other roles, limits and recorded usage. Alternatively,
+repair the existing provider login and retry that exact job unchanged.
+
+If billing or authentication preflight blocks an authorized job retry before the job
+launches, the public view retains that exact job's retry and model-choice actions.
+It does not offer an ordinary Resume that would discard the job's retry boundary.
+An old token, consumed authorization, different next stage or active attempt cannot
+revive a previous failed job. No automatic provider substitution or credential copy
+is performed.
+
+### Model choice after a stopped job timeout
+
+A fully stopped workflow job that exceeded its stage limit can name another model through the
+same exact job-token answer. `needs.route.cause` is `timeout`; choosing a model changes only that
+job's model, rotates its retry token and launches nothing. It preserves other roles (including a
+bug Investigator's Plan Reviewer), effort, limits, usage and the archived attempt. A same-model
+exact retry is still accepted, but can time out again; no model or time-limit change is automatic.
+
+When the stopped model declares a lighter reasoning variant than the one the job launched at
+(the tool's listing, or a level a preflight probe passed), the question offers that variant first
+(#1902): `needs.route.lower_effort` is `{model, from, to, answer}`, `needs.route.candidates` is
+`[answer]`, and `next_command` is that answer, `--answer route-ROLE=MODEL@LEVEL --job-retry-token -`.
+This covers the deadline and the Investigator's exploration-budget stop alike. The answer form
+`MODEL@LEVEL` names the effort with the model; a level the model does not declare is refused and
+changes nothing, and with no listing the launch's own check decides. The named level is saved as
+the person's, bound into the rotated retry token, and the retry launches at it. A model without a
+lower declared variant gets the question as before.
+
+A saved bug-Investigator timeout without a route question can expose one only when the archived
+rejected, timed-out attempt matches its source capture, launch route, configuration and archive.
+An active/uncertain attempt or a mismatch cannot gain that model action. The answer then rechecks
+source and configuration before it is saved, and the explicit retry checks the newly bound token.
+
+### Explicit review intake and result freshness (#2113, #2167)
+
+A new chat explicitly started with `--workflow review` goes directly to its
+Reviewer; it does not gather build requirements or request implementation-plan
+approval. Unpinned chat intake and build approvals are unchanged. Only the
+review's Validator route is due for model preflight; a saved unused Builder route
+is not probed. Probe receipts still bind to the exact tool, model and effort.
+
+For completed reviews, `view.evidence.workflow_result` preserves the recorded
+outcome, summary, report path and digest. New reviews also record `source_revision`
+after the core writes its report. Status exposes a separate `view.review_result`
+inspection with `freshness` (`current`,
+`stale_or_unverified`, or `unknown`) and `reasons` after comparing that binding
+and report digest with the current workspace. Old reviews without a source
+binding remain unknown; status does not upgrade them or rerun a model. A review
+outcome is not build-delivery acceptance. The authenticated
+`evidence.workflow_result` stays unchanged by read-time inspection. The terminal renders these public
+review facts in its header, Review result panel and `/details`.
+
+### Original-test command recovery
+
+At an idle validation pause, the core can name `--resume-paused --revise-protected-tests @approved-suite` when an approved empty package-marker deletion stranded the original root unittest collector for nested repositories. The `needs.reason` displays both exact commands and the retained original-test guarantee; clients take only that named action after confirmation. This revises only the suite command, capturing the same sealed original files from their archive, never the current modified tests. The old binding and explicit user event remain. The proposal starts from a unique approved, unfiltered pytest collector covering every original path. If restoring the sealed empty root marker would collide with an empty nested test package, the explicit offer moves the joint `tests` root first and adds `--import-mode=importlib`; it displays this exact change for confirmation and retains both markers. Executable nested package setup cannot trigger this correction. Active, uncertain, unapproved, filtered or ambiguous cases offer no correction. Fresh original-test replay and independent validation remain required.
+
+#### Conversational coordinated plan approval
+
+At a complete coordinated plan gate, `coordinate status` adds an approval `basis`
+that identifies the same task, source scope and complete plans independently of
+coordinator bookkeeping revisions. `conversation.gate` carries the current
+approval token and, only after interpretation of the latest unchanged packet, a
+`decision` with `message_id` and `intent: confirm`. Its named message action includes
+`--plan-token`; clients send every typed reply through that action. Exact retries
+retain the same receipt and original plan snapshot.
+
+The source run uses its saved Plan Reviewer route for this bounded conversation.
+Questions and declines preserve the packet; changes retain the original text and
+return affected work through normal review. A joint-only correction is carried to
+the new joint plan. Interpretation consumes ordinary time and monetary accounting,
+but is not another full draft-review round. Clients reread the current gate and
+execute only its separately named exact approval action. Any changed task scope,
+member plan, joint plan, publication terms or newer message withdraws confirmation.

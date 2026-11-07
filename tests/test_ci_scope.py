@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -56,12 +57,16 @@ class ScopeTests(unittest.TestCase):
     def test_legacy_guard_changes_keep_the_dashboard_approval_consumer(self):
         self.assertTrue({"suite", "dashboard"} <= self.enabled("tools/autocode_legacy_process.py"))
 
+    def test_config_tool_fixture_changes_keep_the_dashboard_handoff_consumer(self):
+        self.assertTrue({"suite", "dashboard"} <= self.enabled("tools/fake_command_tool.py"))
+
     def test_process_provider_and_boundary_changes_keep_native_refusal_consumers(self):
         for path in (
             "tools/autocode_process.py",
             "tools/autocode_session_boundary.py",
             "tools/autocode_supervision_keeper.py",
             "tools/autocode_provider_launch.py",
+            "tools/autocode_python_entrypoints.py",
             "tools/providers/command.py",
         ):
             with self.subTest(path=path):
@@ -110,6 +115,17 @@ class ScopeTests(unittest.TestCase):
                 enabled = self.enabled(path)
                 self.assertTrue({"suite", "linux"} <= enabled)
                 self.assertFalse({"macos", "windows"} & enabled)
+
+    def test_evidence_and_planning_policy_select_their_black_box_scenarios(self):
+        for path in (
+            "tools/autocode_report_identity.py",
+            "tools/autocode_planning_advice.py",
+            "tools/autocode_stuck_job.py",
+            "tools/autocode_regression.py",
+            "tools/autocode_verify.py",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("scenarios", self.enabled(path))
 
     def test_a_tools_fixture_a_scenario_copies_turns_the_scenario_harness_on(self):
         # scenarios/test_contained_opencode.py copies and runs the fake OpenCode client; no import names it (#709).
@@ -330,6 +346,80 @@ class WorkflowGateTests(unittest.TestCase):
                 self.assertIn("--full --github-output", workflow)
                 self.assertIn("github.event.pull_request.base.sha", workflow)
                 self.assertNotIn("\n    paths:", workflow)
+
+
+@unittest.skipUnless(os.name == "posix", "these workflow shell steps run on Ubuntu")
+class RedBaseRecoveryTests(unittest.TestCase):
+    def step(self, name):
+        workflow = (ROOT / ".github/workflows/tests.yml").read_text()
+        step = workflow.split(f"      - name: {name}\n", 1)[1]
+        step = re.split(r"\n(?:      - (?:name:|uses:)|  [a-z][\w-]*:)", step, maxsplit=1)[0]
+        return textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n        env:", 1)[0])
+
+    def test_red_base_requests_full_head_proof_and_green_base_does_not(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gh = root / "gh"
+            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$BASE_CONCLUSION"\n')
+            gh.chmod(0o755)
+            for conclusion, full in (("failure", "true"), ("success", "false"), ("unknown", "false")):
+                output = root / "output"
+                output.write_text("")
+                env = dict(
+                    os.environ,
+                    PATH=str(root) + os.pathsep + os.environ["PATH"],
+                    BASE_CONCLUSION=conclusion,
+                    BASE="event-base",
+                    GITHUB_REPOSITORY="fixture/repo",
+                    GITHUB_OUTPUT=str(output),
+                )
+                result = subprocess.run(
+                    ["bash", "-e", "-c", self.step("Inspect base suite")], env=env, capture_output=True, text=True
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertIn("full=" + full, output.read_text())
+
+    def test_full_head_proof_runs_all_checks_without_changed_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            python = root / ".venv/bin/python"
+            python.parent.mkdir(parents=True)
+            python.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$COMMAND_LOG"\n')
+            python.chmod(0o755)
+            alias = root / "python"
+            alias.symlink_to(python)
+            for full in ("true", "false"):
+                for name in ("Select affected checks", "Run the suite gate", "Run the scenario harness"):
+                    with self.subTest(full=full, step=name):
+                        log = root / "commands"
+                        log.write_text("")
+                        env = dict(
+                            os.environ,
+                            PATH=str(root) + os.pathsep + os.environ["PATH"],
+                            FULL_SUITE=full,
+                            EVENT="pull_request",
+                            BASE="event-base",
+                            HEAD="event-head",
+                            GITHUB_OUTPUT=str(root / "outputs"),
+                            COMMAND_LOG=str(log),
+                        )
+                        result = subprocess.run(
+                            ["bash", "-e", "-c", self.step(name)], cwd=root, env=env, capture_output=True, text=True
+                        )
+                        self.assertEqual(0, result.returncode, result.stderr)
+                        args = log.read_text().splitlines()
+                        self.assertEqual(
+                            full == "false",
+                            "--base" in args if name == "Select affected checks" else "--changed" in args,
+                        )
+
+    def test_workflow_wires_base_recovery_and_removes_historical_veto(self):
+        workflow = (ROOT / ".github/workflows/tests.yml").read_text()
+        self.assertIn("full_suite: ${{ steps.base-health.outputs.full }}", workflow)
+        self.assertEqual(2, workflow.count("FULL_SUITE: ${{ needs.scope.outputs.full_suite }}"))
+        self.assertIn("FULL_SUITE: ${{ steps.base-health.outputs.full }}", workflow)
+        self.assertNotIn("Refuse a base whose suite is red", workflow)
+        self.assertNotIn("BASE: 016029eb", workflow)
 
 
 if __name__ == "__main__":

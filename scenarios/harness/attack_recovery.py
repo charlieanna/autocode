@@ -99,6 +99,12 @@ def install(fake, configuration: dict, trace) -> None:
             "evidence_refs": refs,
             "example": f"The saved planner report cites {MISSING_REF}; checking that nonexistent path rejects it.",
             "probe": shlex.join([sys.executable, "-c", "; ".join(checks)]),
+            # The probe must fail once the rejected report no longer cites the missing path (#1769).
+            "counterexample": {
+                "file": "run/" + rejected.name,
+                "find": (text := rejected.read_text()),
+                "replace": text.replace(MISSING_REF, "README.md"),
+            },
             "untestable": "",
         }
         saved_report.write_text(json.dumps(report))

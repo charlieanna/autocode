@@ -2,32 +2,74 @@
 
 [← Back to README](../README.md)
 
-## Ten-minute quickstart
+## Quickstart
 
 You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 [pipx](https://pipx.pypa.io/), and npm (Node.js) to install the engine.
 
-Supervised task-stage execution requires the
-[supported Linux provider boundary](providers.md#provider-process-ownership).
-macOS can be used for installation, editing, static checks and tests that do
-not launch those providers, but supervised tasks refuse before provider spawn
-there, with either scripted or real providers. See [test host guidance](testing.md#host-requirements-for-tests)
-for the Linux development workflow.
+Linux provides the [kernel provider boundary](providers.md#provider-process-ownership).
+macOS can run tasks with portable supervision, which cannot prove that every
+detached provider descendant exited. Use supported Linux for the stronger
+process-ownership guarantee and for the provider-backed regression checks in
+this guide. WSL must meet the same Linux kernel requirements.
+
+If prerequisites are missing, on Ubuntu install `python3-venv`, `pipx` and `git`
+with your package manager; on macOS install Python 3.11+, Git and pipx. Node.js/npm
+is needed to install Claude Code, Codex, OpenCode or Kilo with npm. API keys go in
+OpenCode or Kilo; the built-in
+[API-key connection](providers.md#autocode-direct-connections-issue-1493) is retired.
 
 **1. Install AutoCode.**
 
 ```sh
-pipx install git+https://github.com/charlieanna/autocode
+pipx install autocode-supervisor
+pipx ensurepath
+# Open a new terminal so PATH includes pipx's executables.
+autocode --version
+autocode demo
 ```
 
-AutoCode is not on PyPI yet. After the first release this step becomes
-`pipx install autocode-supervisor`. If pipx's Python is older than 3.11, add
-`--python python3.11`.
+Or use the published [Homebrew tap](https://github.com/charlieanna/homebrew-tap):
+
+```sh
+brew install charlieanna/tap/autocode
+```
+
+The published version verified on 2026-10-27 is **0.8.2** on both
+[PyPI](https://pypi.org/project/autocode-supervisor/0.8.2/) and Homebrew.
+These commands install the tagged release, not current master; this guide's
+`latest` documentation can describe newer features and fixes. Use the
+[advanced checkout/master installation](#advanced-install-from-a-checkout)
+when you need those changes. The [release verification record](bugs/2026-10-27-release-installation.md)
+distinguishes distribution smoke checks from task/provider qualification.
+If pipx's Python is older than 3.11, add `--python python3.11`. The demo is
+offline: no sign-in or model spend. Once installed, you do not need to activate
+a virtual environment in every shell.
+
+**Connect your accounts once.** Run `autocode setup` right after installing. It
+checks Claude Code, Codex, OpenCode and Kilo. When neither OpenCode nor Kilo is
+installed it offers to install OpenCode with npm (`--install kilocode` installs Kilo
+instead), then offers the sign-in of each installed one that is not signed in, and
+says which backend your tasks will use. If a saved backend is unavailable, setup keeps that
+choice and reports the install or sign-in command needed before a task can start. API keys (Z.ai, MiMo, OpenAI, Anthropic) go in OpenCode or
+Kilo. It then asks which model and reasoning level each stage runs, with advice for each, and
+every task uses that choice; change it any time with `autocode stages choose`
+([Choosing each stage's model](models.md#choosing-each-stages-model)). After that a task needs no flags.
+
+**Already have an engine signed in?** Reuse it. When OpenCode is not installed
+and nothing names an engine (no flag, no `default_provider`, no project
+`engine`), or OpenCode is installed with no account at all,
+a new run takes the first backend this machine has connected: Claude
+Code signed in to a subscription, then Codex, then Kilo. It prints the choice (`Engine for this run:
+Claude Code. …`), and `autocode doctor` checks that same backend. So with only
+Claude Code or only Codex signed in, skip step 2 and go to the project setup in
+step 3 with no flags. To choose explicitly, add `--engine codex` or `--engine
+claude` to `doctor` and to the task; a flag selects a route for that command
+only and never changes your saved defaults or existing runs.
 
 **2. Install the engine and sign in.** The default engine is OpenCode. The terminal
 adapter accepts 1.x and 2.x; this quickstart pins **1.18.33**, the version with
-historical macOS native-tool qualification. That qualification does not enable
-current macOS task-stage launches. Its default routes use two accounts: the
+historical macOS native-tool qualification. Its default routes use two accounts: the
 Requirements Gatherer, Planner and Builder run GLM 5.3 on a **Z.ai Coding Plan**,
 and the Plan Reviewer, Tester and Completion Reviewer run GPT-6 Sol through
 **ChatGPT** ([Models](models.md#default-models)).
@@ -86,17 +128,20 @@ run would be refused without one ([native tool containment](execution.md#native-
 autocode "Write hello.py that prints a greeting, with a unittest test for it"
 ```
 
-The Linux provider-ownership requirement above applies to every task-stage
+On Linux the provider-ownership requirement applies to every task-stage
 engine. OpenCode's separate tool policy also needs an explicit choice: see
 [native tool containment](execution.md#native-tool-containment) for the explicit
 choice to use OpenCode's own permission checks on Linux. That choice concerns
-tool access; it does not bypass mandatory provider process ownership or allow
-macOS task-stage launches.
+tool access; it does not bypass Linux provider process ownership. The macOS
+portable supervision limitation remains as described above.
 
-In a terminal this is a chat. AutoCode may ask a question or two (type the answer),
-then shows the plan: what will be built and how each requirement will be checked.
+In a terminal this is a chat. AutoCode may ask a question or two (type the answer, or
+an option's number). Once it has understood the request it asks before spending on
+planning: `Prepare a reviewed plan?` with what that spends, then `Prepare plan? [y/N]:`;
+type `y`. It then shows the plan: what will be built and how each requirement will be
+checked.
 
-**5. Approve.** At `Approve this brief? [y/N], or type planning feedback:` type `y`.
+**5. Approve.** At `Approve this plan? [y/N], or type what to change:` type `y`.
 Nothing is built before this; anything else you type goes back to the planners as
 feedback. After approval the Builder, Tester and Completion Reviewer run on their own
 until the task completes or needs you.
@@ -114,12 +159,23 @@ If you closed the chat, `autocode status` shows where the run is and `autocode r
 continues it. [Workflow](workflow.md) explains each stage; [CLI](cli.md) lists every
 command.
 
+## If setup stops
+
+| What you see | What to do |
+| --- | --- |
+| `autocode: command not found` | Run `pipx ensurepath`, open a new terminal, then `autocode --version`. For a venv install, activate that venv or use its `bin/autocode`. |
+| Missing engine or login in `doctor` | Select the engine you actually connected. Use the same `--engine codex` or `--engine claude` for doctor and the task; the unqualified command uses the configured/default route. |
+| Missing Git project or HEAD | Run in the project root and make its first commit. Starting in a folder of sibling repositories does not select them as a set. |
+| A missing model route | Follow the named route/login fix. An installed CLI alone does not establish access to every selected role's model. |
+| Provider session boundary unavailable on Linux | `doctor`'s `session` row names the cause. The CLI automatically drops `CAP_SYS_ADMIN` and `CAP_SYS_PTRACE` from its Linux bounding set and re-executes once before touching run state, so root containers normally need no prefix. A successful drop is reported on stderr and in `doctor`; no other capability is dropped. Set `AUTOCODE_NO_CAPABILITY_DROP=1` to manage this yourself. If the kernel refuses the drop or re-exec, existing stage admission still applies: use an ordinary user or, where permitted, `setpriv --bounding-set=-sys_admin,-sys_ptrace autocode ...`. Other boundary requirements are unchanged; see [provider ownership](providers.md#provider-process-ownership). `doctor` is not a complete kernel-admission test. |
+| Another repository is not registered | Set the same `AUTOCODE_HOME` in each terminal and use `autocode registry add /path/to/committed/checkout`; see the [multi-repository walkthrough](multi-repo.md#walkthrough-a-bug-reveals-another-repository). |
+
 ## Prerequisites
 
 - **Python 3.11+**
 - **Git**
 - **OpenCode 1.x or 2.x** connected to ChatGPT and Z.ai (the default engine). Live-checked with OpenCode **1.18.31**. OpenCode 2.x uses `--standalone` and a `provider/model#effort` model id. Strict tool containment and verified visual delivery stay qualified only for OpenCode **1.18.33**.
-- **Supported Linux for supervised task-stage execution**, including fake providers; see [provider process ownership](providers.md#provider-process-ownership). macOS remains usable for development checks that do not launch those providers. Windows needs WSL with the same Linux kernel requirements. Native Windows support is not planned; [Native Windows](windows.md) records what was audited and what remains.
+- **Linux or macOS**, with different provider cleanup guarantees; see [provider process ownership](providers.md#provider-process-ownership). Supported Linux is used for provider-backed qualification. Windows needs WSL with the same Linux kernel requirements. Native Windows support is not planned; [Native Windows](windows.md) records what was audited and what remains.
 - Optional: Codex CLI for `--engine codex` (one ChatGPT login) and the Figma path; Claude Code for `--engine claude` (one Claude subscription login). Installation does not change Codex, OpenCode or Claude Code settings.
 
 Native process supervision uses the `psutil` runtime dependency, which `pipx` and `pip`
@@ -160,6 +216,20 @@ Linux filesystem usually avoids this mounted-directory ownership mismatch.
 
 ## Advanced: install from a checkout
 
+To follow current master without maintaining a development checkout:
+
+```sh
+pipx install git+https://github.com/charlieanna/autocode
+```
+
+Use `pipx reinstall autocode-supervisor` to refresh an existing pipx Git
+installation from its saved source. This is separate from the published PyPI
+release; check `autocode --version` and retain the source commit when reporting
+behavior. Do not assume two builds with the same package version contain the
+same master changes. Choose one active installation rather than relinking a
+Homebrew command over an existing pipx/development command.
+
+
 For working on AutoCode itself, or trying an unreleased change. Run directly from a
 checkout (its Python needs `psutil`, as in the project's `.venv`):
 
@@ -183,6 +253,12 @@ python3 -m venv .venv
 .venv/bin/autocode "Build a greeting CLI" --workspace /path/to/project
 ```
 
+A virtual environment's `bin` directory is on `PATH` only while the environment is
+activated (`source .venv/bin/activate`), and only in that shell. In a new shell, typing
+`autocode` answers `command not found`: activate again, call `.venv/bin/autocode`, add
+that `bin` directory to `PATH` in your shell profile, or use the `pipx` install above,
+which puts `autocode` on `PATH` for every shell.
+
 ### Sanity check
 
 Confirm the install, then check the machine and your project before the first task:
@@ -195,7 +271,8 @@ autocode doctor --workspace /path/to/project
 `--version` prints the commit when run from a checkout and `commit unknown` from an
 installed package. `doctor` names anything missing (Python, psutil, Git, the default
 engine, a committed Git project) with the fix next to it, and exits 1 until the machine
-is ready. It checks the engine a new run would use: OpenCode, or the provider set as the
+is ready. Its `path` row warns, without failing, when a new shell would not find `autocode`
+on `PATH`, and names the directory to add or the `pipx` install. It checks the engine a new run would use: OpenCode, or the provider set as the
 default below (with no `--engine` and with `--engine opencode` alike), including that it
 offers every role's default model; `--engine codex` checks Codex instead.
 
@@ -203,8 +280,7 @@ offers every role's default model; `--engine codex` checks Codex instead.
 
 `autocode completion bash|zsh|fish` prints a completion script read from the CLI's own
 parsers: the commands, every option of the main command and of each subcommand, with
-their choices, a subcommand's own commands (`autocode output read`, `autocode program
-approve`), and file names after an option that takes a path. Load it in the current shell,
+their choices, a subcommand's own commands (`autocode output read`), and file names after an option that takes a path. Load it in the current shell,
 or save it where your shell reads completions:
 
 ```sh
@@ -240,21 +316,21 @@ the plan before any Builder starts. See [Workflow](workflow.md).
 
 ## Advanced entry points
 
-Use the whole workflow through `autopilot`, or invoke one unit at its saved boundary:
+Use the whole workflow through `autocode`, or invoke one unit at its saved boundary with `--unit`:
 
 ```sh
-autopilot "Build a greeting CLI" --workspace /path/to/project --chat
+autocode "Build a greeting CLI" --workspace /path/to/project --chat
 
 # Or invoke individual units at their saved boundaries:
-autoplanner "Build a greeting CLI" --workspace /path/to/project --chat
+autocode "Build a greeting CLI" --unit autoplanner --workspace /path/to/project --chat
 # After approval, this stops before any Builder starts.
 # Each unit continues the project's unfinished run (add --run-dir RUN when it has several):
-autocode-build --workspace /path/to/project --no-chat
-autoreview --workspace /path/to/project --no-chat
+autocode --unit autocode --workspace /path/to/project --no-chat
+autocode --unit autoreview --workspace /path/to/project --no-chat
 # If review requests rework, diagnose it without launching a Builder:
-autoresolver --workspace /path/to/project --no-chat
+autocode --unit autoresolver --workspace /path/to/project --no-chat
 # Let Autopilot continue through any remaining build/review cycles:
-autopilot --workspace /path/to/project --no-chat
+autocode --workspace /path/to/project --no-chat
 ```
 
 Each unit command stops successfully before dispatching another unit.
@@ -288,11 +364,21 @@ set `AUTOCODE_PROVIDER=kilocode` or add this to `~/.config/autocode/config.toml`
 default_provider = "kilocode"
 ```
 
+A Kilo provider needs the Kilo CLI on PATH. On Linux, install the pinned release;
+a launch there refuses any other version, because its restricted read-only and
+planning stages need that release's kernel shell. macOS has no kernel shell, so its
+checkers use Kilo's own shell with edits denied and any Kilo release launches:
+
+```sh
+npm install -g @kilocode/cli@7.8.3
+kilo auth list
+```
+
 A saved run keeps the provider it started with, and `--engine codex` runs still
 use Codex. `autocode doctor` then checks the default provider instead of OpenCode.
 `AUTOCODE_PROVIDER=codex` does not select the Codex engine: it names a provider config
 `codex.toml`, and doctor reports it missing. Use `--engine codex` for Codex.
-`autocode-dashboard --provider <name>` overrides the default for the dashboard; its
+`autocode dashboard --provider <name>` overrides the default for the dashboard; its
 model pickers list that tool's models.
 
 See also: [CLI](cli.md) · [Providers](providers.md) · [Models](models.md)

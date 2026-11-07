@@ -7,8 +7,10 @@ being fixed, and each must be rejected by execution, not by reading a report.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -118,6 +120,31 @@ class ProjectFixtureTests(unittest.TestCase):
         self.assertEqual([], [argv for argv in children if {"maintenance", "gc"} & set(argv)], children)
 
 
+class PythonStyleDetectionTests(unittest.TestCase):
+    def test_bare_function_suite_without_config_is_detected_as_pytest(self):
+        project = Project({"test_totals.py": "def test_sum():\n assert 1 + 1 == 2\n"})
+        self.addCleanup(project.close)
+        with mock.patch.object(verify, "_python_can_import", return_value=False):
+            framework = verify.detect_framework(project.root, python=sys.executable)
+        self.assertEqual("pytest", framework.name)
+        self.assertIn("-m pytest", framework.targeted(["test_totals.py"]))
+
+    def test_rooted_detection_retains_pinned_pytest_style_and_ignores_other_roots(self):
+        project = Project({"pkg/test_totals.py": "def test_sum():\n assert 1 + 1 == 2\n"})
+        self.addCleanup(project.close)
+        (project.root / "pkg/test_totals.py").write_text(
+            "import unittest\nclass Totals(unittest.TestCase):\n def test_sum(self): pass\n"
+        )
+        framework = verify.detect_framework(project.root, python=sys.executable, test_root="pkg", base=project.base)
+        self.assertEqual("pytest", framework.name)
+        (project.root / "other").mkdir()
+        (project.root / "other/test_legacy.py").write_text(
+            "import unittest\nclass Legacy(unittest.TestCase):\n def test_old(self): pass\n"
+        )
+        framework = verify.detect_framework(project.root, python=sys.executable, test_root="other", base=project.base)
+        self.assertEqual("unittest", framework.name)
+
+
 class ComponentCollectionTests(unittest.TestCase):
     def test_package_markers_and_comment_mentions_do_not_hide_go_or_node_suites(self):
         for marker in ("", "# load_tests and unittest.TestCase are not declarations\n", "VALUE = 'load_tests'\n"):
@@ -131,6 +158,39 @@ class ComponentCollectionTests(unittest.TestCase):
                     framework = verify.detect_framework(project.root, python=sys.executable)
                     self.assertEqual(expected, framework.name)
                     self.assertNotIn("autocode_component_tests.py", framework.suite)
+
+    def test_a_stray_python_helper_does_not_hide_a_go_rust_or_node_suite(self):
+        # #2604: one helper script or fixture anywhere bound a Go repository to unittest.
+        stray = {
+            "pkg/acceptance/testdata/python/test.py": "import unittest\nclass T(unittest.TestCase):\n def test_a(self): pass\n",
+            "pkg/cli/interactive_tests/test_auth_cookie.py": "import unittest\n",
+            ".claude/skills/tool/test_tool.py": "import unittest\nclass T(unittest.TestCase):\n def test_b(self): pass\n",
+            "scripts/release-notes.py": "print('notes')\n",
+        }
+        for files, expected in (
+            ({"go.mod": "module sample\ngo 1.22\n", "pkg/lib_test.go": "package lib\n"}, "go"),
+            ({"Cargo.toml": "[package]\nname = 'sample'\n", "src/lib.rs": ""}, "cargo"),
+            ({"package.json": json.dumps({"scripts": {"test": "node --test"}}), "app.test.js": ""}, "node"),
+        ):
+            with self.subTest(framework=expected):
+                project = Project({**stray, **files})
+                self.addCleanup(project.close)
+                framework = verify.detect_framework(project.root, python=sys.executable)
+                self.assertEqual(expected, framework.name)
+
+    def test_a_declared_python_project_keeps_its_suite_beside_another_toolchain(self):
+        test = "import unittest\nclass T(unittest.TestCase):\n def test_a(self): pass\n"
+        for extra in (
+            {"pyproject.toml": "[project]\nname = 'sample'\n", "pkg/test_lib.py": test},
+            {"requirements.txt": "requests\n", "pkg/test_lib.py": test},
+            {"tests/test_lib.py": test},
+            {"test_lib.py": test},
+        ):
+            with self.subTest(extra=sorted(extra)):
+                project = Project({"go.mod": "module sample\ngo 1.22\n", **extra})
+                self.addCleanup(project.close)
+                framework = verify.detect_framework(project.root, python=sys.executable)
+                self.assertEqual("unittest", framework.name)
 
     def collect(self, files):
         project = Project(files)
@@ -201,6 +261,640 @@ class ComponentCollectionTests(unittest.TestCase):
             framework = verify.detect_framework(project.root, python=sys.executable)
         self.assertEqual("pytest", framework.name)
         self.assertNotIn(" -c ", framework.suite)
+
+
+class MonorepoPackageCollectionTests(unittest.TestCase):
+    """Packages that run their own tests from their own folders (live run, 2026-11-06).
+
+    Without packages/__init__.py a root ``unittest discover`` found 0 tests, so the proof could not
+    show the existing tests still pass and the run asked a person to add a marker file. Each package
+    now runs isolated from its own folder; same-named test modules keep distinct identities.
+    """
+
+    PAGER = "def page_count(total, size):\n    return -(-total // size)\n"
+
+    def files(self):
+        test = (
+            "import unittest\nfrom pager import page_count\n\n"
+            "class {name}(unittest.TestCase):\n def test_exact_multiple(self): self.assertEqual(2, page_count(4, 2))\n"
+        )
+        return {
+            "README.md": "Run tests from each package: cd packages/invoices && python3 -m unittest discover -v\n",
+            "packages/invoices/pager.py": self.PAGER,
+            "packages/invoices/test_pager.py": test.format(name="InvoicePager"),
+            "packages/search/pager.py": self.PAGER,
+            "packages/search/test_pager.py": test.format(name="SearchPager"),
+        }
+
+    def test_each_package_runs_its_own_tests_from_its_own_folder(self):
+        project = Project(self.files())
+        self.addCleanup(project.close)
+        framework = verify.detect_framework(project.root, python=sys.executable)
+        self.assertIn("--package-family packages invoices search", framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "packages", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        self.assertEqual(0, receipt["exit_code"], text)
+        self.assertEqual(2, receipt["results"]["total"], text)
+        for name in ("packages.invoices.test_pager.InvoicePager", "packages.search.test_pager.SearchPager"):
+            self.assertIn(f"test_exact_multiple ({name}.test_exact_multiple) ... ok", text)
+
+    def test_a_marked_package_folder_keeps_root_discovery(self):
+        # packages/__init__.py lets root discovery reach the tests, so nothing changes there.
+        files = {**self.files(), "packages/__init__.py": "", "packages/invoices/__init__.py": ""}
+        files.pop("packages/search/test_pager.py")
+        project = Project(files)
+        self.addCleanup(project.close)
+        framework = verify.detect_framework(project.root, python=sys.executable)
+        self.assertNotIn("--package-family", framework.suite)
+
+
+class ReposCollectionTests(unittest.TestCase):
+    """The joint integration workspace layout: markerless suites under repos/<member>/ (#2414)."""
+
+    BOOTSTRAP = "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).resolve().parents[1]))\n"
+
+    def guards(self):
+        return {
+            "repos/checkout-c7761e58/client.py": (
+                "def display(payload):\n    return str(payload['amount']) + ' USD'\n"
+            ),
+            "repos/checkout-c7761e58/util.py": "NAME = 'checkout'\n",
+            "repos/checkout-c7761e58/tests/test_preserved_checkout.py": self.BOOTSTRAP
+            + "import unittest\nfrom client import display\nfrom util import NAME\n\n"
+            "class Preserved(unittest.TestCase):\n"
+            "    def test_missing_amount_raises(self):\n"
+            "        with self.assertRaises(KeyError):\n            display({})\n"
+            "    def test_member_local_util(self):\n"
+            "        self.assertEqual('checkout', NAME)\n",
+            "repos/history-259aa8ef/history.py": (
+                "def record(amount):\n    return {'amount': str(amount), 'currency': 'USD'}\n"
+            ),
+            "repos/history-259aa8ef/util.py": "NAME = 'history'\n",
+            "repos/history-259aa8ef/tests/test_preserved_history.py": self.BOOTSTRAP
+            + "import unittest\nfrom history import record\nfrom util import NAME\n\n"
+            "class Preserved(unittest.TestCase):\n"
+            "    def test_record_keeps_currency(self):\n"
+            "        self.assertEqual('USD', record(5)['currency'])\n"
+            "    def test_member_local_util(self):\n"
+            "        self.assertEqual('history', NAME)\n",
+            "repos/tax-1ffc0406/tax.py": "def add_tax(value):\n    return value\n",
+            "repos/tax-1ffc0406/tests/test_preserved_tax.py": self.BOOTSTRAP
+            + "import unittest\nfrom tax import add_tax\n\n"
+            "class Preserved(unittest.TestCase):\n"
+            "    def test_zero_passes_through(self):\n"
+            "        self.assertEqual(0, add_tax(0))\n"
+            "    def test_result_is_numeric(self):\n"
+            "        self.assertIsInstance(add_tax(7), (int, float))\n",
+        }
+
+    def detect(self, files):
+        project = Project(files)
+        self.addCleanup(project.close)
+        return project, verify.detect_framework(project.root, python=sys.executable)
+
+    def collect(self, files):
+        project, framework = self.detect(files)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        return project, framework, receipt, Path(receipt["output"]).read_text()
+
+    def test_repos_layout_binds_the_isolated_collector_instead_of_a_vacuous_root_discovery(self):
+        project, framework = self.detect(self.guards())
+        self.assertEqual("unittest", framework.name)
+        self.assertIn("autocode_component_tests.py", framework.suite)
+        for member in ("checkout-c7761e58", "history-259aa8ef", "tax-1ffc0406"):
+            self.assertIn(member, framework.suite)
+        # The old binding collected nothing here: the exposed defect this fix repairs.
+        # (Exit codes for an empty discovery differ by Python; emptiness is the defect.)
+        vacuous = subprocess.run(
+            [sys.executable, "-m", "unittest", "discover", "-v"], cwd=project.root, capture_output=True, text=True
+        )
+        self.assertNotIn("test_preserved", vacuous.stderr + vacuous.stdout)
+        self.assertNotIn("test_member_local_util", vacuous.stderr + vacuous.stdout)
+
+    def test_original_guards_all_run_once_with_member_imports_isolated(self):
+        _, framework, receipt, text = self.collect(self.guards())
+        self.assertEqual(0, receipt["exit_code"], text)
+        self.assertEqual(6, receipt["results"]["total"], text)
+        self.assertTrue(receipt["results"]["complete"], text)
+        # Two members both import a module literally named util; isolation keeps each local.
+        self.assertEqual(
+            2, len([name for name in receipt["results"]["passed"] if "test_member_local_util" in name]), text
+        )
+        self.assertEqual(6, len(receipt["results"]["passed"]), text)
+        for member, guard in (
+            ("repos.checkout-c7761e58", "test_missing_amount_raises"),
+            ("repos.history-259aa8ef", "test_record_keeps_currency"),
+            ("repos.tax-1ffc0406", "test_zero_passes_through"),
+        ):
+            self.assertTrue(
+                any(name.startswith(member) and guard in name for name in receipt["results"]["passed"]), text
+            )
+        self.assertEqual(framework.suite, framework.targeted(["repos/tax-1ffc0406/tests/test_preserved_tax.py"]))
+
+    JOINT = (
+        "import sys\nfrom pathlib import Path\n"
+        "sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'repos' / 'checkout-c7761e58'))\n"
+        "sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'repos' / 'history-259aa8ef'))\n"
+        "sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'repos' / 'tax-1ffc0406'))\n"
+        "import unittest\nfrom client import display\nfrom history import record\nfrom tax import add_tax\n\n"
+        "class Joint(unittest.TestCase):\n"
+        "    def test_composed_total(self):\n"
+        "        self.assertEqual('$110.00', display(record(add_tax(100))))\n"
+    )
+
+    def test_builder_added_root_joint_tests_are_collected_without_hiding_originals(self):
+        for root_files in (
+            {"tests/test_joint_regression.py": self.JOINT},
+            {"tests/__init__.py": "", "tests/test_joint_regression.py": self.JOINT},
+        ):
+            with self.subTest(marked="__init__.py" in root_files):
+                project, _ = self.detect(self.guards())
+                project.write(root_files)
+                # Fresh detection after the Builder wrote the root joint tests: a markerless
+                # tests/ directory must not switch the binding to a root-only discovery that
+                # silently drops every member suite (#2414 review).
+                framework = verify.detect_framework(project.root, python=sys.executable)
+                self.assertIn("--repos checkout-c7761e58", framework.suite)
+                self.assertIn("tax-1ffc0406", framework.suite)
+                receipt = verify.run_suite(
+                    framework, framework.suite, project.root, project.evidence, "repos", timeout=60
+                )
+                text = Path(receipt["output"]).read_text()
+                self.assertEqual(1, receipt["exit_code"], text)  # the joint case fails on the broken base
+                self.assertEqual(7, receipt["results"]["total"], text)
+                self.assertTrue(any("test_composed_total" in name for name in receipt["results"]["failed"]), text)
+                self.assertEqual(6, len(receipt["results"]["passed"]), text)
+
+    def test_components_and_repos_with_a_root_test_each_run_exactly_once(self):
+        files = {
+            "test_root.py": "import unittest\nclass Root(unittest.TestCase):\n def test_root(self): pass\n",
+            "components/api/tests/test_value.py": (
+                "import unittest\nclass Value(unittest.TestCase):\n def test_value(self): pass\n"
+            ),
+            "repos/tax-1ffc0406/tax.py": "def add_tax(value):\n    return value\n",
+            "repos/tax-1ffc0406/tests/test_preserved_tax.py": self.BOOTSTRAP
+            + "import unittest\nfrom tax import add_tax\n\n"
+            "class Preserved(unittest.TestCase):\n def test_zero_passes_through(self): self.assertEqual(0, add_tax(0))\n",
+        }
+        project, framework = self.detect(files)
+        self.assertIn("--components api", framework.suite)
+        self.assertIn("--repos tax-1ffc0406", framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        self.assertEqual(0, receipt["exit_code"], text)
+        self.assertEqual(3, receipt["results"]["total"], text)
+        # Executed identities, not a collapsed result set: the root pass and each family
+        # each ran once, so no test name appears twice in the verbose record.
+        for name in ("test_root", "test_value", "test_zero_passes_through"):
+            self.assertEqual(1, text.count(f"{name} ("), text)
+
+    def test_a_marked_root_package_hook_is_invoked_not_bypassed(self):
+        hook = (
+            "import unittest\n"
+            "class RootHook(unittest.TestCase):\n def test_root_hook(self): self.fail('root hook reached')\n"
+            "def load_tests(loader, tests, pattern): return loader.loadTestsFromTestCase(RootHook)\n"
+        )
+        project, framework = self.detect(
+            {
+                **self.guards(),
+                "tests/__init__.py": hook,
+                "tests/test_green_child.py": "raise AssertionError('root hook must own collection')\n",
+            }
+        )
+        self.assertIn("--repos checkout-c7761e58", framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        # The marked tests package routes through root discovery: its load_tests owns
+        # collection (a failing hook cannot be bypassed for a false PASS), and the
+        # markerless fallback never re-collects the package it already covered.
+        self.assertEqual(1, receipt["exit_code"], text)
+        self.assertEqual(2, text.count("test_root_hook ("), text)  # progress line + FAIL header
+        self.assertIn("root hook reached", text)
+        self.assertNotIn("root hook must own collection", text)
+        self.assertEqual(6, len(receipt["results"]["passed"]), text)
+
+    def test_root_level_and_markerless_joint_tests_are_both_collected(self):
+        files = {
+            **self.guards(),
+            "test_top.py": "import unittest\nclass Top(unittest.TestCase):\n def test_top(self): pass\n",
+            "tests/test_extra.py": "import unittest\nclass Extra(unittest.TestCase):\n def test_extra(self): pass\n",
+        }
+        project, framework = self.detect(files)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        self.assertEqual(0, receipt["exit_code"], text)
+        # The root-level file and the markerless joint directory each run exactly once;
+        # neither is silently dropped (#2414 review).
+        self.assertEqual(1, text.count("test_top ("), text)
+        self.assertEqual(1, text.count("test_extra ("), text)
+        self.assertEqual(8, receipt["results"]["total"], text)
+        project.write({"tests/__init__.py": ""})
+        framework = verify.detect_framework(project.root, python=sys.executable)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        # With the package marker the package keeps its original discovery shape and
+        # identity; the fallback does not collect it a second time.
+        self.assertEqual(0, receipt["exit_code"], text)
+        self.assertEqual(8, receipt["results"]["total"], text)
+        self.assertEqual(1, text.count("test_extra ("), text)
+        self.assertTrue(any("tests.test_extra" in name for name in receipt["results"]["passed"]), text)
+
+    def test_an_imported_parent_hook_owns_the_family(self):
+        hook_module = (
+            "import unittest\n"
+            "class ImportedHook(unittest.TestCase):\n def test_imported_hook(self): self.fail('imported hook reached')\n"
+            "def load_tests(loader, tests, pattern): return loader.loadTestsFromTestCase(ImportedHook)\n"
+        )
+        files = {
+            "joint_hook.py": hook_module,
+            "repos/__init__.py": "from joint_hook import load_tests\n",
+            "repos/tax-1ffc0406/tax.py": "def add_tax(value):\n    return value\n",
+            "repos/tax-1ffc0406/tests/test_green.py": (
+                "import unittest\nclass Green(unittest.TestCase):\n def test_green(self): pass\n"
+            ),
+        }
+        project, framework = self.detect(files)
+        self.assertIn("--repos tax-1ffc0406", framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        # The family pass imports the parent and reads its attributes at runtime, so an
+        # imported or aliased hook counts exactly like a defined one: it owns collection,
+        # runs once, and its suite replaces the children's — a green child cannot hide
+        # its failure.
+        self.assertEqual(1, receipt["exit_code"], text)
+        self.assertEqual(2, text.count("test_imported_hook ("), text)  # progress line + FAIL header
+        self.assertIn("imported hook reached", text)
+        self.assertNotIn("test_green (", text)
+
+    def test_a_parent_hook_only_repos_family_without_members_is_collected(self):
+        files = {
+            "repos/__init__.py": (
+                "import unittest\n"
+                "class FamilyOnly(unittest.TestCase):\n"
+                " def test_family_only(self): self.fail('parent-only family reached')\n"
+                "def load_tests(loader, tests, pattern): return loader.loadTestsFromTestCase(FamilyOnly)\n"
+            ),
+        }
+        project, framework = self.detect(files)
+        self.assertTrue(framework.suite.endswith("--repos"), framework.suite)
+        self.assertNotIn("tax-1ffc0406", framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        self.assertEqual(1, receipt["exit_code"], text)
+        self.assertEqual(2, text.count("test_family_only ("), text)  # progress line + FAIL header
+        self.assertIn("parent-only family reached", text)
+
+    def test_a_real_repos_parent_hook_owns_the_family_collection(self):
+        hook = (
+            "import unittest\n"
+            "class FamilyHook(unittest.TestCase):\n def test_family_hook(self): self.fail('family hook reached')\n"
+            "def load_tests(loader, tests, pattern): return loader.loadTestsFromTestCase(FamilyHook)\n"
+        )
+        files = {
+            "repos/__init__.py": hook,
+            "repos/tax-1ffc0406/__init__.py": hook,
+            "repos/tax-1ffc0406/tests/test_sentinel.py": "raise AssertionError('family hook must own collection')\n",
+        }
+        project, framework = self.detect(files)
+        self.assertIn("--repos tax-1ffc0406", framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        self.assertEqual(1, receipt["exit_code"], text)
+        # The real parent hook owns the family's collection: it is the only thing that
+        # runs (the member hook does not additionally execute), and the sentinel child
+        # never collects.
+        self.assertEqual(2, text.count("test_family_hook ("), text)
+        self.assertEqual(2, text.count("family hook reached"), text)
+        self.assertNotIn("family hook must own collection", text)
+
+    def test_a_real_repos_parent_package_is_not_traversed_twice(self):
+        files = {
+            "repos/__init__.py": "",
+            "repos/tax-1ffc0406/tax.py": "def add_tax(value):\n    return value\n",
+            "repos/tax-1ffc0406/tests/test_preserved_tax.py": self.BOOTSTRAP
+            + "import unittest\nfrom tax import add_tax\n\n"
+            "class Preserved(unittest.TestCase):\n def test_zero_passes_through(self): self.assertEqual(0, add_tax(0))\n",
+        }
+        project, framework = self.detect(files)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        self.assertEqual(0, receipt["exit_code"], text)
+        self.assertEqual(1, text.count("test_zero_passes_through ("), text)
+        self.assertEqual(1, receipt["results"]["total"], text)
+
+    def test_hook_only_member_packages_without_test_modules_are_detected(self):
+        files = {
+            "repos/tax-1ffc0406/__init__.py": (
+                "import unittest\nclass Inside(unittest.TestCase):\n"
+                " def test_inside(self): self.fail('package test reached')\n"
+            ),
+        }
+        project, framework = self.detect(files)
+        self.assertIn("--repos tax-1ffc0406", framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        self.assertEqual(1, receipt["exit_code"], text)
+        self.assertIn("package test reached", text)
+
+    def test_a_parent_testcase_without_a_hook_still_runs_once(self):
+        files = {
+            "repos/__init__.py": (
+                "import unittest\n"
+                "class ParentCase(unittest.TestCase):\n"
+                " def test_parent_case(self): self.fail('parent case reached')\n"
+            ),
+            "repos/tax-1ffc0406/tax.py": "def add_tax(value):\n    return value\n",
+            "repos/tax-1ffc0406/tests/test_green.py": (
+                "import unittest\nclass Green(unittest.TestCase):\n def test_green(self): pass\n"
+            ),
+        }
+        project, framework = self.detect(files)
+        self.assertIn("--repos tax-1ffc0406", framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        # The shared family algorithm: the parent's own TestCases run once even without
+        # a hook, and the green member cannot hide that failure.
+        self.assertEqual(1, receipt["exit_code"], text)
+        self.assertEqual(2, text.count("test_parent_case ("), text)
+        self.assertIn("parent case reached", text)
+        self.assertEqual(1, text.count("test_green ("), text)
+
+    def test_a_broken_parent_package_fails_closed_with_no_members(self):
+        files = {
+            # Declares tests (so the family binds) but its import is broken: the runtime
+            # family pass must fail loudly instead of reading the break as "no hook".
+            "repos/__init__.py": (
+                "import missing_family_dependency\n"
+                "import unittest\n"
+                "class ParentCase(unittest.TestCase):\n def test_parent(self): pass\n"
+            ),
+            "test_root_green.py": "import unittest\nclass Green(unittest.TestCase):\n def test_green(self): pass\n",
+        }
+        project, framework = self.detect(files)
+        self.assertTrue(framework.suite.endswith("--repos"), framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        # A parent import error is never read as "no hook": the whole suite fails even
+        # though the workspace's own green tests all ran.
+        self.assertEqual(1, receipt["exit_code"], text)
+        self.assertEqual(1, text.count("test_green ("), text)
+        self.assertIn("missing_family_dependency", text)
+
+    def test_an_undispatched_repos_package_failure_is_not_hidden(self):
+        files = {
+            "components/api/tests/test_value.py": (
+                "import unittest\nclass Value(unittest.TestCase):\n def test_value(self): pass\n"
+            ),
+            # An ordinary marked package whose import is broken: no family binds it, so
+            # ordinary root discovery must surface the failure (#2414 review).
+            "repos/__init__.py": "import missing_undispatched_dependency\n",
+        }
+        project, framework = self.detect(files)
+        self.assertIn("--components api", framework.suite)
+        self.assertNotIn("--repos", framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        self.assertEqual(1, receipt["exit_code"], text)
+        self.assertIn("missing_undispatched_dependency", text)
+
+    def test_an_undispatched_components_package_failure_is_not_hidden(self):
+        files = {
+            "repos/tax-1ffc0406/tax.py": "def add_tax(value):\n    return value\n",
+            "repos/tax-1ffc0406/tests/test_preserved_tax.py": self.BOOTSTRAP
+            + "import unittest\nfrom tax import add_tax\n\n"
+            "class Preserved(unittest.TestCase):\n def test_zero_passes_through(self): self.assertEqual(0, add_tax(0))\n",
+            "components/__init__.py": "import missing_component_dependency\n",
+        }
+        project, framework = self.detect(files)
+        self.assertIn("--repos tax-1ffc0406", framework.suite)
+        self.assertNotIn("--components", framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "repos", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        self.assertEqual(1, receipt["exit_code"], text)
+        self.assertIn("missing_component_dependency", text)
+
+    def test_a_real_member_package_keeps_its_load_tests_hook(self):
+        hook = (
+            "import unittest\n"
+            "class Hook(unittest.TestCase):\n def test_hook(self): self.fail('hook owns collection')\n"
+            "def load_tests(loader, tests, pattern): return loader.loadTestsFromTestCase(Hook)\n"
+        )
+        files = {
+            "repos/tax-1ffc0406/tax.py": "def add_tax(value):\n    return value\n",
+            "repos/tax-1ffc0406/__init__.py": hook,
+            "repos/tax-1ffc0406/tests/test_hidden.py": "raise AssertionError('hook must own collection')\n",
+        }
+        _, _, receipt, text = self.collect(files)
+        self.assertEqual(1, receipt["exit_code"], text)
+        self.assertIn("hook owns collection", text)
+        self.assertNotIn("hook must own collection", text)
+
+    def test_nested_tests_outside_repos_or_components_keep_the_previous_detection(self):
+        project, framework = self.detect(
+            {
+                "stuff/lib.py": "VALUE = 1\n",
+                "stuff/tests/test_value.py": (
+                    "import sys\nfrom pathlib import Path\n"
+                    "sys.path.insert(0, str(Path(__file__).resolve().parents[1]))\n"
+                    "import unittest\nfrom lib import VALUE\n"
+                    "class Value(unittest.TestCase):\n def test_value(self): self.assertEqual(1, VALUE)\n"
+                ),
+            }
+        )
+        self.assertEqual(f"{shlex.quote(sys.executable)} -m unittest discover -v", framework.suite)
+
+    def test_joint_proof_fails_before_and_passes_after_with_original_guards_unchanged(self):
+        # The whole native/public path: fresh detection inside Project.verify, after the
+        # Builder overlay (with its markerless root joint tests) is already in place.
+        project, _ = self.detect(self.guards())
+        preserved = sorted(project.root.glob("repos/*/tests/test_preserved_*.py"))
+        self.assertEqual(3, len(preserved))
+        preserved_before = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in preserved}
+        overlay = {
+            "repos/checkout-c7761e58/client.py": ("def display(payload):\n    return f\"${payload['amount']:.2f}\"\n"),
+            "repos/tax-1ffc0406/tax.py": "def add_tax(value):\n    return round(value + value * 0.10, 2)\n",
+            "repos/history-259aa8ef/history.py": "def record(amount):\n    return {'amount': amount, 'currency': 'USD'}\n",
+            "repos/checkout-c7761e58/tests/test_regression_checkout.py": self.BOOTSTRAP
+            + "import unittest\nfrom client import display\n\n"
+            "class Regression(unittest.TestCase):\n"
+            "    def test_zero_total_formats_dollars(self):\n"
+            "        self.assertEqual('$0.00', display({'amount': 0}))\n",
+            "repos/tax-1ffc0406/tests/test_regression_tax.py": self.BOOTSTRAP
+            + "import unittest\nfrom tax import add_tax\n\n"
+            "class Regression(unittest.TestCase):\n"
+            "    def test_add_tax_applies_ten_percent(self):\n"
+            "        self.assertEqual(110, add_tax(100))\n",
+            "repos/history-259aa8ef/tests/test_regression_history.py": self.BOOTSTRAP
+            + "import unittest\nfrom history import record\n\n"
+            "class Regression(unittest.TestCase):\n"
+            "    def test_record_amount_is_numeric(self):\n"
+            "        self.assertIsInstance(record(100)['amount'], (int, float))\n",
+            "tests/test_joint_regression.py": self.JOINT,
+        }
+        project.write(overlay)
+        result = project.verify()
+        # The real three-repo composition (tax -> history -> checkout) fails on base and
+        # passes after the fix, while every original member guard is preserved unchanged.
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertIn("test_joint_regression.Joint.test_composed_total", result["fail_to_pass"], result)
+        self.assertEqual(4, len(result["fail_to_pass"]), result)
+        self.assertTrue(all("Preserved" in name for name in result["pass_to_pass"]), result)
+        self.assertEqual(6, len(result["pass_to_pass"]), result)
+        self.assertIn("--repos checkout-c7761e58", result["commands"]["suite"])
+        self.assertEqual("passing", result["baseline"]["health"], result)
+        # Original member tests are byte-identical after the whole proof, not merely
+        # behaviorally similar: their content hashes are unchanged.
+        self.assertEqual(preserved_before, {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in preserved})
+
+
+class CollectorImportPrecedenceTests(unittest.TestCase):
+    """The collector's own directory must not shadow project imports (#2456).
+
+    The detected suite command runs autocode_component_tests.py by absolute path,
+    which puts its directory first on sys.path — ahead of the workspace roots the
+    runner's environment supplies on PYTHONPATH — and unittest discovery does not
+    move a root already on sys.path. A project module named like a collector
+    sibling (run_suite here) must still resolve to the project's file, in the
+    source tools/ layout and in an installed flat-package layout alike.
+    """
+
+    BOOTSTRAP = "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).resolve().parents[1]))\n"
+
+    HELPER = "SENTINEL = 'project-suite-helper'\n"
+
+    IMPORTER = (
+        "import unittest\nfrom pathlib import Path\nimport run_suite\n"
+        "class SuiteCollection(unittest.TestCase):\n"
+        "    def test_root_import_resolves_to_the_project_module(self):\n"
+        "        self.assertEqual('project-suite-helper', run_suite.SENTINEL)\n"
+        "        project = next(p for p in Path(__file__).resolve().parents if (p / 'run_suite.py').is_file())\n"
+        "        self.assertEqual(project / 'run_suite.py', Path(run_suite.__file__).resolve())\n"
+    )
+
+    MISSING_IMPORTER = (
+        "import unittest\n"
+        "class MissingHelper(unittest.TestCase):\n"
+        "    def test_missing_project_helper_stays_missing(self):\n"
+        "        try:\n"
+        "            import run_suite\n"
+        "        except ModuleNotFoundError:\n"
+        "            return\n"
+        "        self.fail(f'imported {run_suite.__file__} instead of staying missing')\n"
+    )
+
+    def project_files(self, helper=HELPER, importer=IMPORTER):
+        return {
+            "run_suite.py": helper,
+            "test_top.py": importer,
+            "tests/test_suite_collection.py": importer,
+            "components/alpha/tests/test_alpha.py": (
+                "import unittest\nclass Alpha(unittest.TestCase):\n def test_alpha(self): pass\n"
+            ),
+            "repos/beta-1c2d3e4f/beta.py": "def value():\n    return 'beta'\n",
+            "repos/beta-1c2d3e4f/tests/test_beta.py": self.BOOTSTRAP + "import unittest\nfrom beta import value\n\n"
+            "class Beta(unittest.TestCase):\n def test_beta_value(self): self.assertEqual('beta', value())\n",
+        }
+
+    def collect(self, files, command=None):
+        project = Project(files)
+        self.addCleanup(project.close)
+        if command is None:
+            framework = verify.detect_framework(project.root, python=sys.executable)
+            self.assertIn("autocode_component_tests.py", framework.suite)
+            self.assertIn("--components alpha", framework.suite)
+            self.assertIn("--repos beta-1c2d3e4f", framework.suite)
+            self.assertIn("--root .", framework.suite)
+        else:
+            framework = verify.Framework("unittest", command, python=sys.executable)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "collector", timeout=120)
+        return receipt, Path(receipt["output"]).read_text()
+
+    def test_project_root_modules_shadow_the_collectors_own_directory(self):
+        receipt, text = self.collect(self.project_files())
+        self.assertEqual(0, receipt["exit_code"], text)
+        # Both root shapes (a root-level module and the markerless tests/ directory)
+        # plus each family member ran exactly once, and both root imports resolved
+        # to the project's run_suite.py, not AutoCode's collector sibling.
+        self.assertEqual(4, receipt["results"]["total"], text)
+        self.assertEqual(4, len(receipt["results"]["passed"]), text)
+        self.assertEqual(2, text.count("test_root_import_resolves_to_the_project_module ("), text)
+        for fragment in ("test_top.SuiteCollection", "test_suite_collection.SuiteCollection"):
+            self.assertTrue(any(fragment in name for name in receipt["results"]["passed"]), text)
+        for fragment in ("components.alpha", "test_alpha", "repos.beta-1c2d3e4f", "test_beta_value"):
+            self.assertTrue(any(fragment in name for name in receipt["results"]["passed"]), text)
+
+    def test_genuine_import_failures_still_fail_after_the_precedence_correction(self):
+        for kind in ("missing", "broken"):
+            with self.subTest(kind=kind):
+                files = self.project_files()
+                if kind == "missing":
+                    files["test_top.py"] = "import missing_project_helper\n"
+                    files["tests/test_suite_collection.py"] = "import missing_project_helper\n"
+                else:
+                    files["run_suite.py"] = "raise RuntimeError('broken project helper')\n"
+                receipt, text = self.collect(files)
+                self.assertEqual(1, receipt["exit_code"], text)
+                self.assertIn("missing_project_helper" if kind == "missing" else "broken project helper", text)
+                # The member suites still ran: only the genuinely broken root import failed.
+                self.assertTrue(any("test_alpha" in name for name in receipt["results"]["passed"]), text)
+                self.assertTrue(any("test_beta_value" in name for name in receipt["results"]["passed"]), text)
+
+    def installed_command(self):
+        """A mini installed autocode_cli: the collector, the shadowing sibling, both closures."""
+        package = tempfile.TemporaryDirectory(prefix="installed-collector-")
+        self.addCleanup(package.cleanup)
+        needed = ["autocode_component_tests.py", "run_suite.py"]
+        seen = set()
+        while needed:
+            name = needed.pop()
+            if name in seen or not (TOOLS / name).is_file():
+                continue
+            seen.add(name)
+            source = TOOLS / name
+            shutil.copy(source, Path(package.name) / name)
+            needed += [
+                f"{match}.py"
+                for match in re.findall(r"^[ \t]*(?:from|import)\s+([A-Za-z_]\w*)", source.read_text(), re.M)
+                if (TOOLS / f"{match}.py").is_file()
+            ]
+        return shlex.join(
+            [
+                sys.executable,
+                str(Path(package.name) / "autocode_component_tests.py"),
+                "-v",
+                "--root",
+                ".",
+                "--components",
+                "alpha",
+                "--repos",
+                "beta-1c2d3e4f",
+            ]
+        )
+
+    def test_an_installed_flat_package_layout_keeps_the_project_precedence(self):
+        # The wheel installs tools/ flat as autocode_cli, so the installed collector
+        # runs from a directory that also holds run_suite.py; the copied mini package
+        # proves the same correction holds there.
+        receipt, text = self.collect(self.project_files(), command=self.installed_command())
+        self.assertEqual(0, receipt["exit_code"], text)
+        self.assertEqual(4, receipt["results"]["total"], text)
+        self.assertEqual(2, text.count("test_root_import_resolves_to_the_project_module ("), text)
+
+    def test_a_missing_project_module_is_not_satisfied_by_the_collectors_directory(self):
+        # No project run_suite.py exists: the import must stay missing (ModuleNotFoundError
+        # is the suite's normal fallback here), never AutoCode's unrelated module.
+        files = self.project_files()
+        files.pop("run_suite.py")
+        files["test_top.py"] = self.MISSING_IMPORTER
+        files["tests/test_suite_collection.py"] = self.MISSING_IMPORTER
+        for layout in ("source", "installed"):
+            with self.subTest(layout=layout):
+                receipt, text = self.collect(files, command=None if layout == "source" else self.installed_command())
+                self.assertEqual(0, receipt["exit_code"], text)
+                self.assertEqual(4, receipt["results"]["total"], text)
+                self.assertEqual(2, text.count("test_missing_project_helper_stays_missing ("), text)
+                for fragment in ("test_alpha", "test_beta_value"):
+                    self.assertTrue(any(fragment in name for name in receipt["results"]["passed"]), text)
 
 
 class PreservationEvidenceCase(unittest.TestCase):
@@ -595,6 +1289,14 @@ class PreservationEvidenceCase(unittest.TestCase):
 
     def test_in_place_with_a_launch_record_a_design_document_and_an_empty_package_can_prove_a_first_feature(self):
         proof = self.prove_in_place(Project(self.DESIGNED))
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["tests.test_feature.Feature.test_new_value"], proof["fail_to_pass"], proof)
+
+    def test_in_place_with_a_launch_record_a_manifest_and_an_empty_package_can_prove_a_first_feature(self):
+        # #1783: the live first-project launch base held README.md, pyproject.toml and an
+        # empty tests/__init__.py; the recorded launch inputs make it a separate checkout.
+        project = Project({**self.DESIGNED, "pyproject.toml": "[project]\nname = 'calc'\nversion = '0.1.0'\n"})
+        proof = self.prove_in_place(project)
         self.assertEqual(verify.PASS, proof["verdict"], proof)
         self.assertEqual(["tests.test_feature.Feature.test_new_value"], proof["fail_to_pass"], proof)
 
@@ -1020,7 +1722,12 @@ class VerifyCase(unittest.TestCase):
                 self.assertTrue(proof["fail_to_pass"])
                 self.assertEqual(1, proof["checks"]["regression_on_base"]["exit_code"])
                 self.assertEqual(0, proof["checks"]["regression_on_candidate"]["exit_code"])
+                # The runner's proof passes either way. Behind an opaque explicit command the mutation check
+                # runs the proof's own derived regression command instead, so the changed line has mutation
+                # evidence and the full gate passes too.
+                self.assertTrue(regression.complete(state, proof["source_revision"], require_changed_code=False))
                 self.assertTrue(regression.complete(state, proof["source_revision"]))
+                self.assertEqual(["mutation_only"], proof["changed_code_evidence"]["fallback"])
 
     @unittest.skipUnless(shutil.which("node"), "Node is required for named Node proof")
     def test_node_named_case_flip_preserves_original_custom_suite(self):
@@ -2091,6 +2798,14 @@ class VerifyCase(unittest.TestCase):
             base_patch=patch,
         )
         self.assert_base_definition_fails(base_suite, result)
+
+    def test_a_test_file_the_detected_suite_cannot_run_names_that_suite(self):
+        # #2609: the refusal must show the binding, so a wrong suite does not read as bad tests.
+        project = self.project({**SEED, "pkg/log/sink_test.go": "package log\n"})
+        result = verify.scratch_run(project.root, project.evidence, tests=["pkg/log/sink_test.go"])
+        self.assertIsNone(result["results"])
+        self.assertIn("no test command runs these files: pkg/log/sink_test.go", result["error"])
+        self.assertIn("the detected unittest suite `", result["error"])
 
     def test_ignored_vendor_reaches_scratch_probe_without_sharing_writes(self):
         project = self.project({**SEED, ".gitignore": "vendor/\n"})
@@ -3378,6 +4093,34 @@ class GoVerifyTests(unittest.TestCase):
         project = Project(files)
         self.addCleanup(project.close)
         return project
+
+    def test_compile_only_plan_check_has_no_named_test_credit_and_keeps_compile_failures(self):
+        project = self.project(GO_SEED)
+        command = "go test -count=1 -run '^$' ./..."
+        result = verify.scratch_run(project.root, project.evidence / "compile", command=command)
+        self.assertEqual((0, "", None), (result["exit_code"], result["error"], result["results"]), result)
+        self.assertFalse(schedule.complete_results(result))
+        # The same command submitted as a suite never proves behavioral testing.
+        suite = verify.run_suite(
+            verify.Framework("go", "go test ./..."),
+            command,
+            project.root,
+            project.evidence / "suite",
+            "compile",
+            timeout=60,
+        )
+        self.assertEqual(0, suite["results"]["total"])
+        self.assertFalse(schedule.complete_results(suite))
+        ordinary = verify.scratch_run(
+            project.root,
+            project.evidence / "absent",
+            command="go test -count=1 -run '^TestNotPresent$' ./...",
+        )
+        self.assertIn("zero tests", ordinary["error"])
+        project.write({"pager.go": "package pager\nthis does not compile\n"})
+        broken = verify.scratch_run(project.root, project.evidence / "broken", command=command)
+        self.assertNotEqual(0, broken["exit_code"])
+        self.assertIsNone(broken["results"])
 
     def test_a_go_bug_fix_is_proven_by_the_test_that_fails_before_and_passes_after(self):
         project = self.project(GO_SEED)

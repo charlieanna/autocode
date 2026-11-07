@@ -18,12 +18,14 @@ from unittest.mock import patch
 import autocode as cli
 import autocode_artifacts as artifacts
 import autocode_bug_job as bug
+import autocode_catalog_context as catalog_context
 import autocode_cmd_only_report as command_only
 import autocode_component_runtime as component_runtime
 import autocode_design_check_job as design_check
 import autocode_design_intake as design_intake
 import autocode_design_job as design
 import autocode_discuss_job as discuss
+import autocode_failures as failures
 import autocode_figma as figma
 import autocode_format_correction as correction
 import autocode_goals as goals
@@ -36,6 +38,7 @@ import autocode_protected_oracles as protected_oracles
 import autocode_provider_launch as provider_launch
 import autocode_report_repair_context as repair
 import autocode_report_source as report_source
+import autocode_review_job as review_job
 import autocode_stage_access as access
 import autocode_stage_context as stage_context
 import autocode_stuck_job as stuck
@@ -101,6 +104,9 @@ def rendered_cases():
 
     with ExitStack() as stack:
         stack.enter_context(patch.object(sys, "executable", "/prompt-fixture/python"))
+        # The shared source catalog is host state, not instruction text: a catalog
+        # configured on this machine must not change the reviewed prompt bytes.
+        stack.enter_context(patch.object(catalog_context, "context", return_value=None))
         stack.enter_context(patch.object(stage_context.source_scope, "snapshot", return_value=SNAPSHOT))
         stack.enter_context(patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}))
         stack.enter_context(patch.object(planner.artifacts, "verify_predecessor", return_value=None))
@@ -169,6 +175,11 @@ def rendered_cases():
                 "context/protected-tests",
                 json.dumps(protected_oracles.context({"protected_tests": record}, ["tests/"]), sort_keys=True),
             )
+        review_prompt, _ = review_job.prompt({"task": "Review greeting.patch", "workspace": WORKSPACE})
+        add(
+            "provider/opencode-review-output-contract",
+            opencode.prompt_for_schema(review_prompt, review_job.SCHEMA, Path("/prompt-fixture/run/events.jsonl")),
+        )
         # A package run's Builder is told its write scope, and its Investigator the package and its suite (#711).
         state = fixed_state()
         state["settings"]["package"] = "packages/greeting"
@@ -365,6 +376,43 @@ def rendered_cases():
 
 
 class RenderedPromptTests(unittest.TestCase):
+    def test_reviewers_receive_plain_english_progress_guidance(self):
+        reviewers = {"astra_challenge", "astra_finalize", "plan_review", "plan_finalize"}
+        cases = {name: text for name, text in rendered_cases().items() if name.startswith("planning/")}
+        self.assertTrue(reviewers.issubset({name.split("/")[1] for name in cases}))
+        for name, prompt in cases.items():
+            with self.subTest(case=name):
+                if name.split("/")[1] not in reviewers:
+                    self.assertNotIn("PLAIN-ENGLISH REVIEW PROGRESS", prompt)
+                    continue
+                self.assertIn("PLAIN-ENGLISH REVIEW PROGRESS", prompt)
+                self.assertIn("brief public progress message", prompt)
+                self.assertIn("what you are checking and why it matters", prompt)
+                self.assertIn("Do not narrate every tool call", prompt)
+                self.assertIn("Do not expose private reasoning", prompt)
+                self.assertIn("Never invent progress", prompt)
+                self.assertIn("final report must still follow its exact schema", prompt)
+
+    def test_compact_final_review_keeps_progress_guidance_and_saved_contract(self):
+        state = fixed_state()
+        state["goal_contract"] = {
+            "revision": 1,
+            "hash": "saved-hash",
+            "body": {"acceptance_criteria": [{"id": "AC1", "criterion": "Preserve bytes."}]},
+        }
+        before = copy.deepcopy(state)
+        with (
+            patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
+            patch.object(planner.artifacts, "verify_predecessor", return_value=None),
+        ):
+            prompt, _ = planner.context(state, "astra_finalize", STATE_PATH)
+        self.assertTrue(prompt.startswith(planner.retention.FINAL_PROMPT))
+        self.assertIn("PLAIN-ENGLISH REVIEW PROGRESS", prompt)
+        self.assertIn("brief public progress message", prompt)
+        self.assertIn("final report must still follow its exact schema", prompt)
+        self.assertIn("Retention is not user approval.", prompt)
+        self.assertEqual(before, state)
+
     def test_planning_prompts_trace_the_exact_human_source(self):
         cases = {
             name: text
@@ -389,6 +437,32 @@ class RenderedPromptTests(unittest.TestCase):
                 self.assertIn('"sources": [{"source_id": ..., "quote": ...}]', instruction)
                 self.assertIn("the criteria must quote every sentence of every source", instruction)
                 self.assertIn("negation_waivers", instruction)
+                self.assertIn("out_of_scope is an exclusion list, not a coverage ledger", instruction)
+                self.assertIn("A sentence cited by any criterion must never also be out_of_scope", instruction)
+                self.assertIn("required_behaviors and constraints do not replace criterion sources", instruction)
+                self.assertIn("review_source_sentences", instruction)
+                self.assertIn("criterion_ids", instruction)
+
+    def test_per_run_citation_lists_sit_after_the_static_policy(self):
+        # #2136: the per-run source-id list moved after the static policy and before the
+        # transport block on both paths that emit it, so prompts share the longest
+        # static prefix a provider can cache.
+        transport = "The runner's state.json is authoritative"
+        planning = {
+            name: text
+            for name, text in rendered_cases().items()
+            if name.startswith("planning/") and not name.startswith("planning/requirements_gather/")
+        }
+        self.assertTrue(planning)
+        for name, text in planning.items():
+            with self.subTest(case=name):
+                self.assertIn("[task:0] kind=task", text)
+                self.assertLess(text.index("REGRESSION REFERENCE:"), text.index("[task:0] kind=task"), name)
+                self.assertLess(text.index("[task:0] kind=task"), text.index(transport), name)
+        discovery = rendered_cases()["execution/astra_discovery/v3"]
+        self.assertIn("[task:0] kind=task", discovery)
+        self.assertLess(discovery.index("MILESTONE HANDOFF POLICY v1"), discovery.index("[task:0] kind=task"))
+        self.assertLess(discovery.index("[task:0] kind=task"), discovery.index(transport))
 
     def test_planning_reports_follow_the_provider_output_contract(self):
         cases = {name: text for name, text in rendered_cases().items() if name.startswith("planning/")}
@@ -397,6 +471,60 @@ class RenderedPromptTests(unittest.TestCase):
             with self.subTest(case=name):
                 self.assertIn("Follow the provider output contract for reporting.", text)
                 self.assertNotIn("return the report, the runner saves it", text)
+
+    def test_final_review_trace_instructions_allow_exact_retention(self):
+        state = fixed_state()
+        contract = {"acceptance_criteria": [{"id": "AC1", "criterion": "Preserve bytes."}]}
+        state["goal_contract"] = {"revision": 1, "hash": "saved-hash", "body": contract}
+        state["planning"] = {
+            "reports": {
+                "glm_revise": {
+                    "report": {
+                        "contract": contract,
+                        "requirement_trace": [{"requirement_id": "R1", "disposition": "covered", "evidence": "AC1"}],
+                    }
+                }
+            }
+        }
+        state["requirements_handoff"] = {
+            "report": {"requirements": [{"id": "R1", "text": "Preserve bytes.", "source_quote": "Preserve bytes."}]}
+        }
+        with (
+            patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
+            patch.object(planner.artifacts, "verify_predecessor", return_value=None),
+        ):
+            prompt, _ = planner.context(state, "astra_finalize", STATE_PATH)
+        instruction, raw = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
+        self.assertEqual("R1", json.loads(raw)["requirement_trace_rows"][0]["requirement_id"])
+        self.assertIn("use requirement_trace=[] to inherit that trace", instruction)
+        self.assertIn("Adding contract.initial_task does not require a new trace", instruction)
+        self.assertIn("Otherwise, requirement_trace must contain exactly one row", instruction)
+        self.assertIn("the independent reviewer still supplies source_trace and concern decisions", instruction)
+
+    def test_a_resumed_revision_is_told_the_rejection_it_resumes_from(self):
+        state = fixed_state()
+        error = "Changing a protected contract item 'AC9' needs a saved user answer or feedback event"
+        for attempt in (1, 2):
+            record = {
+                "stage": "glm_revise",
+                "source_revision": "fixed-revision",
+                "iteration": 1,
+                "output": f"/run/revise-{attempt}.json",
+            }
+            failures.record(state, record, ValueError(error), f"2026-10-21T00:00:0{attempt}Z")
+            state["stages"].append(record)
+        with (
+            patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
+            patch.object(planner.artifacts, "verify_predecessor", return_value=None),
+        ):
+            prompt, _ = planner.context(state, "glm_revise", STATE_PATH)
+            instruction, raw = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
+            self.assertEqual({"attempts": 2, "last_error": error}, json.loads(raw)["prior_rejection"])
+            self.assertIn("PRIOR REJECTION", instruction)
+            state["stages"].append({"stage": "glm_revise", "iteration": 1, "output": "/run/revise.json"})
+            later, _ = planner.context(state, "glm_revise", STATE_PATH)
+            self.assertNotIn("PRIOR REJECTION", later)
+            self.assertNotIn("prior_rejection", json.loads(later.split("\nCURRENT HANDOFF DATA\n", 1)[1]))
 
     def test_joint_planning_handoff_is_compact_and_preserves_exact_task_values(self):
         state = fixed_state()
@@ -425,7 +553,8 @@ class RenderedPromptTests(unittest.TestCase):
                 packet = json.loads(raw)
                 self.assertEqual(before["answers"], packet["saved_answers"])
                 self.assertEqual(before["brief_feedback"], packet["brief_feedback"])
-                self.assertEqual(before["user_events"], packet["user_events"])
+                # The event is an exact copy of the brief_feedback record: said once, by reference.
+                self.assertEqual([{"id": "feedback-1", "same_as": "brief_feedback"}], packet["user_events"])
                 self.assertLess(len(raw.encode()), len(json.dumps(packet, indent=2).encode()))
                 self.assertNotIn("\n", raw)  # literal newlines stay escaped data
                 self.assertEqual((len(prompt.encode()) + 3) // 4, metrics["estimated_prompt_tokens"])
@@ -441,7 +570,10 @@ class RenderedPromptTests(unittest.TestCase):
                     rendered = render(prompt, planner.schema_for(state, stage), Path("/run/events.jsonl"))
                     after = json.loads(rendered.split("\nCURRENT HANDOFF DATA\n", 1)[1])
                     self.assertEqual(packet, {key: after[key] for key in packet}, name)
-                    self.assertIn("capture_command", after)
+                    if name == "opencode" and stage == "requirements_gather":
+                        self.assertNotIn("capture_command", after)
+                    else:
+                        self.assertIn("capture_command", after)
                     self.assertTrue(rendered.startswith(instruction), name)
                 self.assertEqual(before, state, "rendering must not change authority or saved context")
 

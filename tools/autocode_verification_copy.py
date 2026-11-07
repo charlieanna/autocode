@@ -22,10 +22,12 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_joint_inputs as joint_inputs
     from . import autocode_source_snapshot as source
     from . import autocode_util as util
     from .autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
 except ImportError:
+    import autocode_joint_inputs as joint_inputs
     import autocode_source_snapshot as source
     import autocode_util as util
     from autocode_verification_budget import PREPARATION_ALLOWANCE_SECONDS
@@ -368,6 +370,7 @@ def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=
             if result.get("exit_code") != 0 or result.get("timed_out") or result.get("error"):
                 raise ValueError("Owned verification Git setup failed: " + str(result))
     _retain_history(root, tree, before["head"], env, deadline=deadline)
+    retained_joint_inputs = joint_inputs.copy(root, tree)
     # Match the clean replay's read-only task-local dependency lookup. These
     # links grant no new authority. A contained provider's sandbox also keeps
     # their originals read-only; an uncontained provider gets no such claim.
@@ -388,6 +391,7 @@ def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=
         "source_revision": before["revision"],
         "source_paths": before.get("source_paths", []),
         "files": files,
+        "joint_inputs": retained_joint_inputs,
         "directories": [str(p.relative_to(tree)) for p in tree.rglob("*") if p.is_dir() and not p.is_symlink()],
     }
     _remaining(deadline, "Verification source manifest")
@@ -428,6 +432,8 @@ def execution(manifest, expected_hash, workspace):
     if (
         tree.resolve() != tree
         or source.snapshot(root, paths=data.get("source_paths", []))["revision"] != data["source_revision"]
+        or joint_inputs.inventory(root) != data.get("joint_inputs", {})
+        or joint_inputs.inventory(tree) != data.get("joint_inputs", {})
     ):
         raise ValueError("Verification source changed; request fresh validation")
     for name in data["directories"]:

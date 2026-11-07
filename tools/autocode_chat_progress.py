@@ -55,11 +55,14 @@ def project(state: RunState, public, *, finished=False, stopped=False) -> list[s
         stage = record.get("stage") or ""
         if not roles.job_for_stage(stage, state):
             continue
+        # A runner-owned step (the Orchestrator's dispatch) launches no process, so it has no exit code;
+        # reading that absence as a failed exit put "Orchestrator attempt stopped" on a clean run (#1643).
+        exited = record.get("exit_code", 0 if record.get("runner_owned") else None)
         result = (
             "needs correction"
             if record.get("rejected")
             else "stopped"
-            if record.get("exit_code") != 0 or record.get("abandoned")
+            if exited != 0 or record.get("abandoned")
             else "finished"
         )
         attempts.append(f"{roles.screen_name(stage, state)} attempt {result}")

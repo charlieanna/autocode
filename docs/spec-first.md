@@ -10,12 +10,26 @@ Every time Requirements produces a handoff, the run stops with one question (`ne
 the outcome, the behaviors, the acceptance examples, the constraints, what it left out and its
 assumptions.
 
-- Answer `plan` to start the Planner.
+- Answer `plan` to start the job: the Planner for a build, the Investigator for a bug fix, the Code
+  Reviewer or the Designer for a review or a design.
 - Answer anything else to correct it: Requirements runs again with your answer and asks again.
 - `--feedback` works as usual.
 
+The handoff names the job Requirements understood (`job`: `build`, `bugfix`, `review`, `design`,
+`discuss`, or `none` while no outcome is named yet), and the question says what approving starts. Only a
+build or a bug fix needs behaviors and acceptance tests; a review, a design or a question names its
+outcome and nothing else. A question is never asked to be approved: once Requirements understands it
+and has nothing to ask, the Analyst answers it straight away. The Job recognizer runs only when
+Requirements named no job (#1846). Every run, chat or not, starts at Requirements and has it name the
+job (#1860); what spec-first adds is the confirmation before the job starts.
+
 Adaptive planning never skips Requirements on such a run. Planning, plan review and plan approval are
 unchanged.
+
+Without the setting, a complete handoff goes straight to the job Requirements named: planning for a
+build, the Investigator for a bug fix, the Code Reviewer, the Designer or the Analyst for the others. A handoff that has only questions so
+far, with no behaviors or acceptance tests yet, still stops the run for your answers on any flow, and
+Requirements runs again with them; only the confirmation of a complete handoff is spec-first's own.
 
 ## 2. The Tester writes the acceptance tests before the Builder
 
@@ -40,11 +54,16 @@ revises the plan.
 
 A bug fix's cases are its Investigator's, plus any `test:`/`guard:` cases its plan adds: the Tester writes
 the reproduction tests, which must run and fail before the fix (a file that cannot load is no
-reproduction), and the preserve tests, which must pass.
+reproduction), and the preserve tests, which must pass. A reproduction that already passes pauses the run
+(`PAUSED_ACCEPTANCE_TESTS`): the diagnosis and the code disagree, and only `--feedback` can say which is right.
+A `test:` case the plan itself added that already passes is not that disagreement; it is sent back relabelled
+`guard:` and reviewed again, exactly as in a build (#1868).
 
 In a plan with milestones, the Tester writes the cases due when a milestone is reached; a parallel batch
 gets the cases of every milestone in it at once. Tests for milestones not yet built are written later, so
-they never fail an earlier milestone's checks.
+they never fail an earlier milestone's checks. When a batch's members are then built one at a time, the
+proof of each member leaves out the test files that hold only the other members' tests (its notes name
+them); they are proved with their own milestone, and the final completion proof runs every test.
 
 The Builder then works with the Tester's lines fixed. Its prompt names the files. It may add tests to them
 (a plan can name further tests in the same file), but every line the Tester wrote must stay, in order. When

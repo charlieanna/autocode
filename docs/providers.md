@@ -5,6 +5,34 @@
 OpenCode is the default engine. Codex: `--engine codex`. Claude Code: `--engine claude`
 ([built in](#claude-code-provider)). Any other tool registers with one TOML file.
 
+## You do not need to choose a model
+
+Connecting one account is enough. Automatic selection reads the tool's own model and
+login listings, prefers subscriptions, and keeps the producer and checker roles on
+independent models ([automatic model selection](models.md#choosing-models-automatically)).
+
+`autocode connections list --routes` names the route each role will use, from that
+local listing and without launching anything:
+
+```text
+Routes for a new run, from kilocode's local listing:
+  Requirements: zai-coding-plan/glm-5.3 at medium (Z.AI Coding Plan subscription; qualified for Requirements)
+  Planner: openai/gpt-6-sol at high (OpenAI subscription; qualified for Planner)
+  Builder: openai/gpt-6-sol at medium (OpenAI subscription; qualified for Builder)
+```
+
+A new run with no model flag prints the same lines for its roles before it spends
+anything. A client reads them from `autocode connections list --routes --json` as
+`routes[]` and `routes_lines`; `autocode models --selection` shows the same choice with
+the alternatives it rejected and why. When no connected account can field a qualified
+route for a role, `routes_stop` and that preview say which role and which accounts would.
+
+Every `--<role>-model`, `--single-model` and `--<role>-reasoning-effort` flag is an
+override on top of that choice, not a required setup step. An override is checked at the
+same launch boundary as an automatic route: an effort the model does not declare pauses
+as `PAUSED_EFFORT_UNSUPPORTED` and names the variants it does
+([Reasoning effort](models.md#reasoning-effort)).
+
 ## Provider process ownership
 
 Supervised task-stage providers, including core TaskRun conversations and
@@ -14,6 +42,14 @@ with syscall continuation. A Linux host without them, and any other unsupported
 host except macOS, refuses the launch before provider spawn. The refusal
 identifies the unavailable boundary; it does not send a model request. There is
 no CLI opt-out.
+
+Ownership receipt reads retry malformed JSON up to five fresh reads, with
+25 ms between parse failures. Every read checks the size, schema, nonce and
+owner/keeper/provider identities before it can authorize a session handoff;
+no cached receipt grants ownership. Identity, schema, access and I/O failures
+remain immediate refusals, and persistent malformed JSON still pauses cleanup.
+This permits recovery from a transient malformed read during receipt publication
+without treating the failed read as evidence.
 
 macOS has no seccomp, so providers there run without this boundary (#1195):
 the keeper's lifeline and sampled process-group and session ownership, as for
@@ -46,6 +82,13 @@ The owner chose this macOS fallback in
 with strict refusal on 2026-10-14; the owner restored the fallback on
 2026-10-15, so local live qualification can run on macOS.
 
+The same holds for Kilo's read-only checkers (Tester, Completion Reviewer). On Linux they
+run a qualified Kilo 7.8.3 kernel shell (#1739). On macOS, which has no such shell, they
+keep Kilo's read tools and its own shell with edits denied, intersected with your Kilo
+permissions. Any source change a checker still makes is put back after the stage, and the
+run prints a one-line notice. Owner decision of 2026-10-21, in
+[#1766](https://github.com/charlieanna/autocode/issues/1766).
+
 Normal detached shell tools remain allowed: the independent keeper records a
 prospective session before permitting `setsid()`. Its receipt preserves that
 ownership through controller or keeper loss. Cleanup is verified only when the
@@ -59,6 +102,16 @@ effective `CAP_SYS_PTRACE` or `CAP_SYS_ADMIN` are also refused. The keeper is
 non-dumpable to protect its listener from same-user descriptor access. This is
 a process ownership boundary, not a filesystem or network sandbox.
 
+Before touching run state, the Linux CLI automatically removes only
+`CAP_SYS_PTRACE` and `CAP_SYS_ADMIN` from its bounding set when present, then
+re-executes the same Python invocation once. Root containers therefore normally
+need no `setpriv` prefix. The CLI records the verified drop on stderr and in
+`doctor`'s session row; it never elevates privileges or bypasses session admission.
+Set `AUTOCODE_NO_CAPABILITY_DROP=1` to retain externally managed startup behavior
+(including the offline demo). If `prctl` or re-exec is unavailable or refused,
+the existing admission check and cleanup-pause explanation remain in force.
+A successful drop does not establish other kernel boundary requirements.
+
 Offline native tests cover detached spawning, thread callers, double forks,
 descriptor closure, owner loss and keeper loss. They do not establish live-model
 or provider-version conformance. This policy changes no role models or routes.
@@ -68,6 +121,20 @@ sampled SID guard, including nested preparation workers. They do not install a
 provider listener or claim its kernel family-extinction proof. Commands already
 inside a provider family continue to inherit that family's filter. The model
 adapters always use the mandatory provider boundary; there is no CLI opt-out.
+
+Ordinary Kilo write stages also use an effective native tool policy. Read, coding,
+shell, todo, language-server and search tools are intersected with the operator's
+rules; asks remain denied in headless mode. Delegation, provider-owned interactive
+questions/planning gates, external-directory access and unknown tools are denied.
+The stage starts a fresh restricted session so earlier session grants cannot
+restore those tools. Mixed-session streams remain invalid; AutoCode never merges
+subagent reports or commands into the primary session's evidence.
+
+If the selected Kilo agent has a positive `steps` limit, its restricted AutoCode
+agent keeps that bound. Kilo then forces a text-only response after that many
+tool rounds; the response still has to pass AutoCode's report and completion
+gates. AutoCode adds no default step limit and does not inherit another model
+or broader tool grants with the bound.
 
 ## OpenCode adapter
 
@@ -183,8 +250,24 @@ set the attempt aside with `--abandon-stage`, and `--resume-paused`. Model and p
 limits still apply. Automatic report repair remains bounded to the existing read-only
 Tester and Completion Reviewer stages; Builder and Requirements never retry
 an output-limit stop automatically. Ambiguous or interrupted output remains uncertain.
-The cap-setting rules are in `tools/autocode_output_cap.py`; they do not alter configured
-command providers' environment or token limits.
+The cap-setting rules are in `tools/autocode_output_cap.py`. Ordinary Kilo 7.8.3 uses
+`KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX`, not the OpenCode variable. AutoCode sets that
+native variable to 64000. A valid Kilo-specific operator value wins; otherwise a
+valid legacy OpenCode value is carried across for existing callers. Kilo records
+also name `variable`, and length-stop guidance names that same native setting.
+A network-disabled local API qualification observes `max_tokens: 64000` with the
+native default and the chosen operator override. This proves request construction,
+not that every remote provider honors it. Other configured providers and the
+separate native-isolation path retain their existing cap behavior.
+
+Ordinary Kilo planning and read-only verification both use Kilo 7.8.3's qualified
+kernel-constrained shell on Linux, with a writable verification copy and source writes
+denied; a planning shell also cannot read the run's private state. On macOS, which has no
+kernel shell for Kilo, both keep Kilo's read tools and its own shell with edits denied, and a
+source write is put back after the stage. Planning report recovery has no tools. Every other native tool is disabled there. Effective operator
+denies are retained; headless asks are denied rather than auto-approved. Restricted
+stages start fresh sessions so previous session grants cannot override their policy.
+Builder permissions and the separate native-isolation route keep their existing contract.
 
 For an isolated native run paused before plan approval, an OpenCode authentication
 failure can also be set aside explicitly with the displayed `--abandon-stage`
@@ -203,7 +286,7 @@ the runner's environment minus variables that look like credentials: a name word
 such as `TOKEN`, `SECRET`, `PASSWORD`, `KEY` or `AUTH` (`GITHUB_TOKEN`,
 `AWS_SECRET_ACCESS_KEY`, `SSH_AUTH_SOCK`, `OPENAI_API_KEY`), or a URL value with
 an embedded password. Proxy variables and AutoCode's ordinary `AUTOCODE_*` settings are
-kept. The nine [controller token variables](cli.md#keeping-authorization-tokens-out-of-argv)
+kept. The eight [controller token variables](cli.md#keeping-authorization-tokens-out-of-argv)
 are always withheld, including when named in `AUTOCODE_PASS_ENV`. Token counts are kept:
 a `TOKEN` word followed by `MAX`, `LIMIT`, `COUNT` or
 `BUDGET`, or after `MAX`, holding a whole number
@@ -230,6 +313,14 @@ tokens remain withheld even when listed.
 
 Withholding variables is not a sandbox: an agent with shell access can still read
 files such as `~/.aws/credentials` or `~/.config/gh/hosts.yml`.
+
+Configured tools such as GoCode keep their own model identifiers in saved status
+and model-recovery recommendations. A provider selected for the whole run uses the
+same validation as a per-role transport override; native OpenCode still requires
+`provider/model` identifiers. Recovery recommendations list the run's other saved
+models that satisfy verifier independence. A named replacement is checked against
+the actual provider catalog before it is saved; recommendations never authorize a
+provider switch or bypass the independent-checker rule.
 
 Resuming preserves the saved engine, models and separate role sessions. Start a new
 run when switching between Codex, OpenCode and Claude Code; their session IDs cannot be reused
@@ -340,7 +431,11 @@ of the AutoCode process itself: ambient keys trip joint-planning's billing-route
 gate (`PAUSED_BILLING_ROUTE`) even when GoCode would have supplied the right
 route for the child. Unset them in the shell that launches `autocode` or
 `scenarios/run.py`, or put them in the provider's `forbid_env` so AutoCode
-strips them before the stage.
+strips them before the stage. `autocode doctor` names this gate on a Codex
+setup before any run pauses: the `billing:codex` check lists the exported
+variables or the `model_provider`/`openai_base_url` lines in Codex's own
+config, with the exact `unset` command, and points API keys to OpenCode or Kilo
+(#2055).
 
 Put `-o {report}` (or `--output-last-message {report}`) in the **command list**
 as its own argv slot, not only inside a `sh -c` string. When Autocode sees that
@@ -463,7 +558,10 @@ left out) are kept beside the log as `<stage>.claude.jsonl`.
   Claude Code session (`CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_REMOTE_SESSION_ID`,
   `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_DEBUG`, `CLAUDE_CODE_DIAGNOSTICS_FILE`,
   `CLAUDE_CODE_TEE_SDK_STDOUT`, `CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_EFFORT`,
-  `CLAUDE_AUTO_BACKGROUND_TASKS`, `CLAUDE_CODE_ENTRYPOINT`), plus `DISABLE_AUTOUPDATER=1`.
+  `CLAUDE_AUTO_BACKGROUND_TASKS`, `CLAUDE_CODE_ENTRYPOINT`), plus `DISABLE_AUTOUPDATER=1` and
+  `FORCE_PROMPT_CACHING_5M=1`. Each stage is a fresh session that finishes in minutes, so the
+  5-minute prompt cache (writes at 1.25x the input price) replaces Claude Code's default 1-hour
+  cache (2x); on two measured runs that cut 26% and 29% of model cost.
 - **Identity.** A saved run records the launch policy (hashed), the resolved `claude`, its version, a
   hash of `<workspace>/.claude/settings.json` and hashes of `ANTHROPIC_BASE_URL` and
   `CLAUDE_CONFIG_DIR`. A change pauses it with `PAUSED_TRANSPORT_CHANGED`; after a `claude` update,
@@ -479,7 +577,8 @@ left out) are kept beside the log as `<stage>.claude.jsonl`.
 | Claude Code says | The run |
 | --- | --- |
 | Output token limit (`max_output_tokens`) | `PAUSED_OUTPUT_CAP`; a truncated Tester or Completion report is repaired automatically. Raise `CLAUDE_CODE_MAX_OUTPUT_TOKENS` or name another model. |
-| Context window limit | `PAUSED_PROVIDER_UNCERTAIN` (never an output cap) |
+| Context window limit (`prompt_too_long`) | `PAUSED_CONTEXT_WINDOW` (never an output cap): name a model with a larger window, or give the job a smaller task |
+| Conversation compacted (`compact_boundary`) | `PAUSED_CONTEXT_WINDOW`; the report that followed the summary is not accepted |
 | Subscription usage limit, spend limit, billing | `PAUSED_BUDGET` (with the reset time when Claude gave one) |
 | Rate limit (429) | `PAUSED_RATE_LIMIT` |
 | Overloaded (529) | `PAUSED_PROVIDER_CAPACITY` |
@@ -500,11 +599,12 @@ its next stage; resume it with `--accept-transport-change`.
 **Limits.** No kernel tool containment (Claude Code's permission flags and the workspace snapshot
 checks apply); no verified visual evidence; no `--task-preflight`; no hybrid split by stage; no replay
 of recorded Claude runs; no Investigator report adoption; `autocode models` lists nothing for the bare
-ids. `program`, `components` and `verify` take `--provider claude` rather than `--engine claude`;
+ids. `components` and `verify` take `--provider claude` rather than `--engine claude`;
 `tasks` has neither and runs its lanes on Claude Code through `AUTOCODE_PROVIDER=claude`,
 `default_provider = "claude"` or the project's `engine = "claude"`. Claude Code loads `CLAUDE.md` files of the workspace and its ancestors, so keep a
-scenario's `--out` outside this repository. In a root cloud container, prefix runs with
-`setpriv --bounding-set=-sys_admin,-sys_ptrace` ([cloud sessions](../examples/claude-provider/CLOUD-SESSION.md)).
+scenario's `--out` outside this repository. In a root cloud container, the CLI drops the two
+prohibited capabilities automatically; see [provider process ownership](#provider-process-ownership)
+for the opt-out and failure behavior ([cloud sessions](../examples/claude-provider/CLOUD-SESSION.md)).
 
 ## Add a tool
 
@@ -528,9 +628,14 @@ astra = { model = "openai/gpt-5.6-sol", effort = "high" }
 terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
+glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
 plan_reviewer = { model = "openai/gpt-6-sol", effort = "high", light_effort = "medium" }
 ```
+
+A connection whose `command` runs `kilo` under another name (a copy of this file in
+`~/.config/autocode/providers/NAME.toml` with your own roles and routes) is a Kilo connection:
+it gets the same launch as `kilocode`, with the activity plugin, the output cap, the native
+variant check and the read-only checker policy, rather than the plain command launch (#2010).
 
 For clear, small tasks the Plan Reviewer may use `light_effort` (or one lower
 standard effort tier) only when a new run used an automatic/default effort.
@@ -559,12 +664,15 @@ Changing the config file or the tool version pauses a saved run.
 
 ### A different tool for one role
 
-For a **new** run on `--engine opencode --provider opencode`, repeat
-`--role-transport ROLE=PROVIDER` to select an external configured tool for only
-those roles. `ROLE` is the existing CLI code name, such as `sol` or `completion`;
-`PROVIDER` names its registered TOML config, such as `kilocode`. Each selection
-requires an explicit corresponding model flag. Select its exact model ID from
-that tool's catalogue, including a bare ID when the tool publishes one:
+For a **new** run on the OpenCode facade engine (`--engine opencode` with any
+provider, or `--engine claude`), repeat `--role-transport ROLE=PROVIDER` to run
+only those roles on another connected tool. `ROLE` is the existing CLI code name,
+such as `sol` or `completion`; `PROVIDER` names a tool with its own identity: a
+registered TOML config such as `kilocode`, the built-in `claude` provider, or the
+`autocode` direct connection. It cannot name the run's own tool, and `--engine
+codex` keeps Codex's own transport for every role. Each selection requires an
+explicit corresponding model flag. Select its exact model ID from that tool's
+catalogue, including a bare ID when the tool publishes one:
 
 ```sh
 autocode models --provider opencode
@@ -573,6 +681,9 @@ autocode models --provider kilocode
 autocode "Your task" --engine opencode --provider opencode \
   --role-transport sol=kilocode --sol-model '<MODEL_FROM_KILO_CATALOGUE>' \
   --sol-reasoning-effort high
+# A run on Claude Code with the Tester on a Kilo account (#2049).
+autocode "Your task" --engine claude \
+  --role-transport sol=kilocode --sol-model '<MODEL_FROM_KILO_CATALOGUE>'
 ```
 
 The other roles retain their routes selected by the ordinary model flags and
@@ -633,8 +744,8 @@ starts, a Tester or Completion Reviewer that runs the strong model moves to `che
 until the next milestone, as does one on another model of the strong model's GLM or MiMo family.
 When the Builder's model has no `provider/` prefix it moves only when it runs the strong model
 in the tool's spelling (or such a family member), is neither pinned nor on another provider, and
-`checker_model` is a model the run already routes a role to; otherwise the run pauses with
-`PAUSED_BUILDER_RETRY_LIMIT` before changing any route. A config without the table keeps the
+`checker_model` is a model the run already routes a role to; otherwise the run ends with
+AutoCode's recorded could-not-finish outcome before changing any route. A config without the table keeps the
 default models, and `provider/model` names such as KiloCode's keep the earlier rule (a checker
 that cannot move is left for the cross-model guard). Adding or changing the table
 changes the config file, so saved runs on that tool stop with `PAUSED_TRANSPORT_CHANGED` at
@@ -669,6 +780,15 @@ the cited, verified capture receipt before checking the unchanged report schema.
 It never replaces a supplied exit code, guesses from output text, or resolves
 ambiguous executions. The original report is retained as `.reported.json`, and
 the stage records the derived metadata. Nonzero exits remain failures.
+A strict-schema command wrapper can call
+`autocode_provider_report_schema.full_report(schema_path)` before passing a schema
+to its model API. This keeps an ordinary schema unchanged. For an optional bounded
+report-edit offer, it writes a separate schema restoring the exact original full
+report fields and required list. The saved input schema and source pins remain
+unchanged; the core still validates the complete returned report, provenance and
+evidence. This adapter supports providers that reject arbitrary JSON edit values;
+it grants no weaker validation or approval authority.
+
 For `report_file` tools, capture commands must inherit `AUTOCODE_CAPTURE_CONTEXT`
 from the tool process: the capture helper records it automatically and the
 validator checks it against the saved attempt. Receipts from another attempt,
@@ -739,9 +859,11 @@ new run to move every role.
 
 This adapter requires **Codex CLI 0.160.0 or later**, checked before a model
 request. For planning and review it selects a named permission profile derived
-from `:read-only`, adding writes only to the workspace's `.autocode/evidence/`,
-`.autocode/output/`, and the exact assigned stage JSON report. The Builder keeps
-`workspace-write`. Codex's `-o` option saves the final JSON response; the model
+from `:read-only`, adding writes only to the workspace's `.autocode/evidence/`
+and `.autocode/output/` directories. The Builder keeps
+`workspace-write`. Codex's `-o` option saves the final JSON response outside the
+tool sandbox; the report file needs no tool-write grant. File write roots cause
+Linux sandbox mount setup to fail. The model
 still runs actual capture commands to produce independently checked receipts.
 No permission answer automatically changes this profile.
 
@@ -804,7 +926,11 @@ credit pauses the run with `PAUSED_BUDGET`.
 
 ### KiloCode
 
-`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run --auto`.
+`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run --auto`,
+and on Linux a launch refuses any release but the qualified **7.8.3** (`npm install -g
+@kilocode/cli@7.8.3`): restricted read-only and planning stages need its kernel
+shell, so a newer Kilo stops before any spend instead of running uncontained. macOS
+has no such shell and no pin; its checkers run as described above (#1766).
 Its default routes use ChatGPT OAuth for `openai/...`, Zhipu AI Coding Plan for
 `zhipuai-coding-plan/...`, and Alibaba Token Plan for `alibaba-token-plan/...`.
 Optional `zai-coding-plan/...` and `kilo/...` routes require their separate
@@ -828,7 +954,7 @@ astra = { model = "openai/gpt-5.6-sol", effort = "high" }
 terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
+glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
 plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
 
 [auth]
@@ -889,6 +1015,16 @@ For these routes the check also refuses a set
 routes, every selected model must match a declared prefix; add an
 `[[auth.routes]]` entry for another vendor before using it.
 
+Before a Kilo launch, AutoCode checks an explicit reasoning effort against that
+model's native `kilo models PROVIDER --verbose` variants. An unsupported or
+unverifiable effort stops before inference; it is never silently remapped.
+For example, GLM-5.3 declares `low`, `high` and `max`, not `medium`; an unrecognized
+variant can otherwise be ignored by Kilo and use the provider's default.
+The new bundled Kilo GLM default is High. Existing runs and operator-owned configs
+retain their selections and must explicitly correct an unsupported one using the
+corresponding `--ROLE-reasoning-effort` flag. A deliberately unspecified effort
+still uses the model's default.
+
 The bundled command uses Kilo's `--auto` for noninteractive stages: ordinary
 permission requests are approved once; effective explicit `deny` rules in
 Kilo's configuration and selected agent still block the tool. AutoCode does
@@ -899,10 +1035,83 @@ auto-rejected-permission error. If you copied an older provider config to
 the bundled update does not replace your custom file. AutoCode's plan approvals,
 human reviews and recovery choices still require their own user input.
 
-This command does not establish an OS sandbox or native read-only planning
-policy. A read-only stage that edits source is caught afterwards by AutoCode's
-workspace snapshot check and pauses; use explicit Kilo permission restrictions
-for operations that must be blocked before execution. See Kilo's
+**Restricted stages keep your effective policy — asks included, as denials.**
+A stock Kilo 7.8.3 install resolves its default agent with `bash` set to *ask*,
+allowing only a fixed list of benign command prefixes (`cat *`, `ls *`,
+`grep *` and similar; no `test`, `git` or compound shell lines). Every ordinary
+Kilo stage — the kernel-contained read-only planning and review stages, the
+read-only checks that use Kilo's own shell where no kernel sandbox is
+qualified, and the writer stages — rebuilds the selected agent's effective
+permission into a fresh per-launch agent: explicit allows pass through, and
+every `ask` or `deny` stays a `deny`, because a headless stage must not widen
+an ask into an execution grant. AutoCode's own model-free conformance probes
+run compound shell lines that match none of the stock allowed prefixes, so on
+a stock install the first kernel-contained read-only stage pauses
+`PAUSED_TOOL_CONTAINMENT` with "Native tool permissions deny the model-free
+conformance probe" before any model request. `--auto` cannot grant these: it
+answers permission requests Kilo raises while running, and the per-launch
+agent already carries the ask as an explicit deny, so no request is ever
+raised.
+
+**Selecting the shell policy for a trusted task.** When you deliberately trust
+a task with a shell, start `autocode` with a Kilo configuration whose effective
+permission allows `bash`. One explicit example, for a process that sets no
+inline configuration of its own:
+
+```sh
+KILO_CONFIG_CONTENT='{"permission":{"bash":{"*":"allow"},"external_directory":"deny"}}' \
+  autocode chat "Fix the flaky login test" -- --provider kilocode
+```
+
+The `bash: {"*": "allow"}` rule is broad command authority scoped to this
+process and its stages, not a minimal grant; a narrower operator-defined
+allowlist may serve a given task instead — nothing here requires the blanket
+shape. Inline configuration is appended after Kilo's defaults, so the last
+matching rule wins, and your `~/.config/kilo/kilo.jsonc` file is untouched;
+that on-disk config merge is a separate mechanism from this environment
+variable. If a `KILO_CONFIG_CONTENT` value already exists, merge these
+`permission` fields into that object and keep every other key — never replace
+the whole value with this example — and where the existing policy holds
+explicit `deny` or `ask` rules, review them deliberately rather than copying
+an allow over them. AutoCode adds its own per-launch agent, activity plugin
+and compaction settings by merging into the object it receives, and the
+restricted agent always carries `external_directory` denied. This is a
+per-task decision, not a setup step: skip it when your Kilo configuration
+already gives the effective agents explicit `bash` rules (those pass the
+intersection unchanged), and do not use it for repositories you do not trust.
+On the kernel-contained read-only stages the bubblewrap boundary, not this
+permission line, is what confines the shell; the permission line is what lets
+AutoCode prove that boundary model-free before launching anything.
+
+**Context compaction is off.** Kilo summarizes a conversation on its own once it
+nears the model's window (its `compaction.auto`, at the window minus the larger of
+the output cap and a 20k buffer). A stage must see its handoff whole, so every
+ordinary launch sets `compaction.auto` to `false` in `KILO_CONFIG_CONTENT`. A request
+that still exceeds the window is rejected by the API (`ContextOverflowError`,
+`context_length_exceeded`); Kilo then compacts anyway and carries on, so the runner
+refuses that response: the stage pauses `PAUSED_CONTEXT_WINDOW`, naming the request
+size, and asks `route-ROLE` for a model with a larger window (or set the attempt aside
+and give the job a smaller task, for example a narrower `--package`). The activity
+plugin forwards any compaction part Kilo writes as an `autocode_compaction` row, and
+a request whose input is less than half of the previous one's (which held at least
+32k) is treated as the same signature, so a compaction the stream did not announce
+is still refused. The native-isolation launches keep disabling Kilo's compaction
+agent as before. The rules are in `tools/autocode_context_window.py`.
+
+Where each stage's boundary comes from: on Linux, read-only planning and review
+stages are kernel-contained — AutoCode prepares a per-launch bubblewrap boundary
+(fresh user, PID, IPC and network namespaces, a fresh `/proc`, every capability
+dropped, the workspace mounted read-only) and proves it with model-free probes
+before any launch, including the readonly planning shell's denial of private
+run-state reads where that boundary is supplied. On hosts where no kernel
+sandbox is qualified, such as macOS, read-only checks instead run with Kilo's
+own permission-restricted shell and edits denied, and any source change is put
+back by the workspace snapshot check. Writer stages get no kernel sandbox and
+no filesystem boundary from this command: the workspace snapshot checks
+inspect workspace changes afterwards and are not an OS boundary around the
+writer process, and `external_directory: "deny"` is a native tool policy, not
+a filesystem sandbox for bash. Use explicit Kilo permission restrictions for
+operations that must be blocked before execution. See Kilo's
 [permission reference](https://kilo.ai/docs/code-with-ai/platforms/cli#permissions).
 
 The `alibaba-token-plan/` route serves that login's own plan rather than the
@@ -914,7 +1123,16 @@ cross-model guard is for.
 
 ### Default provider
 
-New runs use OpenCode unless you choose otherwise. `--provider <name>` picks the
+New runs use OpenCode unless you choose otherwise. When OpenCode is not
+installed and nothing chooses (no `--engine` or `--provider`, no
+`AUTOCODE_PROVIDER`, no `default_provider`, no project `engine`), a new run
+takes the first connected backend in this order: Claude Code signed in to a
+subscription, Codex signed in, then Kilo with a connected account (#2049; the order is the proposed
+"default engine" answer in #2054). The run prints `Engine for this run: …` with
+the reason, `doctor` names the same choice in its `engine` row, and a saved run
+keeps the engine it started with. Each check is the backend's own login listing,
+as `autocode connections check` reads it; no model is called and no credential
+is read. `--provider <name>` picks the
 tool for one run. To change the default for every new run and for the dashboard,
 set `AUTOCODE_PROVIDER=kilocode` or add this to `~/.config/autocode/config.toml`:
 
@@ -923,7 +1141,7 @@ default_provider = "kilocode"
 ```
 
 A saved run keeps the provider it started with, and `--engine codex` runs still
-use Codex. `autocode-dashboard --provider <name>` overrides the default for the
+use Codex. `autocode dashboard --provider <name>` overrides the default for the
 dashboard; its model pickers list that tool's models.
 
 See also: [Models](models.md) · [Install](install.md) · [CLI](cli.md)
@@ -945,13 +1163,15 @@ A version the offline conformance suite has not been run against is
 | opencode | 2.0.20 | opencode-standalone | refused | refused | accepted-for-ordinary-runs | 2026-10-06 | `9a31a8e8` | Uses --standalone and a provider/model#effort id. A 2.x binary fails the containment and visual checks closed until it has its own conformance pass (docs/bugs/2026-10-06-opencode-2.md). |
 | codex | native | codex | n/a | n/a | known-good | 2026-10-03 | `b96a633e` | Native Codex probes in docs/provider-conformance.md; ChatGPT login required. |
 | kilocode | registered-adapter | kilocode | n/a | n/a | known-good | 2026-10-03 | `b96a633e` | Registered KiloCode adapter; see docs/provider-conformance.md. |
+| autocode | direct-1 | direct-compatible | qualified | n/a | known-good | 2026-10-26 | `ed2a01957` | The direct engine's own runtime, kernel-contained shell and event stream against a loopback model fixture (#2055); covers the OpenAI/OpenRouter-compatible API-key transport. Sessionless engine: build and validate boundaries. The Anthropic-messages transport and Google remain pending. |
 
 <!-- END provider conformance matrix -->
 
 ### Connection setup and company backends
 
-`autocode connections list --json` lists built-in Kilo, OpenCode and Claude Code
-and user-registered providers. `connections check --provider NAME --json` checks
+`autocode connections list --json` lists built-in Kilo, OpenCode, Codex and Claude Code
+and user-registered providers (Codex is an engine, `--engine codex`; its row says whether it is
+installed and signed in). `connections check --provider NAME --json` checks
 credentials without model traffic. `connections login --provider NAME` opens the
 backend's own interactive sign-in. AutoCode does not store a second copy of keys,
 SSO sessions, or AWS credentials. Kilo/OpenCode login lets the backend choose its
@@ -979,33 +1199,52 @@ in a project are never discovered as connection definitions.
 
 ### AutoCode direct connections (issue #1493)
 
+**Retired (owner decision 2026-10-30, #2049); removed in the next release.** AutoCode offers
+four backends: Claude Code and Codex as engines, and OpenCode and Kilo for every other account
+and API key. Add API keys there (`opencode auth login`, `kilo auth login`). A direct connection
+that is already configured still appears in `autocode connections list`, and `--provider
+autocode` still runs on it until then; nothing offers it to a new user, and `connections setup`
+and `connections add` print that notice first. The rest of this section describes it until it
+is removed.
+
 AutoCode includes its own text/tool runtime. It does not require Kilo, OpenCode,
 Codex, Claude Code, or another coding-agent executable. In VS Code open
 **Connections → AutoCode · Direct connection → Set up AutoCode**, or run:
 
 ```sh
 autocode connections setup
+autocode connections add openai
 autocode connections check --provider autocode --json
 autocode "hi" --provider autocode --joint-planning --spec-first
 ```
 
 Setup is interactive in a terminal and launches no model. Choose **mimo**,
-**zai**, **openai**, **claude**, or a custom **compatible** API. One direct
-provider/endpoint is selected for a connection; mixed-provider routing remains
-available through the existing Kilo backend.
+**zai**, **openai**, **openrouter**, **claude**, or a custom **compatible** API.
+`connections setup` keeps one provider per connection; `connections add
+PROVIDER` (issue #2055) configures several providers at once, each with its own
+key in the same private store, and assigns each role to its provider — for
+example Planner/Builder/Requirements on an OpenAI key and the independent
+reviewer/tester roles on a Claude key, so verifier independence is satisfied
+without flags. `add` reports immediately when the resulting routes are not
+independent; re-adding a provider with a blank key rotates nothing and keeps
+the other providers' keys. Google's Gemini API is refused until its own
+transport ships; openrouter reaches many vendors today through one key. A
+version-1 single-provider connection keeps working and upgrades in place the
+first time a second provider is added.
 
 | API choice | Protocol | Authentication | Response limit field |
 | --- | --- | --- | --- |
 | MiMo | Chat Completions | `api-key` | `max_completion_tokens` |
 | Z.ai | Chat Completions | Bearer key | `max_tokens` |
-| OpenAI / custom compatible | Chat Completions | Bearer key | `max_completion_tokens` |
+| OpenAI / OpenRouter / custom compatible | Chat Completions | Bearer key | `max_completion_tokens` |
 | Claude | Anthropic Messages | `x-api-key`, version `2023-06-01` | `max_tokens` |
 
 MiMo and Z.ai require an explicit base URL, including its version path. Use the
 exact endpoint and matching key for your billing route: ordinary API access and
 Token/Coding Plan subscriptions have separate endpoints. Setup shows the API
 examples and requires you to choose; it never falls back to another billing
-route. OpenAI defaults to `https://api.openai.com/v1`; Claude defaults to
+route. OpenAI defaults to `https://api.openai.com/v1`; OpenRouter defaults to
+`https://openrouter.ai/api/v1`; Claude defaults to
 `https://api.anthropic.com/v1`. Endpoint overrides require HTTPS (HTTP is allowed
 only for loopback fixtures). This setup accepts API keys, not ChatGPT or Claude
 subscription logins. Kilo continues to own its separate sign-in and routes.
@@ -1028,7 +1267,9 @@ The API key lives in a separate `auth.json` file, mode `0600`, under
 `$XDG_CONFIG_HOME/autocode/direct/` (default `~/.config/autocode/direct/`), whose
 mode is `0700`. This is a private local file, not an OS keychain. The credential
 is bound to the API endpoint: changing the endpoint requires an explicit key for
-that destination. Status and launch arguments never contain key values. Listing
+that destination, and in a multi-provider connection each provider's key is
+bound to that provider's endpoint alone. Status and launch arguments never
+contain key values. Listing
 connections reads metadata only; **Check setup** validates local setup, not live
 model access. `configured` and `setup_required` are distinct.
 Key rotation for the same endpoint preserves transport identity; changes to the

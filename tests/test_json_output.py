@@ -85,9 +85,19 @@ class JsonActionCliTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
-        registry = patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry-home")})
-        registry.start()
-        self.addCleanup(registry.stop)
+        # An empty config home, so a new run never takes the developer's default_provider (#1933).
+        config_home = tempfile.TemporaryDirectory()
+        self.addCleanup(config_home.cleanup)
+        environment = patch.dict(
+            os.environ,
+            {
+                "AUTOCODE_HOME": str(self.root / "registry-home"),
+                "XDG_CONFIG_HOME": config_home.name,
+                "AUTOCODE_PROVIDER": "",
+            },
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         seed_greeting_workspace(self.root)
         subprocess.run(["git", "-C", str(self.root), "add", "greet.py", "test_greeting.py"], check=True)
@@ -223,8 +233,8 @@ class JsonActionCliTests(unittest.TestCase):
             {"result": {"exit_code": 2, "saved": False, "message": "", "error": error}}, json.loads(stdout)
         )
         # Without --in-place the task worktree and branch are made before configure refuses: result.message
-        # carries what the invocation printed about them, and the worktree stays.
-        refusal, stdout, _ = self.raised(*(arg for arg in new_run if arg != "--in-place"))
+        # carries what the invocation printed about them; pre-save cleanup then removes both.
+        refusal, stdout, stderr = self.raised(*(arg for arg in new_run if arg != "--in-place"))
         result = json.loads(stdout)["result"]
         self.assertEqual((2, False), (result["exit_code"], result["saved"]))
         self.assertEqual({"code": "input_rejected", "message": refusal}, result["error"])
@@ -232,7 +242,17 @@ class JsonActionCliTests(unittest.TestCase):
         self.assertTrue(created.startswith("Task worktree: "), created)
         worktree = Path(created.removeprefix("Task worktree: "))
         self.assertEqual(self.root / ".autocode/worktrees", worktree.parent)
-        self.assertTrue(worktree.is_dir(), worktree)
+        self.assertFalse(worktree.exists(), worktree)
+        remaining = subprocess.run(
+            ["git", "-C", str(self.root), "branch", "--list", f"autocode/{worktree.name}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual("", remaining.stdout)
+        self.assertIn(
+            f"Removed the unused task worktree and branch autocode/{worktree.name}; no run was saved.", stderr
+        )
         self.assertEqual(f"Branch: autocode/{worktree.name}", branch)
         self.assertEqual("Starting from committed HEAD; the original checkout is unchanged.", starting)
 

@@ -3,6 +3,8 @@
 Credentials stay with the backend. Status subprocess output is deliberately not
 returned: company helpers can print tokens, account names or environment exports.
 Only user-level registered providers are discovered, never workspace TOML files.
+`list --routes` and the end of `setup` read the connected tool's own model listing to
+say which route each role would use (#2057); that is a listing, never a model call.
 """
 
 from __future__ import annotations
@@ -12,15 +14,21 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 
 try:
     from . import autocode_direct_config as direct
-    from .providers import command
+    from . import autocode_providers as providers
+    from .providers import claude, command
 except ImportError:
     import autocode_direct_config as direct
-    from providers import command
+    import autocode_providers as providers
+    from providers import claude, command
 
 BUILTINS = {
+    # Codex is an engine (--engine codex), not a provider config; its row lets a client say it is installed
+    # and signed in. `codex login status` exits 0 signed in, 1 not, as the registered contract (#2357).
+    "codex": ("Codex", "codex", ["codex", "login"], ["codex", "login", "status"]),
     "kilocode": ("Kilo", "kilo", ["kilo", "auth", "login"], ["kilo", "auth", "list"]),
     "opencode": ("OpenCode", "opencode", ["opencode", "auth", "login"], ["opencode", "auth", "list"]),
     "claude": ("Claude Code", "claude", ["claude", "auth", "login"], ["claude", "auth", "status", "--json"]),
@@ -32,12 +40,21 @@ def parser():
     actions = result.add_subparsers(dest="action", required=True)
     listing = actions.add_parser("list", help="Discover installed and registered backends without checking login")
     listing.add_argument("--json", action="store_true", help="Return the public connection view")
+    listing.add_argument(
+        "--routes",
+        action="store_true",
+        help="Also choose the route each role would use, from the connected tool's own model listing (#2057)",
+    )
     check = actions.add_parser("check", help="Check backend credentials without launching a model")
-    check.add_argument("--provider", required=True)
-    check.add_argument("--json", action="store_true")
+    check.add_argument("--provider", required=True, help="Connection to check (an ID from `connections list`)")
+    check.add_argument("--json", action="store_true", help="Return the public connection view")
     login = actions.add_parser("login", help="Run the backend's own interactive sign-in in this terminal")
-    login.add_argument("--provider", required=True)
-    actions.add_parser("setup", help="Configure AutoCode's MiMo/Z.ai/OpenAI/Claude API connection in this terminal")
+    login.add_argument("--provider", required=True, help="Connection to sign in to (an ID from `connections list`)")
+    actions.add_parser(
+        "setup", help="Retired: configure AutoCode's own API-key connection (use OpenCode or Kilo for API keys)"
+    )
+    add = actions.add_parser("add", help="Retired: add or rotate a key on AutoCode's own API-key connection")
+    add.add_argument("provider", nargs="?", help="mimo, zai, openai, openrouter, claude or compatible")
     return result
 
 
@@ -105,12 +122,18 @@ def connection_view(name, *, check=False):
                 detail="Connection check could not finish. Open the backend to diagnose it.",
             )
             return row
+        refusal = None
         if name == "claude":
             try:
-                logged_in = json.loads(result.stdout).get("loggedIn") is True
+                status_json = json.loads(result.stdout)
+                logged_in = status_json.get("loggedIn") is True
             except (ValueError, AttributeError):
                 logged_in = False
             ready = result.returncode == 0 and logged_in
+            # A login a run would refuse with PAUSED_BILLING_ROUTE is not ready either; say why without
+            # echoing the account details the status carries.
+            refusal = claude.billing_refusal(status_json) if ready else None
+            ready = ready and not refusal
         elif name in ("kilocode", "opencode"):
             # Their auth-list command succeeds even with no saved credentials.
             # Do not mistake an empty list for a signed-in account, or echo it.
@@ -130,7 +153,13 @@ def connection_view(name, *, check=False):
         elif ready:
             row.update(
                 connection_status="credentials_present",
-                detail="Backend reports saved credentials. Selected model access and billing routes are checked when a run starts.",
+                detail="Saved credentials found; they are not tested here. An expired or revoked key, model access and billing show up when a run starts.",
+            )
+        elif refusal:
+            row.update(
+                connection_status="sign_in_required",
+                detail=f"Signed in, but not on a route a run accepts: {refusal}. Sign in with a Claude "
+                "subscription and remove any apiKeyHelper or API-key setting, then check again.",
             )
         else:
             row.update(
@@ -142,24 +171,130 @@ def connection_view(name, *, check=False):
     return row
 
 
+RETIRED = (
+    "The AutoCode direct API-key connection is retired (owner decision 2026-10-30, #2049) and is removed "
+    "in the next release. Add your API keys in OpenCode (`opencode auth login`) or Kilo (`kilo auth login`), "
+    "or sign in to Claude Code or Codex; `autocode connections list` shows what is connected."
+)
+
+
 def view():
-    """Discover connection metadata only; no backend subprocesses or model calls."""
-    names = {*BUILTINS, "autocode"}
+    """Discover connection metadata only; no backend subprocesses or model calls.
+
+    The retired direct connection (``autocode``) is listed only once it is configured, so a person who
+    set it up can still check and rotate it while nobody new is offered it (#2049).
+    """
+    names = set(BUILTINS)
     root = command.user_config_path("discovery").parent
     names.update(path.stem for path in root.glob("*.toml") if command._NAME.fullmatch(path.stem))
-    return {"version": 1, "connections": [connection_view(name) for name in sorted(names)]}
+    rows = [connection_view(name) for name in sorted(names)]
+    direct_row = connection_view("autocode")
+    if direct_row.get("connection_status") != "setup_required":
+        rows = sorted([*rows, direct_row], key=lambda row: row["id"])
+    # The provider new runs use without --provider (AUTOCODE_PROVIDER, then default_provider in the
+    # user's config, then OpenCode): display only, so a client can say what a new chat runs on.
+    try:
+        default = providers.default_name()
+    except (OSError, ValueError):
+        default = None
+    for row in rows:
+        if row["id"] == default:
+            row["default"] = True
+    return {"version": 1, "connections": rows}
+
+
+def routes(provider=None):
+    """The route each role would run on, from the connected tool's own local listing (#2057).
+
+    ``provider`` names the tool to list (``autocode setup`` passes the one new runs use); by default
+    it is the configured default provider.
+
+    Listing only: it reads the tool's model and login lists, launches no model and returns no
+    credential. A tool that cannot list its models, or whose accounts cannot field an
+    independent checker, carries ``routes_stop`` instead of failing the connection view.
+    """
+    try:
+        from . import model_catalogue
+    except ImportError:
+        import model_catalogue
+    try:
+        found = model_catalogue.preview(provider=provider)
+    except (RuntimeError, ValueError, OSError) as error:
+        return {"tool": None, "routes": [], "routes_lines": [], "routes_stop": str(error)}
+    return {
+        "tool": found.get("tool"),
+        "routes": model_catalogue.route_rows(found),
+        "routes_lines": model_catalogue.route_lines(found),
+        "routes_stop": found.get("stop"),
+    }
+
+
+def say_routes(stream=None, provider=None):
+    """Print one line per role after setup: the choice a person no longer has to make (#2057)."""
+    stream = stream or sys.stdout
+    found = routes(provider)
+    if found["routes_stop"] or not found["routes"]:
+        print(
+            "Routes for a new run are not chosen yet: " + (found["routes_stop"] or "no qualified route was found"),
+            file=stream,
+        )
+        return
+    print(f"Routes for a new run, from {found['tool']}'s local listing:", file=stream)
+    for line in found["routes_lines"]:
+        print("  " + line, file=stream)
+
+
+def text(result) -> str:
+    """The connection view for a person at the terminal: one line per connection with its state and the
+    actions it offers, as `autocode CONNECTION ...` commands. `--json` returns the view the clients read."""
+    rows = result.get("connections") if "connections" in result else [result]
+    lines = []
+    for row in rows:
+        marks = {"ok": "✔", "credentials_present": "✔", "unavailable": "✘", "setup_required": "✘", "check_failed": "✘"}
+        state = str(row.get("connection_status") or "unknown")
+        default = " (new runs use this)" if row.get("default") else ""
+        lines.append(f"{marks.get(state, '•')} {row.get('label') or row.get('id')}: {state.replace('_', ' ')}{default}")
+        if row.get("detail"):
+            lines.append(f"    {row['detail']}")
+        for action in row.get("actions") or []:
+            argv = [str(part) for part in action.get("next_command") or [] if str(part) != "--json"]
+            if argv:
+                lines.append(f"    {action.get('label') or action.get('id')}: autocode {' '.join(argv)}")
+    if "routes_lines" in result:
+        lines += [""] + (
+            [f"Routes for a new run, from {result['tool']}'s local listing:"]
+            + ["  " + line for line in result["routes_lines"]]
+            if result.get("routes")
+            else [
+                "Routes for a new run are not chosen yet: "
+                + (result.get("routes_stop") or "no qualified route was found")
+            ]
+        )
+    elif result.get("routes_next_command"):
+        lines += ["", "The route each role would use: autocode connections list --routes"]
+    return "\n".join(lines)
 
 
 def cli(argv):
     args = parser().parse_args(argv)
-    if args.action == "setup":
+    if args.action in ("setup", "add"):
+        # A notice, not a refusal, until the next release deletes it: stderr keeps --json and captured output.
+        print(RETIRED, file=sys.stderr, flush=True)
         try:
-            return direct.setup()
+            code = direct.setup() if args.action == "setup" else direct.add(args.provider)
         except (KeyboardInterrupt, EOFError):
             print("\nAutoCode setup cancelled.")
             return 130
+        if code == 0 and args.action == "setup":
+            say_routes()
+        return code
     if args.action == "list":
         result = view()
+        if args.routes:
+            result.update(routes())
+        else:
+            result["routes"] = None
+            result["routes_next_command"] = ["connections", "list", "--routes", "--json"]
     elif args.action == "check":
         result = connection_view(args.provider, check=True)
     else:
@@ -174,5 +309,5 @@ def cli(argv):
         except (OSError, ValueError, RuntimeError):
             print("Backend login could not start; check its user-level configuration.")
             return 2
-    print(json.dumps(result))
+    print(json.dumps(result) if args.json else text(result))
     return 0

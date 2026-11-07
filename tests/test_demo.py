@@ -17,6 +17,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DemoTests(unittest.TestCase):
+    def test_introduction_labels_sample_usage_and_costs_before_starting_a_run(self):
+        shown = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "demo"
+            with (
+                patch.object(demo, "_prepare", side_effect=demo.TaskRunError("stop after introduction")),
+                contextlib.redirect_stdout(shown),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(1, demo.cli(["--directory", str(target)]))
+        introduction = shown.getvalue()
+        clarification = "Token and cost figures in this demo's run status are simulated; no charges are incurred."
+        self.assertIn(clarification, introduction)
+        self.assertLess(introduction.index(clarification), introduction.index("First, a check"))
+
     def test_help_does_not_create_files_or_start_a_run(self):
         with patch.object(demo.tempfile, "mkdtemp") as create, patch.object(demo.TaskRun, "start") as start:
             with contextlib.redirect_stdout(io.StringIO()):
@@ -25,6 +40,17 @@ class DemoTests(unittest.TestCase):
             self.assertEqual(0, result.exception.code)
             create.assert_not_called()
             start.assert_not_called()
+
+    def test_isolated_launcher_preserves_capability_drop_opt_out(self):
+        import runpy
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"AUTOCODE_NO_CAPABILITY_DROP": "1"}):
+            with patch.object(demo.TaskRun, "start") as start, patch.object(demo.subprocess, "run"):
+                demo._prepare(Path(directory), "sample")
+            launcher = start.call_args.kwargs["command"][-1]
+            with patch.object(os, "execve") as execute:
+                runpy.run_path(launcher)
+            self.assertEqual("1", execute.call_args.args[2].get("AUTOCODE_NO_CAPABILITY_DROP"))
 
     def test_existing_destination_is_refused_and_preserved(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -44,9 +44,253 @@ SUITE_CONSUMERS = (
     *CORE_CONSUMERS,
 )
 
+# Black-box consumers cannot import their runtime producers. Job scope and the scenario runner share this
+# map; its producer and top-level scenario files also select the map-discovery guard.
+SCENARIO_RUNTIME_CONSUMERS = {
+    "tools/autocode_report_identity.py": ("scenarios.test_adversarial_evidence",),
+    "tools/autocode_planning_advice.py": ("scenarios.test_adversarial_planning",),
+    "tools/autocode_stuck_job.py": ("scenarios.test_adversarial_planning",),
+    "tools/autocode_regression.py": (
+        "scenarios.test_harness.StockRefusalsRunTests",
+        "scenarios.test_harness.HybridRunTests",
+    ),
+    "tools/autocode_verify.py": (
+        "scenarios.test_harness.StockRefusalsRunTests",
+        "scenarios.test_harness.HybridRunTests",
+    ),
+}
+SCENARIO_SELECTION_INPUTS = {
+    *SCENARIO_RUNTIME_CONSUMERS,
+    *("/".join(target.split(".")[:2]) + ".py" for targets in SCENARIO_RUNTIME_CONSUMERS.values() for target in targets),
+}
+
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    *(
+        (path, ("tests.test_review_report_repair_cli",))
+        for path in ("tools/autocode_report_edits.py", "tools/autocode_report_repair_context.py")
+    ),
+    ("tools/autocode_pause_codes.py", ("tests.test_run_status",)),
+    ("tools/autocode_stuck_job.py", ("tests.test_investigator_pause_cli",)),
+    ("tools/autocode_planning_advice.py", ("tests.test_investigator_pause_cli",)),
+    (
+        "tools/prompts/fragments/autoplanner/example-check-rule.md",
+        ("tests.test_planning_scope_discipline",),
+    ),
+    (
+        "tools/prompts/fragments/goals/job-type-policy.md",
+        ("tests.test_planning_scope_discipline",),
+    ),
+    ("tools/autocode_legacy_process.py", ("tests.test_json_status_observer_cli",)),
+    ("tools/autocode_chat_confirmation.py", ("tests.test_chat_confirmation", "tests.test_chat_client")),
+    ("tools/prompts/acceptance-tests.md", ("tests.test_go_prerequisites_execution",)),
+    ("tools/autocode_capability_startup.py", ("tests.test_capability_startup", "tests.test_demo")),
+    ("tools/autocode_native_invocation.py", ("tests.test_capability_startup", "tests.test_demo")),
+    (
+        "scenarios/harness/fake_changed_code.py",
+        (
+            "tests.test_scenario_changed_code_fixtures",
+            "tests.test_acceptance_tests",
+            "tests.test_acceptance_writer_route",
+            "tests.test_follow_up_acceptance_cli",
+        ),
+    ),
+    (
+        "tools/goal_fixtures.py",
+        (
+            "tests.test_goal_fixture_changed_code",
+            "tests.test_artifact_review",
+            "tests.test_workflow",
+            "tests.test_final_workflow",
+            "tests.test_protected_oracles_cli",
+        ),
+    ),
+    (
+        "tools/live_fixture_provider.py",
+        (
+            "tests.test_live_fixture_changed_code",
+            "tests.test_taskrun",
+            "tests.test_agent_step",
+            "tests.test_codex_capture_copy",
+        ),
+    ),
+    *(
+        (path, ("tests.test_changed_code_evidence_cli",))
+        for path in (
+            "tools/autocode_changed_code_evidence.py",
+            "tools/autocode_changed_code_measurement.py",
+            "tools/autocode_changed_code_proof.py",
+            "tools/autocode_changed_code_trigger.py",
+            "tools/autocode_changed_code_review.py",
+            "tools/autocode_changed_code_rework.py",
+            "tools/autocode_changed_code_review_application.py",
+            "tools/prompts/fragments/regression/changed-code-evidence.md",
+            "tools/autocode_diff_coverage.py",
+            "tools/autocode_mutation_check.py",
+            "tools/autocode_regression.py",
+            "tools/autocode_report_schema.py",
+            "tools/autocode_role_schema.py",
+            "tools/autocode_stage_context.py",
+            "tools/autocode_stuck_job.py",
+            "tools/autocode_workflow.py",
+            "tools/autocode_completion.py",
+            "tools/autopilot.py",
+        )
+    ),
+    *(
+        (path, ("tests.test_execution_criteria_prompt", "tests.test_builder_criteria_cli"))
+        for path in (
+            "tools/autocode_execution_prompt.py",
+            "tools/autocode_stage_context.py",
+            "tools/autocode_report_schema.py",
+            "tools/units/common.py",
+            "tools/units/autoresolver.py",
+            "tools/prompts/fragments/goals/execution-prompt.md",
+            "tools/prompts/fragments/goals/criteria-",
+        )
+    ),
+    ("tools/autocode_trace_coverage.py", ("tests.test_conflict_generation_cli",)),
+    ("tools/autocode_planning_report_policy.py", ("tests.test_conflict_generation_cli",)),
+    ("tools/units/autoplanner.py", ("tests.test_conflict_generation_cli",)),
+    ("tools/autocode_draft_failure_correction.py", ("tests.test_draft_failure_correction_cli",)),
+    (
+        "tools/autocode_report_repair_context.py",
+        ("tests.test_draft_failure_correction_cli", "tests.test_build_graph_cli"),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/draft-failure-correction.md",
+        ("tests.test_draft_failure_correction", "tests.test_draft_failure_correction_cli"),
+    ),
+    *((path, ("tests.test_run_suite",)) for path in sorted(SCENARIO_SELECTION_INPUTS)),
+    # The suite collector is executed by the verifier as a dynamic runner resource; its
+    # own imports are invisible to the import selector (#2414).
+    ("tools/autocode_component_tests.py", ("tests.test_verify", "tests.test_test_root")),
+    ("tests/test_report_repair.py", ("tests.test_native_event_identity_cli",)),
+    # The quota worker's generated bootstrap imports the offline fixture inside its
+    # subprocess, invisible to the import selector (#2442).
+    ("tests/opencode_fixture_cli.py", ("tests.test_quota_worker",)),
+    ("tools/prompts/fragments/stage-context/context-packet-04.md", ("tests.test_capture_event_contract",)),
+    (
+        "tools/prompts/fragments/stage-context/context-packet-07.md",
+        ("tests.test_milestone_checkpoints", "tests.test_build_graph_cli"),
+    ),
+    ("tools/prompts/discovery.md", ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli")),
+    ("tools/prompts/fragments/autoplanner/time-budget.md", ("tests.test_planning", "tests.test_planning_time")),
+    (
+        "tools/prompts/fragments/autoplanner/retained-review-observations.md",
+        ("tests.test_planning_recovery_observations",),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/bug-diagnosis-rule.md",
+        ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli"),
+    ),
+    ("tools/prompts/review-change.md", ("tests.test_review_attribution_cli",)),
+    ("tools/prompts/fragments/check-replay/validator-note.md", ("tests.test_check_replay",)),
+    (
+        "tools/prompts/fragments/provider-opencode/review-output.md",
+        ("tests.test_review_attribution_cli", "tests.test_schema_prompt_formatting", "tests.test_tool_handoff"),
+    ),
+    (
+        "tools/prompts/validator.md",
+        ("tests.test_validation_metadata", "tests.test_report_repair", "tests.test_validation_evidence_cli"),
+    ),
+    (
+        "tools/prompts/completion-review.md",
+        ("tests.test_completion_properties", "tests.test_validation_evidence_cli"),
+    ),
+    (
+        "tests/stage_repair_provider.py",
+        (
+            "tests.test_validation_evidence_cli",
+            "tests.test_verification_claim_cli",
+            "tests.test_stage_repair_cli",
+            "tests.test_discovery_report_edits_cli",
+        ),
+    ),
+    (
+        "tools/prompts/fragments/provider-opencode/prompt-for-schema.md",
+        ("tests.test_schema_prompt_formatting", "tests.test_report_repair"),
+    ),
+    (
+        "tools/prompts/fragments/provider-opencode/prompt-for-schema-02.md",
+        ("tests.test_schema_prompt_formatting", "tests.test_report_repair", "tests.test_tool_handoff"),
+    ),
+    (
+        "tools/prompts/fragments/provider-claude/prompt-for-schema.md",
+        ("tests.test_claude_provider", "tests.test_report_repair"),
+    ),
+    ("tools/prompts/fragments/autocode/execute-report-repair-06.md", ("tests.test_report_repair",)),
+    (
+        "tests/coordination_provider.py",
+        ("tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli", "tests.test_coordination_gate_cli"),
+    ),
+    (
+        "tests/legacy_bugfix_fixture.py",
+        (
+            "tests.test_legacy_bugfix_fixture",
+            "tests.test_bug_job",
+            "tests.test_bug_questions",
+            "tests.test_package_investigator_cli",
+            "tests.test_pilot_investigator_cli",
+            "tests.test_stale_diagnosis_feedback_cli",
+            "tests.test_investigation_handoff_cli",
+            "tests.test_provider_auth_cli",
+            "tests.test_job_failure_recovery",
+            "tests.test_job_report_recovery",
+            "tests.test_investigation_progress",
+            "tests.test_acceptance_tests",
+            "tests.test_go_reproduction",
+        ),
+    ),
+    ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
+    ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
+    ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
+    ("scenarios/harness/components_driver.py", ("tests.test_local_compose_scenario",)),
+    ("tools/prompts/fragments/provider-launch/tool-free-report-repair.md", ("tests.test_provider_launch",)),
+    ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),
+    ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests", "tests.test_acceptance_runner_handoff")),
+    (
+        "tools/prompts/fragments/acceptance-tests/",
+        ("tests.test_acceptance_tests", "tests.test_acceptance_provenance", "tests.test_acceptance_runner_handoff"),
+    ),
+    ("tools/prompts/fragments/test-cases/diagnosis-builder-note.md", ("tests.test_acceptance_tests",)),
+    ("tools/providers/configs/kilocode.toml", ("tests.test_planning",)),
+    ("tests/resolver_recommendation_provider.py", ("tests.test_resolver_recommendation_cli",)),
+    ("tests/failure_routing_provider.py", ("tests.test_failure_routing_cli", "tests.test_investigator_route")),
+    (
+        "tools/blackbox_build_provider.py",
+        (
+            "tests.test_failure_routing_cli",
+            "tests.test_builder_policy",
+            "tests.test_build_recovery_blackbox",
+            "tests.test_build_blackbox",
+            "tests.test_build_graph_cli",
+        ),
+    ),
+    *(
+        (path, ("tests.test_build_graph_cli",))
+        for path in (
+            "tools/autocode_dispatch.py",
+            "tools/autocode_builder_worker.py",
+            "tools/autocode_milestones.py",
+            "tests/test_build_blackbox.py",
+        )
+    ),
+    ("tools/fake_command_tool.py", ("tests.test_command_flow", "tests.test_command_source_schema")),
+    ("tools/fake_codex.py", ("tests.test_subprocess",)),
+    # The #2133 CLI regression drives the box through the fake provider; its tests import neither module.
+    ("tools/autocode_current_behavior.py", ("tests.test_bugfix_workflow",)),
+    ("tools/prompts/fragments/autoplanner/bug-diagnosis-rule.md", ("tests.test_bugfix_workflow",)),
+    ("tools/prompts/bug-investigation.md", ("tests.test_bug_job",)),
+    (
+        "tools/prompts/fragments/bug-job/diagnosis-correction.md",
+        ("tests.test_diagnosis_refresh", "tests.test_stale_diagnosis_feedback_cli"),
+    ),
+    (
+        "tools/autocode_prices.json",
+        ("tests.test_prices", "tests.test_cost", "tests.test_cost_cap", "tests.test_route_selector"),
+    ),
     (
         "tools/autocode-schemas/evidence-report.schema.json",
         (
@@ -57,18 +301,135 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("scenarios/harness/conformance.py", ("tests.test_planning_allowance_cli",)),
+    (
+        "scenarios/harness/fake_codex.py",
+        (
+            "tests.test_brief_cli",
+            "tests.test_requirements_job_cli",
+            "tests.test_changed_code_evidence_cli",
+            "tests.test_scenario_report_envelope",
+        ),
+    ),
+    ("tools/autocode_report_edits.py", ("tests.test_changed_code_evidence_cli", "tests.test_scenario_report_envelope")),
+    ("tools/fake_codex.py", ("tests.test_subprocess",)),
+    (
+        "tools/autocode_report_repair_route.py",
+        ("tests.test_report_repair", "tests.test_classification_recovery"),
+    ),
+    ("tools/autocode_report_repair_queue.py", ("tests.test_resolver_runtime",)),
+    (
+        "tests/failure_routing_provider.py",
+        ("tests.test_failure_routing_cli", "tests.test_classification_recovery"),
+    ),
+    ("scenarios/harness/clarifying_requirements_provider.py", ("tests.test_requirements_review",)),
+    ("tools/autocode_requirements_handoff.py", ("tests.test_requirements_citation_cli",)),
+    ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
+    ("scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/", ("tests.test_review_attribution_cli",)),
+    (
+        "tools/prompts/fragments/stuck-repair-context/evidence-instruction-02.md",
+        ("tests.test_stuck_repair_context", "tests.test_classification_recovery"),
+    ),
     ("tools/prompts/fragments/report-repair-context/requirements-corrections.md", ("tests.test_report_repair",)),
+    (
+        "tools/prompts/fragments/report-repair-context/revision-review.md",
+        ("tests.test_report_repair_context", "tests.test_stage_repair_cli"),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/source-refs-rule.md",
+        ("tests.test_report_repair", "tests.test_requirements_chat"),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/code-refs-rule.md",
+        ("tests.test_planning", "tests.test_report_repair"),
+    ),
+    (
+        "tools/prompts/fragments/report-repair-context/evidence-probe.md",
+        ("tests.test_report_repair", "tests.test_test_cases"),
+    ),
+    (
+        "tools/prompts/fragments/report-repair-context/evidence-counterexample.md",
+        ("tests.test_report_repair", "tests.test_discuss_job"),
+    ),
     ("tools/providers/requirements_stream.mjs", ("tests.test_requirements_stream", "tests.test_requirements_chat")),
     ("tools/providers/opencode_activity.mjs", ("tests.test_opencode_activity", "tests.test_kilo_progress")),
-    ("tools/prompts/requirements-gather.md", ("tests.test_chat_cli", "tests.test_requirements_review")),
+    (
+        "tools/prompts/requirements-gather.md",
+        ("tests.test_chat_cli", "tests.test_requirements_review", "tests.test_requirements_job_cli"),
+    ),
+    (
+        "tools/prompts/fragments/provider-opencode/conversation-output.md",
+        ("tests.test_schema_prompt_formatting", "tests.test_requirements_chat", "tests.test_plan_chat"),
+    ),
+    (
+        "tools/prompts/fragments/provider-opencode/planning-output.md",
+        ("tests.test_schema_prompt_formatting", "tests.test_opencode_fixture_schema", "tests.test_tool_handoff"),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/repair-citations.md",
+        ("tests.test_planning_artifacts", "tests.test_report_repair_context"),
+    ),
+    ("tools/prompts/fragments/autoplanner/brief-observation-review-rule.md", ("tests.test_brief_acceptance",)),
+    (
+        "tools/prompts/fragments/autoplanner/out-of-checkout-proxy-rule.md",
+        ("tests.test_autoplanner_review",),
+    ),
+    ("tools/prompts/fragments/autoplanner/requirement-trace-rule.md", ("tests.test_proxied_trace",)),
     ("tools/autocode_capture_bootstrap.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/autocode_native_capture_linux.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/prompts/plan-chat.md", ("tests.test_plan_chat_cli",)),
+    ("tools/prompts/gate-chat.md", ("tests.test_gate_chat_cli",)),
+    ("tools/prompts/coordinated-plan-chat.md", ("tests.test_coordination_gate_cli",)),
+    (
+        "tools/prompts/run-chat.md",
+        (
+            "tests.test_run_messages",
+            "tests.test_message_context",
+            "tests.test_run_messages_cli",
+            "tests.test_task_message_context_cli",
+        ),
+    ),
     ("tools/autocode_kilo_image_delivery.mjs", ("tests.test_kilo_image_delivery", "tests.test_native_image")),
     ("tools/fixtures/multicomponent_fake.py", ("tests.test_multicomponent", "tests.test_local_compose_scenario")),
+    (
+        "tools/fixtures/kilo-context-overflow-run.jsonl",
+        ("tests.test_context_window", "tests.test_job_failure_recovery"),
+    ),
     ("tools/prompts/fragments/milestones/", ("tests.test_milestone_policy",)),
     ("tools/prompts/fragments/milestone-replan/", ("tests.test_milestone_policy", "tests.test_milestone_replan")),
+    (
+        "tools/prompts/fragments/autoplanner/proof-reference-rule.md",
+        (
+            "tests.test_planning_proof_reference",
+            "tests.test_report_repair_context",
+            "tests.test_requirements_job_cli",
+        ),
+    ),
     ("tools/prompts/fragments/autoplanner/", ("tests.test_autoplanner_review", "tests.test_planning_stages")),
+    (
+        "tools/prompts/fragments/autoplanner/feedback-interpretations.md",
+        ("tests.test_feedback_assumption_provenance", "tests.test_report_repair_context", "tests.test_brief_cli"),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/concern-only-contract-audit.md",
+        ("tests.test_planning_report_policy", "tests.test_stage_repair_cli"),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/concern-rows.md",
+        ("tests.test_planning_report_policy", "tests.test_planner_intent"),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/obligation-",
+        ("tests.test_planning", "tests.test_autoplanner_step3", "tests.test_reviewer_effort_cli"),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/progressive-",
+        (
+            "tests.test_planning",
+            "tests.test_progressive_plan_flow",
+            "tests.test_progressive_rules",
+            "tests.test_reviewer_effort_cli",
+        ),
+    ),
     ("tools/prompts/fragments/adaptive-planning/", ("tests.test_adaptive_planning",)),
     ("tools/prompts/fragments/autoreview/", ("tests.test_completion_properties", "tests.test_rework_policy")),
     ("tools/prompts/fragments/workflow/", ("tests.test_workflow", "tests.test_final_workflow")),
@@ -83,6 +444,303 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
+        ("tools/autocode_source_metadata.py", "tools/autocode_source_trace.py"),
+        ("tests.test_ticket_title_cli", "tests.test_source_trace_cli"),
+    ),
+    (
+        (
+            "tools/autocode_role_transport.py",
+            "tools/autocode_quota_route.py",
+            "tools/autocode_action_resolver.py",
+            "tools/fake_command_tool.py",
+            "tools/autocode_taskrun.py",
+        ),
+        ("tests.test_provider_route_recovery_cli",),
+    ),
+    (("tools/autocode_workspace_inventory.py",), ("tests.test_review_attribution_cli",)),
+    (
+        ("tools/autocode_protected_oracles.py", "tools/autocode_protected_commands.py"),
+        ("tests.test_protected_oracles_cli",),
+    ),
+    (
+        ("tools/autocode_regression.py", "tools/autocode_verify.py"),
+        ("tests.test_bugfix_workflow",),
+    ),
+    (
+        (
+            "tools/autocode_native_invocation.py",
+            "tools/autocode_run_setup.py",
+            "tools/autocode_workspaces.py",
+        ),
+        ("tests.test_json_output",),
+    ),
+    (
+        ("tools/autocode_goals.py", "tools/autocode_adaptive_planning.py"),
+        ("tests.test_intervention_plan_feedback_cli",),
+    ),
+    (
+        ("tools/autocode_requirement_retention.py", "tools/autocode_goals.py"),
+        ("tests.test_requirement_retention_cli",),
+    ),
+    (
+        (
+            "tools/autocode_route_evidence.py",
+            "tools/autocode_provider_launch.py",
+            "tools/autocode_usage.py",
+            "tools/providers/direct.py",
+        ),
+        (
+            "tests.test_direct_connections_cli",
+            "tests.test_route_execution_evidence",
+            "tests.test_dashboard_integration",
+        ),
+    ),
+    (
+        ("tools/autocode_route_evidence.py", "tools/autocode_route_selector.py", "tools/qualify_routes.py"),
+        ("tests.test_model_catalogue", "tests.test_route_evidence", "tests.test_route_execution_evidence"),
+    ),
+    (
+        (
+            "tools/autocode_handoff_dedup.py",
+            "tools/autocode_context.py",
+            "tools/autocode_proof_detail.py",
+            "tools/autocode_stage_context.py",
+        ),
+        ("tests.test_verification_claim_cli",),
+    ),
+    (
+        ("tools/autocode_event_matching.py", "tools/providers/opencode_events.py", "tools/autocode_support.py"),
+        ("tests.test_validation_metadata", "tests.test_native_event_identity_cli"),
+    ),
+    (
+        (
+            "tools/autocode_check_refs.py",
+            "tools/autocode_report_repair_queue.py",
+            "tools/autocode_completion.py",
+            "tools/autopilot.py",
+            "tools/autocode_resolver.py",
+        ),
+        ("tests.test_validation_evidence_cli",),
+    ),
+    (
+        ("tools/autocode_investigation_evidence.py", "tools/units/autoplanner.py", "tools/units/autoresolver.py"),
+        ("tests.test_investigation_handoff_cli",),
+    ),
+    (
+        ("tools/autocode_review_result.py", "tools/autocode_requirements_chat.py", "tools/autocode_model_preflight.py"),
+        ("tests.test_review_attribution_cli",),
+    ),
+    (
+        (
+            "tools/autocode_coordinate.py",
+            "tools/autocode_coordination_",
+            "tools/autocode_chat_coordination.py",
+            "tools/autocode_chat_client.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_taskrun.py",
+            "tools/autocode_related_profile.py",
+            "tools/autocode_scope_assignment.py",
+            "tools/autocode_action_scope.py",
+            "tools/autocode_verify_task.py",
+            "tools/autocode_verify_record.py",
+            "tools/autocode_issue_delivery.py",
+            "tools/autocode_github.py",
+            "tools/autocode_scope_question.py",
+            "tools/autocode_workspace_scope.py",
+        ),
+        ("tests.test_coordinate", "tests.test_coordination_tui_e2e", "tests.test_coordination_budget_cli"),
+    ),
+    (
+        ("tools/autocode_run_view.py", "tools/autocode_status_command.py", "tools/autocode_worker_view.py"),
+        ("tests.test_json_contract", "tests.test_worktrees"),
+    ),
+    (
+        (
+            "tools/autocode_attention",
+            "tools/autocode_chat_attention",
+            "tools/autocode_runs_command.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_chat_view.py",
+            "tools/autocode_replay_view.py",
+            "tools/autocode_status_command.py",
+            "tools/autocode_subcommands.py",
+            "tools/autocode_taskrun.py",
+        ),
+        ("tests.test_attention_flow", "tests.test_chat_attention", "tests.test_chat_attention_screen"),
+    ),
+    (
+        (
+            "tools/autocode_worker_",
+            "tools/autocode_chat_worker.py",
+            "tools/autocode_native_invocation.py",
+            "tools/autocode_run_setup.py",
+        ),
+        (
+            "tests.test_worker_flow",
+            "tests.test_worker_cli",
+            "tests.test_worker_client",
+            "tests.test_worker_records",
+            "tests.test_worker_service",
+        ),
+    ),
+    (("tools/autocode_transport_recovery.py",), ("tests.test_transport_recovery", "tests.test_pause_status_cli")),
+    (("tools/autocode_stop_explanations.py",), ("tests.test_completion_status",)),
+    (
+        (
+            "tools/autocode_chat_cost.py",
+            "tools/autocode_chat_spend.py",
+            "tools/autocode_chat_verification.py",
+            "tools/autocode_chat_panel.py",
+            "tools/autocode_chat_tui.py",
+        ),
+        (
+            "tests.test_chat_cost",
+            "tests.test_run_metrics",
+            "tests.test_chat_verification",
+            "tests.test_chat_panel",
+            "tests.test_chat_tui",
+            "tests.test_chat_client",
+            "tests.test_chat_polling_cli",
+        ),
+    ),
+    (("tools/autocode_chat_tui.py",), ("tests.test_chat_prompt_exit_cli",)),
+    (("tools/autocode_python_entrypoints.py", "tools/autocode_toolchain.py"), ("tests.test_toolchain",)),
+    (
+        (
+            "tools/autocode_acceptance_tests.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_test_cases.py",
+            "tools/autocode_planning_metadata.py",
+        ),
+        ("tests.test_acceptance_tests",),
+    ),
+    (("tools/autocode_python_tests.py", "tools/autocode_verify.py"), ("tests.test_acceptance_tests",)),
+    (
+        ("tools/autocode_coordinate.py", "tools/autocode_chat_history.py"),
+        ("tests.test_coordinate_receipt_cli",),
+    ),
+    (
+        (
+            "tools/autocode_go_test_prerequisites.py",
+            "tools/autocode_acceptance_tests.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_verify.py",
+        ),
+        ("tests.test_go_prerequisites_execution",),
+    ),
+    (
+        (
+            "tools/autocode_acceptance_provenance.py",
+            "tools/autocode_acceptance_recovery.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_follow_up_proof.py",
+        ),
+        (
+            "tests.test_acceptance_provenance",
+            "tests.test_acceptance_recovery_cli",
+            "tests.test_follow_up_acceptance_cli",
+            "tests.test_run_state",
+        ),
+    ),
+    (
+        ("tools/autocode_plan_chat.py", "tools/autocode_requirements_handoff.py", "tools/prompts/plan-chat.md"),
+        ("tests.test_acceptance_tests",),
+    ),
+    (
+        ("tools/autocode_plan_retention.py", "tools/autocode_planning_cycle.py", "tools/autocode_follow_up.py"),
+        ("tests.test_brief_cli",),
+    ),
+    (
+        ("tools/autocode_planning_review_usage.py", "tools/autocode_assumption_provenance.py"),
+        ("tests.test_run_state",),
+    ),
+    (
+        (
+            "tools/autocode_review_source.py",
+            "tools/autocode_stage_context.py",
+            "tools/autocode_bug_job.py",
+        ),
+        ("tests.test_run_state", "tests.test_follow_up_acceptance_cli"),
+    ),
+    (
+        (
+            "tools/autocode_brief_acceptance.py",
+            "tools/autocode_brief_obligations.py",
+            "tools/autocode_assumption_provenance.py",
+            "tools/autocode_contract_revision.py",
+            "tools/units/autoplanner.py",
+        ),
+        ("tests.test_brief_cli",),
+    ),
+    (
+        (
+            "tools/autocode_planning_report_policy.py",
+            "tools/autocode_plan_retention.py",
+            "tools/autocode_plan_revision_reference.py",
+            "tools/autocode_report_edits.py",
+            "tools/autocode_report_text_edits.py",
+            "tools/prompts/requirements-revise.md",
+            "tools/autocode_report_repair_context.py",
+            "tools/autocode_report_source.py",
+            "tools/units/autoplanner.py",
+        ),
+        ("tests.test_stage_repair_cli", "tests.test_discovery_report_edits_cli"),
+    ),
+    (
+        ("tools/autocode_report_source.py",),
+        ("tests.test_report_formatting_repair_cli",),
+    ),
+    (
+        (
+            "tools/autocode_job_failure.py",
+            "tools/autocode_job_route.py",
+            "tools/autocode_quota_route.py",
+            "tools/autocode_job_args.py",
+        ),
+        ("tests.test_investigator_route", "tests.test_acceptance_writer_route"),
+    ),
+    (
+        (
+            "tools/autocode_args.py",
+            "tools/autocode_job_args.py",
+            "tools/autocode_job_failure.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_run_setup.py",
+        ),
+        ("tests.test_job_cap_change", "tests.test_job_stage_limit"),
+    ),
+    (
+        ("tools/autocode_taskrun.py", "tools/autocode_job_args.py"),
+        (
+            "tests.test_job_failure_recovery",
+            "tests.test_output_length_route_cli",
+            "tests.test_job_stage_limit",
+            "tests.test_job_route",
+            "tests.test_run_finder",
+        ),
+    ),
+    (
+        (
+            "tools/autocode_configure.py",
+            "tools/autocode_resolver_retry_route.py",
+            "tools/autocode_resolver_recovery.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_run_setup.py",
+        ),
+        ("tests.test_resolver_retry_route_cli",),
+    ),
+    (("tools/autocode_cost", "tools/autocode_usage.py"), ("tests.test_cost_cap",)),
+    (("tools/autocode_handoff_dedup.py",), ("tests.test_handoff_dedup",)),
+    (
+        (
+            "tools/autocode_recovery_accounting.py",
+            "tools/autocode_recovery_streak.py",
+            "tools/autocode_recovery_progress.py",
+            "tools/autocode_run_view.py",
+        ),
+        ("tests.test_routine_recovery_cli", "tests.test_recovery_advice_conformance"),
+    ),
+    (
         ("tools/units/autoplanner.py", "tools/autocode_configure.py", "tools/autocode_role_route.py"),
         ("tests.test_reviewer_effort_cli",),
     ),
@@ -90,10 +748,23 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tools/units/autoplanner.py", "tools/autocode_replay_"),
         ("tests.test_saved_run_replay_cli",),
     ),
-    (("tools/providers/kilocode.py",), ("tests.test_kilo_progress",)),
+    (
+        ("tools/providers/kilocode.py", "tools/providers/kilocode_policy.py"),
+        (
+            "tests.test_kilo_progress",
+            "tests.test_kilocode_policy",
+            "tests.test_kilocode_effort",
+            "tests.test_output_cap",
+        ),
+    ),
+    (
+        ("tools/autocode_permission_progress.py", "tools/autocode_resolver_human.py"),
+        ("tests.test_permission_loop_cli",),
+    ),
     (
         (
             "tools/autocode_command_inputs.py",
+            "tools/autocode_planning_review_usage.py",
             "tools/autocode_recovery_view.py",
             "tools/autocode_recovery_accounting.py",
             "tools/autocode_recovery_grants.py",
@@ -103,6 +774,19 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_pause_command.py",
         ),
         ("tests.test_planning_allowance_cli",),
+    ),
+    (
+        (
+            "tools/autocode_checkpoint_reconciliation.py",
+            "tools/autocode_controller_owner.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_native_invocation.py",
+            "tools/autocode_run_setup.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_args.py",
+            "tools/autocode_control_tokens.py",
+        ),
+        ("tests.test_checkpoint_reconciliation",),
     ),
     (
         ("tools/autocode_activity.py", "tools/autocode_process.py"),
@@ -121,6 +805,27 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_truncated_review_recovery",),
     ),
     (("tools/autocode_plan_chat.py",), ("tests.test_plan_chat_cli",)),
+    (("tools/autocode_coordination_request_runtime.py",), ("tests.test_coordination_request_cli",)),
+    (
+        (
+            "tools/autocode_coordination_gate.py",
+            "tools/prompts/coordinated-plan-chat.md",
+            "tools/autocode_chat_coordination.py",
+            "tests/coordination_provider.py",
+        ),
+        ("tests.test_coordination_gate_cli",),
+    ),
+    (
+        ("tools/autocode_gate_chat.py", "tools/prompts/gate-chat.md", "tools/autocode_chat_client.py"),
+        ("tests.test_gate_chat_cli",),
+    ),
+    (
+        (
+            "tools/autocode_planning_scope.py",
+            "tools/prompts/fragments/autoplanner/late-repository-scope.md",
+        ),
+        ("tests.test_planning_scope", "tests.test_planning_scope_cli"),
+    ),
     (
         (
             "tools/autocode_technical_questions.py",
@@ -129,7 +834,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_requirements_handoff.py",
             "tools/autopilot.py",
         ),
-        ("tests.test_technical_questions_cli",),
+        ("tests.test_technical_questions_cli", "tests.test_revision_guard_cli"),
     ),
     (
         ("tools/autocode_direct_", "tools/providers/direct.py", "tools/autocode_connections.py"),
@@ -154,7 +859,18 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_requirements_review.py",
             "tools/autocode_workflows.py",
         ),
-        ("tests.test_chat_cli", "tests.test_requirements_review"),
+        (
+            "tests.test_chat_cli",
+            "tests.test_requirements_review",
+            "tests.test_requirements_job_cli",
+            "tests.test_requirements_first_cli",
+            "tests.test_saved_run_replay_cli",
+        ),
+    ),
+    # A chat's Requirements names the job and the chat starts it (#1846); the test drives the CLI.
+    (
+        ("tools/autocode_requirements_chat.py", "tools/autocode_chat_view.py", "tools/units/autoplanner.py"),
+        ("tests.test_requirements_job_cli",),
     ),
     (
         (
@@ -162,11 +878,111 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_scratch_preparation.py",
             "tools/autocode_verify.py",
             "tools/units/autoreview.py",
-            "tools/prompts/review-change.md",
         ),
         ("tests.test_review_attribution_cli",),
     ),
     (("tools/autocode_chat_", "tools/autocode_run_view.py", "tools/autocode_follow_up.py"), ("tests.test_chat_cli",)),
+    (
+        (
+            "tools/autocode_chat_",
+            "tools/autocode_client_actions.py",
+            "tools/autocode_interventions.py",
+            "tools/autocode_run_messages.py",
+            "tools/prompts/run-chat.md",
+        ),
+        ("tests.test_chat_live_messages_cli",),
+    ),
+    (
+        (
+            "tools/autocode_message_context.py",
+            "tools/autocode_stop.py",
+            "tools/units/autoplanner.py",
+            "tools/autocode_run_messages.py",
+            "tools/autocode_interventions.py",
+            "tools/autocode_plan_chat.py",
+            "tools/autocode_requirements_handoff.py",
+            "tools/autocode_chat_history.py",
+        ),
+        ("tests.test_task_message_context_cli",),
+    ),
+    (
+        (
+            "tools/autocode_coordination_budget.py",
+            "tools/autocode_coordination_planning_limits.py",
+            "tools/autocode_coordinate.py",
+        ),
+        ("tests.test_coordination_source_accounting_cli",),
+    ),
+    (
+        (
+            "tools/autocode_coordination_conversation",
+            "tools/autocode_coordination_message_",
+            "tools/autocode_coordination_request.py",
+            "tools/autocode_coordinate.py",
+            "tools/autocode_taskrun.py",
+        ),
+        ("tests.test_coordination_conversation_cli",),
+    ),
+    (
+        (
+            "tools/autocode_chat_task_messages.py",
+            "tools/autocode_chat_messages.py",
+            "tools/autocode_chat_coordination.py",
+            "tools/autocode_chat_client.py",
+            "tools/autocode_chat_tui.py",
+            "tools/autocode_interventions.py",
+            "tools/autocode_stop.py",
+            "tools/autocode_coordination_conversation.py",
+        ),
+        ("tests.test_chat_task_messages_cli",),
+    ),
+    # The bridge drives the CLI as a subprocess (its tests launch the CLI, so imports cannot select them).
+    (
+        ("tools/autocode_bridge_", "tools/autocode_github.py", "tools/autocode_subcommands.py"),
+        ("tests.test_bridge_cli", "tests.test_bridge_end_to_end"),
+    ),
+    # `autocode changeset` drives runs as subprocesses, so imports cannot select its CLI test.
+    (
+        ("tools/autocode_registry.py",),
+        (
+            "tests.test_registry_project_cli",
+            "tests.test_changeset_cli",
+            "tests.test_changeset_delivery_cli",
+            "tests.test_bug_questions",
+        ),
+    ),
+    (
+        (
+            "tools/autocode_workspace_scope",
+            "tools/autocode_scope_question.py",
+            "tools/autocode_bug_questions.py",
+            "tools/autocode_bug_job.py",
+            "tools/autocode_requirements_handoff.py",
+            "tools/autocode_requirements_review.py",
+        ),
+        ("tests.test_scope_question_cli", "tests.test_bug_questions"),
+    ),
+    (
+        (
+            "tools/autocode_changeset",
+            "tools/autocode_run_view.py",
+            "tools/autocode_scope_question.py",
+            "tools/autocode_runs_command.py",
+            "tools/autocode_chat_changeset.py",
+        ),
+        (
+            "tests.test_changeset_cli",
+            "tests.test_changeset_delivery_cli",
+            "tests.test_changeset_chat",
+            "tests.test_changeset_bridge",
+        ),
+    ),
+    # The full-screen chat in a real terminal (#1646): its tests launch the CLI, so imports cannot select them.
+    (("tools/autocode_chat_", "tools/autocode_client_actions.py"), ("tests.test_chat_screens",)),
+    (
+        ("tools/autocode_chat_", "tools/autocode_client_actions.py"),
+        ("tests.test_chat_polling_cli", "tests.test_chat_inventory_cli"),
+    ),
     (("tools/autocode.py", "tools/autopilot.py", "tools/autocode_taskrun.py"), ("tests.test_launch_state_cli",)),
     (
         ("tools/autocode_build_loop", "tools/autocode_run_setup", "tools/autocode_run_actions"),
@@ -178,6 +994,8 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_completion_properties", "tests.test_completion_status"),
     ),
     (("tools/autocode_milestone",), ("tests.test_subprocess",)),
+    # These public status consumers reach the checkpoint projection through run_view.
+    (("tools/autocode_code_checkpoints",), ("tests.test_liveness", "tests.test_usage")),
     # A parallel batch's integrated step is attributed to each member's requirements (#730) only through
     # a real orchestrated run: dispatch integrates it, code_checkpoints records it, criterion_changes reads it.
     (
@@ -197,7 +1015,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_provider_auth",), ("tests.test_provider_auth_cli", "tests.test_provider_credentials")),
     # An early access stop must retain the configured-provider environment guidance.
+    (
+        ("tools/autocode_access_evidence", "tools/autocode_model_preflight", "tools/autocode_provider_launch"),
+        ("tests.test_access_evidence_cli",),
+    ),
     (("tools/autocode_model_preflight",), ("tests.test_provider_credentials",)),
+    (
+        ("tools/autocode_access_identity", "tools/autocode_access_evidence", "tools/autocode_model_preflight"),
+        ("tests.test_preflight_relocation_cli", "tests.test_model_preflight"),
+    ),
     (
         ("tools/autocode_run_records.py",),
         (*CORE_CONSUMERS, *PUBLIC_FLOW_CONSUMERS, "tests.test_paused_approval_cli"),
@@ -237,6 +1063,18 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     # A mapped path no longer gets the fake flows every unmapped tools/ module selects (``dependencies``); these
     # two had them before the row above, and keep them.
     (("tools/autocode_bug_job", "tools/units/autoresolver"), (*CORE_CONSUMERS, *PUBLIC_FLOW_CONSUMERS)),
+    (
+        (
+            "tools/autocode_diagnosis_refresh",
+            "tools/autocode_run_view",
+            "tools/autocode_bug_job",
+            "tools/autocode_goal_lifecycle",
+            "tools/autocode_run_actions",
+            "tools/autocode_build_loop",
+            "tools/autopilot",
+        ),
+        ("tests.test_stale_diagnosis_feedback_cli",),
+    ),
 )
 
 SUITE_PATHS = (

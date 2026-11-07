@@ -354,6 +354,7 @@ class LedgerTests(unittest.TestCase):
                 "pending_human_criteria": [],
             },
             "finding_dispositions": [{"id": "F-abc", "disposition": "resolved", "evidence": "event:check"}],
+            "changed_code_exceptions": None,
             "contract_revision": 1,
             "contract_hash": "h",
             "task_id": "t",

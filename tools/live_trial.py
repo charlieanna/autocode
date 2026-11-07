@@ -13,8 +13,6 @@ Usage:
 
 ``--profile fixture`` is offline and proves the harness before any spend.
 Live profiles require the explicit authorization flag and a real provider.
-Deployment authorization in program mode requires the separate
-``--authorize-deployment`` opt-in; live model spend never grants it.
 """
 
 from __future__ import annotations
@@ -445,195 +443,6 @@ def _serve_gate(state: RunState, run_dir: Path, project: Path, profile: dict, st
     return False
 
 
-# --- program mode --------------------------------------------------------
-
-PROGRAM_TERMINAL = ("COMPLETE",)
-PROGRAM_PAUSES = ("WAITING", "PAUSED_", "AUTHORIZATION_REQUIRED")
-AGREEMENT_GATE = "WAITING_AGREEMENT_APPROVAL"
-
-
-def program_command(
-    project: Path, profile: dict, manifest_path: Path, *, authorize_deployment: bool = False
-) -> list[str]:
-    """`autocode program run` with the profile's role flags passed through to child runs."""
-    child = autocode_command(project, profile, None, None, [])
-    # Everything after the workspace/in-place/no-chat trio is child-run configuration.
-    passthrough = child[child.index("--no-chat") + 1 :]
-    passthrough = [flag for flag in passthrough if flag != "--in-place"]
-    cmd = [
-        sys.executable,
-        str(AUTOCODE),
-        "program",
-        "run",
-        str(manifest_path),
-        "--workspace",
-        str(project),
-        "--max-parallel",
-        "2",
-    ]
-    if authorize_deployment:
-        cmd.append("--authorize-deployment")
-    return cmd + passthrough
-
-
-def program_approve_command(project: Path, manifest_path: Path, token: str) -> list[str]:
-    """`autocode program approve` for the exact agreement token the program summary displayed."""
-    return [
-        sys.executable,
-        str(AUTOCODE),
-        "program",
-        "approve",
-        str(manifest_path),
-        "--workspace",
-        str(project),
-        "--token",
-        token,
-    ]
-
-
-def drive_program(
-    project: Path,
-    root: Path,
-    profile: dict,
-    manifest: dict,
-    budget_stages: int,
-    timeout: int,
-    bundle: Bundle,
-    *,
-    authorize_deployment: bool = False,
-) -> dict:
-    """Run a scenario as a program: every workstream is a child run whose gates are served here.
-
-    The program controller never approves anything; this driver serves the
-    same explicit CLI gates it serves for a single run, per child run dir.
-    The program agreement is one more such gate, under the same rule
-    ``_serve_gate`` applies to plans: only the offline fixture profile approves
-    it; a live profile stops there for a person.
-    """
-    env = dict(os.environ, AUTOCODE_HOME=str(root / "registry"), PYTHONDONTWRITEBYTECODE="1")
-    if profile["provider"] == "fixture":
-        env.update(install_fixture_provider(root))
-    manifest_path = root / "program.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-    steps: list[dict] = []
-    started = time.monotonic()
-
-    def step(kind: str, cmd: list[str], *, allow_codes=(0, 2)) -> subprocess.CompletedProcess:
-        cmd, private_env = private_command(cmd, argument_offset=2)
-        remaining = timeout - (time.monotonic() - started)
-        if remaining <= 0:
-            raise TrialError(f"wall-clock budget exceeded after {len(steps)} CLI steps")
-        if len(steps) >= budget_stages:
-            raise TrialError(f"stage budget exceeded after {len(steps)} CLI steps")
-        bundle.log("cli_step", kind=kind, cmd=cmd)
-        proc = invoke(cmd, {**env, **private_env}, root, remaining)
-        record = {
-            "kind": kind,
-            "cmd": cmd,
-            "returncode": proc.returncode,
-            "stdout_tail": proc.stdout[-800:],
-            "stderr_tail": proc.stderr[-800:],
-        }
-        steps.append(record)
-        bundle.log(
-            "cli_result",
-            kind=kind,
-            returncode=proc.returncode,
-            stdout_tail=record["stdout_tail"],
-            stderr_tail=record["stderr_tail"],
-        )
-        if proc.returncode not in allow_codes:
-            raise TrialError(f"{kind} exited {proc.returncode}: {(proc.stderr or proc.stdout)[-500:]}")
-        return proc
-
-    summary: dict = {}
-    approved: set[str] = set()
-    for _ in range(budget_stages):
-        proc = step(
-            "program", program_command(project, profile, manifest_path, authorize_deployment=authorize_deployment)
-        )
-        try:
-            summary = json.loads(proc.stdout)
-        except ValueError:
-            raise TrialError(f"program run printed no JSON summary: {proc.stdout[-300:]}") from None
-        bundle.state(f"program.{len(steps)}", summary)
-        status = summary.get("status", "")
-        if status in PROGRAM_TERMINAL:
-            break
-        if status == AGREEMENT_GATE:
-            token = ((summary.get("agreement") or {}).get("pending") or {}).get("token")
-            if not token:
-                raise TrialError(f"{AGREEMENT_GATE} without agreement.pending.token")
-            if profile["provider"] != "fixture":
-                # Nothing has started; the summary's WAITING status is reported as an honest pause.
-                bundle.log(
-                    "human_review_blocked",
-                    run_dir=str(Path(summary.get("state_file", root)).parent),
-                    reason=f"Program agreement approval required: inspect `autocode program show "
-                    f"{manifest_path} --workspace {project}` and approve token {token}; "
-                    "the live harness cannot approve.",
-                )
-                break
-            if token in approved:
-                raise TrialError(f"program agreement {token} is still pending after it was approved")
-            approved.add(token)
-            step("approve-agreement", program_approve_command(project, manifest_path, token), allow_codes=(0,))
-            continue
-        if status.startswith("PAUSED_") and status != "PAUSED_MERGE_CONFLICT":
-            # A program-level pause (a failed integration check, ownership, an interface change, the skeleton,
-            # inheritance, a journey, ...) is raised again before the controller advances any child, so neither a
-            # served gate nor a rerun moves it. A merge conflict holds only its workstream: later passes go on
-            # merging and starting the others, so their gates are still served below.
-            break
-        served = False
-        for row in summary.get("workstreams", []):
-            if row.get("status") not in ("WAITING", "PAUSED") or not row.get("run_dir"):
-                continue
-            run_dir = Path(row["run_dir"])
-            state = load_state(run_dir)
-            if state.get("status", "").startswith("PAUSED_") and not _resumable(state):
-                continue
-            if _serve_gate(state, run_dir, Path(row["workspace"]), profile, step):
-                served = True
-        if not served and not _program_advances(summary):
-            # No gate this driver may serve and nothing the program itself will advance: an honest
-            # stop, a blocked worker, or a run at a pause that needs a person. Never poke it with a
-            # blind resume loop.
-            break
-    else:
-        raise TrialError("program did not finish within the stage budget")
-    final_status = summary.get("status", "")
-    bundle.log("drive_finished", status=final_status, steps=len(steps))
-    program_state = {"status": final_status, "program": summary}
-    return {
-        "state": program_state,
-        "steps": steps,
-        "run_dir": Path(summary.get("state_file", root)).parent,
-        "product": Path(summary["integration_workspace"]) if summary.get("integration_workspace") else project,
-    }
-
-
-def _program_advances(summary: dict) -> bool:
-    """Whether another `program run` pass moves something: the program says RUNNING, or a child that
-    was answered, approved or sent the program's own feedback waits only for its next invocation."""
-    if summary.get("status") == "RUNNING":
-        return True
-    return any(
-        row.get("status") in ("WAITING", "PAUSED", "RUNNING")
-        and row.get("run_status") == "RUNNING"
-        and not row.get("blocked_reason")
-        for row in summary.get("workstreams", [])
-    )
-
-
-def classify_program_status(status: str) -> str:
-    if status in PROGRAM_TERMINAL:
-        return "complete"
-    if any(status.startswith(prefix) for prefix in PROGRAM_PAUSES):
-        return "paused"
-    return "stopped"
-
-
 # --- verdict -------------------------------------------------------------
 
 
@@ -642,7 +451,7 @@ def judge(run: dict, spec: dict, project: Path, bundle: Bundle) -> scenarios.Ora
         return scenarios.OracleResult(scenarios.HONEST_BLOCKER, run["blocker"], [])
     state = run["state"]
     status = state.get("status", "")
-    kind = classify_program_status(status) if "program" in state else scenarios.classify_runner_status(status)
+    kind = scenarios.classify_runner_status(status)
 
     # The oracle scores the delivered workspace regardless of how the run ended,
     # so a blocked run with correct work is reported as such, not as a failure
@@ -764,19 +573,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--i-authorize-live-model-spend", action="store_true", help="required for any non-fixture profile"
     )
     parser.add_argument(
-        "--authorize-deployment",
-        action="store_true",
-        help="explicitly authorize deployment workstreams in --mode program; "
-        "independent of live model spend authorization",
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["run", "program"],
-        default="run",
-        help="run: one autocode run (default); program: `autocode program run` with the "
-        "scenario's program_manifest, gates served per child run",
-    )
-    parser.add_argument(
         "--score-only",
         type=Path,
         metavar="PROJECT",
@@ -820,10 +616,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"evidence: {bundle.dir}")
         return 0 if oracle.status == scenarios.PASS else 2 if oracle.status == scenarios.DEFERRED else 1
 
-    if args.mode == "program" and not spec.get("program_manifest"):
-        print(f"{args.scenario} has no program_manifest; run it with --mode run", file=sys.stderr)
-        return 2
-
     if profile["provider"] != "fixture" and not args.i_authorize_live_model_spend:
         print(
             f"refusing live spend: rerun with --i-authorize-live-model-spend "
@@ -839,7 +631,6 @@ def main(argv: list[str] | None = None) -> int:
         profile=args.profile,
         model=profiles.describe(profile),
         authorized=args.i_authorize_live_model_spend,
-        deployment_authorized=args.authorize_deployment,
     )
 
     temp: tempfile.TemporaryDirectory | None = None
@@ -911,7 +702,7 @@ def main(argv: list[str] | None = None) -> int:
                 check=True,
             )
             bundle.log("seeded", files=sorted(seed))
-        bundle.log("workspace_ready", project=str(project), mode=args.mode)
+        bundle.log("workspace_ready", project=str(project), mode="run")
         oracle_path = Path(scenarios.__file__).resolve()
         oracle_hash = hashlib.sha256(oracle_path.read_bytes()).hexdigest()
         baseline_snapshot = util.snapshot(project)
@@ -924,25 +715,12 @@ def main(argv: list[str] | None = None) -> int:
             baseline_revision=baseline_revision,
             baseline_content_sha256=baseline_content_sha256,
         )
-        if args.mode == "program":
-            run = drive_program(
-                project,
-                root,
-                profile,
-                spec["program_manifest"],
-                args.budget_stages,
-                args.timeout,
-                bundle,
-                authorize_deployment=args.authorize_deployment,
-            )
-        else:
-            run = drive(project, root, profile, spec["task"], args.budget_stages, args.timeout, bundle)
-        run["mode"] = args.mode
+        run = drive(project, root, profile, spec["task"], args.budget_stages, args.timeout, bundle)
+        run["mode"] = "run"
         if hashlib.sha256(oracle_path.read_bytes()).hexdigest() != oracle_hash:
             raise TrialError("Oracle source changed during the trial; result cannot be trusted")
         run["candidate_revision"] = util.snapshot(project)["revision"]
         run["oracle_sha256"] = oracle_hash
-        # A program's product is the merged integration branch, never the untouched project root.
         result = judge(run, spec, run.get("product", project), bundle)
         if (
             hashlib.sha256(oracle_path.read_bytes()).hexdigest() != oracle_hash
@@ -972,13 +750,6 @@ def main(argv: list[str] | None = None) -> int:
         run_dir = _discover_run_dir(project)
         final_state: RunState | dict[str, Any] = load_state(run_dir) if run_dir else {}
         product = project
-        if args.mode == "program":
-            paths = list((project / ".autocode/programs").glob("*/state.json"))
-            if len(paths) == 1:
-                saved = json.loads(paths[0].read_text())
-                final_state = {"status": saved.get("status"), "program": saved}
-                # Nothing is created before the agreement is approved: integration may be null.
-                product = Path((saved.get("integration") or {}).get("workspace") or project)
         oracle = spec["oracle"](product)
         result = scenarios.OracleResult(scenarios.ERROR, f"{error}; {oracle.summary}", oracle.checks)
         bundle.state("final", final_state)
@@ -988,7 +759,7 @@ def main(argv: list[str] | None = None) -> int:
             "error": str(error),
             "run_dir": run_dir,
             "product": product,
-            "mode": args.mode,
+            "mode": "run",
             "baseline_revision": baseline_revision,
             "baseline_content_sha256": baseline_content_sha256,
             "oracle_sha256": oracle_hash,

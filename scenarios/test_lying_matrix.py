@@ -26,8 +26,8 @@ def broken_pairs():
     for scenario in catalog.load_all():
         if not scenario.fake_check or scenario.missing_tools():
             continue
-        if scenario.category in ("program", "components"):
-            # Programs and multi-component runs have their own drivers; covered elsewhere.
+        if scenario.category == "components":
+            # Multi-component runs have their own driver; covered elsewhere.
             continue
         for path in scenario.broken:
             yield scenario.id, f"broken/{path.name}"

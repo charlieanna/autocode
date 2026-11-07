@@ -101,7 +101,7 @@ class CliDocumentationTests(unittest.TestCase):
         cls.parsers = {path: capture_parser(path) for path in cls.paths}
         # The unattended overview describes a pass-through wrapper; its ordinary
         # accepted run flags come from the main parser, its analysis flags have
-        # their own registered path. Program's manual overview has child paths.
+        # their own registered path.
         if ("unattended",) in cls.parsers and cls.parsers[("unattended",)] is None:
             cls.parsers[("unattended",)] = autocode_args.build_parser(None, autocode_configure.DEFAULT_ROLE_MODELS)
         cls.scopes = documented_options(REFERENCE.read_text())
@@ -120,6 +120,32 @@ class CliDocumentationTests(unittest.TestCase):
                     public.update(name for name in subcommands.command_names() if name.startswith("--"))
                 missing = public - scope_options(self.scopes, path)
                 self.assertFalse(missing, "Undocumented public options: " + ", ".join(sorted(missing)))
+
+    def test_every_main_run_option_prints_help_text(self):
+        """#2395: --help-all is the built-in reference for the main run, and ten of its options
+        (--workspace, --status, --answer, --approve-review, --dry-run among them) printed no description."""
+        parser = autocode_args.build_parser(None, autocode_configure.DEFAULT_ROLE_MODELS)
+        silent = sorted(
+            option
+            for action in parser._actions
+            if action.help != argparse.SUPPRESS and not (action.help or "").strip()
+            for option in action.option_strings
+        )
+        self.assertEqual([], silent, "Main-run options without help text: " + ", ".join(silent))
+
+    def test_every_subcommand_option_prints_help_text(self):
+        """#2397: 145 public subcommand options (`registry import --max-depth`, `tasks --dry-run`, every
+        `conversation` and `coordinate` option among them) printed no description."""
+        silent = []
+        for path, parser in self.parsers.items():
+            if parser is None or not path:
+                continue
+            for action in parser_actions(parser):
+                if isinstance(action, argparse._SubParsersAction):
+                    continue  # the command word itself; its parser's description is its help
+                if action.help != argparse.SUPPRESS and not (action.help or "").strip():
+                    silent.append("autocode " + " ".join(path) + " " + (action.option_strings or [action.dest])[0])
+        self.assertEqual([], silent, "Subcommand options without help text: " + ", ".join(sorted(silent)))
 
     def test_hidden_options_match_the_explicit_internal_set(self):
         observed = {}

@@ -5,9 +5,9 @@ let currentView = 'tasks', currentTab = 'now', taskFilter = 'all', projectFilter
 let evidenceRequest = 0, evidenceRun = '', previewRun = '', scrollThreadToEnd = false, pendingThreadAnchorKey = '';
 let taskReturn = {view:'tasks',filter:'all',project:''};
 const evidenceCache = new Map(), criterionDiffReads = new Map();
-let latestData = null, latestRun = null, actionProblem = '', newTaskPending = null, pendingShortRun = '', pendingShortProject = null;
+let latestData = null, latestDataSignature = '', latestRun = null, actionProblem = '', newTaskPending = null, pendingShortRun = '', pendingShortProject = null;
 let taskReadError = '', taskReadAt = null;
-let activeConversation = null, latestConversation = null, refreshPromise = null, refreshAgain = false, refreshTimer = null;
+let activeConversation = null, latestConversation = null, refreshPromise = null, refreshAgain = false, refreshListAgain = false, refreshDetailAgain = false, refreshTimer = null, refreshListTimer = null;
 let creatingConversation = false, conversationRequest = null;
 const conversationPending = new Set(), conversationRetries = new Map(), taskChatPending = new Map(), taskChatErrors = new Map();
 const $ = selector => document.querySelector(selector);
@@ -2231,6 +2231,7 @@ function renderInlineTaskAction(run){
   const ready=statusInfo(run).label==='Approve plan',approved=run.goal?.approval_status==='approved',busy=taskActionBusy(run)||approveBuildState.has(run.run)||taskReadError;
   if(ready&&run.goal_token){
     host.append(n('strong','Plan ready · revision '+run.goal.revision),n('p','Independent plan review accepted this revision. Review the plan, then approve and build.'));
+    if(run.goal.body?.scope_exclusions?.length)host.append(planDocumentSection('Not covered',run.goal.body.scope_exclusions));
     const actions=card('','lifecycle-actions');
     const request=button('Request changes',()=>{$('#change-text').focus();$('#change-text').scrollIntoView({block:'center',behavior:'smooth'});});
     const approve=focusKey(button('Approve plan revision '+run.goal.revision,()=>submitTaskAction(run,'approve_goal',{token:run.goal_token,confirmation:run.goal_token})),'approve:'+run.run+':'+run.goal_token);
@@ -2391,6 +2392,7 @@ function renderBrief(run) {
   body.append(planDocumentSection('Intended outcome',[brief.intended_outcome||'No intended outcome recorded.']));
   body.append(planDocumentSection('Requirements',brief.requirements||brief.required_behaviors||brief.acceptance_criteria));
   body.append(planDocumentSection('Constraints',brief.constraints));
+  body.append(planDocumentSection('Not covered',brief.scope_exclusions));
   body.append(planDocumentSection('Implementation sequence',brief.implementation_sequence||brief.technical_approach||brief.milestones||brief.plan,true));
   body.append(planDocumentSection('Verification criteria',brief.acceptance_criteria));
   body.append(planDocumentSection('Assumptions',brief.accepted_assumptions||brief.assumptions));
@@ -2429,6 +2431,7 @@ function renderBrief(run) {
   // itself stays in the conversation transcript.
   if(ready&&!approved){
     box.append(planDocumentSection('Constraints',brief.constraints),
+               planDocumentSection('Not covered',brief.scope_exclusions),
                planDocumentSection('Implementation sequence',brief.implementation_sequence||brief.technical_approach||brief.milestones||brief.plan,true));
   }
   box.append(disclosure('Requirements and verification','plan-requirements:'+run.goal_token,[checklist],run.run),disclosure('Saved plan details','saved-plan-details:'+run.goal_token,[provenance,body],run.run));
@@ -2969,7 +2972,7 @@ async function submitTaskAction(run,action,extra={}){
   }
   if(action==='continue'&&extra.expected_goal_token&&current.conversation?.plan_gate?.pending_product_change){dashboardNotice('A requirement change is awaiting a new reviewed plan.');return;}
   if(taskReadError||taskArchiveBlocked(run.run)||current.task_archived||projectBlocked(run.workspace)||current.project_removed||taskActionBusy(current)||taskChatPending.has(run.run)||(action==='continue'&&typeof unresolvedModelReplacement==='function'&&unresolvedModelReplacement(current)))return;
-  if(action==='recover_pause'&&(!extra.recovery_token||current.interventions?.recovery?.token!==extra.recovery_token)){dashboardNotice('The saved pause changed. Refresh and inspect the current recovery card.');return;}
+  if(['recover_pause','set_pause_number'].includes(action)&&(!extra.recovery_token||current.interventions?.recovery?.token!==extra.recovery_token)){dashboardNotice('The saved pause changed. Refresh and inspect the current recovery card.');return;}
   const scopes={approve_goal:['goal_approval'],approve_review:['human_review'],answer:['clarification','permission','goal_change'],delegate:['clarification','permission','goal_change'],resolver_response:['operational_exhaustion','blocker']}[action];
   const response=scopes?{...resolverResponseFields(run),...extra}:extra;
   if(scopes&&(!resolverReplyCurrent(current,response,scopes)
@@ -3149,8 +3152,44 @@ function renderRecoveryCard(host,run,recovery){
     const setup=button('Check workspace setup',openWorkspaceSetup,'text-button');setup.dataset.setupRecovery='true';
     actions.append(setup,n('p','Check local prerequisites and account instructions in a setup chat. This task stays paused.'));
   }
-  const update=()=>{for(const control of mutations)control.disabled=!inspection.open||!!taskReadError||taskActionBusy(run)||run.interventions?.mode==='unavailable'||!!(typeof unresolvedModelReplacement==='function'&&unresolvedModelReplacement(run));};
+  const number=renderPauseNumber(actions,run,recovery,inspection);
+  const update=()=>{for(const control of mutations)control.disabled=!inspection.open||!!taskReadError||taskActionBusy(run)||run.interventions?.mode==='unavailable'||!!(typeof unresolvedModelReplacement==='function'&&unresolvedModelReplacement(run));number?.update();};
   inspection.addEventListener('toggle',update);update();host.append(actions);
+}
+// The one number a pause leaves to a person (#2044): a new limit, plan-review allowance or recovery
+// grant. The status view describes it in needs.command_inputs; the backend types it only into the
+// command the view names for it, after the shared client rule checks the row against a fresh status.
+const pauseNumberDrafts=new Map();
+function pauseNumberOffer(run){
+  const rows=run.status_view?.needs?.command_inputs,row=Array.isArray(rows)&&rows.length===1?rows[0]:null;
+  return row&&typeof row==='object'&&row.kind==='integer'&&typeof row.id==='string'&&Number.isSafeInteger(row.minimum)&&Number.isSafeInteger(row.maximum)?row:null;
+}
+function pauseNumberHelp(row){
+  const used=row.id==='max_seconds'?row.elapsed:row.used;
+  if(row.id==='grant_recovery')return 'Recoveries used: '+used+'. Enter 1 to '+row.maximum+' additional recoveries. Recovery history is kept.';
+  return 'Saved: '+row.current+'. Used so far: '+used+'. Enter a whole number of at least '+row.minimum+'. Other saved limits and model routes stay the same, and no plan is approved.';
+}
+function pauseNumberLabel(row){return row.id==='grant_recovery'?'Grant and continue':row.id==='planning_review_call_limit'?'Set review allowance':'Raise limit and continue';}
+function renderPauseNumber(host,run,recovery,inspection){
+  const row=pauseNumberOffer(run);if(!row||!recovery.token)return null;
+  const key=run.run+'\0'+recovery.token+'\0'+row.id,id='pause-number-'+row.id.replace(/[^a-z0-9_-]/gi,'-');
+  const group=card('','recovery-choice pause-number'),label=n('label',row.label);label.htmlFor=id;
+  const field=focusKey(Object.assign(document.createElement('input'),{id,type:'text',inputMode:'numeric',autocomplete:'off',value:pauseNumberDrafts.get(key)||''}),'pause-number:'+key);
+  field.dataset.pauseNumber=row.id;
+  const help=n('p',pauseNumberHelp(row));help.className='field-note';help.id=id+'-help';field.setAttribute('aria-describedby',help.id);
+  const valid=()=>{const value=field.value.trim(),number=/^[0-9]+$/.test(value)?Number(value):NaN;return Number.isSafeInteger(number)&&number>=row.minimum&&number<=row.maximum;};
+  const submit=focusKey(button(pauseNumberLabel(row),async()=>{
+    const current=latestRun?.run===run.run?latestRun:run;
+    if(!inspection.open||current.interventions?.recovery?.token!==recovery.token){dashboardNotice('The saved pause changed. Refresh and inspect the current recovery card.');return;}
+    if(!valid())return;
+    try{const result=await submitTaskAction(run,'set_pause_number',{recovery_token:recovery.token,input_id:row.id,value:field.value.trim()});if(result)pauseNumberDrafts.delete(key);}
+    catch(error){dashboardNotice(error.message);}
+  }),'pause-number-submit:'+key);
+  submit.dataset.pauseNumberSubmit=row.id;
+  const update=()=>{submit.disabled=!valid()||!inspection.open||!!taskReadError||taskActionBusy(run)||run.interventions?.mode==='unavailable';};
+  field.addEventListener('input',()=>{pauseNumberDrafts.set(key,field.value);update();});
+  group.append(label,field,submit,help);host.append(group);
+  return {update};
 }
 
 function renderTaskAttention(run){
@@ -3341,27 +3380,43 @@ function expireNotices(){
   if(expired(projectNoticeState,'#project-notice')){projectNoticeState=null;renderProjectNotice();}
   if(expired(conversationArchiveNotice,'#conversation-archive-notice')){conversationArchiveNotice=null;renderConversationArchiveNotice();}
 }
-async function refreshOnce(){
+async function refreshOnce(includeList=true,includeDetail=true){
   const mine=seq,selected=currentView==='task-detail'?chosen:null,conversationId=currentView==='draft-conversation'?activeConversation:null;
   // Discovery is independent of the selected read: its latency and failures
   // must never prevent a fresh task response or invalidate one already shown.
-  const listRead=(async()=>{
+  const listRead=includeList?(async()=>{
     try{
-      const data=await api('/api/runs');if(mine!==seq)return;latestData=data;setup(data);if(restorePendingShortRun(data)||restorePendingShortProject(data))return;const focus=captureControls();renderTasks(data);renderConversations(data);expireNotices();restoreFocus(focus);
+      const data=await api('/api/runs');if(mine!==seq)return;
+      if(restorePendingShortRun(data)||restorePendingShortProject(data))return;
+      const signature=JSON.stringify(data),unchanged=signature===latestDataSignature;latestData=data;
+      if(unchanged){expireNotices();if(!selected)$('#sync-state').replaceChildren(Object.assign(n('img'),{src:'/static/connected.svg',alt:'',width:6,height:6}),document.createTextNode('Task list checked just now'));return;}
+      setup(data);const focus=captureControls();renderTasks(data);renderConversations(data);expireNotices();restoreFocus(focus);latestDataSignature=signature;
       if(!selected)$('#sync-state').replaceChildren(Object.assign(n('img'),{src:'/static/connected.svg',alt:'',width:6,height:6}),document.createTextNode('Task list checked just now'));
     }catch(error){if(mine!==seq)return;if(!selected)$('#sync-state').textContent='Task list unavailable';dashboardNotice(actionProblem||error.message);}
-  })();
-  const detailRead=(async()=>{
+  })():Promise.resolve();
+  const detailRead=includeDetail?(async()=>{
     if(conversationId){try{const doc=await api('/api/conversation?id='+encodeURIComponent(conversationId));if(mine!==seq||activeConversation!==conversationId||currentView!=='draft-conversation')return;renderDraftConversation(doc);}catch(error){if(mine===seq&&activeConversation===conversationId&&currentView==='draft-conversation'){latestConversation=null;$('#attach-submit').disabled=true;$('#draft-problem').replaceChildren(Object.assign(n('p',error.message),{className:'error'}));$('#draft-problem').hidden=false;$('#draft-send').disabled=true;}}}
     if(selected){try{const run=await api('/api/run?workspace='+encodeURIComponent(selected.workspace)+'&run='+encodeURIComponent(selected.run));if(mine!==seq||chosen?.run!==selected.run||currentView!=='task-detail')return;if(run.state_error)unavailableRun('Selected run unavailable: '+run.state_error);else showRun(run,captureControls());}catch(error){if(mine===seq&&chosen?.run===selected.run&&currentView==='task-detail')unavailableRun('Selected run unavailable: '+error.message);}}
-  })();
+  })():Promise.resolve();
   await Promise.all([listRead,detailRead]);
 }
-async function refresh(){
-  if(refreshPromise){refreshAgain=true;return refreshPromise;}
-  clearTimeout(refreshTimer);
-  refreshPromise=(async()=>{do{refreshAgain=false;await refreshOnce();}while(refreshAgain);})();
-  try{await refreshPromise;}finally{refreshPromise=null;refreshTimer=setTimeout(refresh,2000);}
+async function refresh(includeList=true,includeDetail=true){
+  if(refreshPromise){refreshAgain=true;refreshListAgain ||= includeList;refreshDetailAgain ||= includeDetail;return refreshPromise;}
+  if(includeDetail)clearTimeout(refreshTimer);
+  if(includeList)clearTimeout(refreshListTimer);
+  let scheduleList=includeList,scheduleDetail=includeDetail,list=includeList,detail=includeDetail;
+  refreshPromise=(async()=>{
+    do{
+      refreshAgain=false;await refreshOnce(list,detail);
+      list=refreshListAgain;detail=refreshDetailAgain;scheduleList||=list;scheduleDetail||=detail;
+      refreshListAgain=false;refreshDetailAgain=false;
+    }while(refreshAgain);
+  })();
+  try{await refreshPromise;}finally{
+    refreshPromise=null;
+    if(scheduleDetail)refreshTimer=setTimeout(()=>refresh(false,true),2000);
+    if(scheduleList)refreshListTimer=setTimeout(()=>refresh(true,false),10000);
+  }
 }
 function restoreSelection() {
   const selection=location.hash.slice(1)||stored('selection','tasks'),params=new URLSearchParams(selection);

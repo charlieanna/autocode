@@ -1,4 +1,4 @@
-"""Report-bound clarification for an initial bug investigation.
+"""Report-bound clarification for a bug investigation, including reproduced follow-ups.
 
 Pure policy shared by the Investigator, human publication and answer routing.
 The bug job owns ``investigation``; its retained output hash binds these questions
@@ -13,22 +13,22 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_scope_question as scope_question
     from . import autocode_util as util
     from . import autocode_workflows as workflows
 except ImportError:
+    import autocode_scope_question as scope_question
     import autocode_util as util
     import autocode_workflows as workflows
 
 
 def has_questions(state: RunState):
-    """Questions belong to initial diagnosis, before a build contract or task."""
+    """A reproduced diagnosis still cannot settle a missing human scope decision."""
     found = state.get("investigation") or {}
     return (
         workflows.kind(state) == "bugfix"
-        and found.get("outcome") == "not_reproduced"
-        and bool(found.get("questions"))
-        and not state.get("goal_contract")
-        and not state.get("current_task")
+        and found.get("outcome") in ("reproduced", "not_reproduced")
+        and (bool(found.get("questions")) or scope_question.question(state) is not None)
     )
 
 
@@ -36,15 +36,19 @@ def questions(state: RunState):
     """Stable ordinary questions for the exact retained diagnosis report."""
     if not has_questions(state):
         return []
+    scope = scope_question.question(state)
     found = state["investigation"]
     report = found.get("output_hash") or util.digest(found)
-    return [
+    return ([scope] if scope else []) + [
         {
             "id": "investigation-" + util.digest({"report": report, "index": index, "question": text})[:16],
             "question": text,
             "why": "The Investigator needs this information before the reported bug can be resolved.",
             "options": [],
             "proposed_default": "",
+            "kind": "decision",
+            "category": "requested_outcome",
+            "delegable": False,
         }
         for index, text in enumerate(found["questions"])
     ]

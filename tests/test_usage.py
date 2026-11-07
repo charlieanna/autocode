@@ -118,6 +118,42 @@ class TotalsTests(unittest.TestCase):
         self.assertEqual(["high", "medium"], [row["launch_route"]["reasoning_effort"] for row in attempts])
         self.assertEqual("next-model", view["routes"]["completion"]["model"])
 
+    def test_an_attempt_carries_the_level_it_ran_at_and_its_effort_choice(self):
+        # A review under a stage-choice ceiling (owner decision 2026-11-05): /details shows both.
+        choice = {"level": "medium", "ceiling": "high", "lowered": True, "reason": "small_clear"}
+        state = {
+            "status": "RUNNING",
+            "stages": [
+                stage(
+                    "astra_challenge",
+                    "astra",
+                    "review-model",
+                    launch_route={"reasoning_effort": "high"},
+                    reasoning_effort="medium",
+                    effort_choice=choice,
+                ),
+                stage("terra", "terra", "build-model", launch_route={"reasoning_effort": "high"}),
+            ],
+        }
+        reviewed, built = run_view.view(state)["usage"]["accounting"]["attempts"]
+        self.assertEqual(("medium", choice), (reviewed["reasoning_effort"], reviewed["effort_choice"]))
+        self.assertNotIn("effort_choice", built)
+
+    def test_an_attempt_names_the_route_slot_its_stage_launched(self):
+        # #2114: `astra` runs other slots' stages; qualification must credit the slot that launched.
+        state = {
+            "status": "RUNNING",
+            "stages": [
+                stage("astra_review", "astra", "review-model", route_role="completion"),
+                stage("astra_discovery", "glm", "plan-model"),
+            ],
+        }
+        rows = run_view.view(state)["usage"]["accounting"]["attempts"]
+        self.assertEqual(
+            [("astra", "completion"), ("glm", None)],
+            [(row["role"], row["route_role"]) for row in rows],
+        )
+
 
 class StageMetricsTests(unittest.TestCase):
     def test_a_stage_records_the_cost_its_provider_reported(self):

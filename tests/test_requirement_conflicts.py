@@ -4,8 +4,11 @@ import copy
 import unittest
 from pathlib import Path
 
+import autocode_adaptive_planning as adaptive
 import autocode_goals as goals
+import autocode_planning_report_policy as policy
 import autopilot
+from autocode_util import model_output_schema, validate_schema
 from goal_fixtures import body
 from units import autoplanner
 
@@ -164,6 +167,105 @@ class ConflictTests(unittest.TestCase):
         self.assertEqual(
             "Original user requirement R1", packet["requirements_history"][0]["requirements"][0]["source_quote"]
         )
+
+
+class ConflictGenerationTests(unittest.TestCase):
+    setUp = ConflictTests.setUp
+    refresh_resolved_handoff = ConflictTests.refresh_resolved_handoff
+
+    def resolution_schema(self, stage="astra_discovery"):
+        current = copy.deepcopy(self.state)
+        current["settings"]["engine"] = "codex"
+        request = autoplanner.prepare(current, stage, Path("/fixture/state.json"), None)
+        return model_output_schema(request.schema)["properties"]["conflict_resolutions"]
+
+    def test_actual_prepare_and_wire_schema_offer_only_empty_for_known_no_conflicts(self):
+        self.state["requirements_handoff"]["report"]["conflicts"] = []
+        before = copy.deepcopy(autoplanner.SCHEMAS)
+        # Saved incident shape: a single newly traced requirement confused with a review concern.
+        impossible = [dict(self.report["conflict_resolutions"][0], requirement_ids=["R1"])]
+        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+            with self.subTest(stage=stage):
+                schema = self.resolution_schema(stage)
+                self.assertEqual(0, schema["maxItems"])
+                validate_schema([], schema)
+                with self.assertRaisesRegex(ValueError, "too many items"):
+                    validate_schema(impossible, schema)
+                # Legacy saved schemas are not rewritten; the semantic guard still rejects the same row.
+                validate_schema(impossible, autoplanner.SCHEMAS[stage]["properties"]["conflict_resolutions"])
+        self.assertEqual(before, autoplanner.SCHEMAS)
+        invalid = {**self.report, "conflict_resolutions": impossible}
+        with self.assertRaisesRegex(
+            ValueError, r"no requirement conflict is recorded .*conflict_resolutions must be \[\]"
+        ):
+            goals.check_requirement_trace(self.state, invalid, self.contract)
+        valid = {**self.report, "conflict_resolutions": []}
+        autopilot.apply_planning(self.state, "astra_discovery", valid, {"output": "draft.json"})
+        self.assertEqual("astra_challenge", self.state["next_stage"])
+        self.assertEqual([], self.state["pending_questions"])
+        self.assertFalse(goals.approved(self.state))
+
+    def test_real_and_quote_stable_historical_conflicts_keep_resolution_available(self):
+        for historical in (False, True):
+            if historical:
+                self.refresh_resolved_handoff()
+            for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+                with self.subTest(stage=stage, historical=historical):
+                    schema = self.resolution_schema(stage)
+                    self.assertNotIn("maxItems", schema)
+                    validate_schema(self.report["conflict_resolutions"], schema)
+                    goals.check_requirement_trace(self.state, self.report, self.contract)
+        invalid = copy.deepcopy(self.report)
+        invalid["conflict_resolutions"][0]["answer_id"] = "invented"
+        with self.assertRaisesRegex(ValueError, "saved user"):
+            goals.check_requirement_trace(self.state, invalid, self.contract)
+
+    def test_recycled_ids_missing_quotes_and_removed_ids_cannot_keep_historical_resolutions(self):
+        self.refresh_resolved_handoff()
+        original = copy.deepcopy(self.state)
+        for variant in ("changed_quote", "missing_quote", "removed_id"):
+            with self.subTest(variant=variant):
+                self.state = copy.deepcopy(original)
+                if variant == "missing_quote":
+                    self.state["requirements_history"][0]["report"]["requirements"][0].pop("source_quote")
+                elif variant == "changed_quote":
+                    self.state["requirements_handoff"]["report"]["requirements"][0]["source_quote"] = (
+                        "A new requirement"
+                    )
+                else:
+                    self.state["requirements_handoff"]["report"]["requirements"].pop(0)
+                self.assertEqual(0, self.resolution_schema()["maxItems"])
+
+    def test_unknown_legacy_inventory_is_not_reinterpreted_as_empty(self):
+        self.state["requirements_handoff"]["report"]["conflicts"] = []
+        original = copy.deepcopy(self.state)
+        for variant in ("no_handoff", "no_conflicts_field", "no_requirements", "unknown_history"):
+            with self.subTest(variant=variant):
+                self.state = copy.deepcopy(original)
+                if variant == "no_handoff":
+                    self.state.pop("requirements_handoff")
+                elif variant == "no_conflicts_field":
+                    self.state["requirements_handoff"]["report"].pop("conflicts")
+                elif variant == "no_requirements":
+                    self.state["requirements_handoff"]["report"]["requirements"] = []
+                else:
+                    self.state["requirements_history"] = [{"report": {"requirements": [{"id": "R1"}]}}]
+                self.assertNotIn("maxItems", self.resolution_schema())
+
+    def test_adaptive_feedback_is_traced_but_is_not_a_recorded_conflict(self):
+        self.state["requirements_handoff"]["report"] = {"requirements": [], "conflicts": []}
+        self.event[adaptive.FEEDBACK] = {"requirements_handoff": ""}
+        self.assertEqual([self.event["id"]], [row["id"] for row in adaptive.feedback_requirements(self.state)])
+        self.assertEqual(0, self.resolution_schema()["maxItems"])
+
+    def test_unrelated_schemas_and_malformed_unknown_context_are_unchanged(self):
+        schema = copy.deepcopy(autoplanner.SCHEMAS["astra_discovery"])
+        handoff = {"requirements": [{"id": "R1"}], "conflicts": []}
+        for history in (None, [None], [{"report": None}], [{"report": {"requirements": [], "conflicts": "unknown"}}]):
+            with self.subTest(history=history):
+                self.assertEqual(schema, policy.conflict_schema(schema, handoff, [], history))
+        unrelated = autoplanner.SCHEMAS["astra_challenge"]
+        self.assertEqual(unrelated, policy.conflict_schema(unrelated, handoff, [], []))
 
 
 if __name__ == "__main__":

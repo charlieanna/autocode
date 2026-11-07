@@ -27,10 +27,10 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ("--engine", "codex")
 
-    def base_checkpoint(self):
+    def base_checkpoint(self, *, options=()):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_review"
-        self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
+        self.launch(["Build greeting", "--chat", *options], 2, answers="CLI\nyes\n")
         run, paused = self.saved()
         self.launch(["--run-dir", str(run), "--abandon-stage", runner.attempt_id(paused["active_stage"])], 0)
         return run, self.saved()[1]
@@ -136,7 +136,8 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         # #511: three Builder batches without source changes and no automatic recovery. The resume used to
         # stop as "Automatic recovery budget exhausted ... after 0 recorded operational recoveries" and
         # offer --grant-recovery; it must run the next stage instead.
-        self.run, stopped = self.base_checkpoint()
+        # Isolate operational-recovery accounting from the independent unchanged-batch limit.
+        self.run, stopped = self.base_checkpoint(options=("--no-progress-limit", "0"))
         stopped.update(no_progress_batches=3)
         stopped.pop("automatic_recoveries_since_resume", None)
         runner.write_json(self.run / "state.json", stopped)
@@ -279,14 +280,16 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
         self.launch(["--run-dir", str(self.run), "--no-chat"], 2)
         self.assertFalse(probe.exists(), "a stopped run cannot launch without recovery authority")
-        self.launch(["--run-dir", str(self.run), "--resume-paused", "--no-chat"], 2)
-        self.assertFalse(probe.exists(), "plain resume must retain the incident's no-progress hold")
-        self.assertIn("No causal progress", self.saved()[1]["stop_reason"])
-        self.launch(["--run-dir", str(self.run), "--resume-paused", "--retry-failed-stage", "--no-chat"], 0)
+        # The no-progress hold is AutoCode's own machinery (#2485): a plain resume settles it
+        # by taking the one scoped retry itself instead of asking a person for --retry-failed-stage.
+        self.launch(["--run-dir", str(self.run), "--resume-paused", "--no-chat"], 0)
         after = self.saved()[1]
         launched = [json.loads(line)["stage"] for line in probe.read_text().splitlines()]
         self.assertEqual(["astra_resolve", "terra", "sol", "astra_review"], launched)
         self.assertEqual("TASK_COMPLETE", after["status"])
+        grants = after.get("failure_retry_authorizations") or []
+        self.assertTrue(grants, "the automatic retry is recorded as its own grant")
+        self.assertEqual("autocode", grants[-1].get("actor"))
         self.assertEqual(approved, after["goal_contract"])
         self.assertEqual(
             support.criteria_definition(stopped["acceptance_criteria"]),

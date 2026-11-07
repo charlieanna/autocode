@@ -1,6 +1,8 @@
 """Route discovery (#1426 steps 4-5): the tool's own listings become the selector's candidates."""
 
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -116,7 +118,7 @@ class KiloDiscoveryTests(unittest.TestCase):
             ("requirements", "glm", "terra", "plan_reviewer", "sol", "completion", "astra"), found["candidates"]
         )["routes"]
         self.assertIsNotNone(routes)
-        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", routes["terra"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-sol", routes["terra"]["model"])  # the preferred Builder the gateway serves
         self.assertEqual("kilo/z-ai/glm-5.3", routes["requirements"]["model"])
         self.assertEqual("kilo/openai/gpt-6-sol", routes["plan_reviewer"]["model"])
         self.assertEqual("kilo/openai/gpt-6-astra", routes["astra"]["model"])
@@ -124,9 +126,10 @@ class KiloDiscoveryTests(unittest.TestCase):
     def test_a_subscription_plan_beats_the_cheaper_gateway_for_the_builder(self):
         with mock.patch.object(command.env_prep, "preflight_run", kilo_listing()):
             found = discovery.discover(self.provider)
-        routes = selector.select(("terra",), found["candidates"])["routes"]
-        # DeepSeek Flash is cheaper per token, but GLM on the Z.AI Coding Plan bills a
-        # subscription the owner already pays for, and subscription always wins.
+        # Among Builders of one preference (GPT models aside): DeepSeek Flash is cheaper per token, but GLM on
+        # the Z.AI Coding Plan bills a subscription the owner already pays for, and subscription always wins.
+        candidates = [row for row in found["candidates"] if "gpt-" not in row["model"]]
+        routes = selector.select(("terra",), candidates)["routes"]
         self.assertEqual("zai-coding-plan/glm-5.3", routes["terra"]["model"])
 
 
@@ -159,6 +162,63 @@ class OpenCodeDiscoveryTests(unittest.TestCase):
 
 
 class VariantOmissionTests(unittest.TestCase):
+    def test_a_configured_kilo_connection_lists_its_variants_like_the_bundled_one(self):
+        """#2006: --single-model fits efforts to the model's declared variants, but discovery read variants only
+        for the name "kilocode", so a copy of kilocode.toml under another name declared nothing."""
+        with tempfile.TemporaryDirectory() as folder:
+            user = Path(folder) / "autocode" / "providers"
+            user.mkdir(parents=True)
+            text = command.load("kilocode")._path.read_text().replace('name = "kilocode"', 'name = "kilo_mine"', 1)
+            (user / "kilo_mine.toml").write_text(text)
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": folder}):
+                mine = command.load("kilo_mine")
+            verbose = 'zai-coding-plan/glm-5.3\n{"variants": {"low": {}, "high": {}, "max": {}}}\n'
+
+            def listing(command, *a, **kw):
+                if "auth" in command:
+                    return response(KILO_AUTH_LISTING)
+                return response(verbose if "--verbose" in command else KILO_MODELS)
+
+            with mock.patch.object(discovery.env_prep, "preflight_run", side_effect=listing):
+                found = discovery.discover(mine, Path("/tmp/w"))
+                bundled_found = discovery.discover(command.load("kilocode"), Path("/tmp/w"))
+        levels = {row["model"]: row.get("levels") for row in found["candidates"]}
+        self.assertEqual({"low", "high", "max"}, set(levels.get("zai-coding-plan/glm-5.3") or ()), levels)
+        self.assertEqual(
+            levels, {row["model"]: row.get("levels") for row in bundled_found["candidates"]}, "as the bundled name"
+        )
+
+    def test_candidates_carry_the_listed_model_facts_and_never_a_price(self):
+        """#2049: selection checks a model's family and tool calling from the tool's own listing."""
+        verbose = (
+            'zai-coding-plan/glm-5.3\n{"family": "glm", "capabilities": {"toolcall": true, "reasoning": true},'
+            ' "limit": {"context": 200000}, "release_date": "2026-09-01", "cost": {"input": 0.6, "output": 2.2},'
+            ' "variants": {"low": {}, "high": {}}}\n'
+        )
+
+        def listing(command, *a, **kw):
+            if "auth" in command:
+                return response(KILO_AUTH_LISTING)
+            return response(verbose if "--verbose" in command else KILO_MODELS)
+
+        with mock.patch.object(discovery.env_prep, "preflight_run", side_effect=listing):
+            found = discovery.discover(command.load("kilocode"), Path("/tmp/w"))
+        facts = {row["model"]: row["metadata"] for row in found["candidates"]}
+        self.assertEqual(
+            {
+                "family": "glm",
+                "toolcall": True,
+                "reasoning": True,
+                "context": 200000,
+                "release_date": "2026-09-01",
+            },
+            facts.get("zai-coding-plan/glm-5.3"),
+            facts,
+        )
+        unlisted = [model for model, fact in facts.items() if model != "zai-coding-plan/glm-5.3"]
+        self.assertTrue(unlisted, "the fixture serves models the verbose listing does not describe")
+        self.assertTrue(all(facts[model] is None for model in unlisted), facts)
+
     def test_a_route_with_no_level_omits_the_variant_arguments(self):
         provider = command.load("kilocode")
         argv, _env, _meta = provider.launch("terra", "/tmp/w", "/tmp/r", None, "kilo/z-ai/glm-5.3", None, True)
@@ -267,12 +327,12 @@ class AutoSelectConfigureTests(unittest.TestCase):
     def test_the_selection_becomes_the_runs_routes_and_origins(self):
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
             settings = self.configure(self.args(auto_select=True))
-        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", settings["roles"]["terra"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["terra"]["model"])  # Luna is not connected
         self.assertEqual("kilo/z-ai/glm-5.3", settings["roles"]["glm"]["model"])
         self.assertEqual("kilo/openai/gpt-6-astra", settings["roles"]["astra"]["model"])
         self.assertEqual("auto_selected", settings["route_origins"]["terra"])
-        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", settings["route_selection"]["routes"]["terra"]["model"])
-        self.assertIn("kilo/deepseek/deepseek-v4.1-flash", settings["route_selection"]["probe"])
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["route_selection"]["routes"]["terra"]["model"])
+        self.assertIn("kilo/openai/gpt-6-sol", settings["route_selection"]["probe"])
 
     def test_explicit_effort_survives_selection_and_matches_the_probe(self):
         for role in ("terra", "sol", "astra", "completion", "requirements", "glm", "plan_reviewer"):
@@ -340,7 +400,7 @@ class AutoSelectConfigureTests(unittest.TestCase):
         self.assertNotIn("route_selection", settings)
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
             settings = self.configure(self.args(auto_select=None))  # the soft default
-        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", settings["roles"]["terra"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["terra"]["model"])
         self.assertEqual("auto_selected", settings["route_origins"]["terra"])
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()) as probe:
             settings = self.configure(self.args(auto_select=False))  # the explicit opt-out
@@ -359,6 +419,30 @@ class AutoSelectConfigureTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no qualified model"):  # insisted: refuses
                 self.configure(self.args(auto_select=True))
 
+    def test_selection_needs_an_opencode_version_the_conformance_matrix_qualifies(self):
+        # #2060: on an OpenCode version with no conformant matrix row, nothing is selected.
+        def configure(args, version):
+            state = {"workspace": "/tmp/fixture", "iteration": 0}
+            with (
+                mock.patch.object(self.support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+                mock.patch.object(
+                    self.runner.opencode, "local_settings", return_value={"engine": "opencode", "version": version}
+                ),
+                mock.patch.object(discovery, "discover", return_value=self.gateway_found()),
+            ):
+                settings = self.configure_module.configure(
+                    args, state, planning=self.planning, milestones=self.milestones, autopilot=self.autopilot
+                )
+            return settings
+
+        settings = configure(self.args(auto_select=None), "9.9.9")  # soft default: fixed routes
+        self.assertNotIn("route_selection", settings)
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        with self.assertRaisesRegex(ValueError, "opencode 9.9.9 has not passed the offline conformance suite"):
+            configure(self.args(auto_select=True), "9.9.9")  # insisted: refuses
+        settings = configure(self.args(auto_select=True), "1.18.33")  # a known-good version selects
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["terra"]["model"])
+
     def test_a_soft_default_falls_back_to_fixed_routes_when_listings_cannot_be_read(self):
         broken = mock.Mock(side_effect=RuntimeError("cannot verify kilocode login"))
         with mock.patch.object(discovery, "discover", broken):
@@ -372,5 +456,7 @@ class AutoSelectConfigureTests(unittest.TestCase):
     def test_single_model_skips_selection_without_error(self):
         with mock.patch.object(discovery, "discover") as probe:
             settings = self.configure(self.args(single_model="openai/gpt-6-sol"))
-        probe.assert_not_called()
+        # Discovery may be read for the one model's declared variants (#2006); nothing is selected.
+        self.assertLessEqual(probe.call_count, 1)
+        self.assertNotIn("route_selection", settings)
         self.assertTrue(settings["single_model_mode"])

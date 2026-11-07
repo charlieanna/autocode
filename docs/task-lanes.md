@@ -4,7 +4,7 @@
 
 ## Connected task lanes
 
-Use `autocode tasks` (or `autocode-tasks`) when several complete Autocode tasks must
+Use `autocode tasks` (or `autocode tasks`) when several complete Autocode tasks must
 run in order or independently. Tasks inside one lane run sequentially in the same
 worktree, so later tasks see earlier source changes. Different lanes use different
 worktrees and may run concurrently. Every item invokes the normal UI or code loop;
@@ -71,7 +71,9 @@ plan — an explicit person's decision to delegate, not a default choice.
 (created fresh from the repository's HEAD if it does not exist yet), left
 uncommitted for review, the same way a single AutoCode task leaves its own
 work. An existing `TARGET` must be the top directory of a worktree of the same
-repository; anything else is refused before a file is written. Extra flags for the underlying task runs (models, reasoning effort,
+repository; anything else is refused before a file is written. Components are
+always parts of one repository; for work in separate repositories see
+[Work that spans several repositories](multi-repo.md). Extra flags for the underlying task runs (models, reasoning effort,
 provider) go after `--options`, shell-quoted.
 
 ### A component with a Figma design
@@ -142,12 +144,6 @@ target. If HEAD itself changed those paths since the component was built (for
 example, an earlier integration was committed and then edited), a new target
 would differ the same way, so the message says to rebuild the component:
 remove its worktree `.autocode-components/<id>` and run the command again.
-
-When the work is one requirement that must be split, built in parallel and
-combined, use a [program](program.md) instead of lanes: workstreams declare
-dependencies and ownership, dependents branch from the merged results of their
-prerequisites, and completed workstreams are merged onto one integration branch
-with conflicts paused for you.
 
 ### Declaring how a component runs
 
@@ -423,7 +419,7 @@ commit it started from, with the delivered changes still in its files, so the
 completion evidence (pinned to the worktree's HEAD) stays current and you can still
 inspect or run the result there. Later work in the same worktree, such as a rework
 after feedback, is committed on top at its next completion. Runs started with
-`--in-place`, program workstreams and components are never committed this way.
+`--in-place` and components are never committed this way.
 
 Review and merge the branch like any other, for example `git merge autocode/<task>-<id>`
 from your checkout. Then remove finished worktrees:
@@ -437,7 +433,8 @@ A worktree is removed only when every run in it is `TASK_COMPLETE`, its source i
 exactly what its branch holds, and no runner holds its lock. Its `.autocode/`
 records (run state, logs, evidence) are copied to `.autocode/archive/<worktree>/`
 first; the branch is kept. Anything else is listed with the reason it is kept.
-Worktrees recorded by an `autocode program` are left to that command. The
+Worktrees an `autocode program` recorded are kept: that command is archived on the
+`archive/program` branch, and clean-up leaves what an older checkout's program owns. The
 dashboard and registry show a removed worktree's runs as `workspace_missing`.
 
 Resume from the project while the task is its only unfinished run, or from inside the

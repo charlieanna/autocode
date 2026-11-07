@@ -39,6 +39,7 @@ PLATFORM = (
     "tools/provider_conformance",
     "tools/autocode_tool_containment",
     "tools/autocode_toolchain",
+    "tools/autocode_python_entrypoints",
     "tools/autocode_elf_dependencies",
     "tools/autocode_util.py",
     "tools/providers/",
@@ -161,7 +162,7 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             selected["suite"] = True
 
         if path.startswith(("scenarios/", "test-scenarios/", *LIFECYCLE, *MACHINERY)) or (
-            path in run_suite.SCENARIO_FIXTURES
+            path in run_suite.SCENARIO_FIXTURES or path in run_suite.SCENARIO_RUNTIME_CONSUMERS
         ):
             selected["scenarios"] = True
         if path.startswith(
@@ -178,6 +179,7 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             "tools/autocode_run_view.py",
             "tools/autocode_roles.py",
             "tools/autocode_legacy_process.py",
+            "tools/fake_command_tool.py",
         ):
             selected["dashboard"] = True
         if path.startswith("tests/test_") and "browser" in path:

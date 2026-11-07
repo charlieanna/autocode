@@ -255,10 +255,12 @@ def execute_flow(args, source, manifest, project, flow_dir, state_path):
 def parser() -> argparse.ArgumentParser:
     """The arguments `autocode tasks` reads; `autocode completion` reads them too."""
     result = argparse.ArgumentParser(description="Run sequential Autocode task lanes in parallel worktrees")
-    result.add_argument("manifest", type=Path)
-    result.add_argument("--workspace", type=Path, default=Path.cwd())
-    result.add_argument("--max-parallel", type=int, default=2)
-    result.add_argument("--dry-run", action="store_true")
+    result.add_argument("manifest", type=Path, help="The task flow file")
+    result.add_argument("--workspace", type=Path, default=Path.cwd(), help="Project directory (default: current)")
+    result.add_argument("--max-parallel", type=int, default=2, help="Lanes run at once (default: 2)")
+    result.add_argument(
+        "--dry-run", action="store_true", help="Validate the manifest and preview the lanes; start nothing"
+    )
     result.add_argument("--json", action="store_true", help="Format output as JSON (default)")
     return result
 

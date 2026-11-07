@@ -175,13 +175,15 @@ class VisualRuntimeTests(unittest.TestCase):
     def test_lifecycle_projected_criteria_use_full_approved_visual_binding(self):
         for row in self.state["goal_contract"]["body"]["acceptance_criteria"]:
             row["sources"] = [{"source_id": "task:0", "quote": "Build a greeting tool"}]
+            row["current_behavior"] = "Greeting is currently missing"
         self.approve()
         approved = deepcopy(self.state["goal_contract"]["body"]["acceptance_criteria"])
         for omitted in (
             ("verification_method",),
             ("human_review",),
             ("sources",),
-            ("verification_method", "human_review", "sources"),
+            ("current_behavior",),
+            ("verification_method", "human_review", "sources", "current_behavior"),
         ):
             with self.subTest(omitted=omitted):
                 self.state["acceptance_criteria"] = [
@@ -204,6 +206,7 @@ class VisualRuntimeTests(unittest.TestCase):
     def test_projected_criteria_still_reject_definition_or_present_metadata_tampering(self):
         for row in self.state["goal_contract"]["body"]["acceptance_criteria"]:
             row["sources"] = [{"source_id": "task:0", "quote": "Build a greeting tool"}]
+            row["current_behavior"] = "Greeting is currently missing"
         self.approve()
         approved = deepcopy(self.state["goal_contract"]["body"]["acceptance_criteria"])
         projected = [{key: row[key] for key in ("id", "criterion")} for row in approved]
@@ -213,6 +216,8 @@ class VisualRuntimeTests(unittest.TestCase):
             "human review type": lambda rows: rows[0].update(human_review=0),
             "source trace": lambda rows: rows[0].update(sources=[{"source_id": "task:0", "quote": "altered"}]),
             "source trace type": lambda rows: rows[0].update(sources={}),
+            "current behavior": lambda rows: rows[0].update(current_behavior="altered"),
+            "current behavior type": lambda rows: rows[0].update(current_behavior=[]),
             "criterion wording": lambda rows: rows[0].update(criterion="Claim acceptance"),
             "criterion id": lambda rows: rows[0].update(id="foreign"),
             "extra definition": lambda rows: rows[0].update(approved=True),
@@ -471,19 +476,20 @@ class VisualRuntimeTests(unittest.TestCase):
         body = self.state["goal_contract"]["body"]
         body["constraints"].append("VISUAL_SLICE_GATES=complete-cases-v1")
         template = deepcopy(body["milestones"][0])
+        # The fixture body's own declared paths: the Builder's after-snapshot was taken under them.
         body["milestones"] = [
             {
                 **deepcopy(template),
                 "id": "M1",
                 "acceptance_criteria": ["C1"],
-                "affected_paths": ["greet.py"],
+                "affected_paths": list(template["affected_paths"]),
                 "depends_on": [],
             },
             {
                 **deepcopy(template),
                 "id": "M2",
                 "acceptance_criteria": ["C2"],
-                "affected_paths": ["greet.py"],
+                "affected_paths": list(template["affected_paths"]),
                 "depends_on": ["M1"],
             },
         ]
@@ -1789,7 +1795,7 @@ design = data.get('design_manifest')
 if design:
     design_body = design.get('body') or json.loads(Path(design['full_manifest']).read_text())
     cases = design_body['cases']
-    if 'contract' in result:
+    if 'contract' in result and 'retain_contract' not in result['contract']:
         mapping = {case['id']: ['C2' if mode == 'milestones' and index == 1 else 'C1']
                    for index, case in enumerate(cases)}
         declaration = 'VISUAL_CASE_CRITERIA=' + json.dumps(mapping, sort_keys=True)

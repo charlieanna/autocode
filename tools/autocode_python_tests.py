@@ -1,11 +1,11 @@
-"""Parse literal Python test commands and named unittest output without running them."""
+"""Parse Python test declarations, literal commands and results without running them."""
 
 import ast
 import re
 import shlex
 from collections.abc import Callable
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_test_setup as test_setup
@@ -19,6 +19,220 @@ UNITTEST_BARE_STATUS = re.compile(r"(ok|FAIL|ERROR|expected failure|unexpected s
 UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "tearDownModule"})
 
 TEST_MODULE = re.compile(r"^(tests|test_.*|.*_tests?)\.py$")
+
+
+def empty_package_marker(path: str, source: str) -> bool:
+    """Only a Python package marker with no executable AST can lack test coverage."""
+    if Path(path).name != "__init__.py":
+        return False
+    try:
+        return not ast.parse(source).body
+    except (SyntaxError, ValueError):
+        return False
+
+
+def deleted_test_files(paths, read):
+    """Keep deleted coverage, excluding only proven empty Python package markers."""
+    return [path for path in paths if Path(path).name != "__init__.py" or not empty_package_marker(path, read(path))]
+
+
+def pytest_case_names(cases, tree):
+    """Pair each report case with its owned identity, sharing module lookups."""
+    classnames = {}
+    for case in cases:
+        classname = case.get("classname", "")
+        if classname not in classnames:
+            classnames[classname] = pytest_classname(classname, tree)
+        yield f"{classnames[classname]}::{case.get('name', '')}", case
+
+
+def pytest_classname(classname: str, tree) -> str:
+    """Remove only a proven physical scratch-root prefix from an existing module.
+
+    Pytest may choose an ancestor's pyproject as rootdir even without pytest
+    options there. Keep its configured collection unchanged; compare results
+    relative to the owned project. Real project prefixes and ambiguous mappings
+    stay intact rather than borrowing another module's identity.
+    """
+    if tree is None:
+        return classname
+    root = Path(tree).absolute()
+    owned_root = root.resolve()
+
+    def module_exists(name):
+        parts = name.split(".")
+        if any(not part or any(separator in part for separator in ("/", "\\", ":")) for part in parts):
+            return False
+        for end in range(len(parts), 0, -1):
+            module = root.joinpath(*parts[:end]).with_suffix(".py")
+            if module.is_file() and module.resolve().is_relative_to(owned_root):
+                return True
+        return False
+
+    if module_exists(classname):
+        return classname
+    candidates = set()
+    for physical in {root, owned_root}:
+        for ancestor in physical.parents:
+            prefix = physical.relative_to(ancestor).as_posix().replace("/", ".") + "."
+            if classname.startswith(prefix):
+                candidate = classname[len(prefix) :]
+                if module_exists(candidate):
+                    candidates.add(candidate)
+    return next(iter(candidates)) if len(candidates) == 1 else classname
+
+
+def prefers_pytest(sources: dict[str, str]) -> bool:
+    """Declared pytest tests need pytest; explicit unittest load_tests hooks win.
+
+    Only default pytest module names imply collection without configuration.
+    Package markers are inspected for hooks, never treated as test modules.
+    """
+    found = False
+    for path, source in sources.items():
+        try:
+            nodes = ast.parse(source).body
+        except (SyntaxError, ValueError):
+            continue  # Execution still has to establish complete collection.
+        name = Path(path).name
+        collectable = name.startswith("test_") or name.endswith("_test.py")
+        for node in nodes:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name == "load_tests":
+                    return False
+                found |= collectable and node.name.startswith("test_")
+            elif isinstance(node, (ast.Import, ast.ImportFrom)) and any(
+                (alias.asname or alias.name) == "load_tests" for alias in node.names
+            ):
+                return False
+            elif collectable and isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+                unittest_class = any(
+                    isinstance(base, ast.Attribute)
+                    and base.attr == "TestCase"
+                    or isinstance(base, ast.Name)
+                    and base.id == "TestCase"
+                    for base in node.bases
+                )
+                found |= not unittest_class and any(
+                    isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name.startswith("test_")
+                    for child in node.body
+                )
+    return found
+
+
+def prefers_pytest_in(directory, files, read) -> bool:
+    """Inspect only test modules and package collection hooks from the caller's inventory."""
+    return prefers_pytest(
+        {
+            path: read(directory / path)
+            for path in files
+            if TEST_MODULE.match(Path(path).name) or Path(path).name == "__init__.py"
+        }
+    )
+
+
+FAMILY_DIRS = ("components", "repos")
+# Monorepo package folders (2026-11-06): each package runs its own tests from its own folder, and
+# without a parent ``__init__.py`` a root ``unittest discover`` never enters the folder and finds
+# none. A run then could not prove the existing tests and asked a person to add a marker file
+# (docs/bugs/2026-11-02-retry-loops.md). Each package with tests runs as an isolated member of its
+# folder instead, as the collector already runs components/ (autocode_component_tests).
+PACKAGE_DIRS = ("packages", "apps", "services", "libs")
+
+
+def family_inventory(files, read, root: Path):
+    """One shared enumeration and dispatch policy for nested unittest suite families.
+
+    Both families — ``components/`` and the joint integration layout ``repos/<member>/``
+    (#2414) — enumerate test modules, package markers and member names through the same
+    rules here, so the collector command and its semantics cannot drift between
+    families. Binding keeps each family's established predicate: a ``components``
+    parent package binds through its package markers as it always has, a ``repos``
+    parent binds through ``repo_parent_package``. Pure: reads the tracked file list and
+    each package ``__init__`` source only.
+    """
+    tests = [p for p in files if TEST_MODULE.match(PurePosixPath(p).name)]
+    packages: dict[str, list[str]] = {family: [] for family in FAMILY_DIRS}
+    for path in files:
+        parts = PurePosixPath(path).parts
+        if (
+            path.endswith("/__init__.py")
+            and len(parts) > 1
+            and parts[0] in packages
+            and unittest_package(read(root / path))
+        ):
+            packages[parts[0]].append(path)
+    members = {
+        family: sorted(
+            {
+                PurePosixPath(p).parts[1]
+                for p in [*tests, *packages[family]]
+                if len(PurePosixPath(p).parts) > 2 and PurePosixPath(p).parts[0] == family
+            }
+        )
+        for family in FAMILY_DIRS
+    }
+    package_families = {
+        folder: holding
+        for folder in PACKAGE_DIRS
+        if f"{folder}/__init__.py" not in files
+        and (
+            holding := sorted(
+                {
+                    PurePosixPath(p).parts[1]
+                    for p in tests
+                    if len(PurePosixPath(p).parts) > 2 and PurePosixPath(p).parts[0] == folder
+                }
+            )
+        )
+    }
+    return FamilyInventory(
+        tests=tests,
+        package_families=package_families,
+        components=members["components"],
+        component_packages=packages["components"],
+        repo_members=members["repos"],
+        repo_packages=packages["repos"],
+        repo_parent_package="repos/__init__.py" in packages["repos"],
+    )
+
+
+@dataclass(frozen=True)
+class FamilyInventory:
+    tests: list
+    components: list
+    component_packages: list
+    repo_members: list
+    repo_packages: list
+    repo_parent_package: bool
+    # Unmarked monorepo package folders (PACKAGE_DIRS) and the members that hold tests.
+    package_families: dict = field(default_factory=dict)
+
+    def any_family(self):
+        """Whether any nested family (or family-shaped test tree) selects Python unittest."""
+        return bool(self.tests or self.component_packages or self.repo_packages or self.repo_parent_package)
+
+    def has_components(self):
+        return bool(self.components or self.component_packages)
+
+    def has_repos(self):
+        return bool(self.repo_members or self.repo_parent_package)
+
+    def collected_by_runner(self):
+        """Whether the isolated collector must run this tree instead of a root discovery."""
+        return self.has_components() or self.has_repos() or bool(self.package_families)
+
+    def collector_arguments(self):
+        """The collector's family arguments: components, repos, then each package folder in order."""
+        return [
+            *(["--components", *self.components] if self.has_components() else []),
+            *(["--repos", *self.repo_members] if self.has_repos() else []),
+            *(
+                word
+                for folder, members in self.package_families.items()
+                for word in ("--package-family", folder, *members)
+            ),
+        ]
 
 
 def unittest_package(source: str) -> bool:

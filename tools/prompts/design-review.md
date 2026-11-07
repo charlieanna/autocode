@@ -22,7 +22,13 @@
    shell command run from the repository root that exits 0 exactly when the code behaves as you say (for
    example: python3 -c "from events.processor import Processor; assert Processor.STRICT_SEQ"). The runner
    runs every probe in a scratch copy and rejects the review if one fails, so only probe what you have
-   checked. A concern about the design text alone (a missing rollback step) has probe "".
+   checked. A probed concern also gives counterexample: the smallest edit to one repository file after
+   which the code no longer behaves as you say, as file, find (text copied exactly from that file,
+   occurring once) and replace (for example: file "events/processor.py", find "STRICT_SEQ = True",
+   replace "STRICT_SEQ = False"). The runner makes that edit in another scratch copy and the probe must
+   fail there; a probe that passes whatever the code says shows nothing and rejects the review. A concern
+   about the design text alone (a missing rollback step) has probe "" and counterexample file, find and
+   replace "".
 5. questions: decisions only the requester can make because the design leaves a requirement choice open
    (for example whether strict ordering is required and for which consumers). When a concern can be
    resolved only by that choice, ask it here rather than assuming one interpretation; give each the

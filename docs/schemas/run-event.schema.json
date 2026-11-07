@@ -12,7 +12,7 @@
     "kind": {
       "type": "string",
       "minLength": 1,
-      "description": "What happened, in the runner's own vocabulary: an approval (`goal_approval`, `workflow_approval`), an answer (`answer`, `permission_answer`, `checkpoint_answer`), a recorded decision (`human_review`, `review_reconciliation`, `completion_accept`), feedback (`brief_feedback`), a configuration or contract change (`protected_tests_revised`, `verification_commands_changed`, `planning_budget_change`, `base_patch_set`), a routing decision (`route_assignment`), or a recovery the runner took on its own (`automatic_timeout_recovery`, `builder_retry`, `stage_abandoned`, `report_repair_resume_epoch`). Not an enumeration: a run may carry kinds this list predates."
+      "description": "What happened, in the runner's own vocabulary: an approval (`goal_approval`, `workflow_approval`), an answer (`answer`, `permission_answer`, `checkpoint_answer`), a recorded decision (`human_review`, `review_reconciliation`, `completion_accept`), feedback (`brief_feedback`), a configuration or contract change (`protected_tests_revised`, `verification_commands_changed`, `planning_budget_change`, `limit_change`, `base_patch_set`), a routing decision (`route_assignment`), or a recovery the runner took on its own (`automatic_timeout_recovery`, `builder_retry`, `stage_abandoned`, `report_repair_resume_epoch`). Not an enumeration: a run may carry kinds this list predates."
     },
     "at": {
       "type": "string",

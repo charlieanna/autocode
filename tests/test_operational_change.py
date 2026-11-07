@@ -53,6 +53,28 @@ class OperationalChangeTests(unittest.TestCase):
         self.assertEqual({}, policy.apply(self.state, self.request, self.question, "Decline"))
         self.assertEqual(before, self.state)
 
+    def test_a_choice_bound_to_nothing_says_so_instead_of_looking_like_a_resolution(self):
+        """#2041: a live greenfield gate offered runner work nothing implements, and answering it spent."""
+        question = {"why": "Choose how the completion gate should treat this run's greenfield zero-test base"}
+        request = {
+            "kind": "permission",
+            "options": [
+                "Record the empty base inventory as vacuously preserved",
+                "Complete base-side collection evidence runner-side for the empty base commit",
+                "Decline: leave the regression proof UNVERIFIED and the run blocked",
+            ],
+        }
+        policy.bind(self.state, request, question)
+        self.assertIn("None of these choices changes a setting, an approval or an allowance", question["why"])
+        self.assertIn("--feedback", question["why"])
+        self.assertNotIn("operational_options", question)
+        self.assertFalse(policy.carries_effect(request))
+
+    def test_a_choice_bound_to_settings_is_never_called_effectless(self):
+        self.assertTrue(policy.carries_effect(self.request))
+        self.assertIn("Exact operational effects", self.question["why"])
+        self.assertNotIn("None of these choices", self.question["why"])
+
     def test_free_text_does_not_select_a_change(self):
         for text in ("yes", "1", "Use 5400 seconds except stage timeout", "Decline, actually approve"):
             with self.subTest(text=text):

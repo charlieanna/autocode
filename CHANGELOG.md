@@ -9,7 +9,2166 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- A run no longer stops to ask you how to route a fix when the approved plan's test command cannot find
+  a test it names. A Tester's report cannot change that result, so the run paused and the Investigator
+  asked whether the Builder or the Resolver should take it. AutoCode now returns the task to the Builder
+  to define each named test where the command names it, at most twice for a command (#2815).
+- A run no longer ends on a failure it already fixed. When a repair made the regression proof pass
+  and the Tester then sent the Builder back for changed lines without evidence, that round was counted
+  as a retry of the fixed failure; with the one retry spent, a live run ended "kept failing for the same
+  reason". The changed-line repair now runs under its own two-round bound (#2815).
+- A Builder sent back to settle changed lines gets those lines' evidence, not the whole proof's.
+  Each tested or excepted line, and each open line nothing observed (no mutant ran or none could),
+  is listed by number under its file; an open line with a mutant outcome keeps its full row. Live
+  returned Builders' handoffs fell from 257 KB to 79 KB and from 179 KB to 75 KB; at 257 KB the
+  provider compacted the conversation and the run paused for a person (#2815).
+- When AutoCode gives a timed-out job such as the Investigator a longer deadline, only that job's
+  retry gets it. The rest of the run keeps the stage time limit you set, instead of every later
+  stage inheriting the longer one (#2823).
+- A second Investigator in the same step no longer stops the run with "Permission denied" when it
+  tests a counterexample. Each probe now gets a folder of its own instead of reusing the first
+  probe's folder, whose edited file can be read-only.
+- Large completed review reports can use exact text edits for syntax errors or a JSON fence, within
+  the existing 512 KiB artifact ceiling. Repairs preserve the source hash, unchanged report text,
+  the 32-edit/4096-byte correction limits, and every ordinary evidence and approval check.
+- Small bug fixes retain source-bound planning observations and reviewed draft corrections, reuse
+  authenticated baseline and protected-test comparisons, and retry a missing Tester report before
+  Completion Review. Tuple-assignment mutations cover computed week keys, and saved-run replay
+  rebinds mutation evidence from current proof identities, including compacted proof artifacts.
+- A run that reaches a limit you set (active time, cost, iterations, milestone time, unchanged
+  batches) now offers what continues it. The terminal chat asks "1. Raise the total active time and
+  continue / 2. Leave the run paused" instead of a reply box, explains that a written reply can't lift
+  a limit, and says the run reached its limit rather than "AutoCode hit a problem of its own". The
+  status view's `needs_you` no longer names `--resolver-response provide_information`, and a number
+  with no real ceiling reads "N or more" (#2607).
+- Fewer changed lines need a written reason. The mutation check now also breaks a line whose only
+  behavior is a call made for its effect (the call is dropped), a computed value it binds (the value
+  becomes `None`) or a loop (it runs over nothing), when no other operator reaches that line. On a live
+  build with no coverage tool, the first proof left 86 of 229 changed lines for the Tester to excuse
+  by hand instead of 146 of 208, and tested 143 lines instead of 62 (#2815).
+- The Investigator now sees runs that used to stall out of its reach. A stage that stops twice on
+  unchanged source without a valid report (a Tester re-issued by the Completion Reviewer after each
+  idle timeout) pauses as a repeated failure instead of looping. The same stuck problem on changed
+  source is investigated again, and a plan with more milestones than the per-run budget gets one
+  investigation per milestone. A report repair that cannot launch (too large, or no usable report)
+  starts a fresh attempt of its stage by itself instead of asking a person to resume; three on
+  unchanged source go to the Investigator. When the automatic timeout recoveries run out
+  (`PAUSED_TIMEOUT_RECOVERY`), the Investigator diagnoses the stop and may grant one more recovery,
+  instead of the run asking a person to `--grant-recovery`. If the Investigator itself
+  runs out of time, the stuck stage's own pause comes back instead of a question about retrying the
+  Investigator.
+- A review handoff for a large wave no longer overflows the Tester's context. When a proof's mutant
+  lists, per-criterion survivors, evidence inputs or per-line obligations are over 64 KiB, each moves
+  whole into the hash-pinned context artifact, and so does a receipt list that is still over 64 KiB
+  after the receipt bound. The handoff keeps counts, outcomes, every timed-out or supervision-failed
+  receipt, each file's tested lines, and every other changed line's handle, line, status and
+  mutation outcomes. Only a gap carries a handle, so the Tester cannot decide a tested line. A live two-Builder
+  wave's Tester handoff went from 3.63 MB (1.99 MB after the receipt bound) to 0.25 MB (#2806).
+- Complete review-repair reports now reach the ordinary compatibility checks, preserving exact approved criterion text while still rejecting changed text, malformed patches and invalid evidence.
+
+- A report repair can remove one extra array item with a small source-bound edit instead of rewriting the entire array. Mixed edits keep their original indices; ordinary evidence and contract checks still apply.
+
+- Tester and completion-review JSON repairs can use exact-source-bound edits, preserving unrelated captured commands; lossless inline history avoids duplicating large reports in later repair handoffs.
+  Scripted scenario reviewers use the offered repair envelope too, retaining their full-report
+  corrections without mixing them with an empty transport placeholder.
+- A spec-first wave built one milestone at a time is proved against each milestone's own tests. The
+  regression proof of the first member used to run the tests already written for the others, which cannot
+  pass until they are built, and refused it. Those files are now left out until their milestone is due;
+  the final completion proof still runs every test.
+- A GLM request that Z.ai refuses with "Prompt exceeds max length" is now a context-window stop
+  (`PAUSED_CONTEXT_WINDOW`), not an uncertain provider stop the Resolver holds for a person.
+
+- A report-only Investigator repair restores its recorded temporary model route after a pause,
+  instead of falling back to the default review model. Conflicting route metadata refuses launch.
+- Review handoffs name the current enclosing proof as the accepted citation for changed-code mutation and coverage observations. Follow-up tasks refer to it symbolically, preventing avoidable raw-log and stale-proof citation repairs.
+
+- Loading the terminal UI no longer requires the POSIX-only descriptor helper; input reads use it
+  only when available, keeping nonblocking mouse handling on supported terminals.
+- Report repair tolerates bounded JSON formatting overhead while retaining the complete
+  saved artifact and the existing compact-content and final-handoff limits.
+- Investigator report repairs avoid duplicating the preceding Tester diagnosis, retain the exact
+  classification citation allowlist, and can continue a retained repair after a corrected renderer
+  resolves a prelaunch prompt-size refusal. Saved evidence and size limits remain unchanged.
+
+- An Investigator report repair survives run-wide time, cost, iteration and transport boundaries.
+  Existing stranded classifications can continue their pinned repair without replaying the
+  investigation, resetting its allowances or changing the approved plan.
+
+- The supervision cadence regression simulates its quiet interval and excludes shutdown samples, avoiding a timing-dependent failure on healthy keepers.
+
+- Report-only Kilo repairs now state that all tools are disabled and must use the supplied evidence, avoiding instructions to wait for unavailable tools.
+
+- Changed-code repair no longer repeats a narrowed batch assignment when the Tester rejects
+  a gap owned by another batch member. The Completion Reviewer first reassigns the correction
+  within the approved plan; the recorded scope review grants no write permission or completion
+  authority and consumes no Builder repair round.
+- The pause-code inventory references the shared paused-phase constant, preserving the single
+  definition enforced by the run-status architecture check.
+- The terminal progress regression now distinguishes the working stage's latest thought in its
+  status line from the message-only recent updates panel, matching the existing interface.
+- Recovery CLI regressions now check automatic stopping after pinned-Builder exhaustion, including
+  no further launches on resume, and distinguish report-only repair attempts from task retries.
+- A spec-first wave stays parallel when writing its tests needed recovery. A repair of the Tester's report,
+  or the Investigator looking at why it stopped, no longer counts as an attempt at the milestone, so the
+  Orchestrator still gives each wave member its own Builder.
+- A malformed report-only repair no longer hides the original validation error from the next repair.
+  Both diagnostics remain available with the pinned reports, while evidence checks and retry limits
+  stay in force.
+- A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
+  proved like any other first project. The base collects no tests, so there is no existing behavior to
+  preserve; the proof used to report preservation unproven and ask a person how to proceed.
+- Report repair retains the exact integrated milestone batch and its acceptance criteria, so a
+  malformed combined report cannot silently become a review of only one Builder's work (#2788).
+- Tester handoffs keep full raw proof receipts in an immutable context artifact while bounding the
+  inline receipt details; proof outcomes and evidence checks remain unchanged (#2789).
+- Applicable Investigator guidance survives a requested boundary pause and is checked against the
+  task and source when execution resumes. Stale guidance still fails closed (#2790).
+- Tester report repair identifies the current enclosing proof for changed-code evidence citations,
+  while retaining failed checks and rejected coverage gaps (#2791).
+- Combined milestone validation now explicitly covers every integrated member even when model-authored
+  recovery notes describe separate serial reviews. Concrete checks and permission constraints remain
+  in force; missing member evidence still blocks acceptance (#2793).
+- A monorepo whose package folders have no `__init__.py` (`packages/`, `apps/`, `services/`, `libs/`)
+  is tested package by package, each from its own folder, instead of a root discovery that found no
+  tests and stopped the run to ask a person.
+- A spec-first run now builds a parallel wave in parallel. Before the Orchestrator dispatches a wave,
+  the Tester writes its acceptance tests. That time counted as an attempt at the current milestone,
+  so every wave went to one Builder. That Builder then built the first milestone against the other
+  milestones' tests, which cannot pass yet. The time still counts toward the milestone's budget.
+- A parallel Builder now starts with its wave's acceptance tests counted as written, and keeps them
+  fixed. Before, each worker would have sent itself back to the Tester to write them again, and
+  integration would then have refused the batch for the changed test files.
+- A Tester that runs `capture` through `2>&1 | grep '"exit_code"'` keeps its receipt: capture's short
+  attestation line now leads with `exit_code`. When a filter drops every line, the rejection names it.
+- The terminal chat tells a stalled stage from a busy one. While a supervised stage works, the status
+  row says when it last wrote anything (`last output 12s ago`) and, after two minutes of silence, warns
+  `no output for 4m05s`; the status view carries it as `chat.last_output_at`. A stage on a later attempt
+  also says how many more failures the core allows before it stops (`2 tries left`, `last try`;
+  `progress.retry`), and a Builder send-back for untested lines names its round out of the two the
+  gate allows. The footer and the Stages section add how long the run's stages have worked in all
+  (`worked 42m05s`).
+
+### Changed
+
+- A plan whose criteria write the request's dollar amounts in the code's cents is no longer refused
+  as having changed them, when the request itself spells one amount that way, such as
+  "$50.00 (shipping_fee(5000))" (#2780). Without that pairing, $50 must still appear as 50. The
+  refusal now also says to state each number as the request writes it.
+- The Builder is told to keep a superseded test under its own name and change only its contradicting
+  assertions (#2748 follow-up). A live GLM run renamed the old test to the criterion's new test name,
+  which the Completion Reviewer sent back as a removed test.
+- A bug fix whose plan forgot to list an existing test it changes in place no longer stops (#2748
+  follow-up). This is common when one assertion in a larger test expects the bug. When the
+  original-test gate refuses the change for exactly that reason, AutoCode adds the test to the plan's
+  `supersedes` and sends the plan back for review and approval, once per test. The Planner's note now
+  covers a single contradicting assertion and uses an example unrelated to any catalog scenario. A new
+  catalog scenario, `bugfix-superseded-assertion`, covers this case.
+- When the Builder's stronger route is one AutoCode chose itself (not a `--builder-strong-model`
+  you named) and its account cannot use it, for example after an expired login, the run no longer
+  stops on a login question. AutoCode moves the Builder and its checkers back to their earlier
+  routes and ends the milestone's retries. The run's report then says which model failed its access
+  check and gives the probe evidence. A route you named still pauses for its login as before.
+  Moving the Builder between its own routes before and after escalating no longer makes a held
+  Resolver repair look out of date.
+- A bug fix no longer stops when an existing test asserts the bug itself (#2748). The plan names
+  that test in its criterion's `supersedes`, and the approval screen shows it as "Replaces existing
+  test". The original-test gate then accepts a failure of the listed tests only, and only when the
+  runner reports every test's result. Every other existing test must still pass unchanged. A failed
+  original gate names its failing tests, and its pause is reported as AutoCode's, not as a model
+  or provider failure.
+- A reasoning level saved in your stage choices (`autocode stages`) is now a ceiling for the three
+  review stages. On a small, clear task the Plan Reviewer, the Tester and the Completion Reviewer
+  run one level below it, if their model offers that level. GLM 5.3 offers low, high and max, so
+  a GLM review stays at high. A review that runs again for the same task uses your level. A level
+  typed as a flag is still exact, and every other stage still runs at your level. The live log
+  says when a review runs lower, and `/details` shows the level each attempt actually ran at.
+  In a live two-line fix, the Plan Reviewer had spent 10 of the task's 28 minutes in one pass at
+  high.
+
+### Fixed
+
+- The terminal chat's "latest updates" lines under a working stage no longer show "Response stream
+  activity received; text unavailable." That receipt only proves the model is streaming, and it stays
+  in the live log (`/live`). In a live run it was the only update shown for most of the Tester's and
+  the Completion Reviewer's turns.
+- The stage meter in the terminal chat now shows the reasoning level a stage actually ran at. A
+  review lowered one level on a small, clear task (#2747) was shown at its saved level, so a live
+  Plan Reviewer that ran at medium read "mimo-v2.6-pro high", while `/details` said medium.
+- A repair the Resolver planned no longer stops as a stale handoff when you resume the run from
+  another AutoCode checkout. Moving checkouts moves the bundled provider config, so its path changed
+  in the run's settings even though its contents did not. The held repair now still applies when
+  the run's own settings history proves the config is byte-identical and nothing else changed.
+- Resuming a run from another AutoCode checkout no longer stops it. The bundled Kilo config moves
+  with the checkout, so its path changed while its bytes did not, and the run paused with
+  `PAUSED_TRANSPORT_CHANGED` for a person to accept, after which a repair the Resolver had planned
+  stopped as a stale handoff on every resume. A configured command tool whose config has the same
+  bytes at another path is now the same transport, for the run's tool and for a tool pinned to one
+  stage: the run continues, keeps its saved identity, and records the move once in
+  `configuration_changes`. Different bytes, another version or executable, or an incomplete
+  identity still pause. Kilo is no longer recorded as an "Expanded OpenCode configuration identity"
+  on every loop. A run already moved by an explicit acceptance keeps its held repair when its
+  settings history proves the move.
+- A Tester's changed-line decision may cite the regression proof file by its workspace-relative path, as it cites the other changed-line inputs. In a live run the Tester wrote `.autocode/runs/<run>/regression/<proof>/verification.json`, and the whole repaired report was refused as citing unauthenticated evidence. Both spellings bind to the one pinned file, and the decision records its exact path.
+- A spec-first run no longer crashes as it starts a parallel wave. The Orchestrator's wave (`autocode_dispatch.select`) is a list of milestone rows, and choosing the wave's acceptance tests put those rows in a set (`TypeError: unhashable type: 'dict'`). It now takes each row's id. The existing test passed ids, so it missed this; a live run crashed right after accepting its foundation milestone.
+- A draft failure correction again retains a criterion saved before `supersedes` existed. The loader fills an omitted `supersedes` with `[]` (#2748), and the retention check read that as a changed criterion, refusing the correction. An empty list now equals an omitted one; any listed entry is still a change.
+- `autocode connections check --provider claude` no longer reports a Claude login as signed in when
+  Claude Code would bill an API key (for example a key from `apiKeyHelper`, or a Bedrock, Vertex or
+  gateway route). Every run on such a login stopped with `PAUSED_BILLING_ROUTE`, while the check and
+  `autocode setup` showed it ready. The check now says `sign_in_required` and names the route.
+
+- A Tester report repair that leaves a changed line undecided is no longer rejected for it. The
+  undecided line goes to the existing Builder and Investigator rounds, as the gate intended. A
+  repaired report is applied with its original stage's record, so the check missed the repair. In a
+  live run a PASS with 132 of 133 line decisions was rejected twice for the last one.
+- The Tester names each changed line it gives a reason for by a short handle (`L12`) instead of
+  retyping its 64-character gap id. The runner maps the handle to that exact line, and a full id is
+  still accepted. In a live Kilo run, GLM mistyped one of 30+ ids in every report, so one milestone's
+  Tester ran 4 attempts and 7 report repairs over 144 minutes without finishing.
+- A recovery the Resolver's own rules settle now says so: "The Resolver's rules, with no model
+  call, chose to try the stage again" instead of "The Resolver chose", which read as a model's
+  judgement in a live run where the runner decided in a millisecond.
+- A Claude Code stage now records its cache writes and new input tokens, and its token totals count
+  as complete. Before, its cache writes were dropped and every Claude stage's usage was marked
+  incomplete, so the run's cache split could not be shown.
+- Terminal chat: `/diff N` on a step the files still match, such as the newest step of a finished run,
+  now shows what that step itself changed instead of only "Nothing has changed since step N". The
+  status view names a display-only `step` action for each saved step (`autocode checkpoint --step`).
+- Screens and the terminal conversation name the Resolver by its job, as every other stage is named,
+  instead of "AutoResolver", and a Resolver question no longer tells you to use its approval token.
+- A Resolver, checkpoint or review report repair now receives the approved milestones in its handoff.
+  It used to be told to read them from the run's state file, but a Kilo report-only repair has no tools,
+  so in a live run each repair answered with a tool call written as text and was rejected twice.
+- A Planner model the person chose (a stage choice or `--glm-model`) is kept when a revised plan
+  is blocked again, instead of climbing to Claude Opus 5.5 or GPT-6 Sol. A live Kilo run on
+  GLM 5.3 climbed to an Anthropic account with no credit and stopped to ask the person.
+- An empty report repair on the Builder or Tester no longer stops the run while a repair is still
+  allowed. The next repair corrects the original report, as planning stages already did (#2426). In a
+  live Kilo run the Tester's first repair returned no report; AutoCode stopped, asked the person
+  whether to continue, and threw away an 18-minute Tester attempt to start again.
+- A rejected stage report now names every schema problem at once, so one report repair can fix
+  them all. Before, only the first was named: a live Requirements report missing
+  `acceptance_tests` and an assumption's `text` took two repairs instead of one.
+- Tester and Completion Reviewer prompts no longer carry the coverage run's command receipts twice.
+  The changed-code receipts start with those same receipts, and each now points at its copy
+  under `diff_coverage`; in a live two-line fix that removed about 3.7 KB from each prompt.
+- The full-screen chat scrolls back down with the mouse wheel on macOS. Python's ncurses there
+  has no `BUTTON5_PRESSED` and reports the wheel turned down as `REPORT_MOUSE_POSITION`, which
+  the chat neither asked for nor read, so once scrolled up a person could only page back down.
+- The terminal chat's prompt after a finished task starts with "This task is complete." A person
+  whose view was scrolled away from the closing message saw only "Anything else?" and could not
+  tell whether the task was over.
+- The full-screen chat's status row shows the stage working now ("Builder working") instead of
+  the "Next: Builder" it was told before that stage started. After planning, it kept the queued
+  line for the whole Tester and Builder stages unless a tool call was showing.
+- The terminal chat's live log shows what the Orchestrator decided, for example "No tasks can be
+  built in parallel now; one Builder takes the next task". It runs no model and finishes at once,
+  so a person saw the Plan Reviewer followed directly by a Builder. Its step now also stays in
+  "Recent steps" after a turn.
+- The terminal chat's live agent log shows a stage's closing summary when the summary is followed
+  by a fenced JSON report, instead of the last 400 characters of the report.
+- The stuck-stage Investigator's instructions now list `cause` among the fields to return. They
+  described the six causes but never named the field, so a MiMo Investigator put the cause in
+  its diagnosis and its report was rejected for a missing `cause`, costing a report rewrite.
+- The Planner is told to name an existing Python guard or test by its bare method name
+  (`guard: test_simple`), not a class-qualified selector the regression proof refuses. A
+  qualified name cost two repair rounds and a stuck-stage Investigator in a live bug fix.
+- The terminal chat says why it stopped in words ("AutoCode stopped: the model or its provider failed.")
+  instead of repeating the bare cause label ("AutoCode stopped: AutoCode.").
+- Regression test names in a compact bug-fix plan leave out the "(currently returns ...)" aside and
+  borrow the case's given clause when the expected result is too short, so `test_t1_returns_hello_world`
+  replaces `test_t1_returns_hello_world_currently_returns_hello`.
+- A bug-fix plan's "Today:" text quotes the Investigator's observation verbatim. Collapsing its spaces
+  misquoted inputs such as `slugify("  Hello, World!  ")`, which a Plan Reviewer blocked on and which cost
+  a whole extra Requirements and Plan Reviewer round.
+- On Kilo and OpenCode, the live agent log shows the newest words of a stage's reasoning (bounded and
+  redacted) instead of only "Reasoning stream activity received; text unavailable". A response part,
+  which may be the report, still shows only as activity.
+- A read-only stage (Requirements, planning, Plan Reviewer, completion review) whose provider ends the
+  stream with no answer, an unexplained finish reason and no counted usage, exiting 0, is retried once
+  with no workspace effects instead of pausing to ask the person for "corrective information".
+- The terminal chat's reply box wraps a long reply and grows to six rows instead of scrolling one
+  line sideways; `\\` then Enter starts a new line, and Up/Down move between its lines.
+- The terminal chat asks once to approve its understanding and start the job: the spend detail
+  is shown before that prompt instead of a second "Investigate? [y/N]" after it.
+- Plan validation accepts the word “zero” for an unquoted source value of `0`, avoiding
+  unnecessary report-repair calls. Exact quoted literals and different numeric values
+  still require their original values.
+- Bug-fix planning instructions now require a connection between blocking questions and the
+  requested defect. Plan Reviewer instructions require observable acceptance outcomes to
+  follow from existing source or explicit planned behavior, including alternate review stages.
+- Planner discoveries of necessary work in another repository reach the existing grounded
+  scope handoff before a local draft is accepted. Coordination owns assignment, and the
+  revised plans still need exact approval; repeated model reports cannot erase discovered work.
+- Failed commands leave the full-screen chat open with the error, reply box and navigation
+  available. Checking current status requires input; the failed action is not retried automatically.
+- Terminal chat uses the full conversation width by default, with the input anchored
+  above a compact stage, cost and token footer. `/panel` opens extra details on demand.
+- Footer redraws keep the visible reply cursor inside the input, including after resizing.
+- Cancelling coordinated work at a saved boundary keeps the full-screen chat open for
+  inspection, navigation and offered task messages. It does not resume work automatically;
+  the line client retains its existing exit status.
+- Applying a queued pause no longer retains its own inbox-admission boundary as another
+  independent hold. Coordinated messages can also recover saved instances of that exact
+  boundary when every outstanding pause belongs to the conversation; unrelated pauses,
+  exhausted limits, stops and inbox errors remain protected.
+- While an agent works, terminal chat keeps its latest plain-English progress notes above the
+  input even when the conversation is scrolled. The short rolling view preserves the draft,
+  adapts to terminal height, and leaves questions and explicit agent details their space.
+- Coordinated task messages reuse each participant's public status while choosing one action,
+  reducing repeated status subprocesses. Execution and the returned status still read fresh
+  evidence, including new pauses and stops.
+- Requirements questions appear once when the assistant includes them in a greeting, and
+  answering no longer repeats the same question as its saved conversation receipt arrives.
+  Reopened chats retain the exchange and later independent replies remain visible.
+- Terminal chat keeps conversation and ordinary agent progress in one scrolling timeline, with
+  visible stage names, incomplete-accounting warnings and stable plan-reading positions. It avoids duplicate coordinated plans,
+  raw structured reports, routine repository transitions, premature completion counters and
+  repeated inbox alerts in the conversation. Empty live-message submissions are ignored, and
+  leaving the viewer no longer prints plans that were already displayed.
+- Coordinated task conversations prioritize genuine Requirements questions, keep automatic
+  repository-routing prompts out of the chat, and bound context without dropping requirements
+  or authority. Requirements can answer while participant recovery is held; recovery preserves
+  unpriced usage and retry holds and recognizes settled archived attempts.
+- Saved chat actions use a bounded receipt deadline appropriate for validating linked plans,
+  rather than the short polling deadline; an uncertain action is never automatically retried.
+- Joint regression planning keeps each member's applied task messages. The brief the joint run is
+  created with now carries every applied member message exactly once, grouped under its member
+  scope ("Applied task message for api, client:") and in the conversation's order, instead of
+  dropping them when the joint regression run starts; unapplied conversation text is still left out.
+- Terminal chat: starting a joint multi-repository run now shows the joint run's live progress and
+  usage. The cheap anchor status publishes the current joint participant's public identity
+  (`coordination.integration`: `workspace` and `run_dir`, or null), so the live-progress observer
+  and the usage meter can follow a joint run that is prepared during a long start action; before,
+  a new joint run was invisible to live progress because no participant existed when advancement
+  began. Every joint work kind is observed (joint regression, joint plan start/advance, and
+  reconcile of a joint start). The published identity is display-only; the advancing coordinator
+  keeps sole advancement control.
+- Terminal chat and status: when AutoCode pauses to apply queued feedback it no longer says you
+  requested a pause — the notice reads "Feedback applied. Your work is saved; continue to update
+  the plan." and the pause is categorized as AutoCode's own checkpoint instead of a person's stop.
+- A contained stage's prompt no longer rewrites its capture examples to the launch's
+  private scratch path — both examples now render as the stable token
+  `--output <tool_containment.scratch>/evidence-<unique-name>.json`, whose exact
+  path is carried by the handoff's `tool_containment.scratch` field as before
+  (#2113, audit item A4). Repeated contained launches (Tester/Builder under
+  reviewer routing) keep shared prompt bytes across scratch paths, restoring the
+  provider prefix reuse the audit measured as lost (8,322 of 24,412 shared bytes
+  for the contained Tester). The scratch-replaces sentence and the refusal of
+  receipts written outside the scratch are unchanged.
+- Terminal chat: the default live agent log shows plain-English progress messages from every agent
+  instead of raw reasoning and command lines — commands (including failures) and edits stay in the
+  explicit `tools` view, `thinking` shows reasoning text, and an agent-name filter narrows progress
+  by agent; the side panel's requirement section reads "Acceptance checks".
+- Live chat log: readable prose survives tool calls — provider transport counters ("thinking ~N
+  tokens", "writing … input: N chars") no longer displace the agent's own words, and commands keep a
+  `[command]` mark in the retained detail.
+- Plan Reviewer stages are asked for concise public progress updates, so the live feed shows what the
+  reviewer is checking in the reviewer's own words.
+- Requirement tracing: a documentary ticket reference (such as "the original DTI-12398 outcome") no
+  longer turns the ticket number into a numeric obligation — the requirement's real values stay
+  enforced and the ticket stays cited as the source.
+- An exhausted Builder ladder no longer pauses to ask the person for a decision or a config change
+  (#2597). The ordinary retries and the stronger attempt stay automatic; when the ladder is spent — the
+  stronger attempt failed, the provider offers no stronger Builder model, or that model would be checked
+  by its own model — the run ends with a recorded "could not finish" outcome (its reason and the
+  incident's evidence), shown by `--status`, the terminal chat and the VS Code panel as a finished,
+  failed run, the way a stop you asked for is shown. The outcome names no CLI flag and no
+  provider-config key. A saved run paused at `PAUSED_BUILDER_RETRY_LIMIT` keeps its diagnosis and its
+  `--retry-builder` operator flag; on a run that ended, `--resume-paused --retry-builder` is refused
+  with the saved reason.
+- Coordination: a status response reuses identical public reads within that one
+  response — a coordinator `coordinate status` (and each TaskRun status or
+  intervention read it performs) spawns one CLI read instead of repeating the same
+  read for view, intervention and evidence layers; results are deep-copy isolated
+  so no caller sees another's mutations.
+- Queued plan feedback: follow-up feedback bound to the exact reviewed plan token reuses the
+  run's saved requirements and continues to Planner revision instead of re-running
+  Requirements discovery; the revised plan still passes independent review and needs a fresh
+  approval bound to the new plan token.
+- Live chat log: an unfinished multiword streamed thought or message is now labelled
+  `[partial]` — bounded and redacted like final prose — instead of being shown as if it
+  were the agent's final text; the completion snapshot still replaces it, and a fragment
+  retained past its turn keeps the label.
+- Terminal chat: during coordinated progress the anchor run's short status outages show in
+  the persistent header/tab indicators only — coordination's temporary callback handover no
+  longer makes the client think the full-screen view has no read indicator, so the transcript
+  no longer accumulates "Status unavailable…" and "Status available again…" lines. Line
+  clients without an updating indicator still get both messages.
+- Coordination message inbox: a queued conversation answer survives clarification
+  settings changes — re-answering a question keeps the saved conversation instead of
+  dropping the queued message and forcing replanning.
+- New `autocode coordinate message --run-dir RUN --request-id ID --text MESSAGE` sends a
+  task message to the coordination owner through its saved worker boundary: the original
+  task text is saved with an exact retry receipt, exact retries return the same receipt,
+  different text under the same identity is refused, and no work launches and no hold
+  releases while the message is pending.
+- Terminal chat: coordinated task conversations stay available while the run is executing
+  live, so a person can message the active run from the TUI instead of only from the
+  coordination CLI.
+- Task messages use the coordinated status deadlines when sending, so a send that races a
+  boundary change reads the same deadline the coordination view showed instead of a stale
+  local one.
+- An admitted conversation no longer gets redundant background participant polling: the
+  message watcher skips participants the coordination run already saves and re-observes
+  per step.
+- Terminal chat: a plan approval left on screen no longer disappears without a word when
+  the run resumes working elsewhere — the person's answer reaches the fresh-status guard
+  and is refused with "The plan changed while you were reading it" instead of being
+  silently dropped; other stale questions still retire quietly as before.
+- Fewer avoidable retry loops: a changed line no added test can mark tested (no mutation
+  outcome) now goes to the Tester for a reason instead of sending the Builder back three
+  times; Go coverage maps nested modules to their own files; `capture --output .autocode/...`
+  from a project subfolder writes to the project's evidence directory; and `capture` prints a
+  short receipt hash on stderr, so a Tester that shortens its output with `| tail` or
+  `| grep` no longer has its report rejected. Findings: `docs/bugs/2026-11-02-retry-loops.md`.
+- Job retries stay usable after a stage deadline is saved on its own: the retry uses the
+  saved deadline and its fresh token instead of reasserting the refused
+  `--max-stage-seconds` option.
+- Storage counting resolves Git metadata from its declared directories (`commondir`, and
+  worktree gitdir pointers relative to their metadata files), so linked, separate and
+  relative worktree layouts no longer miscount nested registered copies.
+- Terminal chat: slow public-status startups no longer fail after one five-second timeout —
+  a timed-out read's later attempts for the same run get ten, then at most twenty, seconds
+  until the identity leaves the polling set; action-receipt deadlines are unchanged.
+- Terminal chat: when the renderer shows header and tab indicators, status outages and
+  recovery appear there once instead of repeating as chat messages; line clients keep the
+  messages.
+- Terminal chat: a stage row separates the stage total from the newest attempt's elapsed
+  time, the working line times the current attempt rather than the whole stage, and an
+  execution timeout is named before a generic "answer rejected" when a stage fails.
+- Terminal chat: the live agent log stays visible by default while a run is working (the
+  minimum terminal height is gone), with a clearer empty state before the first agent
+  reports.
+- Requirements citation checks report every invalid citation in one pass, so a plan with
+  several stale citations is repaired once instead of one citation per repair round.
+- Coordination: recovering a member run without a shared spending cap renders its state in
+  the TUI instead of crashing, an explicitly disabled shared cap is labelled "no cap"
+  rather than "$0", and pause acknowledgement waits long enough for the coordinated run's
+  receipt before reporting a failure.
+- Coordination: a member run's live activity shows from the repository it is working in
+  while the anchor advances, and whole-task cost and token totals survive repository
+  switches.
+- Terminal chat: the transcript scrolls with a mouse wheel or trackpad, and reads of
+  incomplete mouse input are bounded so a partial packet no longer freezes input; streamed
+  agent text renders readable, with labels, apostrophes and word fragments no longer
+  clipped mid-character.
+- Task messages: queued answers are delivered at saved execution boundaries without
+  replanning the task, a running single-run TUI can send receipted conversation messages
+  with duplicate protection, and Requirements assessing coordinated messages keeps each
+  message's source gates and identifies the repositories a reply affects. Messages sent
+  while a member is actively working persist for delivery instead of being lost, without
+  duplicate submissions or changing approvals, and a resumed Requirements conversation
+  charges the coordinated task's budget.
+
 ### Added
+
+- Terminal chat: a Spend section in the side panel and a `/spend` command show where a run's model
+  spend went and what it bought. Each job's cost and share of the run, costliest first; the token
+  split into new input, cache writes, cache reads and output, with how much input came from the
+  cache; what was spent again (failed attempts, jobs that ran more than once, report repairs); and
+  the Builder's spend, a stand-in for one model building the change alone, beside what the planning
+  and checking stages produced: criteria accepted, tests that fail before and pass after, checks
+  rerun clean, broken lines caught, blocking findings and problems handled. The figures come from
+  a new `run_metrics` field of the status view, built from its existing cost, usage and evidence.
+  In a live bug fix on Claude models the Builder was 11% of $1.25 and the three reviews 76%.
+
+- Terminal chat: a Stages section in the side panel lists each stage's state, time,
+  cost, attempt, model, reasoning level and tokens; a stage on a later attempt takes
+  the status row with the reason the previous attempt failed; the header shows the
+  run's cost and tokens, and a session total over the open chats.
+- Terminal chat: messages draw fenced code blocks as code, `code` and **bold** without
+  their marks, and `/diff N` colors its patch; the live agent log reads a provider's
+  repeated progress notes as one line of their newest values; the side panel folds
+  the spend and cap into Stages, shows Verification once the run has finished, and
+  wraps a long requirement or task to a second row.
+- Terminal chat: when a run recovers by itself, the chat says so as it happens: a
+  `Recovery ·` notice names the stage, what went wrong (an answer rejected, a report
+  rewritten, the Builder sent back for untested lines, a stage stuck) and what AutoCode
+  did, including what the Investigator found and the Resolver's reason. The side panel's
+  "What went wrong" section lists the newest, and `/why` lists them all and says when and
+  why AutoCode calls the Investigator and the Resolver. The status view carries them as
+  `recoveries`.
+
+### Fixed
+
+- Terminal chat: a finished run's closing line no longer counts its acceptance-test files
+  as files it changed. A test the Tester bound that was already in the project was listed
+  as changed; the line now names the changed files, then the files the acceptance tests
+  are in.
+- A run no longer stops with `PAUSED_WORKSPACE_BUSY` ("Existing run process N is active")
+  because of a process that runs no stage: an `autocode chat` open on the same run, a
+  Python program that launched AutoCode further up (a terminal holder, a test harness,
+  a supervisor), or one whose arguments merely carry a runner command line. The guard
+  skips every process this command descends from, not only its parent, and settles
+  chats and launchers from their exact arguments, which `ps` text loses; a real second
+  runner, a provider command and anything it cannot read exactly still block.
+- A workflow job that runs out of its automatic deadline extensions now waits for its
+  exact retry on the same model: the stop no longer asks which model to use, takes no
+  model answer, and its reason says AutoCode already extended it instead of spelling out
+  flags and the retry token. An exploration-budget stop keeps its effort question (#2605).
+
+- A workflow job (the Investigator, the Code Reviewer, the acceptance Tester...) that
+  reaches its hard stage deadline no longer pauses on a question about which model to
+  use. AutoCode retries it on the same model with the deadline doubled, never past the
+  run's remaining time, at most twice per job, under the run's money cap, and records
+  each extension and its reason in the run (#2605).
+
+- A pre-build acceptance proof whose test suite cannot run the Tester's files now names the
+  detected suite and says the tests are not at fault, instead of asking to correct them;
+  `--test-command` with `--resume-paused` is accepted at that pause, and the proof runs the
+  Tester's files with the saved command when it is a plain runner invocation (#2609).
+- A Go, Rust or Node repository that carries a stray Python helper, fixture or vendored
+  script is no longer bound to `python -m unittest discover`: a root `go.mod`, `Cargo.toml`
+  or `package.json` decides the suite unless the root declares a Python project
+  (`pyproject.toml`, `setup.py`, `requirements*.txt`, `conftest.py`, pytest config) or keeps
+  Python tests at the root or in a top-level `tests/`/`test/` directory (#2604).
+
+- Terminal chat: plan approval opens on the plan when it fits the screen instead of
+  an older requirements summary; a new or just-started chat no longer shows loading
+  states as errors; a new chat opens on its welcome; a finished run names the files
+  it changed; the client's own words sit under the AutoCode label; the F8 badge no
+  longer counts the alert of the chat on screen; a question, the approved
+  understanding and the approved plan are no longer repeated when the run records
+  the answer.
+- Label planning stages by the work they do: `astra_discovery` and `glm_revise`
+  (and their report repairs) group under the Planner job instead of
+  Requirements in cost and role displays, without changing usage or cost
+  totals (#2592 Issue 1).
+- Price a partial attempt from the provider's own cost state: an unpriced
+  interrupted attempt is priced from the bound session's cost-state delta with
+  basis "reported", the amount replaces the completed-message estimate instead
+  of adding to it, and an unknowable delta stays unknown (#2592 Issue 6).
+- Report repair keeps whole-sentence id citations through repair, and a
+  refused trace row's error names the accepted evidence forms and the
+  contract's criterion IDs (#2592 Issue 4).
+- Reliability fixes for coordinated runs, planning budgets and recovery
+  (DTI-12398 stack, 20 commits):
+  - Go: explicit empty test selectors are recognized as compile checks without
+    earning behavioral-test credit, and verified, approved Go loading
+    prerequisites are admitted when running acceptance tests.
+  - Linked scope: refused child scope assignments are retried, runtime-stale
+    assignment receipts are refreshed, and the exact assignment survives pause
+    admission.
+  - Planning: authenticated repository scope assignments reach planning models;
+    reviewed Requirements are reused across acceptance-plan corrections;
+    coordinated planning reserves spend across planning generations, handles
+    null stages in budget calculations, and allows explicit planning
+    reallocation within the shared task cap.
+  - Dispatch: scratch and artifact storage are rechecked before provider
+    dispatch so a full disk fails before spending on a model call.
+  - Repair: adjacent obligation violations are reported together, and report
+    repairs receive the exact saved adjacent draft obligations they must
+    preserve.
+  - Tracing: documentary ticket titles are treated as source metadata rather
+    than behavioral requirements, including in joint regression briefs.
+  - Recovery: cancelled coordination resumes with an explicit spending policy,
+    exact hard-timeout stage failures recover without changing the selected
+    model, follow-up reconciliation passes historical Resolver display rows,
+    Requirements-only chat storage semantics are preserved, and the TUI
+    withdraws stale questions after external run recovery.
+
+### Fixed
+
+- The adversarial-planning fixtures serve both scenario layouts (#2587): the
+  greeting fixture only digested the CLI tests at the repository root while
+  the cases copy them into `tests/`, and the csvcheck case had no changed-code
+  provider at all, so `scenarios.test_adversarial_planning` failed on master
+  and in every pull request whose CI selected it. The greeting provider now
+  digests either layout, the csvcheck provider pins the reference bytes and
+  serves per-line reasons plus the one equivalent-mutant judgment, and the
+  reference tests kill every other mutant on the changed lines. Test
+  infrastructure only.
+- Prompt-rendering reviewed bytes are hermetic to the host (#2113): the fixture
+  renderer pinned `sys.executable` and workspace paths but not the shared source
+  catalog, so any machine with a configured `~/.autocode/source-catalog.json`
+  rendered the catalog inventory into the reviewed prompts and
+  `tests.test_prompt_rendering` failed locally while CI (no catalog) stayed
+  green. The renderer now pins the catalog context to none. Test infrastructure
+  only; reviewed bytes are unchanged.
+
+### Fixed
+
+- The `glm_revise` bounded-report-edits repair fixture emits `value_json` fields (#2563):
+  the typed repair-value change hardened the repair wire schema (`additionalProperties:
+  false`, edits carry `value_json` instead of `value`), but the staged provider still
+  scripted the legacy `value` form, so the repair patch failed schema validation and
+  `tests.test_stage_repair_cli` failed on master. Test infrastructure only.
+
+### Changed
+
+- Claude Code stages use the 5-minute prompt cache (`FORCE_PROMPT_CACHING_5M=1`) instead of the
+  1-hour default, whose cache writes cost 2x the input price against 1.25x. Each stage is a fresh
+  session that finishes in minutes; on two measured runs this cuts 26% and 29% of model cost. The
+  launch policy changes, so a saved Claude run pauses once with `PAUSED_TRANSPORT_CHANGED`.
+- Smaller stage prompts on every backend: the Builder no longer gets the Plan Reviewer's milestone
+  assignment, advancement and replan rules, and the Validator and Completion Reviewer handoffs
+  reference a changed line's repeated reason text and the duplicated changed-code receipts by
+  JSON pointer instead of copying them. Gap ids, hashes, decisions and evidence are unchanged.
+- Compact Investigator handoff (#2136): the Investigator prompt's "CURRENT HANDOFF
+  DATA" JSON now renders with compact separators instead of `indent=2`, a
+  formatting-only reduction (5,336 bytes on the audit's recorded handoff) that
+  trims the prefix every stuck-stage investigation re-sends. The handoff content
+  is byte-for-byte the same object; only whitespace changes.
+- The attempt-specific schema property renders last in provider prompt copies (#2136): a
+  schema read back from a run's state file is alphabetized by the JSON writer, so
+  `changed_code_exceptions` — whose per-attempt gap enum changes across attempts — sat at
+  the front of the prompt prefix and pushed every static property deeper. Providers now
+  render it last on their own prompt copy; saved `*.schema.json` files and the bound
+  schema are unchanged.
+- Builder prompts cache better across attempts (#2136): the attempt-specific test-style
+  excerpt (the "EXISTING TEST STYLE" section with excerpts of the project's own tests) now
+  renders after the static Builder notes (test-case house rules, acceptance-test rules, bug
+  builder notes, "BUILD OUTPUT") instead of before them, so every request in a run shares
+  one static prefix that provider caching can reuse. The excerpt still lands before the
+  handoff data and never after the output schema.
+- Smaller per-request prefixes on small fixes (#2136): the per-run citation lists (source
+  trace, brief literals) no longer sit ahead of the ~11.8KB static policy block in planning
+  and discovery prompts. They now render right after it — after "REGRESSION REFERENCE:" in
+  planning prompts and after "MILESTONE HANDOFF POLICY v1" in discovery prompts, before the
+  transport block — so the policy bytes are identical across every request in a run and
+  provider prefix caching can reuse them. Prompt bytes are otherwise unchanged (pure
+  relocation; fixture byte counts identical).
+- The terminal chat's header speaks plainly (#2559): the status row reads "Reading run status (status read
+  3s ago, run state at 05:00:00 UTC)" instead of "viewer read …; core sample …", the F8 badge counts
+  "new" and "unchecked" alerts, and a terminal too small for the chat says, wrapped to fit, how many
+  columns and rows it needs.
+- The plan approval stop leads with the decision in plain words (#2535): what the plan will do, what it may
+  change, each criterion and how it is checked, what passing proves and the limits, then one line naming
+  `--details` (in the terminal chat, `/details`) for the full brief with its contract diff, file hashes and
+  request tokens, then the approve and change commands. `--show-goal`, `--json` and the status view are
+  unchanged, and approval still binds to the token of the plan shown.
+- After a joint regression finds that coordinated repository fixes disagree, the corrected plans no
+  longer ask for a second approval when they keep the contract the person approved (acceptance
+  criteria, constraints, permission boundaries, scope exclusions and Git delivery): the coordinator
+  carries the existing approval as its named `carry_approval` step and records it, and the terminal
+  chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
+### Fixed
+
+- False transport drift across sibling Git workspaces (#2347): `transport_drift` now compares copied
+  identities after omitting only `None` config hash entries for v2, preserving every other identity field
+  including deletions of previously active configurations. The legacy v1 inert normalization block is
+  restored exactly from baseline, normalizing only raw schema-only stubs when current bytes are present
+  and verified inert.
+- Transient malformed supervision receipts are reopened and authenticated within a bounded retry window; identity, schema, I/O and access refusals remain immediate, and persistent corruption remains unknown.
+- The Codex final-message detector recognizes the `=`-attached flag forms (`--output-last-message={report}`,
+  `-o={report}`), so a command tool using them no longer prompts a shell write of the report into a
+  read-only sandbox and a valid `codex_artifacts` configuration using them is no longer refused (#2061).
+- A bugfix task with `git_delivery: atomic_commit` now delivers instead of pausing at the completion
+  gate: the delivery guard admits the bugfix workflow and no longer counts tracked Python bytecode
+  caches or the runner's own `docs/bugs/` diagnosis note as unapproved workspace changes (#2049).
+- The Resolver may write its report on its own workspace, and a regression proof repaired because the
+  changed tests cover the fix is recognized as passing instead of failing the run (#2049).
+- A coordinated mismatch repair that keeps every approved term no longer asks for a second approval
+  when the replanned criteria merely gain citations: the repair's follow-up instruction becomes a run
+  source, and criterion citations are provenance rather than an approved term (#2565).
+- Automatic coordination recognizes catalog-grounded multi-repository bug requests before the chat scope gate and carries authenticated clarifications into member planning; request-feedback outcomes are reconciled before retrying.
+- GoCode report repairs now use typed values, independently permitted draft corrections can be composed without broadening approval or evidence rules, and Codex sandbox write grants stay limited to evidence/output roots rather than source or report files.
+- Stage selection offers only models declared by the configured providers.
+- When a checking stage shares a model with the work it checks, the terminal chat asks in its job name which model that stage should use ("Which model should the Tester use?"), shows the shared model in plain words and lists the models that keep the check independent, instead of an internal role and `cross_model` (#2557).
+- A Requirements or other stage on a `report_file` command tool is told never to mention the report file, its delivery, the sandbox or a refused write in its reply to the person, so a read-only stage no longer tells the person a sandbox blocked it (#2558).
+- When the terminal chat stops or hands a run back, it says in plain words that the run is saved and how to return (`autocode chat`) or start a new request, instead of an internal need kind such as `(resume)`.
+- The terminal chat's `/help` lists only commands available in the current state, so it no longer advertises `/live` or `/log` before a chat is open.
+- Discuss-only requests no longer pause for producer/verifier model independence when those roles use the same model; the Analyst produces no code to verify.
+- `autocode verify` on a Go feature whose new tests reference new types no longer counts every test
+  in the touched packages as fail-to-pass (#2505). Only test functions the change adds or edits are
+  proof; an unchanged test that passed in the base suite and still passes is reported as
+  pass-to-pass. A change whose only passing tests are existing ones now fails for lacking a test of
+  the new behavior instead of passing.
+- Automatic multi-repository delivery preserves relocated Git transport helpers, discovers authorized
+  repositories requested by the joint regression, and keeps the joint proof out of its own producer
+  prerequisites. Expanded repository sets require fresh coordinated approval; earlier attempts and all
+  source, requirement and proof checks remain intact (#2208).
+- Linux CLI startup now automatically drops only `CAP_SYS_PTRACE` and `CAP_SYS_ADMIN` from its bounding set and re-executes once, so root containers can run the offline demo and fake-provider tasks without a `setpriv` prefix. The verified drop is reported by `doctor`; `AUTOCODE_NO_CAPABILITY_DROP=1` preserves the previous behavior, and failed drops retain the existing admission refusal (#2534).
+- Completing a task worktree whose `.gitignore` ignores `.autocode` now commits the delivered
+  source to its branch again. `git add` refuses a pathspec that names an ignored path on
+  git 2.56 and newer, so the delivery commit failed and the completed run's source stayed
+  uncommitted; the exclusions are now applied to the staging index instead of the pathspec.
+
+- A run-wide `--provider gocode` (rather than a per-role provider) now sends the plain full-report
+  schema when a Requirements report is repaired, instead of the generic JSON-edit schema that the
+  gocode structured-output transport rejects before any model response. The repair therefore
+  proceeds instead of pausing for operational recovery.
+- A pause over an attempt that exited cleanly (for example an uncertain verification cleanup or a
+  stale source check) stays a `resume` for a person instead of the core's own `continue`. TaskRun
+  and the clients therefore no longer archive that attempt automatically and discard the result
+  the hold stands on; an attempt that did not finish cleanly is still set aside by the core.
+- `autocode coordinate status` no longer fails with a `KeyError` for a change set whose members
+  were linked from existing runs rather than discovered as local repositories; such a member's
+  `location` is `null`. A shared budget pause on those sets therefore offers its budget choice again.
+- Once every run of a change set has completed under its approved plan, `changeset status` no longer
+  offers the set approval again, so the terminal chat's `/changeset` offers the set's integration
+  check instead of asking to approve plans that already ran.
+- `autocode coordinate status` reports `phase: joint_regression` again while the joint regression
+  runs over the bound repository candidates. Since the joint plan is approved with the member plans
+  and started early, the phase had stayed at `fixing` through the joint run and its mismatch repair.
+- A run whose incident repeats with nothing new no longer stops to ask the person for recovery flags, an
+  evidence packet path and a token (#2485). AutoCode takes the one scoped retry of the diagnosis and of the
+  repair itself; if the same incident repeats after that, the run ends with a recorded "could not finish"
+  outcome (its reason and the incident's evidence), shown by `--status`, the terminal chat and the VS Code
+  panel as a finished, failed run, the way a stop you asked for is shown.
+
+## [0.9.0] — 2026-10-30
+
+### Added
+
+- The VS Code chat shows each stage the run has launched (newest four, with the rest a click away): how it
+  went, its time, cost and attempt number, then its model, reasoning level and tokens. A stage on its second
+  attempt or later puts a warning in the working card with why the last attempt failed. The toolbar shows the
+  run's cost against its cap and tokens, plus a total across open chats. A finished run closes with its
+  result, requirements checked, changed files, stage time and cost, and a button to its saved changes. A new
+  chat welcomes you with what AutoCode does and three example requests that fill the message box. Tabs mark a
+  run waiting for you or finished, and the status bar names the working stage and the run's cost. Every figure
+  comes from the status view, read the same way as the terminal chat's stage panel.
+
+### Fixed
+
+- The VS Code composer no longer tells you to "use the action above" under a finished run that offers no
+  action; it says the run is finished.
+
+- The VS Code extension's **AutoCode: Stage Models** panel (also under **Stage models…** in the chat's engine
+  picker) shows each stage with what it does and advice on the model and level that suit it, and one model
+  dropdown and one level dropdown per stage; a model the stage may not run beside the others is greyed out
+  with the reason. Saving takes only the stage's own command from `autocode stages list --json`.
+- You choose the model and reasoning level of each stage once, and every new task uses it (owner decision
+  2026-10-30). `autocode setup` offers it after connecting your accounts, and `autocode stages choose` asks
+  again at any time: for each stage it says what the stage does, gives advice on the model and level that
+  suit it, and lists the models your backend offers with the levels each takes (OpenCode and Kilo from their
+  own listings, with each model's family; a model that cannot call tools is left out), marking a model the
+  stage's checker or producer runs as not available. The choices are kept per backend in
+  `~/.config/autocode/stages.toml`; each new task reads them before it begins, a flag or the project's
+  `.autocode/config.toml` still wins, and a running task keeps its own. `autocode stages` lists them,
+  `set` and `reset` change one stage, and `--json` returns the view clients render as one dropdown per
+  stage. Route discovery now carries each model's listed family, tool-call and reasoning support, context
+  and release date on its candidates; no price is read.
+- The terminal chat's `/stages` shows the same choice: in the full-screen chat a drawer with one list per stage
+  (Up/Down, Enter, Esc), like a dropdown; in the line-by-line chat a numbered list and `/stages STAGE N LEVEL`.
+  A model a stage cannot run is dimmed, and Enter on it shows the whole reason, naming every checker that runs
+  that model (the Tester and the Completion Reviewer both, when both do) so changing one is not a dead end.
+- Each stage in `autocode stages`, `/stages` and the VS Code panel now names the jobs that run on its
+  choice: the Plan Reviewer's model also runs the Investigator that diagnoses a bug, the Analyst, the
+  Designer and the Design Reviewer, and the Tester's also writes the acceptance tests and runs the Code
+  Reviewer. A live bug fix ran its Investigator on the Plan Reviewer's model while no stage said so.
+- `autocode setup` connects the backends AutoCode runs on, once after installing it (#2049): it checks
+  Claude Code, Codex, OpenCode and Kilo with each one's own login listing. In a terminal, when neither
+  OpenCode nor Kilo is installed, it offers to install OpenCode 1.18.33 with npm (`--install
+  opencode|kilocode` installs that hub without asking), then offers each installed, signed-out backend
+  its own sign-in, and says which backend new runs use and the route each role takes. It launches no
+  model; `--json` asks nothing and installs only what `--install` names. A run that finds no OpenCode now names `autocode setup`. A new run that names no
+  engine also passes over an installed OpenCode whose `opencode auth list` is plainly empty, to the first
+  connected of Claude Code, Codex and Kilo; any listed credential, or a listing that fails, keeps OpenCode.
+- `--role-transport ROLE=PROVIDER` works on any base tool of the OpenCode facade engine, not only
+  `--provider opencode` (#2049): a run on Claude Code or on the direct connection can run one role on a
+  Kilo account, and a saved binding to the built-in `claude` provider (identity version 2) is validated
+  by its own shape. Binding a role to the run's own tool is refused, as is `--engine codex`.
+- A new run that names no engine takes the backend this machine has connected when OpenCode is not
+  installed (#2049): Claude Code signed in to a subscription, then Codex, then Kilo, in that order. The run prints `Engine for this run: …` with the reason, and
+  `autocode doctor` checks that same backend and names the choice in its `engine` row and settings. A
+  flag, `AUTOCODE_PROVIDER`, `default_provider`, a project `engine` and a saved run's engine always win,
+  and nothing changes while OpenCode is installed. Before, a person with only Claude Code or Codex had
+  to add `--engine` to every command or the run stopped at `OpenCode is not on PATH`.
+- `autocode status --summary` prints a run in one sentence: needs you, working, done or stopped, then the
+  exact command the status view names (#2049). The same object is `view.summary` in the `--status` JSON.
+  Only a completion verified against the current checkout reads done; a finished run whose evidence no
+  longer covers the checkout, or a running checkpoint nothing supervises, reads stopped, never done or
+  working. `--status` without `--summary` is unchanged.
+- A bug-fix plan's regression criteria carry a `current_behavior` box: what happens today, copied from the
+  Investigator's diagnosis bound to the run, whose probe the runner saw show the bug (#2133). The runner
+  fills an empty box, and the approval
+  screen, the terminal chat and the channel bridge show it as "Today:" under the criterion. A planning
+  revision that sets the box to exactly the diagnosis text is recorded as a change receipt
+  (`current_behavior: C1 -> …` on the approval screen) and asks no question; any other change to it on a
+  protected criterion still needs a saved user answer. A planning report that leaves the box out has an
+  empty one, with no report repair. Before, that note lived inside the criterion text, and correcting it
+  cost a report repair, a question and a second planning round.
+- Qualification evidence is structured (#2059). `tools/qualify_routes.py` now appends a `runs` record
+  to each table entry it confirms: date, run, scenario, profile, the role's accepted attempts on that route,
+  and their minutes and cost (null when an attempt did not record one). The selector validates the records,
+  and `autocode models --selection` shows each listed entry's evidence, for example
+  `[provisional: no AutoCode run yet]`. Selection itself is unchanged: provisional entries stay selectable.
+- A plan whose criteria can prove only a stand-in for what you see, because code outside the
+  checkout renders it, now says so (#2068): the requirement is traced `proxied` with a
+  `proxy_reason`, and the plan asks you a decision question until a saved answer accepts the
+  stand-in. The status view lists these rows as `proxied_requirements`, and the approval screen
+  shows them under "Proven only on a stand-in".
+- The VS Code run details and sidebar chat now show the separate limit raise a bound pause names once
+  AutoResolver holds it or `next_command` is a plain resume: a number field and a **Raise limit and
+  continue** button that takes only the row's own command, confirmed with the limit it changes. Typed
+  raises at the cost, iteration, milestone and unchanged-batch pauses are confirmed by name instead of
+  as "total active time". The browser dashboard's recovery card gains a number entry for the one
+  number a pause leaves to a person (`needs.command_inputs`), so a run paused at a limit can be
+  restarted with a typed number from the dashboard too (#2044 follow-up).
+
+- `autocode connections setup` now ends by naming the route each role will use (model, reasoning
+  level, the account and that it is a qualified choice), and a new run with no model flag prints the
+  same lines before it spends anything (#2057). Both read the connected tool's own model listing and
+  launch no model; `connections list --routes --json` returns the same rows as `routes[]` for clients,
+  with `routes_stop` when no connected account can field a qualified route for a role. The plain
+  listing stays subprocess-free and names `routes_next_command` instead. `docs/providers.md` now starts
+  with "You do not need to choose a model", with the model and effort flags as overrides.
+
+- A reasoning effort you named that the role's model does not declare is now a pause you can answer
+  (#2057). The run stops as `PAUSED_EFFORT_UNSUPPORTED` before any stage launches, and the status view
+  names `--answer effort-ROLE=EFFORT` with the model's declared levels (`needs.effort.declared`) as the
+  only options. The terminal chat, the VS Code client and the headless conformance client offer those
+  levels and refuse any other; the answer saves the level as your choice and the run resumes. Before, the
+  refusal was prose, and the chat could offer only `Continue? [y/N]`, which stopped at the same launch
+  again (#2020, #2039). `TaskRun.assign_effort(role, effort)` gives the same answer.
+
+- A job that stopped on its time limit or the Investigator's exploration budget now offers the same
+  model at its next lower declared reasoning variant first (#1902). The status view names
+  `--answer route-ROLE=MODEL@LEVEL --job-retry-token -` as `next_command` (`needs.route.lower_effort`),
+  the answer binds the exact retry to that level, and the retry launches at it. Only a level the model's
+  listing declares (or a probe passed) is offered; a named level it does not declare is refused. The
+  retry's handoff now also says which limit stopped the attempt (`stop_kind`), which it left empty before.
+- The bug Investigator now has a reproduction-first budget (#1902). After 30 completed source-reading or
+  searching calls with no attempt to reproduce (`limits.investigation_exploration_budget`; `0` disables;
+  no flag yet), the runner stops the stage early instead of letting it read until the stage deadline. It
+  pauses as a stage timeout with the usual retry question, and the exact retry's handoff lists what the
+  stopped attempt already read. See `docs/execution.md`.
+- Every number a bound pause leaves to a person is now described in `needs.command_inputs`, not only the
+  active-time total, the plan-review allowance and the recovery grant. The cost cap, iteration ceiling,
+  milestone time, milestone replans and unchanged-batch limit each get a row with its current value, what
+  was used and the minimum that releases the run. Once AutoResolver holds such a pause, `next_command` is a
+  plain resume, and the row now carries the raise as its own `command`. The terminal chat, the VS Code
+  client and the headless conformance client validate any such row the same way and take only that
+  command, so a number typed at the pause raises the bound. Before, those pauses named an `N` no client
+  could fill, and #1950's fix could only say the typed number set nothing (#2044).
+
+- The terminal chat shows which planning path a bug-fix run took: a Plan path section in the side
+  panel (`compact: Planner draft omitted` with what covers it, or `full: every planning stage runs` with
+  the first reason, and any fallback) and a Planning path block in `/details` with every reason, the
+  decision rows and the hashes behind them, from the status view's `stage_policy` alone (#1884 F2).
+- `--compact-bugfix-planning` (new runs, off by default): for a bug the Investigator reproduces with a
+  runner-run probe, sizes small and localizes to at most four files none of which the project's
+  `sensitive-paths` name, the runner writes the plan draft from the diagnosis and the Requirements record
+  instead of launching the Planner's draft call; the Plan Reviewer reviews that draft, a clean review goes
+  to the person's exact-token approval and a blocking concern returns the run to the Planner. The new
+  project setting `sensitive-paths` (no flag) lists the path patterns such a path may never touch; a
+  project without it keeps the full path. The status view's new `stage_policy` field records the decision
+  and its reasons (#2021, the first #1867 checkpoint).
+
+### Changed
+
+- Repository agents may review and confirm Requirements and approve exact implementation plans for
+  authorized fixes under the owner's delegation, recording agent review while preserving spending
+  caps, selected model routes, independent verification and evidence checks. Routine recovery and
+  bounded active-time extensions within the spending cap no longer require repeated personal approval.
+- Contained Kilo launches reuse their freshly intersected shell policy within the same launch, removing
+  one intermediate agent lookup. The final native permission/tool checks and every sandbox and toolchain
+  probe still run; policy order or configuration mismatches stop before the model starts (#2439).
+
+- `autocode doctor` no longer sends a user of the released package to maintainer-only steps: an engine that is
+  not installed gets no conformance row (its own row already says how to install it); an untested engine
+  version points at the tested list in the provider docs; an installed release is identified by its version
+  instead of a warning to run from a Git checkout; the PATH fix suggests `pipx install autocode-supervisor`;
+  and a single installed copy is no longer called "linked/editable". `autocode --help` links the full CLI
+  reference on GitHub, which a package install does not ship.
+- `autocode doctor` now fails with a `session` row when this Linux shell holds `CAP_SYS_ADMIN` or
+  `CAP_SYS_PTRACE` (root in most containers, VMs and CI images), the same check every stage launch makes,
+  and names the fix: run as an ordinary user or prefix `setpriv --bounding-set=-sys_admin,-sys_ptrace`.
+  Before, doctor passed and the first run, even `autocode demo`, stopped at `PAUSED_PROCESS_CLEANUP`.
+  `autocode demo` now prints the stop's reason when it cannot reach the sample plan.
+- On an automatically selected run, the one-use planning-review fallback after repeated provider-stream
+  silence now takes the next qualified Plan Reviewer from the run's saved permitted set, the same pool and
+  independence check a quota stop uses (#2061). Before, it borrowed whichever other role's model was
+  configured, so a GLM/MiMo run could hand plan review to the Builder's MiMo, which the qualification
+  table excludes for that role (#1723). When no other qualified reviewer remains, or the person named the
+  reviewer, the pause stands as before. Runs without a saved permitted set keep the old rule.
+- A Tester or Completion Reviewer report that mistypes the echoed contract hash, contract revision or
+  task id no longer costs a paid report repair (#2135). On the current, admitted attempt whose launch
+  recorded today's contract and task, the runner adopts that launch identity, keeps the provider's
+  bytes as `reported_output` and records each change in the stage's `identity_corrections`. A
+  contract or task that changed during the stage, an echo of an earlier contract or task, another
+  attempt, or a record without a launch identity is still refused.
+- The qualification table records the 2026-10-25 `bugfix-trivial` live run on `glm-mimo-kilo`:
+  Requirements, Planner, Builder, Tester and Completion Reviewer reached `TASK_COMPLETE` on their
+  routes, while the per-task Planner route `astra` stayed unqualified because the run never launched
+  it and the Plan Reviewer's MiMo route stays excluded by the owner decision (#2057 E).
+
+- The terminal's `/runs` and an uncached `/open` now read project and global
+  listings asynchronously in the existing bounded read pool. Keyboard input
+  stays available during slow discovery, and numbered `/open` choices stay
+  fixed until the person inspects `/runs` again (#1882).
+- Switching between questions preserves the restored chat's prompt and draft;
+  cleanup from the question being left no longer erases that saved context
+  (#1882).
+
+- Attention rows keep read state and event type visible before long task titles
+  at narrow terminal widths. Integrated qualification also covers three projects
+  and two viewers sharing acknowledgement and refusing stale approval (#2070,
+  #1886).
+
+- Independent reviewers receive complete, snapshot-matched source text for small approved file
+  scopes, avoiding repeated source-discovery calls. Larger or uncertain scopes keep ordinary
+  filesystem inspection; checks, approvals and independent completion review remain required (#2113).
+
+- A quota switch that moves a role onto another way of paying now says so (#2061). When an automatically
+  selected run's stopped model is replaced by one the permitted set says bills differently (a subscription
+  route replaced by a pay-per-token one), its `route_assignment` record carries `billing: {from, to}`,
+  shown in the status view's `route_assignments`, and the printed switch line ends
+  `; it bills pay per token where MODEL was subscription`. Before, the line named only the new account.
+- Automatic model selection now runs only on an OpenCode version the provider conformance matrix
+  qualifies (`tools/provider-matrix.json`: `known-good` or `accepted-for-ordinary-runs`, #2060). On a
+  version with no such row, a new run prints why and keeps the fixed default routes, and an explicit
+  `--auto-select` refuses before any model call. Before, selection chose routes on any installed version,
+  including one the conformance suite had never run against. `autocode doctor` already showed the row.
+- Requirements, Planner and Plan Reviewer launches on the default idle limit (300 s) run under a
+  600-second floor, as MiMo routes already run under 900: those stages return one report and emit
+  nothing before it, and on the 2026-10-20 vague-brief trial every Planner call for a large plan
+  took 300 to 340 s, three were killed at 308 to 310 s and replayed under the same limit, spending
+  every automatic recovery. An explicit `--max-idle-seconds` is used as given, the saved setting is
+  never rewritten, the stage timeout still bounds the call and the stop text names the floor.
+- Planning on a vague brief no longer stalls on the Planner's own text or restarts after its own
+  answer (the 2026-10-20 trial needed a person five times and reached no plan). A revision that
+  answers the Plan Reviewer's blocking concern may reword or drop a constraint, or replace a
+  permission boundary, that the Planner itself wrote (it repeats none of the person's sentences)
+  while nobody has approved or edited the plan, declaring the change as its own; the approval
+  screen shows the change with the concern that asked for it. A technical question AutoCode settles
+  with the Planner's default continues the reviewed planning cycle instead of opening a new one:
+  the spent review calls, the first review and the revision are carried, the re-review is told
+  which answers were AutoCode's, and with one call left the final review decides on the redraft.
+  The allowance grows by one call, once per run, only when the final review's own question spent
+  it, and never past a limit the person set. The Planner is told to state which files a milestone
+  owns in `affected_paths`, never as a constraint or a permission boundary.
+- Under a money cap (`--max-cost-usd`), every attempt of a job that already ran in the run is priced before
+  it launches, from that job's last attempt's tokens at the saved route's rate, and the run stops as
+  `PAUSED_COST_LIMIT` before an attempt projected past the cap, naming the job, the route, the projection and
+  the cap to resume with, as a climbed attempt already was. Before, only climbs were projected, so a run could
+  cross its cap by a whole stage ($1.81 to $2.96 under a $2.00 cap) and pause only afterwards (#2019).
+- A small clear brief's reduced Plan Reviewer effort (one rung below the configured one, #1564) is fitted to
+  the variants the reviewer's model declares, and the move is recorded in `effort_fits`; a `--single-model`
+  run keeps the model's listing for that. Before, `--single-model zai-coding-plan/glm-5.3` stopped once at
+  the Plan Reviewer on a derived `medium` the model does not declare (#2020).
+- The regression-proof gate treats a plain text or data file in a greenfield base (`.txt`, `.csv`,
+  `.json`, `.yaml` and the like, read by the deliverable and never run) as it treats a manifest: when no
+  nonempty file in the base is code or a test path, the base holds no behaviour to preserve and the gate
+  does not stay closed on it. Before, a chat task that shipped its own input beside the README could pass
+  every criterion and never complete (#2036).
+- In the terminal chat, `/connect NAME use`, `/mode` and `/engine` typed at the first
+  "What do you want done?" question now apply to the chat started there, as they already did
+  for `/new`; before, that first chat ran on the default connection and mode while the header
+  named the chosen ones (#2009).
+- A configured Kilo connection (a TOML whose command runs `kilo`, such as a copy of
+  `kilocode.toml` with other roles) now launches as the bundled `kilocode` does: with the
+  activity plugin, the output cap, the native variant check and the read-only checker policy.
+  Before, it ran as a plain command provider and got none of them (#2010).
+- In the terminal chat, the tab Ctrl-T opens can be left with Ctrl-←/→ or `/tab` before its
+  request is sent; before, it answered "Tabs switch once a chat is open" and only `ctrl-d`
+  led out of it. Tabs with an open chat keep the rule that a working step is never left
+  unwatched (#1997).
+- The terminal chat no longer ends with `[Errno 1] Operation not permitted` when it stops a status
+  read whose process group the kernel will not signal (macOS, once the group's leader has exited):
+  the read's own child is killed instead and the chat carries on (#2011).
+- The terminal chat no longer ends when the core refuses an action it took (another autocode
+  runner holds the run lock, a stale token): it says what was refused, reads the run again and
+  asks again, keeping the plan on screen; before, the pane, the plan and the draft were gone with
+  no retry (#2000).
+- A stage whose request no longer fits its model's context window, or whose conversation the provider
+  compacted, stops as `PAUSED_CONTEXT_WINDOW` and says which: it names the provider's error or how the
+  compaction was seen, reports the size of the stage's last completed request, refuses the report written
+  from the summary, and asks `route-ROLE` for a model with a larger window — instead of pausing as an
+  uncertain provider failure. An ordinary Kilo launch sets `compaction.auto` to `false`, so a stage is
+  never silently summarized (#1942).
+- `--single-model` and a route answer at a model stop fit each role's effort to the variants the
+  named model declares: a runner-chosen effort the model cannot serve moves to the nearest declared
+  one (said and recorded), an effort a person named refuses with the flag to change, and Kilo's
+  variant refusal names that flag; before, the run stopped at the first launch and roles such as the
+  Analyst had no flag at all (#2006).
+- A workflow job stopped on quota, a refusal, an output limit or a timeout names its model question as
+  a command on the status view (`needs.route.command`, beside the retry in `next_command`), and the
+  terminal chat takes a model typed at its `Continue? [y/N]` through it; before, the pause asked for a
+  model in prose that the chat read as a decline (#2005).
+- Terminal attention survives viewer restarts with shared local read receipts.
+  F8 or `/attention` inspects current decisions and distinct same-chat completions
+  without advancing tasks or losing drafts; empty JSON run inventories remain
+  readable and receipt failures stay unknown (#1993).
+- `autocode doctor` and `autocode models` no longer refuse a profile route a new run never
+  takes. Automatic selection replaces a provider's default route when the plan serves it
+  under another prefix, and the checks now weigh the routes the run would actually use,
+  naming each replacement; a real gap still fails, with the reason selection could not
+  cover it (#1995, #1996).
+
+- Lifecycle status metadata is covered by the public JSON schema and the
+  completed-worktree consumer. Read samples may differ while every task and
+  checkpoint field remains identical; focused CI keeps both regressions (#1994).
+
+- The final Plan Reviewer can correct acceptance criteria inside its retained-plan
+  reference, with the same hash-bound criteria delta a Planner revision uses (changed
+  or new rows, removed IDs, corrected proofs), instead of turning a wrong criterion or
+  proof into a blocking question and another planning cycle. The correction takes every
+  ordinary change receipt and guard; milestones, the technical approach and permissions
+  stay with the Planner (#1991).
+
+- The terminal distinguishes viewer read age from the core snapshot sample time.
+  Failed reads retain a last-known snapshot, and details show source/checkpoint
+  identity without treating polling as work progress (#1990).
+
+- Durable TUI chats can switch tabs during work and keep separate session
+  drafts, cursors, history position and log/panel choices. Reopening a tab reads
+  fresh status before a decision; unavailable targets remain navigable (#1989).
+
+- Opt-in durable local TUI runs use an existing persistent Linux user service.
+  Viewers can detach and reconnect while the ordinary core worker continues;
+  repeated Ctrl-C requests only a boundary pause. Launch receipts reconcile lost
+  replies without replay, and status exposes additive execution/observation
+  metadata. Default owned runs and saved legacy runs retain their behavior (#1988).
+
+- When the Plan Reviewer still blocks a revised plan at its second challenge, the Planner's
+  next revision runs once on a stronger model (Claude Opus 5.5 High, or GPT-6 Sol High under a
+  Claude reviewer), when the provider serves it, the saved accounts permit it and it stays
+  outside the reviewer's family. It shows as a `plan_sent_back` escalation. Under the default
+  two-call review allowance it never fires.
+
+- A reconciled OpenCode/Kilo connection-change pause offers its existing explicit
+  acceptance action through the public view, with confirmation guidance, so thin
+  clients can recover without inventing CLI flags. Uncertain attempts and immutable
+  per-role tools retain their existing refusals (#1978).
+
+- Completed runs' core explanation describes their saved outcome and evidence
+  inspection instead of calling completion an environment stop or suggesting
+  recovery. Legacy `COMPLETE` runs keep the same guidance (#1976).
+
+- The clean-review scenario's source patch applies to its current seed again.
+  Its oracle checks trusted input validity and candidate tests before judging a
+  report, classifying broken fixtures as harness errors (#1980).
+
+- Terminal chat keeps its last-read status visible while browsing history and
+  preserves the viewport when background messages arrive. Verification and
+  `/details` separate recorded checks, current delivery, retained work, recovery
+  and supplied timings; missing freshness and duration measurements stay unknown
+  (#1883 E1).
+
+- The stock `glm-mimo-kilo` scenario profile selects GLM-5.3 High for Requirements
+  and Completion Reviewer, matching the bundled Kilo default. Its former explicit
+  Medium pins were unsupported and refused before inference (#1983).
+
+- Terminal chat shows existing cost coverage and accounting caps in its side panel;
+  `/details` adds token subsets, billing/estimate bases, attempt routes, saved future
+  routes and route-change receipts (#1884 F1). Missing usage stays unknown; displaying
+  these fields adds no model calls or stage-policy changes.
+
+- Installed pytest console commands qualify their paired Python runtime inside
+  the tool boundary instead of blocking Tester before launch (#1971). Modified
+  or unknown wrappers still refuse; filesystem and network limits are unchanged.
+
+- Spec-first bug fixes reuse an unambiguous approved test name for its diagnosis
+  case instead of requesting a duplicate function (#1969). Both case IDs still
+  need proof; guards, legacy jobs and protected test files retain their checks.
+
+- Draft proof corrections can update only the verification method through a bound
+  criterion delta, retaining the saved wording and sources exactly (#1966). A
+  literal Python suite mistakenly labeled as a test name can lose only that prefix
+  before approval; real test/guard obligations and user-protected proofs stay protected.
+
+- A conversation start the launch refuses no longer leaves a new project in the selected
+  folder per attempt (#1957). The refusal names the project it created, a retry of the same
+  task reuses it while it holds only AutoCode's baseline, and the same request ID launches again.
+
+- Collector regressions run on the interpreter owning the declared test dependency;
+  multi-component fake repairs reconstruct historical JSON overlays while preserving
+  original failures and evidence, and wrong-collector proof refusals stay covered (#1960).
+
+- Questions at an approved acceptance-test pause use the bounded plan conversation
+  and return to the same pause without invalidating the plan or repeating review (#1961).
+  Actual or mixed change requests still require replanning and fresh approval.
+
+- Projects with declared pytest-style test functions or classes use pytest for
+  automatic acceptance and regression checks even without a pytest config (#1960).
+  Explicit commands and unittest collection hooks keep their authority; scoped
+  checks retain pinned-base framework evidence instead of collecting zero tests.
+
+- An authorized Builder classification retry on a run whose time, cost or iteration limit is
+  already spent, or whose provider transport changed, now pauses on that hold instead of
+  recording a failed classification and offering the same retry again (#1949). Raising the
+  limit, or `--accept-transport-change`, and resuming launches the same Investigator; no
+  classification is spent by the stop. A run saved before this fix
+  gets back the classifications those stops recorded, so its retry is offered again.
+
+- Planning revisions can retain all unchanged acceptance criteria with one exact
+  contract reference and return only changed/new rows and explicit removals (#1958).
+  This avoids retranscribing every criterion hash and the resulting report repairs.
+  Stale identities, unauthorized edits, independent review and plan approval remain checked.
+
+- Terminal status polling preserves complete valid long-run histories instead of
+  rejecting responses above 2 MiB (#1951). Before the first view arrives, the
+  terminal shows that it is reading status rather than claiming a worker is running.
+
+- Every Kilo stage, the Builder's included, starts in a fresh session, as Claude Code and
+  direct-API stages already do (#1939). A resumed Builder session grew stage after stage until
+  Kilo compacted it on a context overflow, which failed the stage. The stage record names the
+  `fresh_session_reason`; a same-stage correction still resumes its own session.
+
+- Discovery and revision report repairs receive the current exact criterion-reference
+  inventory, so unchanged criteria can be retained without copying whole rows again (#1946).
+  A superseded author draft keeps every value inline as exact changes from the complete
+  latest draft, avoiding repeated full plans without requiring repair tools or file access.
+  Stale-reference checks and final-review approval requirements stay enforced.
+
+- Attached terminal chats consume keyboard commands while an external worker runs,
+  and request only its named boundary pause (#1880). Current and previously opened
+  chats use bounded asynchronous status reads, including at questions (#1882 D1).
+  Status failures remain visible; unchanged idle screens no longer redraw on a timer.
+
+- Kilo launches verify explicitly selected reasoning variants against the selected
+  model's native catalog before inference (#1940). Unsupported saved variants now
+  require an explicit correction instead of silently using the provider default.
+  New bundled Kilo GLM routes use its supported High level; saved routes stay unchanged.
+
+- Restricted Kilo stages retain the selected agent's custom prompt while keeping
+  AutoCode's tool restrictions and fresh-session boundary (#1935).
+
+- A callback socket closing after a verified clean stage deadline retains the timeout result
+  instead of reporting unknown process cleanup (#1920). Missing or uncertain cleanup, armed
+  ownership failures and unsuccessful keeper exits remain blocked; this grants no retry.
+
+- Exact Investigator retries receive links to the matching failed attempt's prompt and evidence
+  instead of losing that recovery context and repeating the investigation (#1902). Links are
+  unverified leads only; source/configuration admission and fresh reproduction checks stay required.
+
+- Investigator handoffs retain the configured validation command for later Builder/Tester work
+  instead of offering it as an investigation command (#1902). Reproduction and diagnosis remain
+  required; broader baseline suites no longer compete with the investigation report. At a stopped
+  job timeout, naming the current model explicitly can keep that route and expose its exact retry
+  through the TUI without forcing a model substitution; all saved limits and usage remain intact.
+
+- Fully stopped workflow-job timeouts can offer the existing token-bound model answer for that
+  failed role, preserving other roles, effort, limits, usage and history (#1907). A named model
+  launches nothing and rotates the exact retry token; an unchanged retry remains available.
+  Rejected configuration changes at a stopped job leave its saved settings unchanged.
+
+- Idle run boundaries without a retained stage or runner check now name the existing advance command even though they have no pause category,
+  so terminal and editor clients can continue after Requirements approval (#1901). The Investigator
+  receives its saved stage window and prioritizes a minimal reproduction before expanding source
+  exploration, with the existing evidence and deadline checks retained (#1902).
+
+- The Tester's pause (`PAUSED_ACCEPTANCE_TESTS`) now offers the `--feedback` action it already told the person to
+  use (#1869). The core refused it there; it now restarts planning from the pause, as at a planning-budget pause.
+  The status view's `chat.input` offers the feedback message, `next_command` is `--feedback 'WHAT TO CHANGE'`
+  instead of a `--resume-paused` that reruns the same Tester on the same plan, and `needs.guidance` says what
+  feedback and a resume each do. `needs.kind` stays `resume`.
+
+
+- `autocode unattended` now refuses `--skip-requirements`, `--skip-to-build`, `--allow-uncontained-tools`,
+  `--accept-source-edit` and the companions of a recovery (`--grant-recovery`, `--job-retry-token`, `--resolver-token`,
+  `--revise-protected-tests`, `--submit-repair`, …), which it previously let an agent pass although they decide for
+  the operator. `tools/autocode_decision_flags.py` classifies every parser flag as a decision or a start flag, and
+  `tests/test_decision_flags.py` fails on an unclassified one (#1870).
+
+- Requirements is the first stage of every run and every follow-up turn, and its report names the job, so the
+  separate Job recognizer call no longer runs on a flow that has Requirements (owner decision 2026-10-22, #1860).
+  A plain CLI bug fix goes from Requirements to the Investigator, a review to the Code Reviewer, a question to the
+  Analyst; "Fix them." after a review is named a build from the earlier turn's context. `--workflow build` still
+  runs Requirements; another pinned kind starts its own first stage. Adaptive planning no longer skips
+  Requirements for a request judged clear (`planning_depth.requirements_skipped` is `null` on new runs); every
+  adaptive run's Requirements makes that clarity judgment, as a chat's has since #1846. The v2
+  planning flow and runs without a Requirements role keep the recognizer.
+
+- A chat's Requirements names the job it understood, and the chat starts that job without a separate recognizer
+  call (#1846). A question goes straight to the Analyst: its handoff no longer needs invented acceptance tests, so
+  there is no report repair, and the chat no longer asks twice to "prepare a plan" that never comes. A review, a
+  design or a bug fix is confirmed with wording that says what approving starts. In an adaptive chat
+  Requirements also judges the request's clarity, so a small clear brief keeps its reduced plan review.
+- Every chat starts with the Requirements conversation (owner decision, 2026-10-22): `autocode modes list` now
+  offers only `full` (`--joint-planning --spec-first`), and the `quick` mode, which sent a clear request straight to
+  the Planner, is gone from the terminal chat's `/mode` and the VS Code Run mode chip. A new chat whose saved choice
+  is `quick` starts in Full instead of failing; `autocode chat --mode quick` names the modes left. The
+  `--adaptive-planning` flag itself is unchanged.
+- Automatic model selection runs a GLM 5.3 Tester at medium effort, not high (owner decision, 2026-10-21). On
+  ladder-07 on Kilo the Tester at medium took 242 s with 14.9k reasoning tokens, against 269-468 s and 23.1k at high
+  in the day's earlier runs, and the task passed 8/8 with no send-back. A GPT-6 Sol Tester and the fixed default
+  routes keep high; `--sol-reasoning-effort` still sets either.
+
+### Added
+
+- A manual-only disposable Linux guest qualification harness for literal reboot and public
+  no-replay evidence. Preparation and pure oracle checks do not claim that #1881 C4 or #1886 S05
+  has passed; actual guest execution remains unverified.
+
+### Fixed
+
+- Report repairs now identify candidate saved user corrections for dropped or changed requirements, and Plan Reviewer diagnostics name the criteria and exclusion reasons involved when a source sentence is both cited and out of scope. These links provide repair context only; existing authenticated omission and source-trace checks remain authoritative (#2208).
+- A run launched in place while another run held the checkout now retakes its launch-input record when it pins its base, so its regression proof trusts that base as an idle launch's would. It no longer pauses at the Completion Reviewer over a plain data file left by the other run.
+- `autocode demo` seeds a small greeting script that rejects empty names, so the demo's delivered tests keep a behavior the original code already had and the demo stops for acceptance again under the changed-line rule (#2474).
+- `autocode verify` now runs the review mutation check on the change it verifies (#2506), whether that change is the working tree, a `--branch` or a `--patch`. Before, every verification's `findings.json` said "No explicit patch was supplied; the review mutation check ran no test", because the check only ever read the patch the reviewer named and verification tells the reviewer to name none. The runner now assembles the whole change as one patch of `--base` (untracked files included, kept as `mutation-base/reviewed-change.patch`), applies it to a private copy of the base and runs the change's own test files against mutations of its changed Python product lines once the external-change proof has passed. Surviving mutants appear under `workflow_result.mutation_check` in `evidence.json` and in the "Review test mutation check" section of `evidence.md`, and the check's command captures are pinned with the other evidence. The result is report-only, as in a task run; it changes no verdict.
+- A Requirements, Discovery or Planner report repair on Claude Code no longer stops the run before any
+  request. The bounded report-edit offer carries AutoCode's own `x-autocode-report-edits` note in its
+  schema file, and Claude Code 2.1.314 refuses a keyword it does not know ("--json-schema is not a valid
+  JSON Schema: strict mode: unknown keyword"), so the repair ended without a result and the run paused for
+  the person. The Claude provider now leaves AutoCode's top-level `x-` annotations out of the schema it
+  passes; the runner still reads them from the file.
+- A new `--engine codex --joint-planning` run that names no Plan Reviewer model no longer stops before the plan to
+  ask the person which model the Plan Reviewer should use (#2049). Codex joint planning copied the Resolver's
+  model into both the Planner and the Plan Reviewer, so the Plan Reviewer would have graded its own work; a new
+  Plan Reviewer now takes `gpt-6-astra`, or `gpt-5.6-sol` when the Planner runs `gpt-6-astra`. A named model,
+  a saved stage choice and a saved run's route are kept. `autocode stages` shows the same default, and lists
+  a model's reasoning levels lowest first whatever order the tool's listing printed them in.
+- A repair whose regression test the project already had is proved by that test: when no test changed, the base suite's tests that fail there and pass with the change are the fail-to-pass proof, instead of a refusal for the missing changed test. The offline live-trial fixture reads its output contract from a report-file provider's prompt, so its Tester attaches its changed-line reasons on that transport too. The offline fixture delivers what the changed-line rule (#2474) asks of a Builder, so master's `test_subprocess`, recovery and crash-recovery tests pass again: its second milestone ships its own fail-to-pass test and the Tester's reasons for the lines the mutator cannot break, a stalled attempt cites only the file it wrote, and the runner's proof finding records the proof receipt that closed it.
+- A run no longer stalls at a changed line the mutation check could not reach (#2474). When a project's suite is its own gate script (`python project_gate.py`), which the runner cannot narrow to the proving tests, the check now runs the proof's regression command and the tests it passed on the candidate instead of running nothing. A bool, number or string literal assigned to a name (`TEXT = "hello"`) is now a mutation site, so a line whose whole behavior is the value it binds gets behavioral evidence from the test that reads it rather than being sent back to the Builder for a reason. The offline fixtures' Investigator cites the pinned Builder failure it classifies instead of an unusable report.
+- Replaying a saved run that completed under the changed-line rule works again (#2500): the recording keeps each Tester reason's exact file, bytes and line, and replay re-derives the proof's current gap id from them instead of refusing the recorded one as stale. Recorded-checks replay of such a run also accepts a proof without named cases, the Tester's review of the retained proof, and a suite command whose interpreter lives elsewhere on the replay host.
+- The test suite passes again after the changed-line rule (#2474, #2495): the to-do scenario's reference tests now check usage errors, the wrongly shaped store and the unknown-id message, so their mutants fail, and its fixture Tester names why each line without a mutation site is covered. The coordination test checks a joint run that carries its own proof through that run's evidence.
+- Task completion now requires current behavioral evidence or a precise, independently checked reason for every changed executable product line (#2474). Coverage and mutation observations keep their source and command receipts; a setup failure, an empty survivor list or a stale proof cannot count as a tested line. Missing tools use a recorded fallback without installing project dependencies. Unresolved exact lines return to Builder for bounded repairs, then to Investigator, with their decisions and accepted reasons visible in the status and final report. Existing saved reports remain readable.
+- `autocode arena report`, `propose`, `cases` and `compare` before `arena init` refuse with the store path and the command that creates it instead of a sqlite traceback or an errno (#2491).
+- `autocode changeset status` and `autocode serve` name a run directory or workspace that does not exist instead of calling it a run in no change set or printing an errno (#2489).
+- Joint planning no longer has to relearn the citation boundary by rejection (#2487). The joint
+  brief said to read `.autocode/candidate-inputs.json` while the runner rejects `.autocode/`
+  citations, and only Requirements ever heard that rule: discovery and revision cited runner-owned
+  candidate copies and were refused. The brief now says candidate copies are task inputs to read
+  and install but never to cite (cite the lasting `repos/` source; its baseline bytes are still the
+  broken code until a candidate is installed), the discovery and revision prompts and their report
+  repairs carry the same ownership rule for `code_refs`, and the Requirements rule states the same
+  read-versus-cite distinction for `source_refs`. Validator boundaries and report schemas are
+  unchanged: runner-owned citations still reject.
+- A spec-first run no longer sends the Tester to rewrite a test whose criterion did not change (#2464, item 2).
+  A reapproval or a follow-up installs a new contract hash, and acceptance-test receipts are keyed by the hash
+  they were written under, so every case was due again and the Tester re-ran for all of them. A case whose
+  criterion row is unchanged apart from its sources, whose receipt belongs to an approved earlier contract,
+  whose archive is intact and which the current diagnosis does not reproduce now inherits that receipt: it is
+  covered, its file stays fixed for the Builder, and the status view's `acceptance_tests` shows it. A changed
+  criterion is still rewritten, and a bug's reproduction tests are still written against the unfixed code.
+- `--grant-recovery` works again in the same invocation that corrects `--max-stage-seconds`,
+  `--max-idle-seconds` or any other saved limit (#2479): the `limit_change` events the correction
+  appends (#2412) are bound into the published request's identity, so recording them before the
+  grant was checked made every such grant read as stale and refuse with empty output. The events
+  now wait for the grant's validation and travel with its single save, so an accepted grant is never
+  persisted without the configuration change that accompanied it, and a refused grant still persists
+  neither the corrected limits, their events nor any allowance.
+- Moving an identical bundled provider configuration can reuse the run's proven model-access receipts
+  after normal transport acceptance. Real configuration, tool or route changes still require fresh access
+  evidence; original receipts and per-launch admission checks stay intact (#2477).
+
+- A saved user correction that changes an exactly named bug case between restore and preservation
+  now refreshes the accepted investigation before a draft can be approved (#2468). The refresh keeps
+  the original report and correction evidence, reruns reproduction and counterexample checks, and
+  preserves every unaffected case. A reviewer's prose cannot replace the effective diagnosis;
+  missing authority or stale report/source pins hold the run without starting implementation.
+- Discovery report repairs now offer the existing exact-source-bound object and malformed-JSON edits
+  (#2469), so small corrections can retain the rest of the rejected report without retranscribing it.
+  Complete schema, provenance, protected-contract and evidence checks still run after reconstruction;
+  full reports and saved schemas remain compatible.
+- Execution prompts now request criterion definitions only when the response schema contains them
+  (#2463). Builder reports no longer have to copy the entire approved criteria into result prose;
+  completion's ID-only reports and checkpoint/Resolver definition reports retain their own exact
+  identity rules. Approved scope, report validation and independent evidence gates are unchanged.
+- `autocode events` now records a limit raised on resume (#2412): `resume --max-iterations 5` after an
+  iteration-ceiling pause, or any other `--max-*`, `--no-progress-limit` or `--unlimited-iterations` change to
+  a saved limit, appends a `limit_change` event naming the limit, its flag, the previous and new values and
+  the actor, beside `planning_budget_change`. Before, the new bound was saved and nothing was recorded. The
+  planning-budget resume and the sealed-draft recovery, which read the run's last event, now read its last
+  event that is not a limit change, so a raise between those steps disables neither.
+- Planning generation now requires an empty `conflict_resolutions` list when known Requirements and
+  source-stable history contain no eligible conflict (#2457). Real conflicts, saved user authority,
+  historical source checks and unknown legacy contexts keep their existing rules.
+- A reviewed correction of a model-invented failure case now composes with an independently permitted
+  update to the model's interpretation of saved feedback (#2453). The receipt grants no authority over
+  assumptions: their source, position and other fields stay fixed, and the existing interpretation guard
+  must allow the text update. Unsupported adjacent edits name the actual mismatch in the repair error.
+
+- A first Plan Reviewer can explicitly identify a mistaken `important_failure_cases` inference in an
+  unapproved model draft and bind its exact correction to that draft and its saved intent sources (#2453).
+  The revision preserves other protected text, existing criteria, proofs and citations; stale receipts,
+  approved or edited history, and human-backed text remain protected. Final review still precedes exact
+  human plan approval, which shows the correction and its rationale. Old reports grant no new authority.
+- A Planner report followed by exactly one redundant empty `machine_resolutions` parameter tag is read
+  without a model repair when the complete JSON already contains that empty field. The report, citations and
+  raw evidence are preserved; conflicting or other parameter tails remain rejected (#2452).
+- A mistyped command is refused before any worktree is created (#2450): `autocode stauts`, `autocode resum`
+  or `autocode registry-list` now says which command the word looks like and to describe a task in more than one
+  word, in quotes. Before, the word became a one-word brief and, with a provider installed, started a run on it.
+  After `--` the word is still task text.
+- Planning response schemas name only the current review concerns, avoiding synthetic passed-audit
+  decisions that the core discards. Older reports still load without a repair; real concerns, new
+  blockers, full contract review and exact user approval remain enforced (#2440).
+
+- `autocode registry add` and `registry import` now say `no such directory` for a path that does not exist,
+  naming the path you typed, and `registry add` on a repository without commits says the repository has
+  no commit yet and to make a first commit (#2431). Before, the first showed a Python errno naming the
+  first missing ancestor (`/nonexistent` for `/nonexistent/deep/path`) and the second showed Git's
+  `fatal: Needed a single revision`.
+- A malformed Requirements or planning-revision report can use small source-hash-bound text edits
+  instead of repeating the entire JSON response (#2428). Ambiguous, overlapping or oversized edits
+  are rejected; original reports stay retained and all normal validation and approval gates still run.
+
+
+- An empty planning report-repair response no longer strands a retained nonempty original while an
+  existing repair attempt remains (#2426). The next repair receives the original and its parser
+  diagnostic; saved empty-response holds keep that pending repair on Resume. Usage, limits, source
+  pins and approval gates stay intact; an empty original or exhausted allowance still stops.
+
+- Small Requirements and planning-revision report repairs can return edits bound to the exact rejected
+  report instead of generating the entire JSON again (#2421). AutoCode reconstructs the report locally
+  and applies the existing schema, provenance, protected-requirement and approval checks. Full reports
+  and old saved attempts remain supported.
+- Reuse an accepted report repair’s own launch-bound model-access evidence instead of paying for a redundant probe; rejected or failed requests and unseen routes still require checks (#2418).
+
+- `autocode chat --engine codex "brief"` is refused with the form that works: the run's own options go after `--` (`autocode chat "BRIEF" -- --engine codex`), which the usage error and `chat --help` now say instead of a bare "unrecognized arguments" (#2416).
+- Every public subcommand option prints a one-line description in `autocode COMMAND --help`: 145 of them (`registry import --max-depth`, `tasks --dry-run`, `checkpoint --restore`, every `conversation`, `coordinate`, `intervention` and `arena` option among them) printed none; a test now keeps a new subcommand option from shipping without one (#2397).
+- `autocode explain` and the status view's `explanation` no longer say "no new decision is needed while the controller is active" for a RUNNING checkpoint the controller left on purpose after a saved answer, approval or follow-up; they say nothing runs it until someone runs the next command, as the summary already did (#2393).
+- `autocode review-pr 12`, `review-pr OWNER/REPO#12` or an issue link is refused by naming the form a pull request URL takes (`pull request URL must be https://github.com/OWNER/REPO/pull/N, not '12'`) instead of "must match the configured GitHub API web host and port", which now names the expected host and is kept for a well-formed URL on another host (#2409).
+- `--max-iterations 0` (and `--legacy-iteration-ceiling 0`) is refused before anything is created: it could never let a stage run, so a new task made a worktree and a run that paused at once with "Saved iteration ceiling reached"; the refusal says to omit the flag or pass `--unlimited-iterations` (#2406).
+- `autocode "   "` is refused as a blank task before any worktree or run exists; it started a task worktree, a branch and a run for the whitespace (#2404). A positional-task refusal no longer carries the `Cannot read brief:` prefix meant for `--brief` and `--brief-file`.
+- `--status`, `explain` or `--follow-up` on a run whose task worktree `autocode clean-worktrees` removed say so: the removed worktree, the merged branch, the archive holding its records, `autocode bundle --run-dir RUN` to read them, and a new task to continue, instead of only "Saved task worktree is missing or does not belong to this project" (#2402).
+- `autocode doctor` has a `user settings` row for `~/.config/autocode/config.toml`: `engine = "codex"` or any other key the user file does not take was silently ignored; doctor now names it, says the file takes only `default_provider` and `plan_review_call_limit`, and points a project key to the project's `.autocode/config.toml` (#2400).
+- An unknown key in `.autocode/config.toml` or `[tool.autocode]` is refused with the closest known key first (`unknown setting 'max_cost_usd'; did you mean 'max-cost-usd'?`) instead of only the forty-name list of accepted keys (#2398).
+- `--help-all` describes every main-run option: `--workspace`, `--status`, `--dry-run`, `--answer`, `--approve-review`, `--reasoning-effort`, `--pause-after-stage`, `--context-soft-tokens`, `--legacy-iteration-ceiling` and `--migrate-only` printed with no help text; a test now keeps a new main-run option from shipping without one (#2395).
+- `autocode --task "Add a greeting"` is refused in words: there is no `--task` option and the task is the first argument. argparse read `--task` as the abbreviation of `--task-preflight`, took the task as its value and the launcher reported "No AutoCode run found" (#2391).
+- A missing, unreadable or malformed `--edit-goal` file paused the run as `PAUSED_INVALID_OUTPUT` with the OS error as its stop reason; it is now refused as input (`Cannot read the revised goal ...`, exit 2) with the run unchanged, as `--goal-file` already was (#2389).
+- The usage and error lines of `autocode registry`, `output`, `tasks`, `conversation`, `replay`, `checkpoint`, `capture`, `intervention` and other subcommands read `usage: autocode [-h] ...`, as if their arguments belonged to the root command; the dispatcher now names `autocode NAME` as the program for every subcommand (#2387).
+- `autocode bundle` and `autocode prune-run` rejected `--run-dir`, the way every other command names a run; both now accept it as well as the positional `RUN` (#2385).
+- The terminal chat's review step listed the criteria to accept without naming the files that changed; it now prints `Changed: FILE, ...` under each criterion from the status view's `changes_by_criterion`, as the CLI's review stop does (#2383).
+- `autocode runs --all` listed every registered project's runs without saying which project each belongs to; each row now names its workspace on the line before its command (#2379).
+- `autocode bundle` refused a run that `clean-worktrees` had archived to `PROJECT/.autocode/archive/TREE/runs/RUN`, so a merged task could not be bundled for a bug report; it now takes the project as the workspace and, with `--with-diff`, diffs the base commit against the kept branch the archive names (#2377).
+- After a person answered a paused run's AutoResolver request, `--status`, the status view's `explanation` and `autocode explain` said only that the response was received; they now also name the cause the run is still held for, and the explanation no longer doubles the stop reason's final period (#2371).
+- The brief printed at every launch and stop now lists each saved answer as one line (the question, the answer, and whether it was delegated) instead of dumping the answer records as JSON, contract tokens included (#2363).
+- `autocode clean-worktrees` no longer tells the person to "finish or abandon" an unfinished run, a verb no command implements; its keep reason now names the steps that work today, `git worktree remove --force` on the worktree and, with a shared registry, `autocode registry forget-deleted` (#2365).
+- `autocode models` without `--provider` now follows the project's `engine` setting as `doctor` and a task do, instead of failing with "OpenCode is not on PATH" in a Codex project: a `claude` project lists the Claude Code provider, and a `codex` project is told its routes are fixed (#2369).
+- The install guide's first-task walkthrough quotes the prompts the terminal chat prints (`Prepare plan? [y/N]:`, then `Approve this plan? [y/N], or type what to change:`) instead of one it never printed (#2367).
+- The plain CLI's human-review stop now lists the files each criterion's saved Builder steps changed and names `autocode review --show --run-dir RUN` as the way to read the change and its evidence; before, it asked for approval of a change it never located (#2360).
+- `autocode connections list` carries a `codex` row (unavailable off PATH; `check` runs `codex login
+  status`, `login` delegates to `codex login`), so the chat's unusable-default notice can name an
+  installed Codex and `/engine codex`, and `/connect codex use` chooses the engine instead of the
+  `--provider codex` the core refuses (#2357).
+- A slash command typed at the line chat's "Pick one, or type a new request" (`/runs`, `/help`,
+  `/quit`, `/engine` and the rest) is taken as the command, as at "What do you want done?", instead of
+  starting a run whose task is the text `/runs` (#2355).
+- The chat's startup picker ("Runs waiting here") shows when each run last moved, as `/runs` does, so
+  several unfinished runs of one request no longer read as identical lines (#2353).
+- `autocode doctor` no longer counts AutoCode's own learned record (`.autocode/project.json`, which its
+  generated `.gitignore` un-ignores on purpose) as an uncommitted change, so a project that only carries
+  it passes `workspace:clean` after its first run (#2350).
+- The completion message in the status view's chat (what `autocode chat` and the VS Code client show
+  when a task finishes) names the task branch the work was delivered on and the `autocode merge` and
+  `autocode clean-worktrees` commands that take it, as the plain CLI already printed (#2344).
+- The status view's `verification.coverage[].human_acceptance_pending` is false once a criterion's
+  review receipt is valid for the current validation, as `--status --inspect-evidence` already reported
+  it; the chat side panel no longer reads "1 human acceptance pending" on a reviewed or completed run
+  (#2342).
+- Starting a task whose exact text an unfinished run of the project already carries prints a note on
+  stderr naming that run and the `autocode --run-dir RUN` that continues it before the new worktree is
+  created, instead of silently starting a second run beside it (#2340).
+- A run saved after an answer, approval or follow-up and left for the person to continue no longer reads
+  `Working`: `--status --summary` says "Needs you: Saved and ready to continue; nothing runs it until
+  you do." and `autocode runs` lists it under needs you as "Ready to continue", both from the
+  controller's `ready` receipt for the current checkpoint (#2332).
+- The root `--help` names `--engine` (opencode, codex or claude) as the way to choose the coding agent
+  instead of `--provider`, and `--provider codex` is refused before any worktree is created, naming
+  `--engine codex`, instead of failing afterwards with "create ~/.config/autocode/providers/codex.toml" for
+  a tool AutoCode already runs (#2330).
+- The human-review gate reads in prose: each criterion to review with its text and verification
+  method (and whether the independent check passed it), a few-line validation summary with the record's
+  path, then the approval command, instead of the request and the whole validation record as JSON that
+  named the criterion only by id (#2327).
+- A run waiting on a question shows each pending question's options and proposed default in the
+  readable tail of `--status` and in `--status --summary`, and the full-status tail ends with the exact
+  `--answer` command, instead of leaving all three inside the JSON payload (#2325).
+- `autocode spec.md` no longer starts a run whose task is the literal words `spec.md`: a whitespace-free
+  positional task that names an existing file is refused before any run is created, naming
+  `--brief-file spec.md` for the file's contents and `--brief spec.md` for the words themselves (#2323).
+- `autocode clean-worktrees --yes` forgets the removed worktree's runs in the shared registry, so
+  `autocode runs --all` no longer lists each cleaned-up run as unreadable ("Run state.json is
+  unavailable") for good; the records stay archived and the branch is kept (#2319).
+- `autocode runs --all` says when a registered run's directory no longer exists and names the exact
+  `autocode registry forget-deleted --workspace W --run-dir R` command that drops its entry, instead of
+  "Run state.json is unavailable" with no way out; `forget-deleted` is now documented with the other
+  registry operations (#2321).
+- `--answer` with an unknown question id, an already answered id or empty text is refused with a sentence
+  naming the mistake and the open question ids, instead of one generic "Answer must address one unresolved
+  question with nonempty text" for all three (#2313).
+- `autocode merge` run again after a successful merge says "already merged: master at ... contains
+  autocode/..." and exits 0, instead of "the base branch moved after this run started; re-validate ...
+  then merge again"; its ancestor checks now read git's exit code, so a diverged base takes the
+  documented merge-commit path instead of always attempting a fast-forward (#2315).
+- `--engine codex` on a host without Codex is refused in words ("Codex is not on PATH; no provider request
+  was launched. Run `autocode doctor` ...") instead of a raw "[Errno 2] No such file or directory: 'codex'",
+  on a new run and on a resume; the Claude engine's refusal gains the same `autocode doctor` hint (#2307).
+- A pause's output ends with its `Next command:` again when the presentation runs longer than a screen
+  (a review stop printed the command on line 33 of 410, then a bare state line), and a plain relaunch of
+  a waiting run prints the same pause header and command as the stop that got there (#2301).
+- A status read that straddles the controller's atomic receipt write reads the receipt again instead of
+  reporting "Controller ownership could not be inspected: Controller receipt changed while inspected" and
+  offering `--resume-paused` on a run that is running (#2304).
+- A launch the host refused before any provider started (a root shell's `PAUSED_PROCESS_CLEANUP`, or an
+  unsupported host) no longer leaves the admitted attempt behind as an uncertain stage, so a plain
+  `--resume-paused` carries on once the host admits sessions instead of holding until `--abandon-stage`
+  and an AutoResolver request; `autocode explain` names the extra step only for a run saved before this
+  change (#2296).
+- `autocode explain` on a run that stopped because this shell holds CAP_SYS_ADMIN or CAP_SYS_PTRACE (root in most containers) says so and names the fix `autocode doctor` names (an ordinary user, or `setpriv --bounding-set=-sys_admin,-sys_ptrace`), instead of "A child process did not clean up" with `--abandon-stage` as the way forward.
+- In the line-by-line chat, `/help` and `/quit` typed at "What do you want done?" work (the commands that work before a chat, and leaving) instead of answering "Open or start a chat first"; `//text` starts a chat whose request begins with a slash.
+- `autocode approve-goal` (a main-run option typed without its dashes) is refused with the option named instead of starting a task worktree and a run for the task "approve-goal"; `autocode Add a hello script` (a task without quotes) says to put the whole task in quotes after "unrecognized arguments".
+- `autocode doctor`, when the default OpenCode is missing and Claude Code or Codex is installed, names how to make that engine the default once (`engine = "claude"` in the project's `.autocode/config.toml`, or `default_provider = "claude"` in `~/.config/autocode/config.toml`) instead of only "pass --engine claude to doctor and to every task".
+- `--run-dir` naming a path that is not a saved run is refused in words ("is not a directory" or "has no state.json", what a run directory looks like, and that `autocode runs` lists them) instead of `[Errno 2] No such file or directory: '.../state.json'`.
+- `autocode connections list` and `connections check` print a readable line per connection (state, detail and the command of each offered action) when `--json` is not given; the flag was a no-op and both printed one line of JSON.
+- `autocode merge` without a worktree argument says that the project has no task worktree, or names the ones it has, instead of "there is not exactly one task worktree".
+- The line-by-line chat (`autocode chat` outside a full terminal) takes `/` commands typed at a run's question or plan prompt (`/runs`, `/open`, `/new`, `/help`, `/quit`, ...) instead of sending them to the model as the answer, which spent a planning call. `//text` sends text that starts with a slash.
+- A completed task worktree's delivery line names the merge command (`autocode merge --workspace PROJECT WORKTREE`, or `git merge BRANCH`) next to the clean-up command, instead of only "Merge it".
+- `autocode runs` lists the runs of the project's task worktrees (a task started without `--in-place` runs in `.autocode/worktrees/<lane>`). It answered "No runs found" for a project whose only run `--status`, `resume` and `explain` all found.
+- Two user actions in one invocation (`--follow-up` with `--dry-run`, `--status` with `--approve-goal`) are refused naming both flags, instead of only "Choose one action per invocation".
+- A task started in a Git checkout that has no commit yet is refused with the command that fixes it (`git -C PROJECT commit --allow-empty -m 'Start'`, the same one `autocode doctor` prints) instead of only "Create an initial Git commit".
+- `--status` reads the saved checkpoint and its controller receipt together. A controller that finished a stage and exited between the two reads was shown as ended at a checkpoint that no longer existed: the view offered a continue whose checkpoint token the durable worker then refused as stale (the `test_worker_host` failures on master on 2026-10-26 and 2026-10-27). When the checkpoint changes during the inspection, the view reads it again, so every field of one view describes the same saved state.
+- The terminal chat on a host whose default backend cannot start a chat (OpenCode not installed) says so
+  before its first question, names what `connections list` shows installed instead, and the `/engine` or
+  `/connect NAME use` that picks it, rather than failing the first request. The line-by-line chat now takes
+  `/engine`, `/mode`, `/connect` and `/runs` typed at that question as commands, as the full-screen chat
+  already did, instead of starting a run called "/engine claude".
+- A launch refused after its run directory was reserved but before the first checkpoint (a missing
+  engine, an unsupported host) no longer leaves `RUN/writer.lock` behind; the directory is removed and the
+  refusal says so. `autocode runs` and the chat's `/runs` listed such a run as "cannot be read" for ever.
+  The worktree launch already removed its unused worktree (#2247); this covers the in-place launch the chat uses.
+- A first task on a host without OpenCode no longer stops at "OpenCode is not on PATH": the refusal now
+  says to run `autocode doctor` and that an installed Claude Code or Codex runs with `--engine claude` or
+  `--engine codex`.
+- `autocode doctor` on a host with Claude Code installed but no OpenCode no longer only says to install
+  OpenCode: the engine verdict names the `claude` on PATH and the `--engine claude` to pass to doctor and
+  to every task, as it already did for a ready Codex. The login check itself stays with
+  `doctor --engine claude`.
+- The terminal chat no longer prints the Requirements question a second time after the person has already
+  seen and answered it. The direct prompt's echo was dropped while the public copy of the question was still
+  being written, so the finished message looked new on the next poll. The echo now waits for the finished
+  message.
+- A Builder on Claude Code can cite the command it ran as a bare `event:` in `evidence_refs`, and the
+  runner binds it to the stage's latest completed command with a known exit code, as a Validator check's
+  bare `event:` already was (#2253). Claude Code stages never see the `item_N` IDs the runner assigns,
+  so the old prompt ("cited as `event:item_N`", "never invent event IDs") left the Builder no way to
+  cite a command without a report repair; a guessed ID is still rejected. On the 2026-10-27 live
+  `bugfix-trivial` run that cost a Resolver pass and a 16 s repair stage.
+
+- A new task that stops before its run is first saved (for example, when the coding-agent CLI is not
+  on PATH) now removes the task worktree and branch it had just created, and says so. Before, every
+  retry left another `.autocode/worktrees/` checkout and `autocode/*` branch that `autocode runs` could
+  not list and `autocode clean-worktrees` would not remove. A worktree holding a saved run, a change or a
+  moved branch is kept.
+
+- An exact runner-supplied command event can now fill omitted check command and exit fields during
+  report repair (#2113). Conflicting native event identities, unknown references, bare placeholders
+  without a command and mismatched exits still refuse; repeated updates of one native operation remain
+  usable. Tester and repair guidance now describe the same evidence rules.
+
+- Acceptance writers now hand provider-local blocked integration tests to the existing core scratch runner instead of calling the requirement untestable; per-test red/guard qualification remains mandatory (#2161).
+- Kilo write stages now use a single-session tool policy, preventing subagent delegation that would invalidate the stage's evidence while retaining operator restrictions on coding tools (#2163).
+
+- A stopped acceptance-test writer now exposes its own token-bound model choice, including safely bound retained timeouts. Selecting a model preserves the other roles, usage and plan and still requires a separate retry (#2158).
+
+- A person can now change a failed job's total time/accounting caps using its exact retry token
+  (#2156). The job stays paused, usage stays recorded and a fresh token is required for a separate
+  retry. Stale source, mixed settings and changes to other limits remain refused.
+
+- Acceptance-test prompts reference exact duplicate case text inside their complete inline approved
+  contract (#2153). Case IDs, test names, proof kinds, source quotes and all permissions are retained;
+  repair inputs remain self-contained. This reduces prompt size without skipping tests or stages.
+
+- Planning no longer treats documentary `file:line` labels or prose references to known source
+  records as product values that acceptance criteria must repeat (#2150). Source quotes stay
+  intact; actual numeric limits, output literals, file-scope constraints and negations remain checked.
+
+- Malformed planning reports now admit and name corrective chat input. Terminal and full-screen
+  chat accept that text at the Resume prompt instead of treating it as a decline (#2147).
+  Corrections still require a fresh plan approval and cannot release operational or execution holds.
+
+- A probe that passes whatever the code says no longer counts as evidence (#1769). A probed claim
+  from the Analyst, a probed concern from the Designer and a probed conflict from the Design Reviewer
+  now carry a `counterexample`: one edit (`file`, `find`, `replace`) that makes the claim false. The
+  runner makes it in a second scratch copy and the probe must fail there. A probe such as
+  `python3 -c 'assert 2 + 2 == 4'`, which exits 0 either way, is refused and goes to the usual bounded
+  report repair instead of being shown as a check that ran. The Analyst's answer now lists claims
+  without a probe as read from the source, not run.
+  The bug Investigator's reproduction probe and the stuck Investigator's probe now follow the same
+  rule: a reproduction names the edit that removes the bug, and a diagnosed cause names the edit to a
+  cited file after which the file no longer shows it.
+
+- A report rejected for its format on a configured Kilo connection (a provider TOML whose command
+  runs `kilo`, such as `kilo_glm_mimo`) now goes straight to the full report repair, as on the bundled
+  `kilocode` provider. Since #2010 these connections get the Kilo launch, whose read-only boundary
+  drops the session, so the one-turn same-session correction was spent with no context.
+
+- The qualification table can now record that a role must never auto-select a model, with the
+  decision as its evidence, and both selection and `tools/qualify_routes.py` honor it: a stock
+  profile that pins the model still reaches it, but the run qualifies the other roles and names
+  the exclusion instead of adding an entry (#2121, #2057). The Plan Reviewer's MiMo v2.6 Pro
+  exclusion restores the owner's 2026-10-20 "never choose MiMo to review a plan" decision, which
+  the qualifier's documented command silently reversed by adding it back at rank 0.
+
+- `tools/qualify_routes.py` keeps the qualification table's top-level fields when it writes, so a
+  merge no longer deletes the table's `basis` policy text: it rebuilt the file from the parsed
+  `as_of` and `roles` alone, and only a real write (not `--dry-run`) showed the loss (#2117, #2057).
+
+- `tools/qualify_routes.py` counts only attempts that finished with accepted output: a rejected,
+  timed-out, interrupted, still-active or report-repair attempt no longer qualifies its route, so a
+  reviewer route that went silent and was replaced by a fallback is not written as qualified (#2114).
+
+- `tools/qualify_routes.py` now credits each attempt to the route slot its stage launched, so a
+  finished live run can qualify its Plan Reviewer and Completion Reviewer routes (#2114, #2057).
+  Those stages run under the `astra` unit; the attempt rows named the unit, so the two slots were
+  reported as never attempted while the Planner route `astra` never launched was added instead.
+
+- The model access preflight now proves each route under the role that owns it, and a tool refusing
+  the level there pauses as `PAUSED_TRANSPORT_UNVERIFIED` with that role's own flag instead of an
+  unclassified error reported as `PAUSED_INVALID_OUTPUT` with the Tester's flag (#2108, #2057). This
+  is the case the pre-fit cannot decide: a manually given level on a model with no declared listing,
+  where only the tool's own variant check can answer.
+
+- A feature follow-up no longer inherits an instruction to re-investigate the previous turn's
+  reproduced bug. Current-turn bug invariants still require independent checks. Kilo/OpenCode
+  receipt guidance now agrees with the Tester's supported command/exit-code hydration, avoiding
+  redundant command transcription without relaxing receipt authentication (#2113).
+
+- The model access preflight now fits every role's effort before its first probe, as the launch
+  boundary does (#2104, #2057). A person-named level its model does not declare pauses as
+  `PAUSED_EFFORT_UNSUPPORTED` with the role's own flag before any probe spends, instead of probing at
+  the unsupported level until Kilo's own refusal surfaced as `PAUSED_INVALID_OUTPUT` with the Tester's
+  flag. A runner-chosen level is probed at the variant its model declares, the one a stage will launch.
+
+- Follow-up test generation keeps unchanged tests from a completed turn under their approved
+  fail-first meaning instead of reopening planning when they pass current code. Fresh proof checks
+  inherited regressions against the original reference and new guards against the completed source.
+  Exact runner-only corrections can recover through ordinary Resume; review charges, saved allowances,
+  approvals and history remain intact, including renewed default limits on same-turn restarts (#2096).
+
+- A direct connection's OpenRouter provider defaults to `https://openrouter.ai/api/v1`, its real API
+  base, and VS Code's Connections view runs a multi-provider connection's `add` action in a terminal
+  as it does `setup` (#2055).
+
+- Inherited Plan Reviewer charges count once when a small plan's review policy activates. Saved false
+  budget pauses offer ordinary Resume when the existing allowance still has room, preserving review
+  limits, reported usage, history and plan approval (#2087). New unapproved model interpretations of
+  feedback also remain correctable without treating them as the person's own words (#2085).
+
+- Manual C4 qualification composes preparation and reboot request deadlines within the existing
+  global cap, retains bounded fixture progress, and collects read-only diagnostics before cleanup.
+  Both failed qualification attempts remain failed; literal reboot proof is still pending (#1881).
+
+- The manual C4 qualification reports named admission errors before setup and explicitly uses TCG
+  for its disposable Linux guest. It retains accelerator/phase timing and never publishes PASS
+  before guest cleanup succeeds; literal reboot proof remains pending (#1881, #1886).
+
+- At a single option question, the terminal chat sends a typed correction through the core's offered
+  feedback action with its existing fresh-context checks. Exact/default/numeric choices remain answers;
+  no feedback action is invented when the view offers none. Corrections no longer require leaving the
+  TUI for `--feedback` (#2078).
+
+- Every role's stage launch fits its reasoning effort to the variants its model declares through one rule
+  (`autocode_route_fit`), so a derived tier — the Plan Reviewer's reduced depth, the Builder's light first
+  attempt, an escalation rung, a route answer or `--single-model` — no longer reaches a variant the model
+  does not serve (GLM 5.3 declares low, high and max, not medium). A runner-chosen level moves to the
+  nearest declared variant and the move is recorded in `effort_fits`; a level a person named is refused at
+  the launch with the flag that changes it; a model with no listing is recorded as `unverified` instead of
+  guessed. The access preflight now probes every billing-routed saved role at its own level, not only
+  automatic routes, and a passing probe certifies that level for later fits (#2057).
+
+- An approval from an earlier turn no longer makes new criterion IDs in the current draft count as
+  approved. The Planner can correct its new examples while retaining their source quotes; criteria
+  actually approved or edited by the person, proof selectors and incomplete legacy history stay
+  protected. The final revised plan still requires approval (#2076).
+
+- Planning, independent plan review and report repair now name the saved repository regression reference.
+  A same-chat follow-up does not reset that commit: an existing regression may pass in today's fixed
+  workspace and still fail on the original reference. The guidance retains fresh runner proof and
+  exact-plan approval instead of requesting duplicate tests or historical-proof reuse from that fact alone (#2074).
+
+- Requirements scans an identical follow-up source once when it is both the current task and saved
+  feedback. Planning and repair checklists and missing-coverage diagnostics no longer repeat those
+  obligations; the source journal and all distinct requirement checks remain intact (#2072).
+
+- The channel bridge daemon takes its single-instance lock through `autocode_util.lock_file`, so the bridge
+  loads and runs on native Windows. Before, a module-level `fcntl` import failed at load there (#2035).
+- A base whose prose is a non-Markdown document in the design workflow's directory
+  (`docs/design/feature.rst` or `.adoc`) is no longer admitted as a document-only base, so it needs the
+  ordinary passing-test evidence again. The wider data-file list added for #2036 admitted `.rst` and `.adoc`
+  anywhere; the design workflow writes Markdown, so a document in another format there is not its output.
+
+- A Requirements report that copies a coverage-checklist sentence exactly, as its prompt says, is no longer
+  refused as citing text the brief does not hold. The checklist adds a period to a Markdown heading and
+  shows a hard-wrapped sentence's line break, which models write as a space; the quote check now maps such a
+  quote back to the brief's own characters and saves that text. A quote no source holds is still refused,
+  but the refusal now names every such requirement at once, shows the closest sentence in the brief, and
+  says to copy it exactly or remove the requirement. Before, each repair repeated the same quote and the
+  run paused as invalid output again on every resume.
+- The Completion Reviewer no longer runs again and again on an unchanged source after the AutoResolver's
+  diagnosis was answered. A repeated block on an already-diagnosed source now holds the run (`RESOLVER_PENDING`,
+  with a stop reason naming the existing diagnosis) instead of scheduling the same review without limit, and a
+  regression proof of the current source that failed once is replayed once before the Completion Owner reviews,
+  so a single flaky test does not drive rework. See `docs/bugs/2026-10-25-repeated-completion-review-after-diagnosis.md`.
+
+- Every place that judges whether one model may check another's work now uses the one family rule in
+  `autocode_model_identity`. The Plan Reviewer stream fallback, the run scorer's independence check, the
+  model catalogue's suggestions and the stuck-job Investigator's route each kept an older copy that grouped
+  only GLM and MiMo, so the fallback could let GPT-6 Sol take over reviewing a plan GPT-6 Luna drafted, or
+  one Claude route check another's build, while `score_autocode_run` still reported the run as independent.
+  All four now agree with dispatch: GPT tiers are one family (2026-10-20), Claude is one family, and a gateway
+  spelling of a model is the same model.
+- Stages on `anthropic/claude-sonnet-5-5`, `anthropic/claude-haiku-4-5` and `xiaomi-token-plan-sgp/mimo-v2.6-flash`
+  are now priced (`tools/autocode_prices.json`, as of 2026-10-25). Live runs recorded their tokens with no rate, so
+  the run's spend left them out and a `--max-cost-usd` cap could not count them. The two Claude ids take the rates
+  of the rows they alias; MiMo 2.6 Flash takes Xiaomi's pay-as-you-go price.
+
+- A permission question now says so before the person answers when none of its choices can do anything.
+  A greenfield run's completion gate offered "complete base-side collection evidence runner-side" as an
+  equivalent outcome, and nothing in the runner implements it: choosing it recorded the decision, popped the
+  request, resumed execution and spent two more validation rounds returning the same findings. A choice
+  bound to no setting now states that it changes nothing and names the actions that do — `--feedback`,
+  `--close-finding`, `--edit-goal` with `--approve-goal` (#2041).
+- A new chat no longer reports its own start as a status outage. `--status` exits 2 only while the run
+  being created has no state file yet, and the client called that "Status unavailable … Last view is
+  stale", followed a second later by "Status available again". Only those two lines wait for a run that
+  has answered a read before; the tab state and the observation still record every failed read (#1998).
+  Its working line and `/details` also stopped claiming a snapshot was retained before any read showed
+  one, which a cold start reaches in its first second.
+
+- The live agent log shows one line per kind of opaque streaming receipt, with the parts it stands
+  for, instead of a row per part. A backend that sends no reasoning text filled the pane with identical
+  "text unavailable" lines and buried the tool calls `/live` exists to show (#1999, #2002).
+- Ctrl-← and Ctrl-→ switch chat tabs on terminals whose terminfo names no extended key, such as tmux's
+  `xterm-256color`. They were recognised only by terminfo name, so the raw Escape tail fell through and
+  the composer filled with `[1;5C` instead of moving tabs (#1997, #2001).
+
+- A number typed at a pause's yes/no that only *prose* tells the person to raise no longer vanishes. The
+  time-limit pause reached through an AutoResolver hold names a plain `--resume-paused` and advertises no
+  `--max-seconds` entry, so typing the total it asked for was consumed as a decline and the run stayed
+  paused while the person believed they had raised the bound. The chat now says the number set nothing and
+  names the command that would: it still takes no action the view did not name (#1950).
+- Time a run spent waiting for the person is now measured. Each question, plan approval or other request a
+  person answered counts from when it became answerable to their response, under `efficiency.time`'s `waiting`
+  category, so it is kept apart from execution time. The category had no source before (#1867 S1d).
+- `cost.breakdown.by_billing` groups a run's spend by how each stage's model bills (subscription, pay per token
+  or unknown), so an API-equivalent estimate for a coding-plan stage is no longer indistinguishable from a
+  metered one. The provider billing table moved from `model_catalogue` to `autocode_role_route` so the cost
+  view can use it; it is still one table (#1867 S1b).
+- Cost per accepted task is no longer always unknown on coding-plan routes. `efficiency.unit_metrics.spent_usd`
+  divides the run's own spend (`cost.spent_usd`: reported where the provider reported, else the dated-table
+  estimate) by the accepted deliveries, and stays null with a reason while any stage is unpriced, partial or
+  running. `reported_usd` is unchanged (#1867 S1c).
+- The status-view schema now requires the eight fields the view always returns (`workspace`, `run_dir`,
+  `planning_depth`, `pause`, `package`, `tool_containment_backend`, `changes_by_criterion`, `dev_server`), so
+  removing one fails the JSON contract test, and a new always-present field must be added to the schema
+  (#1867 S1f).
+- A price table update no longer rewrites what earlier stages cost. A row in `tools/autocode_prices.json`
+  can keep the rates it replaced in `history`, each with the date it stopped applying, and every stage is priced at
+  the rate in force on the day it finished, so a resumed run's spend and money-cap decision stay as they were.
+  `cost.breakdown.price_bases` lists the rates used (#1867 S1a).
+- `efficiency.repeats` in the status view now counts a check the runner executed again although the same
+  obligation already had a completed receipt, with its reason (a changed environment, a failed earlier attempt, or
+  an approved command that always runs). The `repeat` observation was defined but never recorded, so the count was
+  always 0. The scheduler's execute record names the earlier attempt as `previous_attempt_id` (#1910).
+- A Completion Reviewer can no longer mark a task complete while its own source verdict says FAIL or names an
+  uncovered sentence of the original request. The verdict was required but never read, so the reviewer's own
+  finding was dropped. Such a report now goes back through the bounded report repair for one consistent answer:
+  a PASS verdict, or a REWORK that covers the sentences. A report for another contract or task still pauses as
+  before (#1909).
+- The documentation no longer says a quota stop never switches models: on a run that chose its models
+  automatically, a quota, content-filter or output-limit stop moves the role to the next qualified model on
+  its own and asks only when none remains, as it has since #1426. The `--adaptive-planning` help and CLI
+  reference no longer promise the Requirements skip #1860 removed, `docs/cost-reporting.md` points to the
+  comparison rates where they are, and the status-view schema now lists eight fields the view already
+  returned, including `planning_depth` and `pause` (#1905).
+- A run paused with a repeated failure whose report repair is spent no longer tells the person to authorize an
+  inspected retry that its own gate then refuses. A resume now reconciles the repair first: an exhausted or
+  unlaunchable one is archived before the unchanged-failure hold, so the retry that hold names is admissible on
+  the next resume, and a repair with an attempt still queued dispatches its report-only repair instead of being
+  held as though the resume restarted the failed work (#1899). Rejected reports stay in the archive, and neither
+  path authorizes a fresh execution attempt.
+- A bug fix no longer stops at `PAUSED_ACCEPTANCE_TESTS` when a `test:` case its own plan added already works. That
+  case goes back to plan review relabelled `guard:`, as in a build; only the Investigator's reproduction passing
+  today still pauses the run, with a message saying the diagnosis and the code disagree (#1868).
+- A brief that names the report it fixes ("Fix issue #474 ...") no longer dead-ends plan finalize: the source-trace
+  audit no longer treats an issue or pull-request reference as a value the criteria must repeat, while a value
+  stated beside it ("process exactly 7 rows") still has to survive (#1874).
+- A run paused with a repeated failure no longer names `--retry-failed-stage` while the attempt or report
+  repair behind that pause is unreconciled, which its own CLI refuses ("Reconcile the active attempt or pending
+  report repair before authorizing a retry"). The pause now says why the retry waits, in `needs.retry_unavailable`
+  carrying that same reason, instead of dropping the retry and implying a resume answers it (#1897). One
+  predicate (`autocode_recovery_limits.repeated_failure_retry_refusal`) now feeds the CLI's gate and both command
+  projections, replacing the hand-written set behind the view's naming, which disagreed with the gate about
+  `uncertain_artifacts`: refused by the CLI, still named by the view. The resolver's own advice keeps its separate
+  and broader key set for now — a divergence that predates this fix, not one it removes.
+- A Validator report that passes its own checks but leaves the declared human-review rows unverified without the
+  proof completion requires is now rejected at that gate, and the bounded report repair names the gaps to fill
+  without rerunning a command or inventing an approval. Previously it was accepted, completion then refused to
+  offer the person's review, and the run deadlocked. A completion-gate pause raised while applying an accepted
+  result now pauses under its own status with the gate's reason, with no failure record and no Investigator; the
+  report is set aside so a resume starts a fresh attempt instead of re-applying it against the same gate (#1851).
+- A new human follow-up gets its own default planning-review allowance while preserving cumulative usage
+  and explicit user-selected bounds. Inherited criteria can be retained by hash instead of paraphrased,
+  and default-flow final reviews return a hash-bound verdict rather than copying the full plan again. Ordinary
+  contract, source, dependency, permission and user-approval checks still run after expansion (#1853).
+
+- The CLI's usage line names the command that was run on Python 3.14 too, where argparse otherwise names how
+  Python started (`python -m unittest`); `tests.test_cli_surface` failed on every Python 3.14 checkout.
+- A PASS Validator report that cites a nonzero check is no longer sent to bounded report repair, which cannot
+  rerun a command or change an exit code. The rejection names the failed check and the exit-0 rule, so the stage
+  runs again with a successful execution instead of spending two guaranteed-futile repairs (#1852).
+- The terminal chat no longer repeats a stage's progress line when it only flips between "working", "finished"
+  and "Next:" with unchanged counts. A stage's first line is said once; the next is when its counts or the stage
+  itself change (#1844).
+- A malformed original-brief observation in an otherwise non-blocking first plan review now goes back to the Reviewer through bounded report repair, instead of sending the Planner through an unnecessary revision and another review. Duplicate, unknown, missing and invalid proposal bindings remain rejected; genuine draft errors still go to the Planner (#1839).
+- A planning revision no longer loops between the reviewer's blocking concerns and a protected draft contract.
+  The Planner may correct or drop its own `agent_proposed` assumption without declaring a permission change, and an
+  unapproved criterion it may reword may correct its unmarked verification in the same revision; a runner-checked
+  proof still cannot become a plain command. Text saved from the person's answer, feedback or delegation stays
+  theirs: rewording or dropping it is refused and, even in an unapproved draft, becomes one question naming the
+  proposed text (or that the assumption is dropped) instead of a generic pause and report repair. A resumed stage
+  now carries the rejection it is resuming from in its handoff, and the planning prompts state the same allowances
+  the guard enforces instead of telling the Planner to ask the person about its own draft wording.
+
+- The terminal chat live log now shows an honest streaming activity indicator when Kilo supplies hashed progress without prose, instead of claiming no agent is working. Actual prose replaces the indicator when supplied; hashes and tool output stay out of the display, and supervision checks remain enforced (#1837).
+- On a finished run, a saved step's `restore` is no longer explained as "Pause after the current step": nothing is running, so the status view's `code_checkpoints.blocked_reason` now says a finished run cannot go back to a saved step, that its steps can still be compared, and that a follow-up changes the code. The terminal chat's `/undo` shows that text (#1643).
+- The chat's recent steps no longer show "Orchestrator attempt stopped" on a clean run. The Orchestrator's dispatch launches no process and records no exit code, and that absence was read as a failed exit; a model stage with no exit code still reads as stopped (#1643).
+- A small-brief run no longer stops before the final review of a revision that answered the Plan Reviewer's blocking
+  concerns (#1815). Under the two-call total (#1564) a live `--skip-to-build` run spent both calls on challenges, the
+  Planner revised, and the run waited for a person with nothing left but that review. The runner now allows that one
+  final review once per run; a limit you set (flag or config.toml) is never raised. The planning-budget pause now
+  names `--resume-paused --planning-review-call-limit N` and `--feedback TEXT`, and its question says "a limit
+  AutoCode set by default" instead of "internal_default".
+- A complete Requirements handoff and its repair now agree on `source_refs` (#1822). A handoff that states
+  behaviors or acceptance tests must cite at least one existing workspace file; an empty list is valid only while
+  it asks clarifying questions, and runner-owned paths such as `.autocode/` are never citable. The Requirements
+  stage prompt and the repair handoff share one rule, and a Requirements repair names the citable workspace files.
+  A greenfield repair had repeated only the validator error, then cited an archived `.autocode/` log. The workspace
+  inventory no longer lists tool caches (`.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`) the citation check refuses.
+
+- The `greenfield-todo-cli` brief now says the listing's status word is printed inside literal square brackets (`1 buy milk [open]`), as its oracle and its `unbracketed-status` broken variant already required. Before, a model could read `[open|done]` as usage notation, ask, and take its own "bare word" default. The scenario harness also classes a `PAUSED_PROVIDER_UNCERTAIN` stop as a provider failure rather than a safety stop (#1794).
+- A planner report that resolves a requirement conflict nobody recorded is now rejected with an error that lists the recorded conflicts, or says none is recorded and `conflict_resolutions` must be `[]`. The report repair sees only that error, so it no longer guesses new requirement-ID groupings until its repairs run out (#1823).
+- The terminal chat's startup run picker now lists runs as `/runs` does (#1754): by their request's title instead
+  of the run directory name, newest first, and under the number `/runs` gives each one, so a number means the same
+  run in both. A finished run in between leaves a gap (`Pick one (1, 3), …`).
+
+- Preparing a launch no longer starts `git` to find the global ignore file (#1630): it reads `core.excludesFile`
+  from git's config files, so a launch that is refused before it starts runs no process at all.
+
+- A read-only stage that compiles Python in the workspace no longer pauses the run as a source edit (#1630).
+  The exclusions AutoCode wrote to the project's `.git/info/exclude` never reached a provider's snapshot
+  repository, which has its own git dir; the runner now names its own excludes file through the provider's
+  environment (`core.excludesFile`), for Kilo as well as OpenCode, and the read-only guard and the exclusions
+  share one predicate. The user's global ignore rules are kept. `docs/bugs/native-snapshot-excludes.md`.
+- Leaving the full-screen terminal chat at its first question (Ctrl-D or `/quit` at the run picker) no longer leaves
+  the whole run list on the terminal (#1755). Before any conversation, only what the chat said after its last
+  question, such as `Nothing started.`, stays behind.
+
+- A criterion change the Plan Reviewer asked for, which the runner refuses without the person's say, is now the
+  person's question at once instead of a report repair (#1630). In a plan nobody approved, when a blocking concern of
+  the saved review names the criterion, the refusal becomes the existing rewording question (#1691), naming the
+  concern and, when it changed, the proof; `Accept the new wording` lets the next revision cite the answer, `Keep the
+  approved wording` sends the Planner back with the refusal's hint. Two live revisions had spent two repairs each on
+  this before the Planner asked the same question itself.
+- The terminal chat's banner, `/engine` and `/connect` now agree on what new chats use when the user config sets
+  `default_provider` (#1756). The banner named the default connection by its id, `/engine` marked OpenCode current
+  and `/connect` marked nothing. All three now read one rule (`autocode_chat_setup.backend`): the banner shows the
+  connection's label, `/connect` marks it, and `/engine` says new chats use that connection.
+
+- A Linux `kilocode` launch now refuses a Kilo other than the qualified 7.8.3 before any spend (#1739). Restricted
+  read-only and planning stages already refused another release, but only when containment ran, after the run had
+  started; the version is now checked at the same point a launch would reach the model. macOS keeps any Kilo release:
+  it has no kernel shell, so its checkers use Kilo's own read tools and shell with edits denied (#1766), and a pin
+  there only refused a newer install for no benefit.
+
+- Switching tabs in the terminal chat (`/tab`, Ctrl-←/→) no longer draws the chat switched to as working when it is
+  waiting for the person or done (#1757). The tab kept no state until its status was read again; it now keeps the
+  state last read for it.
+
+- A running chat no longer says `Working on your request…` twice in a row when the status view's notice
+  briefly clears between stages (#1807). The terminal chat says an identical notice once per turn and still
+  shows the progress lines underneath; a different notice, such as a pause, is still said, and the notice is
+  said again once the run carries on after waiting for you.
+- A multi-line bracketed paste into the full-screen terminal chat no longer doubles each line break (#1758). The
+  terminal turned the pasted CR of each CRLF into NL before the chat read it; the chat now keeps CR as typed
+  (`curses.nonl()`) while it is open and restores the terminal's setting when it closes.
+
+- Before a chat is open, the full-screen terminal chat's `/new` and Ctrl-T now say `This is a new chat: type what
+  you want done.` (#1759). `/new` answered `/new is not available right now` and Ctrl-T `Tabs switch once a chat is
+  open`, though the client already had the right reply; `/new` is now offered in the `/` menu there too.
+
+- Typing `autocode` in a new shell after the README's virtual-environment install answered `command not found`
+  (#1761). The README and install guide now say the activation lasts for one shell and name the lasting fixes
+  (`pipx install --editable .` or the venv's `bin` on `PATH`), and `autocode doctor` has a `path` row that warns,
+  without failing, when `autocode` is not on `PATH` and names the directory to add.
+- A provider connection that OpenCode marks retryable now gets its one no-effect retry even when it names the loss
+  only generically (`Network connection failed`, with empty `code`/`syscall` and no HTTP status) instead of stopping
+  as `PAUSED_PROVIDER_UNCERTAIN` (#1797). The provider's own retryable flag, a read-only stage, an unchanged
+  workspace and no written files are still required; empty errno fields no longer hide the flag.
+- A refused revision of a criterion now says what to change (#1630). Rewording a criterion in a plan nobody approved
+  names the request quotes it dropped, and replacing a `test:`/`guard:` proof with an unmarked command says to keep a
+  named test and put an aggregate run in its own criterion. Both refusals were right, but said only that a user answer
+  was missing, so two live revisions spent two report repairs each and then paused. No refusal is loosened.
+- The terminal chat shows every Requirements question, not only the first (#1792). Every question shared one chat
+  message id, and the client shows an id once, so a second question stayed hidden behind a bare `You:` prompt and
+  the person's reply answered a question they never saw. Each question now has its own message id; the chat prints
+  the question its prompt waits on, waits while Requirements is still working on a reply, and repeats the question
+  instead of a bare prompt when a reply has not been taken up.
+- The terminal chat says a running run's notice (`Working on your request…`) once per state instead of repeating it
+  every time the progress line changes, and says it again after it clears and returns (#1798).
+
+- A Planner that declares a rewording while leaving the protected criterion or list entry unchanged no longer
+  creates a human wording-choice question (#1791, #1793). Inconsistent change metadata now follows the existing
+  report-repair path. Genuine protected wording changes still require the person's decision.
+
+- A recovery novelty hold whose AutoResolver request is not yet published (`RESOLVER_PENDING`) now names the
+  scoped retry, `--resume-paused --retry-failed-stage`, as its next command and recovery-card action (#1770). The
+  status view offered a plain `--resume-paused`, which only held the run again, and the retry was named only in
+  prose a thin client must not parse. The view names it only where the CLI would admit it: nothing unsettled, the
+  hold's own status and no different pending decision. The view and the CLI now share that one admission rule, and
+  when the retry cannot be given yet, `needs.retry_unavailable` says why instead of implying a resume will do. The
+  CLI still rechecks the hold's source, settings and scope binding.
+
+- A first project whose pinned base holds only a README, a manifest and an empty test package can now complete
+  (#1783). The preservation gate accepted only the root README.md, Markdown, .gitignore and empty files, so a base
+  holding `pyproject.toml` was reported as having no complete passing-test evidence and the run could never finish,
+  even though the base had no executable source. A project, dependency or license manifest (such as
+  `pyproject.toml`, a lockfile or `LICENSE`) is now accepted when no nonempty file in the base is code or a test
+  path, and the proof records that the base has no source to preserve; a base that holds source still needs
+  passing-test evidence, and other non-empty files still need preservation.
+
+- Concern-only Plan Reviewers now receive contract-authoring policies as rules to audit,
+  with instructions to report concerns rather than return or edit contract fields their
+  report schema forbids (#1808). Contract-author prompts and the approval/validation gates are unchanged.
+
+- Routine recovery now uses a bounded failure streak between valid saved provider stages (#1820),
+  preserving attempt history and usage. Proven legacy run-wide exhaustion offers ordinary Resume
+  without another slot grant; inconsistent history and all independent admission gates stay held.
+
+- Planner revisions can send only changed engineering fields against the exact saved plan, retaining
+  unchanged criteria and validated requirement traces before ordinary coverage/authority checks. This
+  avoids forced whole-contract rewriting; full reports and older saved repair schemas remain supported (#2374).
+
+### Deprecated
+
+- AutoCode's own direct API-key connection is retired (owner decision 2026-10-30, #2049) and is removed
+  in the next release. AutoCode offers four backends: Claude Code and Codex as engines, OpenCode and
+  Kilo for every other account and API key. A new run never chooses the direct connection on its own,
+  `autocode connections list` shows it only once configured, `connections setup` and `connections add`
+  print the notice and where keys go, and `doctor` points API keys to OpenCode or Kilo. A configured
+  connection and `--provider autocode` keep working until the removal.
+
+## [0.8.2] — 2026-10-21
+
+### Added
+
+- A live agent log in the full-screen terminal chat (owner decision 2026-10-21). While AutoCode works, a pane under
+  the conversation shows what each running agent is thinking and doing (reasoning, messages, commands, edits and tool
+  calls), led by the agent's name, with each parallel Builder under its own; the composer stays usable below it.
+  `/live` hides or shows it and `/live NAME|thinking|messages|tools|all|off` filters it. It reads the status view's
+  new additive `chat.log`; prose is one bounded, redacted line and tool output is never copied.
+
+- The status view's `cost.breakdown.unpriced` says why each finished unpriced stage has no cost (#1713):
+  no token counts recorded, no model identified, or no rate for its model, naming the models without a rate.
+  The counts are stages, never a guessed amount, and the known spend and cap are unchanged.
+
+- Chat everywhere (#1731, step 2). In a terminal, `autocode-issue start` and `continue` open the run's chat when it
+  needs you (`--chat`/`--no-chat` to choose), and every waiting step they print starts with that chat command. A
+  `--goal-file` load says to review and approve it in chat. A project's `autocode runs` (and the terminal chat's
+  `/runs`) lists its autocode-issue worktrees' runs too.
+- `--skip-requirements` and `--skip-to-build` for an unattended worker (#1731, owner decisions 2026-10-21). The first
+  answers each delegable Requirements question with its proposed default, recorded as delegated, and still runs the
+  Planner and Plan Reviewer and waits for a person's plan approval. The second also approves the plan once the Plan
+  Reviewer has finalized it and goes on to build; the approval is recorded as the person's choice, marked
+  `source: skip_to_build` in the status view. A question with no safe default always waits for a person, and without
+  `--skip-to-build` AutoCode never approves its own plan.
+
+### Changed
+
+- Every Planner has a shell (owner decision 2026-10-21). On OpenCode and Kilo, planning stages had read tools only, so a
+  Planner worked out the exact values its examples state by hand; a replayed one derived IEEE-754 bits for a
+  temperature conversion. They now get the shell the read-only checkers already get: the kernel-contained one
+  (Seatbelt on macOS for OpenCode, bubblewrap on Linux), which also cannot read the run's private state, or on macOS
+  Kilo's own shell with edits denied and any source write put back. `--allow-uncontained-tools` covers planning like
+  every other stage. Codex and Claude Code Planners already had one. Planning report recovery still has no tools.
+- A `kilocode` run's default stuck-stage Investigator is one of the run's own direct routes, the first outside the
+  stuck stage's model family, never the Kilo Gateway's Claude it used to be (#1630). A gateway (`kilo/`) model now
+  needs `--investigator-model`; a run on GLM-5.3 and GPT-5.6 Sol without the flag had sent it to the gateway.
+- Planning handoffs for the stages that write criteria now split each source into numbered sentences
+  (`source_sentences`, ids like `task:0#3`, with the requirement rows each sentence supports), and a criterion may cite a
+  whole sentence by putting its id in the citation's `quote` (#1630). The runner replaces the id with the verbatim sentence
+  before any check, so saved contracts, the seal and the source log are unchanged. A verbatim quote still works, and a
+  span inside a sentence still needs one.
+- Replies that only steer a question the runner wrote are no longer sources every plan must quote (#1630):
+  `plan` to the Requirements review, and `Accept the new wording` or `Keep the approved wording` on a rewording
+  question. They are registered once, by the runner's own question ids, in `autocode_control_replies`; a correction
+  typed to the same question, or any answer to a model-written question, is still a source. The reply stays in the
+  source log and ledger, and contracts that already quote it keep verifying.
+- The runner now names the brief sentences a Planner draft's criteria leave uncited (#1630). The next stage's
+  handoff lists them as `uncited_source_sentences`, the Plan Reviewer must raise each or place it out of scope, and
+  a revision that leaves one uncited which the review did not excuse is refused before any reviewer call. A first
+  draft is never refused. The status view's `planning_depth.uncited_sentences` shows the count.
+- The model-access probe costs a few hundred input tokens instead of ~18k (#1744). On OpenCode and Kilo it runs as a
+  bare agent with no tools and a one-line system prompt (Kilo 19,053 -> 627 input tokens, OpenCode 17,672 -> 218),
+  and the Resolver's own model is probed only before the first stage that runs it. On a small task the probes cost
+  $0.26 of $1.31, most of it on GPT-6 Astra.
+- The stuck-stage Investigator on OpenCode is GLM 5.3 whenever the stuck stage runs a GPT model, not only GPT-6 Sol:
+  GPT models are one family, so GPT-6 Sol no longer diagnoses a stuck GPT-6 Luna Builder.
+- The automatic model switch after a quota, content-filter or output stop (#1426 step 9) leaves a model the
+  person pinned with `--<role>-model` alone: that stop asks for the next model, as every stop did before the
+  switch existed. Automatic selection's own choices still move within the run's permitted set.
+- Automatic model selection prefers GPT-6 Luna at medium effort as Builder (owner decision, 2026-10-21; high cost
+  twice the time and money on the measured task), then GPT-6 Sol, then MiMo v2.6 Flash
+  (provisional), then Claude Opus 5.5 (provisional), then the cheapest of GLM 5.3, MiMo v2.6 Pro and DeepSeek (owner
+  decision, 2026-10-20, for pay-per-use companies). On ladder-07 on Kilo the task passed 9/9 with each: Luna medium
+  16.3 min for $1.05, Sol 16.4 min for $1.14, Luna high 34.6 min for $2.58 after one Tester send-back, and MiMo
+  v2.6 Pro 34-46 min for $1.02-1.07. GLM checks an OpenAI build as Tester and Completion Reviewer.
+- OpenAI's GPT models are one family for verifier independence, as Claude's are: GPT-6 Sol no longer tests or
+  reviews a GPT-6 Luna build on Kilo, OpenCode or a custom provider (owner decision, 2026-10-20). The Codex engine,
+  which reaches only GPT models, still lets different GPT models check each other.
+- Claude models are one family for verifier independence. Before, a Claude Sonnet could check a Claude Opus's
+  work, or the reverse, on Kilo, OpenCode or a custom provider, because only GLM and MiMo counted as families.
+  The built-in Claude Code engine is unchanged: it reaches only Claude models, so its default routes (Sonnet
+  producing, Opus checking) still run, and a model still never checks itself.
+- Automatic model selection no longer chooses MiMo to review a plan. The Plan Reviewer is GPT-6 Sol when the
+  ChatGPT login is connected, then Claude Opus 5.5 (provisional), and with neither the run stops and offers those
+  logins (owner decision, 2026-10-20). On ladder-07, GPT-6 Sol reviewed in 43 s with three substantive concerns
+  where MiMo v2.6 Pro took 526-890 s and 32-45k reasoning tokens, and twice ran out of output. Qualification
+  entries may carry a `preference` that orders a role's models before billing and price. The Completion
+  Reviewer, the final gate, likewise prefers GPT-6 Sol when connected, with GLM 5.3 as its fallback.
+
+### Removed
+
+- `autocode program` and `autocode --program-guidance` are gone from master, so every task follows one flow:
+  Requirements, a plan you approve, Builders, Tester and review, in one run. A large task gets more milestones in
+  that run, not separate workstream runs. The program code, its tests, its guide and its two scenarios are kept
+  unchanged on the `archive/program` branch (master at 5ee3435) to bring back if a real project needs them.
+  Clean-up still keeps worktrees an older program owns, and agents are still denied `.autocode/programs`.
+
+### Fixed
+
+- A permission answer now resolves the findings its published request names (#1783). The answer read finding ids
+  only from the question's `payload`, which no runner question ever carries, so a question that named blocking
+  findings closed none of them. It now reads the published request's `finding_ids` as well, which is where the
+  validation-only stop puts them, and still accepts the legacy question payload. The completion gate's
+  preservation requirement for a first project is unchanged (#1783).
+- The Planner's draft-example rule no longer contradicts the unapproved-wording allowance (#1691). It said "other
+  criterion changes require a saved user basis", so a live GLM revision that fixed a fixture value at the Plan
+  Reviewer's request declared it as an example correction, which the guard refuses for an input change (#1750), and
+  spent a 143 s report repair. The rule now says an example correction is only for a stdout result, and that a
+  never-approved criterion the Planner wrote may be reworded as a plain agent-proposed change.
+- A spec-first run's `plan` reply to the Requirements review is no longer a source every plan must quote
+  (#1630). A Planner draft that cited every sentence of the brief failed the Plan Reviewer's source-trace seal
+  for leaving the single word `plan` uncited. The reply stays in the run's source log, and contracts that
+  already cite it still verify.
+- A criterion quoting a hard-wrapped brief is no longer refused as a misquote (#1777). Every live GLM Requirements
+  report on ladder-07 quoted a sentence with a space where the brief breaks the line, failed "without quoting it
+  verbatim" and spent 100-151 s on a report repair. Quotes now match with runs of whitespace treated alike; any other
+  difference is still refused.
+- Kilo runs on macOS get past the Builder again (#1766). Since #1739 a read-only Kilo checker required Kilo 7.8.3's
+  Linux kernel shell, so the Tester was refused on every Mac. On macOS it now keeps Kilo's read tools and shell with
+  edits denied, a source change is put back after the stage, and the run says so; Linux keeps the kernel shell.
+- A report repair of an Analyst, Investigator, Designer or Design Reviewer report is now told what a `probe` is
+  (#1769). The repair prompt carries the report schema, where a probe is only a string, and a model that guessed
+  wrote its own event ID there; the runner handed it to the shell, got `exit 127` and rejected the whole report,
+  costing a paid call for an error the model could not read back as a rule. A probe that is a reference rather
+  than a command is now refused with the rule itself, before anything is run.
+
+- An adaptive plan the Plan Reviewer approved, but the runner could not install (for example a brief sentence no
+  criterion cites), now goes back to the Planner to revise, as outside adaptive planning, with the reason in
+  `planning.adaptive.approval_refused` (#1630). The review used to be rejected as invalid output; report repair
+  cannot change the Planner's contract, so the run paused with no plan. Successful adaptive reviews retain
+  their report in the current planning record so the runner can publish the plan for approval. `autocode capture`
+  run from the Investigator's scratch copy also accepts the project's own `.autocode/evidence/...` path its instructions name,
+  instead of refusing it and costing model turns.
+- A Planner revision that rewords its own unapproved criterion and the way that criterion is verified, backed by
+  a saved user answer, is accepted (#1764). The #1691 allowance for the Planner's own wording also swallowed the
+  declared change, so the guard refused a correction you had already authorized and the next repair put the
+  contradiction back and asked you about it again.
+
+- A Planner's change that declares an example correction (a stdout count fixed by a receipt) is judged by the
+  example rules alone again. #1691 let a Planner reword its own unapproved criterion, and that allowance also
+  passed a receipt that changed the example's input as well as its output, so a plan could reach approval with
+  a new input. The same change declared as a plain rewording is still the Planner's own to correct.
+
+- VS Code chat: while you read older messages, the Latest button now names the step running now
+  ("↓ Now: Tester working") and follows each status read, so a stage change is visible without being moved to the
+  bottom (#1711). It returns to "↓ Latest messages" when no step is running.
+
+- The Builder's working diff (`checkpoint --working`) offered during a same-chat follow-up no longer refuses with
+  "Checkpoint identity or approved plan changed" once the follow-up's plan is approved (#1712). It still verifies the
+  saved step's receipt, commit and run; restoring a step still requires the plan approved now.
+
+- On a Codex run, where every model is a GPT model, the model-route advisory reports two roles that a saved
+  change made share one model (`gpt-5.6-terra / gpt-5.6-terra`) instead of staying silent because the GPT
+  family was already shared. Sharing is read as verifier independence reads it: one model on an engine that
+  reaches one vendor, a family elsewhere.
+- A cost cap, time limit or milestone budget changed at a novelty hold restated the stop reason with the old
+  "Stage costs: ..." sentence (#1728) and the budgets after it kept alongside the new ones, so every change
+  added another "Active time" sentence; the restated stop now carries one copy of each.
+- Saved-run replay accepts the Builder's recorded effort origin. #1727 began recording `effort_origins.terra`, and
+  replay export refused every new recording ("Recording reviewer effort origin is invalid"), which turned
+  `tests.test_saved_run_replay_cli` red on master. Replay validation now allows `plan_reviewer` and `terra`, each
+  with `user_explicit`, `runner_default` or `auto_selected`, and still refuses any other role or value.
+- A small clear brief's plan-review total (#1564) dead-ended planning when AutoCode settled the reviewer's final
+  technical question itself: planning restarted for the redraft, but the new cycle carried the spent 2/2, so the
+  redrafted plan could never be reviewed and the run waited for a person (live, 2026-10-20). A restart caused by
+  AutoCode's own answer now renews the allowance once per run; a second one still stops.
+- The low-effort first Builder attempt (#1710) no longer overrides an effort the person chose. A run started with
+  `--terra-reasoning-effort high`, `--reasoning-effort high` or a project effort setting ran its first attempt at
+  `low` anyway, which is also what had turned master's `tests.test_planning` red. The Builder's effort provenance
+  is now recorded like the Plan Reviewer's (`effort_origins.terra`): only the runner's or selector's own default
+  is lowered, and a saved run with no recorded provenance keeps its effort. Also annotates the new
+  `conversation_only(state)` as `RunState`, which had pushed `tests.test_run_state`'s ratchet one over.
+- A vague request no longer stalls at its first step on the default flow. A Requirements handoff that has only
+  questions so far (no behaviors or acceptance tests yet) was refused as invalid output unless the run was
+  `--spec-first`, and a person had to resume it; it is now accepted on every flow, the run stops for the answers
+  with the handoff's own questions, and Requirements runs again with them.
+- 0.8.1's keep-awake (#1717) spawned `caffeinate -w PID` as a child. A supervised CLI's keeper (the scenario
+  harness's owner lifeline) found it alive at discharge and SIGKILLed the CLI, so every macOS scenario run ended
+  `INTERRUPTED_UNGRADED — start exited on signal 9`. The controller now takes the `PreventUserIdleSystemSleep`
+  assertion in its own process through IOKit, which the kernel releases when the process exits. No child remains.
+
+## [0.8.1] — 2026-10-20
+
+### Changed
+
+- Requirements conversation reports use a smaller output contract without unrelated test-verdict and command-receipt instructions; the model, session and structured handoff stay unchanged.
+- A small approved plan's first Builder attempt runs at low reasoning effort (#1710, owner decision): one milestone
+  and at most four files. A small `peek()` feature's Builder spent about 555 of 786 s reasoning at medium. Any
+  earlier attempt at the same task (rejected report, failed check, Tester send-back) brings the configured effort
+  back. Planning roles, the Tester and the Completion Reviewer are unchanged. `AUTOCODE_LIGHT_BUILDER=0` turns it off.
+- A Tester check that cites a capture receipt may give `command` null, and the runner copies the command from the
+  receipt and verifies it as before (#1710). The Tester no longer retypes every command, about 9 KB of a 20 KB report.
+- Passed tool checks are now reused for an hour within a run (was 10 minutes; owner decision).
+- A chat turn no longer re-runs the tool's version, model-list and login checks it already passed in this run:
+  a successful check is reused for 10 minutes, keyed by the exact command, folder, environment and tool
+  executable, so an upgrade or changed setting checks again. On Kilo this saves about 6 s per follow-up message.
+
+### Fixed
+
+- The terminal chat's Requirements line kept showing the first short reply after a later one arrived, and a
+  reply being written showed at most one new piece every 2 s. The newest reply now replaces earlier ones, and
+  while it is still changing the chat reads it every 0.25 s, going back to the ordinary pace once it has not
+  changed for a few reads, so a model running tools between messages does not keep `--status` running nonstop.
+- A Mac that idled to sleep mid-stage stopped a live run for a person: the controller cannot supervise while
+  suspended, and the provider connection reset on wake (#1717). A controller driving a run now holds macOS's
+  idle-sleep assertion (`caffeinate -i -w PID`, released when it exits; `AUTOCODE_KEEP_AWAKE=0` turns it off),
+  and a read-only stage (Requirements, planning, plan or completion review, Investigator) that a retryable reset
+  cuts short after read-only tools or partial text is retried once automatically when the workspace is
+  unchanged. The Builder and Tester keep their hold.
+- Requirements chat no longer scans workspace disk usage before each reply; the copy-space gate runs when planning starts. The estimate prunes run history, caches and sibling Git worktrees before traversing them.
+- A question clarifying user intent no longer triggers report repair merely because it retains a stated requirement without citing code. Complete handoffs and explicitly cited source files still require source inspection.
+
+- Answering Requirements' greeting with "Nothing yet, just saying hello." got the honest reply (no goal, no
+  question) refused as a handoff without an outcome, repaired twice and sent to the Investigator. In a spec-first
+  chat, such a reply now asks the standard "what would you like to build or change" question and waits for you.
+- A run stopped with "Cannot snapshot source ... git rev-parse HEAD failed" when the project held an
+  untracked nested Git repository with no commit yet (a scratch `git init`). The nested repository is now
+  hashed with an unborn head, so edits inside it are still seen; the project itself still needs a commit.
+  The controller's own editable-source identity keeps refusing such a repository, so it never binds a cache key to it.
+
+- `autocode` in AutoCode's own main checkout refused to start even when the running `autocode` was
+  installed elsewhere, asking for a separate Git worktree. AutoCode now works in place there like in any
+  other project; it still refuses only when the running controller is inside the checkout it would edit.
+
+- `autocode` in a project that keeps an old vendored copy of `tools/autocode.py` beside its own `AGENTS.md`
+  (idlecampus) refused to start as an "Unsafe AutoCode self-build". A self-build is now recognized only in a
+  checkout that also has AutoCode's self-build admission module.
+- A planner correcting its own wording in a plan nobody has approved yet (an expected-output literal with
+  one space too many) was refused as a protected rewording that "needs a saved user answer", and the run
+  spent its repair attempts restoring the wrong text. Before any approval, a criterion may now be reworded
+  when it keeps every request quote it cited; once a plan was approved, every rewording still needs the
+  person (#1691).
+- When a planner rewords a criterion or protected item of a plan the person already approved, AutoCode now
+  asks the person, showing the approved and the proposed wording, instead of repairing the report back and
+  pausing as invalid output. The answer is saved like any other, so the next plan can cite it (#1691).
+- A Code Review on Kilo that delivered only its allowed `review/tests/` files paused as "Repository changed
+  during read-only review": the check read OpenCode's snapshot cache, and Kilo keeps its own
+  (`kilo/snapshot`, `.git/kilo`). The check now reads the cache of the CLI that ran the stage.
+- Planning restarts that retain consumed review calls also preserve the user's
+  explicit finite allowance, including a spec-first return for guard correction.
+  Restarting does not refund calls or approve the corrected plan (#1699).
+- Same-chat follow-ups validate historical source exclusions against the full
+  source inventory while checking current-turn obligations, avoiding a source-trace
+  crash. A controller exit while applying a completed, accounted report offers
+  Resume after confirmed cleanup, preserving the report and used calls (#1697).
+- Wait for controller-recorded sibling completion before killing the owner in the
+  guarded-worker recovery CI fixture (#1695).
+
+- VS Code suppresses a person-wait notice while its own action automatically continues a chat;
+  a genuinely stopped Continue checkpoint still notifies after that action finishes (#1692).
+- The source-trace check no longer rejects a correct plan for not repeating a standard's name: "ISO 8601",
+  "RFC 3339", "UTF-8" or "SHA-256" in the request is a name, not a number the criteria must restate.
+  Every other number the request states must still survive (#1689).
+- VS Code completion notifications say the chat finished, rather than claiming a completed run
+  is waiting for the user (#1687).
+- A Tester report that cited a file it read (`hello.txt`) beside its passing checks was refused whole and
+  needed a Resolver step and a repair call. AutoCode now drops the extra citation when the requirement
+  already cites a verified check, records the drop on the stage (`dropped_evidence_refs`, the raw report
+  kept as `.reported.json`), and accepts. A requirement with no verified citation is still refused, and
+  the Tester's instructions now say a project file is not criterion evidence.
+- Session ownership checks briefly retry a missing initial receipt open during atomic replacement
+  on Mac Docker binds; persistent absence and invalid ownership evidence still stop the run (#1680).
+- A stopped step's chat notice no longer tells terminal users to "Open Run details", a button only VS Code has;
+  it now says the run's details say what needs attention, which every client shows its own way.
+- VS Code saved-code compare and restore buttons explain when they are unavailable while
+  this chat waits for a command, instead of accepting clicks that silently do nothing (#1676).
+- The chat's "New chats:" line named OpenCode even when `default_provider` chose another
+  connection. `connections list --json` now marks the connection new runs use (`default: true`),
+  and the line names it, for example `New chats: Full · kilo_glm_mimo_gpt`.
+- When AutoCode refuses to start a new chat's run (no engine on PATH, an unsupported host), `autocode`
+  now shows AutoCode's reason instead of `--status did not return a status view: … state.json`.
+- The status view remains usable when a saved active-stage record is malformed: it omits the
+  optional running-Builder diff action rather than raising an exception (#1671).
+- A run stopped by the provider's HTTP 401 now says so in the chat (VS Code and terminal): "The
+  model provider rejected the saved credentials (HTTP 401) … sign in again", instead of the generic
+  "The provider ended without a confirmed result". `connections check` now says plainly that it finds
+  saved credentials without testing them, so an expired key is caught when a run starts.
+
+### Added
+
+- Opt-in warm source snapshots (`AUTOCODE_SOURCE_HOST=1`, #1707 stage 1). A long-lived helper keeps file
+  fingerprints in memory and answers every AutoCode process's source snapshot. Each new process otherwise
+  re-reads the whole workspace: 2.5-3 s on a 13.6k-file project. A chat status refresh drops from 1.5-3 s to
+  0.45 s. The answers are identical, and nothing is written to disk.
+
+- Tabs in the full-screen `autocode chat`, as in the VS Code extension: `Ctrl-T` (or `/new`)
+  opens another chat in a new tab, `Ctrl-←`/`Ctrl-→` or `/tab N` switch, and a tab bar lists the
+  session's chats with what each waits on (working, needs you, done). Tabs switch at a question,
+  so a step is never left running unwatched; the other tabs are checked and announced.
+
+## [0.8.0] — 2026-10-19
+
+### Added
+
+- `scripts/homebrew_formula.py` writes the Homebrew formula for a PyPI release, pinning its
+  source archive and dependencies by sha256, so a release can be installed with
+  `brew install charlieanna/tap/autocode` ([Releasing](docs/releasing.md#homebrew)).
+- The terminal chat now does what the VS Code extension's pickers and Connections view do:
+  `/mode` and `/engine` choose what new chats start with (kept per project), and `/connect`
+  lists the backends, runs a connection's check, hands the terminal to its sign-in or setup,
+  or uses it for new chats. Requirements' reply streams in as it is written, the terminal
+  bell rings when AutoCode needs you, and a chat opened earlier in the session is announced
+  when it starts to wait or finishes.
+
+- The terminal chat asks before AutoCode spends, as the VS Code extension does: it shows
+  the core's spend confirmation and asks `Prepare plan? [y/N]` before paid planning, and asks
+  `Start it? [y/N]` before starting a run whose mode can plan at once (`--mode quick`).
+  Typing the review's own answer (`plan`) is confirmed the same way.
+- The VS Code chat shows what the running step is doing (`chat.activity`: its commands, edits and
+  tool calls, a failed one marked) and, while the Builder works, a "Show what the Builder has changed
+  so far" button that runs the view's named `checkpoint --working` diff (#1643).
+
+- The full-screen `autocode chat` keeps a history of your chats, as the VS Code extension
+  does: `/runs` lists them across every project, open and finished, grouped by project (this
+  one first, then by latest activity) with each one's request and state;
+  `/open N` shows that chat's whole conversation and carries on there (a follow-up on a
+  finished one); `/new` starts another without leaving. `autocode` mentions earlier chats at
+  start, `Up`/`Down` recall earlier requests across chats, and `autocode runs --json` rows carry
+  a `title`, the first line of the task (#1655).
+
+- `autocode checkpoint --working` and `code_checkpoints.working` in the status view: while a Builder step
+  runs, a display-only diff of what it has changed so far, against the newest saved step or, before any
+  is saved, the checked-out commit. The full-screen chat's `/diff now` shows it (#1643).
+
+- The full-screen `autocode chat` shows a side panel in a wide terminal: where the run is and what
+  it needs from you, each requirement and task with its state, open problems, and a log of how the
+  run moved. Typing `/` opens a command menu: `/plan`, `/tasks`, `/log`, `/details`, `/panel`,
+  `/help`, `/quit` at a question, and `/pause` while AutoCode works. All of it comes from the status
+  views the chat already reads.
+
+- `autocode --status` carries an optional `view.chat.activity` while a supervised step works: the
+  last 20 commands, file edits and tool calls of the running attempt, from its own event file
+  (Codex-style items, which the built-in Claude provider also writes, and OpenCode or Kilo tool
+  parts). It is display only: no prose, reasoning or tool output is copied, an attempt that is not
+  confirmed as supervised shows none, and a command that exited 0 is not a passed check. The
+  full-screen chat shows it in the panel's new Activity section, in the log, and on the status row,
+  so a build no longer looks like one line of "working".
+
+- The full-screen chat's panel shows what the run is doing now and its last few attempts, and logs
+  each one. `/diff` lists the saved code steps and shows what changed since one; `/undo N`, at a
+  question, goes back to a saved step on a new branch after asking, and the chat carries on with
+  the new run. Both take only the compare and restore actions the status view names.
 
 - `autocode chat` talks to a run in the terminal the way the VS Code extension does: it shows the
   run's conversation, asks you only for the answer, approval or reply the status view leaves to you,
@@ -41,6 +2200,66 @@ PR template asks for an entry here; a change without one is incomplete.
   table. `--no-auto-select` retains fixed defaults (#1426).
 
 ### Fixed
+
+- VS Code shows the core’s cost counted toward the configured cap, with explicit
+  partial and unpriced coverage, before the separate historical comparison estimate.
+  The client does not reprice usage or change the cap (#1665).
+
+- The full-screen chat's `/` menu reached only its first six commands with the arrow keys; it now
+  scrolls to keep the choice in view (up to ten rows, fewer on a short screen). Before a chat is
+  open it offers only what works without one: `/runs`, `/open`, `/mode`, `/engine`, `/connect`,
+  `/help` and `/quit`.
+- Session ownership receipts are size-checked and read from one opened file descriptor,
+  with a bounded read even if the file grows. A path replacement or removal after opening
+  cannot mix the checked receipt with another file; absent or invalid receipts still block
+  admission without retry or grace (#1662).
+
+- Review findings on changed or unverified source stay blocking when their tests fail
+  identically on base and change. The runner checks actual applied source locations,
+  including offset patches, before treating an older defect as an observation (#1658).
+
+- Session ownership failures identify the failed receipt-read check with fixed phase/reason
+  labels, without exposing its path, content or exception payload. The same failed read still
+  blocks admission and closes the lifeline for cleanup; no retry or grace is added.
+
+- VS Code’s “Latest messages” shortcut occupies its own row, so it cannot cover
+  the sticky recovery and approval actions in a long chat (#1652).
+
+- Source-trace citations and reviewer exclusions apply only to the source ID they
+  name, preventing false coverage conflicts and preserving each source's number,
+  literal and negation checks (#1650).
+
+- The offline recovery-context regression checks the saved timeout kind and event path in the
+  structured handoff, so compact JSON formatting does not falsely fail the full-suite gate.
+
+- In the full-screen chat, a run that continues on its own no longer lists "Needs you: AutoResolver
+  must reconcile…" in the panel and log, the panel says "Starting the next step…" instead of
+  "plan approval needed" in the seconds after you approve, `/undo` on a finished run says going back
+  is offered only at a pause, and `/diff N` with no changes says the files match step N.
+
+- VS Code shares simultaneous polling reads for the same run and CLI settings,
+  without caching completed status. Action preflights stay fresh, and a poll
+  overtaken by a command cannot restore the older decision state (#1642).
+
+- Session ownership handoff failures retain a bounded callback phase and safe reason
+  code, so different ownership failures can be diagnosed without exporting exception
+  payloads. Failure classification and scoped cleanup stay unchanged (#1640).
+- In the full-screen chat, Esc closes the `/` menu and the key typed after it is kept, and text that
+  starts with an unknown `/word` is never sent, a sentence included. The panel catches up within half
+  a second of a decision instead of the next two-second poll. A stop's "Next it runs:" names only
+  the action, without the run's paths or an issued token. A run stopped to apply a pause or feedback
+  someone asked for says so, instead of "I couldn't finish this step".
+
+- The full-screen `autocode chat` no longer lets keys typed while AutoCode works answer the next
+  question, so a plan cannot be approved before it is shown. A multi-line paste stays one reply
+  instead of answering the questions that follow. The request is shown once, a stop's question keeps
+  its `[y/N]` in view (the command is shown above it), and the chat's last words stay on the terminal
+  when it closes: an error or interrupt, and the whole hand-off including the command to run.
+
+- Planning prompts ask each stage only for report fields its schema accepts:
+  the Planner proposes remediations, the Plan Reviewer judges them, and the
+  first review checks progressive proposals without returning one. This fixes
+  contradictory report instructions; the #1630 timeout cause remains unverified.
 
 - Review evidence exports accept the optional, typed attribution metadata added
   for explicit-patch findings. Canonical review reports and external-change
@@ -1554,5 +3773,6 @@ completion without evidence.
 - A new task runs in its own Git worktree by default; `--in-place` opts out
   (#724). The person's checkout stays usable while the Builder works.
 
-[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/charlieanna/autocode/compare/v0.8.2...v0.9.0
 [0.7.1]: https://github.com/charlieanna/autocode/releases/tag/v0.7.1

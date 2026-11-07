@@ -1,5 +1,6 @@
 """A stage pauses for repeated failure only when it keeps failing the same way."""
 
+import copy
 import unittest
 
 import autocode_failures as failures
@@ -110,6 +111,83 @@ class LedgerTests(unittest.TestCase):
         }
         self.assertIsNotNone(failures.repeated(self.state, {"failure_key": "k"}))
         self.assertIsNotNone(failures.repeated(self.state, {"stage": "terra", "source_revision": "r1"}))
+
+
+class RecentRejectionTests(unittest.TestCase):
+    """A live planning revision (2026-10-21): a resumed stage is told the rejection it is resuming from; the ledger only."""
+
+    def setUp(self):
+        self.state = {"stages": []}
+        self.iteration = 0
+
+    def reject(self, text, at, revision="r1", stage="glm_revise"):
+        self.iteration += 1
+        row = {
+            "stage": stage,
+            "iteration": self.iteration,
+            "source_revision": revision,
+            "output": f"/run/iterations/{self.iteration:03d}/{stage}-01.json",
+        }
+        entry = failures.record(self.state, row, ValueError(text), at)
+        self.state["stages"].append(row)
+        return entry
+
+    def succeed(self, stage="glm_revise"):
+        self.iteration += 1
+        self.state["stages"].append(
+            {"stage": stage, "iteration": self.iteration, "output": f"/run/{self.iteration}.json"}
+        )
+
+    def test_the_rejection_is_reported_until_a_later_outcome_of_that_stage(self):
+        entry = self.reject("AC9 keeps every request quote", "t1")
+        self.assertIs(entry, failures.recent_rejection(self.state, "glm_revise"))
+        self.assertIsNone(failures.recent_rejection(self.state, "astra_plan"))
+        self.succeed("astra_challenge")  # another stage's later row does not end it
+        self.assertIs(entry, failures.recent_rejection(self.state, "glm_revise"))
+        self.succeed()
+        self.assertIsNone(failures.recent_rejection(self.state, "glm_revise"))
+
+    def test_the_newest_rejection_is_the_one_reported(self):
+        self.reject("first refusal", "t1")
+        later = self.reject("second refusal", "t2", revision="r2")
+        self.assertIs(later, failures.recent_rejection(self.state, "glm_revise"))
+        self.assertIn("second refusal", later["last_error"])
+
+    def test_the_status_view_learns_how_many_tries_are_left_from_the_ledger(self):
+        # progress.retry: the streak of same-kind failures and the number that stops the stage, so a
+        # client can say "last try" instead of a bare attempt number; None once the stage moves on.
+        self.assertIsNone(failures.episode(self.state, "glm_revise"))
+        self.reject("same refusal", "t1")
+        self.assertEqual(
+            {"failures": 1, "limit": failures.REPEAT_THRESHOLD}, failures.episode(self.state, "glm_revise")
+        )
+        self.reject("same refusal", "t2")
+        self.assertEqual({"failures": 2, "limit": 3}, failures.episode(self.state, "glm_revise"))
+        self.assertIsNone(failures.episode(self.state, "astra_plan"), "another stage has no episode")
+        self.reject("a different refusal", "t3")
+        self.assertEqual(
+            {"failures": 1, "limit": 3}, failures.episode(self.state, "glm_revise"), "a new error starts over"
+        )
+        self.succeed()
+        self.assertIsNone(failures.episode(self.state, "glm_revise"), "a later outcome ends the run of failures")
+
+    def test_reading_the_rejection_writes_nothing(self):
+        self.reject("first refusal", "t1")
+        before = copy.deepcopy(self.state)
+        self.assertIsNotNone(failures.recent_rejection(self.state, "glm_revise"))
+        self.assertEqual(before, self.state)
+
+    def test_replanned_contract_does_not_inherit_an_obsolete_rejection(self):
+        self.reject("Old r2 concerns need eight decisions", "t1")
+        self.state["goal_contract"] = {"revision": 5, "hash": "r5", "body": {}}
+        before = copy.deepcopy(self.state)
+        self.assertIsNone(failures.recent_rejection(self.state, "glm_revise"))
+        self.assertEqual(before, self.state, "Stale context must not clear the failure ledger")
+
+    def test_legacy_rejection_without_a_planning_binding_is_history_only(self):
+        entry = self.reject("Old unbound error", "t1")
+        entry.pop("planning_context")
+        self.assertIsNone(failures.recent_rejection(self.state, "glm_revise"))
 
 
 class PauseTests(unittest.TestCase):

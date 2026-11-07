@@ -151,11 +151,26 @@ class ProgressiveCLI(unittest.TestCase):
                 return body
 
             self.assertEqual(printed_body(shown), printed_body(goal_card))
-            saved, _ = json.JSONDecoder().raw_decode(shown.split("Saved user answers:\n", 1)[1].lstrip())
-            self.assertEqual(saved[question]["kind"], "permission_answer")
-            self.assertEqual(saved[question]["text"], answer)
-            self.assertEqual(saved[question]["contract_token"], original_token)
-            self.assertEqual(saved[question]["request"], captured["request"])
+            # Since #2363 the brief renders saved answers as one line each and keeps
+            # the contract token out of what a person reads; the structured record
+            # is the run's own event stream, read from the public events command.
+            section = shown.split("Saved user answers:\n", 1)[1].split("\n\n", 1)[0]
+            asked = original_need["questions"][0]["question"]
+            self.assertIn(
+                f"  - {question}: {asked.strip()} -> {answer.strip()} (a permission decision)", section.splitlines()
+            )
+            stream = driver.call(
+                "saved-answer-events", "events", "--run-dir", str(driver.run_dir), record=False, bare=True
+            )
+            self.assertEqual(0, stream.returncode, stream.stderr)
+            recorded = [json.loads(line) for line in stream.stdout.splitlines()]
+            saved = [
+                row for row in recorded if row.get("kind") == "permission_answer" and row.get("question_id") == question
+            ]
+            self.assertEqual(1, len(saved))
+            self.assertEqual(saved[0]["text"], answer)
+            self.assertEqual(saved[0]["contract_token"], original_token)
+            self.assertEqual(saved[0]["request"], captured["request"])
             for path, contents in source.items():
                 self.assertEqual((driver.project / path).read_text(), contents)
             final = driver.until_stopped()
@@ -206,10 +221,20 @@ class ProgressiveCLI(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.scoped_permission(answer, restart=True)
 
+    @staticmethod
+    def published_contract(driver):
+        """The full first published contract. A final review that changes nothing saves only a
+        retained-contract reference (#1858), so the Planner's report holds the text."""
+        final = sorted(driver.run_dir.glob("iterations/*/plan-finalize-[0-9][0-9].json"))[0]
+        contract = json.loads(final.read_text())["contract"]
+        if "retain_contract" not in contract:
+            return contract
+        revised = sorted(driver.run_dir.glob("iterations/*/requirements-revise-[0-9][0-9].json"))[0]
+        return json.loads(revised.read_text())["contract"]
+
     def edited_body(self, driver, original, *, marker="valid", permission=False):
         # The model's published plan is user-editable input, not mutable run state.
-        report = sorted(driver.run_dir.glob("iterations/*/plan-finalize-[0-9][0-9].json"))[0]
-        body = json.loads(report.read_text())["contract"]
+        body = self.published_contract(driver)
         body.pop("initial_task", None)
         body["intended_outcome"] = "Retain durable lesson answers and expose a browsable lesson catalog"
         removes = body["required_behaviors"][1]
@@ -305,10 +330,8 @@ class ProgressiveCLI(unittest.TestCase):
             line = body["scope_exclusions"][0]
             shown = driver.call("show-goal", "--show-goal", action=True)
             self.assertIn(line, shown.stdout)
-            reviewed_path = sorted(driver.run_dir.glob("iterations/*/plan-finalize-[0-9][0-9].json"))[-1]
-            reviewed = json.loads(reviewed_path.read_text())["contract"]
-            self.assertIn(line, reviewed["scope_exclusions"])
-            self.assertIn(line, reviewed["constraints"])
+            # The declaration is shown twice: as the scope exclusion and as its constraint mirror.
+            self.assertGreaterEqual(shown.stdout.count(line), 2)
             with self.assertRaises(DriveError):
                 driver.call("stale-approval", "--approve-goal", original["contract_token"], action=True)
             self.assertFalse(driver.view()["progressive"]["retirements"])

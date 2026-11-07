@@ -1,13 +1,13 @@
 """Resolve a GitHub issue with an AutoCode task run, and open a pull request from the finished run.
 
-    autocode-issue review-pr URL [--post]  review an existing PR, optionally submit COMMENT only
-    autocode-issue brief ISSUE            print the brief a run would receive; no side effects
-    autocode-issue start ISSUE [-- OPTS]  new branch and worktree, start a task run on the issue
-    autocode-issue status ISSUE           where the run stands and the exact next command
-    autocode-issue continue ISSUE         relaunch the run until it needs input again
-    autocode-issue plan ISSUE [--open]    commit the plan waiting for approval as a plan file on a branch of
+    autocode issue review-pr URL [--post]  review an existing PR, optionally submit COMMENT only
+    autocode issue brief ISSUE            print the brief a run would receive; no side effects
+    autocode issue start ISSUE [-- OPTS]  new branch and worktree, start a task run on the issue
+    autocode issue status ISSUE           where the run stands and the exact next command
+    autocode issue continue ISSUE         relaunch the run until it needs input again
+    autocode issue plan ISSUE [--open]    commit the plan waiting for approval as a plan file on a branch of
                                           its own and write the PR body; --open also pushes and opens it
-    autocode-issue pr ISSUE [--open]      commit the finished run's change and write the PR body;
+    autocode issue pr ISSUE [--open]      commit the finished run's change and write the PR body;
                                           --open also pushes the branch and opens a draft PR
 
 ISSUE is an issue URL, OWNER/REPO#N, or #N for the project's own GitHub remote.
@@ -38,14 +38,14 @@ try:
     from . import autocode_issue_plan as issue_plan
     from . import autocode_run_finder as run_finder
     from . import autocode_util as util
-    from .autocode_taskrun import TaskRun, TaskRunError
+    from .autocode_taskrun import AUTOCODE, TaskRun, TaskRunError
 except ImportError:
     import autocode_github as github
     import autocode_issue_delivery as delivery
     import autocode_issue_plan as issue_plan
     import autocode_run_finder as run_finder
     import autocode_util as util
-    from autocode_taskrun import TaskRun, TaskRunError
+    from autocode_taskrun import AUTOCODE, TaskRun, TaskRunError
 
 MAX_BODY = 20_000  # characters of the issue description put in the brief
 MAX_COMMENT = 4_000  # characters per comment
@@ -163,41 +163,11 @@ def git(root: Path, *args: str, check: bool = True) -> str:
 
 
 def stage_source(worktree):
-    """Stage Git-visible source, preserving arbitrary names and excluding run data."""
-    proc = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(worktree),
-            "-c",
-            "core.fileMode=true",
-            "ls-files",
-            "--cached",
-            "--modified",
-            "--deleted",
-            "--others",
-            "--exclude-standard",
-            "-z",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode:
-        raise IssueError("Could not inventory source to stage: " + proc.stderr.strip())
-    names = sorted({name for name in proc.stdout.split("\0") if delivery.source_name(name)})
-    for start in range(0, len(names), 500):
-        git(
-            worktree,
-            "-c",
-            "core.fileMode=true",
-            "add",
-            "-A",
-            "--",
-            *(":(literal)" + name for name in names[start : start + 500]),
-        )
-    staged = git(worktree, "diff", "--cached", "--name-only", "-z").split("\0")
-    if any(name == ".autocode" or name.startswith(".autocode/") for name in staged):
-        raise IssueError("Run data is already staged; remove .autocode paths from the index before preparing a PR")
+    """Stage exactly the public delivery source inventory."""
+    try:
+        delivery.stage_source(worktree)
+    except ValueError as error:
+        raise IssueError(str(error)) from error
 
 
 def project_root(path: str | None) -> Path:
@@ -219,7 +189,7 @@ def record_path(project: Path, ref: github.IssueRef) -> Path:
 def load(project: Path, ref: github.IssueRef) -> dict:
     path = record_path(project, ref)
     if not path.is_file():
-        raise IssueError(f"no run for {ref} in {project}; start one with: autocode-issue start {ref}")
+        raise IssueError(f"no run for {ref} in {project}; start one with: autocode issue start {ref}")
     return json.loads(path.read_text())
 
 
@@ -272,16 +242,19 @@ def next_steps(record: dict, view: dict) -> list[str]:
         # run raises "Incomplete run view has no needs record".
         return [
             "The run is complete.",
-            f"  Commit and write the PR body:  autocode-issue pr {ref}",
-            f"  Then push and open a draft PR: autocode-issue pr {ref} --open",
+            f"  Commit and write the PR body:  autocode issue pr {ref}",
+            f"  Then push and open a draft PR: autocode issue pr {ref} --open",
         ]
     need = view.get("needs")
     if not isinstance(need, dict):
         raise ValueError("Incomplete run view has no needs record")
     kind = need["kind"]
+    # Chat everywhere (#1731): the same conversation as any other run; the commands below stay for scripts.
+    chat = f"  Talk it through in chat: autocode chat {where}"
     if kind == "approve_plan":
         steps = [
             "AutoCode is waiting for you to approve its plan.",
+            chat,
             f"  Read the plan:  autocode --show-goal {where}",
             f"  Approve it:     autocode --approve-goal {need['token']} {where}",
             f"  Or revise it:   autocode --feedback 'WHAT TO CHANGE' {where}",
@@ -294,14 +267,14 @@ def next_steps(record: dict, view: dict) -> list[str]:
             if issue_plan.carried(plan_pr, need["token"]):
                 steps.append(f"  The plan pull request is merged; once it is pulled here, load its file: {load}")
             else:
-                steps.append(f"  Or have it reviewed in a new pull request: autocode-issue plan {ref} --open")
+                steps.append(f"  Or have it reviewed in a new pull request: autocode issue plan {ref} --open")
         else:
-            steps.append(f"  Or have it reviewed in a pull request: autocode-issue plan {ref} --open")
+            steps.append(f"  Or have it reviewed in a pull request: autocode issue plan {ref} --open")
             if plan_pr and plan_pr.get("url"):  # opened; a plan commit that was never pushed has nothing to merge
                 steps.append(f"  Once that pull request is merged here: {load}")
-        return steps + [f"  Then:           autocode-issue continue {ref}"]
+        return steps + [f"  Then:           autocode issue continue {ref}"]
     if kind == "answer":
-        lines = ["AutoCode has questions for you:"]
+        lines = ["AutoCode has questions for you:", chat]
         for question in need["questions"]:
             lines.append(f"  [{question['id']}] {question['question']}")
             if question.get("options"):
@@ -310,23 +283,25 @@ def next_steps(record: dict, view: dict) -> list[str]:
                 lines.append(f"      proposed: {question['proposed_default']}")
         return lines + [
             f"  Answer each: autocode --answer ID=TEXT {where}",
-            f"  Then:        autocode-issue continue {ref}",
+            f"  Then:        autocode issue continue {ref}",
         ]
     if kind == "review":
         return [
             f"AutoCode needs you to accept criteria {', '.join(need['criteria'])}: {need.get('question') or ''}",
+            chat,
             *[
                 f"  autocode --approve-review {criterion} --review-token {need['token']} {where}"
                 for criterion in need["criteria"]
             ],
-            f"  Then: autocode-issue continue {ref}",
+            f"  Then: autocode issue continue {ref}",
         ]
     if kind == "planning_budget":
         return [
             f"Planning used its review budget: {need.get('reason')}",
+            chat,
             f"  Give direction:  autocode --feedback TEXT {where}",
             f"  Or allow more:   autocode --planning-review-call-limit N {where}",
-            f"  Then:            autocode-issue continue {ref}",
+            f"  Then:            autocode issue continue {ref}",
         ]
     if kind == "resume":
         if need.get("new_run_required"):
@@ -354,7 +329,7 @@ def next_steps(record: dict, view: dict) -> list[str]:
             f"  Inspect:  autocode --status {where}",
             f"  Once the cause is resolved: autocode {word} {where}",
         ]
-    return [f"The run can proceed: autocode-issue continue {ref}"]
+    return [f"The run can proceed: autocode issue continue {ref}"]
 
 
 def merged_plan(record: dict, base: str | None = None) -> str | None:
@@ -407,10 +382,10 @@ def cmd_start(args) -> int:
     project = project_root(args.project)
     ref = _ref(args, project)
     if record_path(project, ref).exists():
-        raise IssueError(f"{ref} already has a run; see: autocode-issue status {ref}")
+        raise IssueError(f"{ref} already has a run; see: autocode issue status {ref}")
     issue = _fetch(args, ref)
     if issue.get("state") == "closed":
-        print(f"autocode-issue: note: {ref} is closed", file=sys.stderr)
+        print(f"autocode issue: note: {ref} is closed", file=sys.stderr)
     base = git(project, "rev-parse", "--verify", f"{args.base}^{{commit}}")
     pr_base = args.pr_base or git(project, "symbolic-ref", "--short", "-q", "HEAD", check=False) or None
     title = (issue.get("title") or f"Issue {ref.number}").strip()
@@ -446,7 +421,7 @@ def cmd_start(args) -> int:
         raise
     record["run_dir"] = str(run.run_dir)
     save(project, record)
-    sys.stdout.write(report(record, run.advance_until_input()))
+    sys.stdout.write(report(record, converse(args, record, run.advance_until_input())))
     return 0
 
 
@@ -464,8 +439,27 @@ def cmd_continue(args) -> int:
     view = run.status()
     if not view["done"] and view["needs"]["kind"] == "continue":
         view = run.advance_until_input()
-    sys.stdout.write(report(record, view))
+    sys.stdout.write(report(record, converse(args, record, view)))
     return 0
+
+
+def chatting(args) -> bool:
+    """--chat / --no-chat, else on when both ends are a terminal (as autocode's own --chat default)."""
+    chat = getattr(args, "chat", None)
+    return chat if chat is not None else sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def converse(args, record: dict, view: dict) -> dict:
+    """Chat everywhere (#1731): a run waiting for the person continues in `autocode chat`, here in the terminal.
+
+    autocode issue stays a client of the task-run interface: it starts the chat client as an argument array
+    with this terminal's input and output, decides nothing itself, and reads the run's status afterwards.
+    """
+    if view.get("done") or (view.get("needs") or {}).get("kind") in (None, "continue") or not chatting(args):
+        return view
+    sys.stdout.flush()
+    subprocess.run([*AUTOCODE, "chat", "--workspace", record["worktree"], "--run-dir", record["run_dir"]], check=False)
+    return task_run(record).status()
 
 
 def cmd_plan(args) -> int:
@@ -510,7 +504,7 @@ def cmd_plan(args) -> int:
     )
     if not args.open:
         print(
-            f"\nNothing has been pushed. To open the pull request:\n  autocode-issue plan {ref} --open\n"
+            f"\nNothing has been pushed. To open the pull request:\n  autocode issue plan {ref} --open\n"
             f"or yourself:\n  git -C {project} push {record['remote']} {entry['commit']}:refs/heads/{entry['branch']}\n"
             f"  gh pr create --repo {record['owner']}/{record['repo']} --head {entry['branch']} "
             f"--base {base or 'BASE'} --draft --title {json.dumps(issue_plan.title(record))} --body-file {body_path}"
@@ -523,7 +517,7 @@ def cmd_plan(args) -> int:
     except IssueError as error:
         raise IssueError(
             f"{error}\nThe pull request's branch may hold commits that are not here, such as reviewers' edits; "
-            "autocode-issue never replaces them."
+            "autocode issue never replaces them."
         ) from None
     if entry.get("url"):
         print(f"Pushed. The plan pull request is {entry['url']}")
@@ -620,7 +614,7 @@ def cmd_pr(args) -> int:
     if not args.open:
         base = args.base or record.get("pr_base") or "BASE"
         print(
-            f"\nNothing has been pushed. To open the pull request:\n  autocode-issue pr "
+            f"\nNothing has been pushed. To open the pull request:\n  autocode issue pr "
             f"{record['owner']}/{record['repo']}#{record['number']} --open\n"
             f"or yourself:\n  git -C {worktree} push {record['remote']} {head}:refs/heads/{record['branch']}\n"
             f"  gh pr create --repo {record['owner']}/{record['repo']} --head {record['branch']} --base {base} "
@@ -658,7 +652,7 @@ def cmd_pr(args) -> int:
 
 def parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(
-        prog="autocode-issue",
+        prog="autocode issue",
         description=__doc__.split("\n\n")[0],
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__.split("\n\n", 1)[1],
@@ -685,6 +679,13 @@ def parser() -> argparse.ArgumentParser:
             sub.add_argument("--pr-base", help="branch the PR will target (default: the current branch)")
     command("status", cmd_status, "show where the run stands and what to do next")
     command("continue", cmd_continue, "relaunch the run until it needs input again")
+    for name in ("start", "continue"):
+        commands.choices[name].add_argument(
+            "--chat",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="when the run needs you, talk it through in `autocode chat` here (default: on in a terminal)",
+        )
     for name, handler, help_text in (
         ("plan", cmd_plan, "put the plan waiting for approval in a pull request as a plan file"),
         ("pr", cmd_pr, "commit the finished change and prepare or open the pull request"),
@@ -712,12 +713,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     args.autocode_options = options
     if options and args.command != "start":
-        print("autocode-issue: AutoCode options are saved at start and reused; pass them to start", file=sys.stderr)
+        print("autocode issue: AutoCode options are saved at start and reused; pass them to start", file=sys.stderr)
         return 2
     try:
         return args.handler(args)
     except (IssueError, github.GitHubError, TaskRunError) as error:
-        print(f"autocode-issue: {error}", file=sys.stderr)
+        print(f"autocode issue: {error}", file=sys.stderr)
         return 1
 
 

@@ -2,6 +2,11 @@
 
 import copy
 
+try:
+    from . import autocode_changed_code_review as changed_code_review
+except ImportError:
+    import autocode_changed_code_review as changed_code_review
+
 STRING = {"type": "string"}
 STRINGS = {"type": "array", "items": STRING}
 
@@ -84,6 +89,7 @@ def role_schema(legacy, role, *, progressive=False):
             schema["properties"][key] = STRINGS
             schema["required"].append(key)
     if role == "sol":
+        schema["properties"][changed_code_review.FIELD] = copy.deepcopy(changed_code_review.SCHEMA)
         findings = schema["properties"]["findings"]["items"]
         findings["properties"]["id"] = STRING
         findings["properties"]["blocking"] = {"type": "boolean"}

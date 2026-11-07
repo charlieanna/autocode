@@ -59,11 +59,11 @@ def _input(source: Path, temporary: Path):
 def _action(task: TaskRun, action: dict, view: dict, tape) -> dict:
     """A recorded semantic decision uses only this fresh run's current tokens."""
     kind, payload = action["kind"], action["payload"]
-    if kind == "approve_plan":
+    if kind == "approve_plan" or (kind == "feedback" and action["match"].get("kind") == "approve_plan"):
         task.show_goal()
         current = task.status()
         recording.match_action(tape, action, current)
-        return task.approve_plan(current["needs"]["token"])
+        return task.feedback(payload["text"]) if kind == "feedback" else task.approve_plan(current["needs"]["token"])
     recording.match_action(tape, action, view)
     need = view["needs"]
     if kind == "answer":

@@ -1,26 +1,27 @@
-"""The automatic-recovery budget: what a run has spent since it last resumed, and the grants that replenish it.
+"""Bounded automatic-recovery failures between valid saved stages.
 
-Each automatic recovery that calls :func:`count` spends from this budget (a stage timeout or a
+Each automatic recovery that calls :func:`count` spends from this streak (a stage timeout or a
 provider that failed to start, among others). After MAX_AUTOMATIC_RECOVERIES, or after
 settings.limits.no_progress_batches timeout recoveries with no saved stage between them, the run
-pauses (autocode_recovery_limits) until a person grants more (autocode_recovery_grants). Capacity
+pauses (autocode_recovery_limits). A valid saved stage clears the streak, never usage or history. Capacity
 retries are not counted here; they have their own lifetime cap
 (autocode_stage_recovery.MAX_AUTOMATIC_CAPACITY_RECOVERIES).
 
 An issued AutoResolver request binds the raw values of these keys (autocode_resolver_human._binding),
 so a change between issue and answer makes the request stale and the answer is refused
 (docs/bugs/2026-10-02-recovery-grant-request-binding.md). Reading therefore never writes a default,
-and only a grant validated against its request lowers the count.
+so reads do not write defaults or corrections. A saved stage renews the streak;
+an old held request can reconcile proven progress at the normal resume boundary.
 
 The state keys:
-- automatic_recoveries_since_resume: int, recoveries spent since the run last resumed. A run saved
+- automatic_recoveries_since_resume: int, legacy name for failures since a valid saved stage. A run saved
   before the key existed, with timeout recoveries in its history, counts the larger of its two older
   counters instead; any other run without the key counts its consecutive timeout recoveries.
 - consecutive_timeout_recoveries: int, timeout recoveries since the last saved stage
   (autocode_stage_recovery increments it).
 - recovery_grants: list of {at, actor, amount, request_id, previous_count, remaining_count}.
 
-Imports only autocode_util at runtime; RunState is imported for type checking.
+Imports only utilities and the pure recovery-streak policy at runtime.
 """
 
 from __future__ import annotations
@@ -31,15 +32,17 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_recovery_streak as streak
     from . import autocode_util as util
 except ImportError:
+    import autocode_recovery_streak as streak
     import autocode_util as util
 
 MAX_AUTOMATIC_RECOVERIES = 3
 
 
 def spent(state: RunState) -> int:
-    """The recoveries spent since the run last resumed. Writes nothing.
+    """Recovery failures since valid saved progress. Writes nothing.
 
     Every counted recovery writes automatic_recoveries_since_resume, so a run without it has spent
     none since the key existed: unchanged implementation batches in no_progress_batches are not
@@ -47,7 +50,9 @@ def spent(state: RunState) -> int:
     counted its recoveries in no_progress_batches.
     """
     if "automatic_recoveries_since_resume" in state:
-        return state["automatic_recoveries_since_resume"]
+        raw = state["automatic_recoveries_since_resume"]
+        credit = streak.legacy_progress(state, raw)
+        return credit["remaining_count"] if credit else raw
     consecutive = state.get("consecutive_timeout_recoveries", 0)
     if state.get("automatic_timeout_recoveries"):
         return max(consecutive, state.get("no_progress_batches", 0))
@@ -65,8 +70,17 @@ def consecutive_timeouts(state: RunState) -> int:
 
 
 def stage_saved(state: RunState) -> None:
-    """A saved stage ends a run of consecutive timeout recoveries."""
-    state["consecutive_timeout_recoveries"] = 0
+    """A valid saved provider report ends the failure streak, retaining every debit."""
+    records = state.get("stages") or []
+    record = records[-1] if isinstance(records, list) and records else None
+    if record is None or streak.saved_checkpoint(record):
+        state["consecutive_timeout_recoveries"] = 0
+    if streak.saved_checkpoint(record):
+        state["automatic_recoveries_since_resume"] = 0
+
+
+def progress_credit(state: RunState):
+    return streak.legacy_progress(state, state.get("automatic_recoveries_since_resume"))
 
 
 def record_grant(state: RunState, amount: int, request_id: str | None, spent_before: int) -> int:

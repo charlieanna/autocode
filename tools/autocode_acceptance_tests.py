@@ -12,7 +12,8 @@ an attempt that changes or deletes one is rejected and the file restored from th
 A bug fix's cases are its Investigator's (autocode_test_cases.proof_cases): reproduction tests must
 really fail and preserve tests pass, before the fix exists.
 
-State key ``acceptance_tests``: {"receipts": {batch key: receipt}, "redirected_from": stage}. The job
+State key ``acceptance_tests``: receipts, redirected_from, pending_case_ids and optional
+pending_test_bindings (contract hash + approved shared names, pinned when routing a new job). The job
 writes receipts; ``route`` writes redirected_from. Read here and by the status view. Imports only the
 shared helpers and the test-case policy, so the build loop, Autopilot and the job can all use it.
 """
@@ -85,15 +86,79 @@ def _cases(state: RunState, *, all_due: bool = False) -> list[dict]:
     return found + [case for case in planned if case["id"] not in known]
 
 
+def _semantic(row: dict) -> dict:
+    """A criterion as the Tester tested it: without citations, which a revision may add."""
+    return {key: value for key, value in row.items() if key != "sources"}
+
+
+def _intact(receipt: dict) -> bool:
+    """Every file the receipt archived is still the file the Tester wrote."""
+    try:
+        return all(
+            entry.get("sha256") and util.file_hash(entry["archive"]) == entry["sha256"]
+            for entry in (receipt.get("files") or {}).values()
+        )
+    except (OSError, KeyError, TypeError):
+        return False
+
+
+def inherited(state: RunState) -> dict[str, dict]:
+    """The cases an earlier approved contract's receipt still covers, {case id: receipt} (#2464).
+
+    A reapproval or a follow-up installs a new contract hash, and a receipt is keyed by the hash it was
+    written under; re-writing a test whose criterion did not change cost a model stage on every turn.
+    A case is inherited when its criterion row is the same as in the receipt's contract apart from its
+    sources, that contract is in the history with a saved approval event, the receipt's archive is intact, and
+    the case is not one the current diagnosis reproduces (a bug's reproduction must fail again on the
+    unfixed code). The Builder keeps an inherited file fixed as it keeps the Tester's own."""
+    contract = state.get("goal_contract") or {}
+    current = contract.get("hash")
+    rows = {
+        row["id"]: _semantic(row)
+        for row in (contract.get("body") or {}).get("acceptance_criteria") or []
+        if isinstance(row, dict) and row.get("id")
+    }
+    # The history copy of a revised contract carries no approval (feedback revokes it before the copy);
+    # its saved goal_approval event, bound to its token, is the authority (autocode_contract_identity).
+    tokens = {
+        event.get("token")
+        for event in state.get("user_events") or []
+        if isinstance(event, dict) and event.get("kind") == "goal_approval"
+    }
+    approved = {
+        old["hash"]: {
+            row["id"]: _semantic(row)
+            for row in (old.get("body") or {}).get("acceptance_criteria") or []
+            if isinstance(row, dict) and row.get("id")
+        }
+        for old in state.get("contract_history") or []
+        if isinstance(old, dict)
+        and old.get("hash")
+        and old.get("hash") != current
+        and f"r{old.get('revision')}:{old['hash']}" in tokens
+    }
+    reproduced = {case.get("id") for case in test_cases.diagnosis_cases(state)}
+    found: dict[str, dict] = {}
+    for receipt in receipts(state).values():
+        old = approved.get(receipt.get("contract_hash"))
+        if old is None or not _intact(receipt):
+            continue
+        for cid in receipt.get("case_ids") or []:
+            if cid in reproduced or cid not in rows or old.get(cid) != rows[cid]:
+                continue
+            found[cid] = receipt
+    return found
+
+
 def covered(state: RunState) -> set[str]:
-    """Case ids whose tests the Tester already wrote under the current contract."""
+    """Case ids whose tests the Tester already wrote: under the current contract, or inherited unchanged."""
     current = (state.get("goal_contract") or {}).get("hash")
     return {
         cid
         for row in receipts(state).values()
         if row.get("contract_hash") == current
         for cid in row.get("case_ids") or []
-    }
+    } | set(inherited(state))
 
 
 def due(state: RunState, wave=None) -> list[dict]:
@@ -107,10 +172,12 @@ def due(state: RunState, wave=None) -> list[dict]:
         return []
     cases = _cases(state)
     if wave:
+        # autocode_dispatch.select returns the wave's milestone rows; an id list names the same milestones.
+        ids = {member["id"] if isinstance(member, dict) else member for member in wave}
         members = {
             cid
             for row in (contract.get("body") or {}).get("milestones") or []
-            if row.get("id") in set(wave)
+            if row.get("id") in ids
             for cid in row.get("acceptance_criteria") or []
         }
         known = {case["id"] for case in cases}
@@ -119,10 +186,28 @@ def due(state: RunState, wave=None) -> list[dict]:
     return [case for case in cases if case["id"] not in done]
 
 
+def shared_test_names(state: RunState) -> dict[str, str]:
+    """Names pinned for this generation job; legacy or different-contract jobs keep their old rule."""
+    record = state.get(KEY) or {}
+    binding = record.get("pending_test_bindings") or {}
+    # Older in-flight jobs retain their original naming contract. A changed contract
+    # cannot inherit another draft's bindings; normal routing pins its own next job.
+    return (
+        dict(binding.get("names") or {})
+        if binding.get("contract_hash") == (state.get("goal_contract") or {}).get("hash")
+        else {}
+    )
+
+
 def job_cases(state: RunState) -> list[dict]:
     """The cases ``route`` sent the Tester to write (route saved their ids), in plan order."""
     pending = set((state.get(KEY) or {}).get("pending_case_ids") or [])
-    return [case for case in _cases(state, all_due=True) if case["id"] in pending]
+    names = shared_test_names(state)
+    return [
+        {**case, **({"test_name": names[case["id"]]} if case["id"] in names else {})}
+        for case in _cases(state, all_due=True)
+        if case["id"] in pending
+    ]
 
 
 def batch_key(state: RunState, cases: list[dict]) -> str:
@@ -146,7 +231,15 @@ def route(state: RunState, wave=None) -> None:
     if not cases:
         return
     record = state.setdefault(KEY, {"receipts": {}})
-    record.update(redirected_from=state["next_stage"], pending_case_ids=[case["id"] for case in cases])
+    shared = test_cases.diagnosis_test_names(state)
+    record.update(
+        redirected_from=state["next_stage"],
+        pending_case_ids=[case["id"] for case in cases],
+        pending_test_bindings={
+            "contract_hash": (state.get("goal_contract") or {}).get("hash"),
+            "names": {case["id"]: shared[case["id"]] for case in cases if case["id"] in shared},
+        },
+    )
     state["next_stage"] = STAGE
 
 
@@ -173,20 +266,25 @@ def record_send_back(state: RunState, case_ids: list[str], output) -> None:
     )
 
 
-def all_files(state: RunState) -> dict[str, dict]:
-    """The Tester's files under the current contract: {path: {"sha256", "archive"}}."""
+def _current_and_inherited(state: RunState) -> list[dict]:
+    """The receipts in force: inherited ones first, so a current-contract receipt for the same path wins."""
     current = (state.get("goal_contract") or {}).get("hash")
+    kept = list({id(receipt): receipt for receipt in inherited(state).values()}.values())
+    return kept + [receipt for receipt in receipts(state).values() if receipt.get("contract_hash") == current]
+
+
+def all_files(state: RunState) -> dict[str, dict]:
+    """The Tester's files under the current contract, and inherited ones: {path: {"sha256", "archive"}}."""
     files: dict[str, dict] = {}
-    for receipt in receipts(state).values():
-        if receipt.get("contract_hash") == current:
-            files.update(receipt.get("files") or {})
+    for receipt in _current_and_inherited(state):
+        files.update(receipt.get("files") or {})
     return files
 
 
 def protected(state: RunState) -> dict[str, dict]:
-    """The Tester's files under the current contract that stay fixed in the workspace; {} when blind."""
+    """Fixed Tester files; blind tests hide source, but their loading metadata stays fixed."""
     if is_blind(state):
-        return {}
+        return {path: entry for path, entry in all_files(state).items() if Path(path).name in ("go.mod", "go.sum")}
     return all_files(state)
 
 
@@ -229,6 +327,10 @@ def edited(state: RunState, patch: bytes) -> list[str]:
             and not line.startswith(b"---")
             or current in files
             and line.startswith((b"deleted file", b"rename from"))
+            or current in files
+            and Path(current).name in ("go.mod", "go.sum")
+            and line.startswith(b"+")
+            and not line.startswith(b"+++")
         ):
             touched.add(current)
     return sorted(touched)
@@ -249,7 +351,10 @@ def check_untouched(state: RunState, workspace) -> bool:
     for path, entry in sorted(protected(state).items()):
         target = Path(workspace) / path
         archived = Path(entry["archive"]).read_bytes()
-        if sha256(target) == entry["sha256"] or kept(archived, target.read_bytes() if target.is_file() else None):
+        if sha256(target) == entry["sha256"] or (
+            Path(path).name not in ("go.mod", "go.sum")
+            and kept(archived, target.read_bytes() if target.is_file() else None)
+        ):
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(archived)
@@ -292,22 +397,31 @@ def builder_note(state: RunState) -> str:
         if last
         else ""
     )
-    return restored + (
-        "\nThe tests for the cases above are already written, by the Tester, before you started (spec-first "
-        "run): "
-        + ", ".join(files)
-        + ". Do not write them again. They fail on the code as it was and must pass when you finish. You may add "
-        "tests to these files, but never change, move or delete a line the Tester wrote; the runner puts such a "
-        "file back.\n"
+    return (
+        restored
+        + (
+            "\nThe tests for the cases above are already written, by the Tester, before you started (spec-first "
+            "run): "
+            + ", ".join(files)
+            + ". Do not write them again. They fail on the code as it was and must pass when you finish. You may add "
+            "tests to these files, but never change, move or delete a line the Tester wrote; the runner puts such a "
+            "file back.\n"
+        )
+        + (
+            "Go prerequisite files are fixed byte-for-byte, including against additions; keep the reviewed metadata unchanged.\n"
+            if any(Path(path).name in ("go.mod", "go.sum") for path in files)
+            else ""
+        )
     )
 
 
 def view(state: RunState) -> dict | None:
-    """The status view's ``acceptance_tests`` field: files, cases and the last result, or None."""
-    rows = list(receipts(state).values())
+    """Current-contract tests, inherited ones included, and the most recently recorded generation result, or None."""
+    rows = _current_and_inherited(state)
     if not rows:
         return None
-    last = rows[-1]
+    order = {row.get("output"): index for index, row in enumerate(state.get("stages") or [])}
+    last = max(rows, key=lambda row: (order.get(row.get("output"), -1), str(row.get("output") or "")))
     payload = {
         "files": sorted(all_files(state)),
         "case_ids": list(last.get("case_ids") or []),
@@ -433,11 +547,9 @@ def check_candidate(state: RunState, workspace, run_dir=None, scratch_run=None, 
     scratch_dir = Path(run_dir) / "blind-tests" / util.digest({"revision": revision, "files": sorted(files)})
 
     overlay_files = {path: entry["archive"] for path, entry in files.items()}
-    current = (state.get("goal_contract") or {}).get("hash")
     last_receipt = None
-    for receipt in receipts(state).values():
-        if receipt.get("contract_hash") == current:
-            last_receipt = receipt
+    for receipt in _current_and_inherited(state):
+        last_receipt = receipt
     cmd = (last_receipt or {}).get("command") or None
 
     receipt = runner_scratch(

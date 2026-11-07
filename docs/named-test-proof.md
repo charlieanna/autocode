@@ -3,14 +3,14 @@
 A plan's `test: test_c1_example` criterion requires that named test to pass with
 the change and not before it. A `guard:` criterion must pass before and after.
 When every criterion the proof covers is a `guard:` and the change adds or edits no test
-(it may change nothing, as a validation-only re-check of a merged program workstream does),
+(it may change nothing, as a validation-only re-check does),
 the guards rest on tests the project already has: the proof runs the suite on the base and
 the candidate, and each guard's named test must pass on both. A `test:` criterion still needs
 a change, unless the person granted the test-only regression-proof exception.
 
 A guard that names its test exactly (`guard: test_c4_adds`) may name a test the project
-already has in a file the change leaves alone, as a program's final check does for the
-criteria the merged workstreams proved. The targeted run covers only the changed test files,
+already has in a file the change leaves alone, as a final check does for the
+criteria earlier milestones proved. The targeted run covers only the changed test files,
 so the whole suite also runs on the original code with the change's test files (its tests,
 fixtures and goldens), and such a guard is matched against the tests that pass there and on
 the candidate, with these limits:
@@ -32,10 +32,25 @@ the candidate, with these limits:
 When the change edits no test file, the guards are matched against the base suite's own
 pass-to-pass, by the case id as well as by exact name, so a guard may name several tests; one
 of them failing beside a test it matched breaks the guard.
+
+Preservation normally rests on base tests that still pass. When the original code holds no
+test file and its suite had nothing to run (an empty collection, or a known runner with no test
+directory), the change's own tests stand in (#2259). Any of them that pass on the original
+code and on the change show its existing behavior was kept, and the full candidate suite must
+pass. Without such a test the proof stays `UNVERIFIED`, and its reason tells the Builder to
+add one; no person is asked. A base holding only documents, manifests, data files or a short
+extensionless text note has no behavior to preserve at all.
 An exit code or a printed `PASS test_c1_example` is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
 Node's built-in `node:test` runner, Vitest 4, and an explicitly configured
 JUnit XML report from another test runner.
+
+A literal Go check with an explicit empty selector (`go test -run '^$' ./...`)
+may validate compilation in a plan. Its exit must be zero, but it supplies no
+named-test results or behavioral proof. Unknown flags, benchmark/fuzz requests,
+and custom test-program arguments retain the normal test-result requirement.
+Submitting an empty-selector command as a regression or suite still cannot
+satisfy that proof: it must execute named tests.
 
 The identifier right after `test:` or `guard:` is the one the runner proves; an
 explanation may follow after ` — ` or in parentheses. Without one, the test is
@@ -281,24 +296,38 @@ from `tools/autocode_mutants.py`).
   cookie spells it), files that do not parse with the runner's Python and files
   with a carriage return no line feed follows (Python and git number their lines
   differently) are never changed; the record notes why.
-- **What.** Five operators: negate a condition (`if`, `while`, a conditional
+- **What.** Ten operators: negate a condition (`if`, `while`, a conditional
   expression, `assert`, a comprehension filter or a `case` guard); swap a bound
   (`<` and `<=`, `>` and `>=`); drop a branch (an `if` body or its `else` becomes
   `pass`, a decorated definition with its decorators; an `elif` is mutated as
-  its own `if`); return a constant instead of the value; and shift an integer
+  its own `if`); return a constant instead of the value; shift an integer
   bound by one: a literal beside `<`, `<=`, `>` or `>=` (an `==`, `!=`, `is` or
-  `in` operand is not a bound). Each mutant replaces the bytes of one syntax node,
+  `in` operand is not a bound); bind another constant where a bool, number
+  or string literal is assigned to a name (`TEXT = "hello"` becomes `TEXT = ""`),
+  so a line whose whole behavior is the value it binds has a site a test can
+  see. The tuple assignment operator swaps the first two distinct names in a
+  simple unpacking on a changed line. A line none of those reaches gets one
+  statement site (#2815): a call made for its effect is dropped (`log.write(x)`
+  becomes `None`), a computed value bound to a name becomes `None`, and a `for`
+  loop runs over nothing. Each mutant replaces a span of source bytes,
   keeps every line number, must compile, and must change its statement exactly as
   intended; a site that fails one of these, or cannot be checked at all (a
   statement nested too deep, an integer too long to print), is skipped with a
   note and the next one takes its place.
   `TYPE_CHECKING` and `__main__` guards, f-strings, annotations and branches that
   already do nothing are left alone.
-- **How many.** At most 6 mutants per changed file, spread over the operators and
-  lines. The same change always gets the same mutants.
+- **How many.** Current task proofs enumerate the eligible sites on every changed
+  line within the existing mutation budget. Unrun sites stay explicit obligations.
+  The older advisory collector and standalone review study retain their six-site
+  sample per file. The same source and selection give the same sites.
 - **How long.** One 900-second budget, the same limit as a check replay, covers
-  one unmutated run of the proving tests and every mutant. Only the proving tests
-  run, selected by name (never the whole suite), each mutant with its own empty
+  one unmutated run and every mutant. Current task proofs select the independently
+  observed passing candidate-suite tests by exact ID; when the suite is a command
+  the runner cannot narrow to those tests (a project's own gate script, such as
+  `python project_gate.py`), they select the proof's regression command and the
+  tests it passed on the candidate instead, so a project gate does not leave every
+  changed line without evidence. Older advisory collectors
+  select only the named proving tests. Each mutant uses its own empty
   bytecode cache and its own modification time, so a compile cached by a Python
   the tests start themselves is never reused. A mutant may take ten times the
   unmutated run's duration, at least 60 seconds, and never more than the budget
@@ -315,14 +344,38 @@ example ``test_partial_last_page_is_counted passes with pager/__init__.py:9
 changed (`>` -> `>=`)``. The status view shows the record as
 `evidence.mutation_check` ([the task-run interface](task-run.md)), the evidence
 report lists each survivor under the regression proof, and the Tester and the
-Completion Reviewer receive it with the proof, with a note to name the survivors
-in their evidence and not to fail the work on them alone.
+Completion Reviewer receive it with the proof. The runner combines exact-source
+coverage and authenticated mutation observations in `changed_code_evidence`
+(#2474). A line merely executed without a meaningful assertion does not pass.
+A named test must actually fail under the mutation; a setup/collection failure,
+missing test, interrupted command or timeout grants no positive evidence.
 
-The check is report only. It never changes the verdict, the failures,
-`case_tests` or completion; its runs are not receipts of the proof; and a proof
-that did not pass runs and reports no mutant. A survivor can be an equivalent mutant (a
-change no test could observe), so it is a reason to read the test, not proof
-that the test is wrong.
+Every changed executable line needs demonstrated mutation evidence or a precise
+reason checked by the existing independent Tester. This is its code-review
+responsibility within the existing workflow, and cannot be self-approved by
+Builder. A survivor can be equivalent (no test could observe the change); the
+Tester can record that specific reason against the current offered gap ID and
+pin its source/test/check evidence. Each obligation also carries a short handle
+(`L1`, `L2`, … in inventory order), which the offer accepts beside the full ID and
+the runner maps to the same exact line, so a model never retypes 64-hex IDs. An unavailable tool alone is not a blanket
+exception. Empty survivor lists and the old six-site sample never prove that
+all changed lines were tested.
+
+The core returns unresolved exact lines to Builder for two bounded repair rounds,
+then uses its existing Investigator path and saved run limits. It records those
+decisions and the fallback in the public verification view and final report.
+When a batch correction has narrowed the assignment to one component, a rejected
+gap in another batch member first returns to the Completion Reviewer for
+reassignment within the approved plan. That scope review neither expands the
+Builder's permission nor consumes a Builder repair round; unresolved evidence
+continues to block acceptance.
+Missing project coverage tooling uses demonstrated mutation evidence alone where
+available; otherwise the line remains open for independent judgment. No project
+dependency is installed. Blank/comment-only lines, Python declaration-only lines
+and non-executable lines excluded by an authenticated statement map are omitted.
+Legacy proofs and standalone review mutation studies remain advisory records;
+active task completion requires current evidence rather than inferring it from
+those older records. A proof that did not pass runs no mutant.
 
 It complements the check replay's sanity gate (`tools/autocode_test_quality.py`),
 which rejects test bodies that assert nothing at all. A test that asserts
@@ -378,3 +431,23 @@ their receipts in `tool_containment.scratch`. It cites `regression_proof` direct
 check that reads run files, which are absent from clean replay. This changes no
 network permissions, replay policy or completion requirements. Uncontained
 Testers retain the existing instruction to run the regression command themselves.
+
+### Go test prerequisite metadata
+
+A test may import a package from an already selected transitive module whose
+indirect requirement or checksum is missing from the root manifests. Where the
+approved plan permits it, the acceptance Tester may add that loading metadata
+alongside its tests. The core admits only additive indirect requirements at the
+original Go selection and missing checksums verified against offline cached
+module artifacts. Existing requirements, versions, module/toolchain directives
+and checksums cannot be replaced or removed through this exception.
+
+The runner retains both native graph observations and exact manifest hashes,
+including any change in transitive module selection. Those observations grant no
+plan approval: a version constraint in the approved plan still applies. The
+Builder must retain admitted metadata byte-for-byte, including for blind tests.
+The final regression comparison uses identical admitted metadata on original and
+corrected production source, while the original suite baseline keeps its original
+inputs. Compilation failures never establish a bug reproduction. Other dependency
+changes remain on the ordinary proof path and are not overlaid onto the original
+source as test prerequisites.

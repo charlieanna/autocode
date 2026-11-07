@@ -209,6 +209,7 @@ def main():
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--provider", default="")
     parser.add_argument("--effort", default="")
     parser.add_argument("--allow-write", action="store_true")
     parser.add_argument("--planning", action="store_true")
@@ -219,13 +220,14 @@ def main():
         settings = config.load()
         if hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest() != args.connection_hash:
             raise ValueError("Direct connection changed after launch preparation")
-        if args.model not in settings["roles"].values():
+        record = config.provider_settings(settings, args.provider)
+        if not config.model_allowed(settings, record["api_provider"], args.model):
             raise ValueError("Model is not configured for this direct connection")
-        key = config.api_key(settings)
+        key = config.api_key(settings, record["api_provider"])
         # Fail closed on unsupported host, missing sandbox or setup before an
         # inference request. The provider's outer supervisor still owns cleanup.
         shell = Shell(args.workspace, args.run_dir, args.allow_write, args.planning)
-        return run(settings, key, sys.stdin.read(), args.model, args.effort, args.o, shell)
+        return run(record, key, sys.stdin.read(), args.model, args.effort, args.o, shell)
     except transport.TransportError as error:
         emit(
             {"type": "error", "error": {"name": "APIError", "data": {"statusCode": error.code}, "message": str(error)}}

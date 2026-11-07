@@ -110,6 +110,11 @@ class ReplayTests(unittest.TestCase):
                 approved_state=state,
             )
         message = str(rejected.exception)
+        self.assertIsInstance(rejected.exception, check_replay.PlannedCheckFailure)
+        self.assertEqual("python3 -m notes add", rejected.exception.command)
+        self.assertEqual("Usage: notes <command> [args]", rejected.exception.tail.strip())
+        self.assertIn("Replay summary:", message)
+        self.assertNotIn("Receipt:", message)
         self.assertIn(
             "Check `python3 -m notes add` is required by the approved verification methods or the current "
             "task's validation plan (the Validator did not report it)",
@@ -118,6 +123,15 @@ class ReplayTests(unittest.TestCase):
         self.assertIn("the plan's author (the Resolver, for a repair task) must reword that step", message)
         self.assertIn(check_replay.verification_plan.EXPECTED_FAILURE_RULE, message)
         self.assertNotIn("was reported as exit", message)
+
+        import autocode_report_repair_queue as report_repair_queue
+
+        repair_state = {"settings": {"report_repair": {"max_attempts": 2}}}
+        valid_record = {"exit_code": 0, "source_revision": "rev1"}
+        self.assertFalse(
+            report_repair_queue.queue(repair_state, valid_record, rejected.exception, completed=lambda: True)
+        )
+
         # A failing check the Validator reported keeps its own message.
         with self.assertRaises(ValueError) as reported:
             check_replay.replay(
@@ -127,8 +141,12 @@ class ReplayTests(unittest.TestCase):
                 self.record,
                 run,
             )
+        self.assertNotIsInstance(reported.exception, check_replay.PlannedCheckFailure)
         self.assertIn("was reported as exit 0", str(reported.exception))
         self.assertNotIn(check_replay.verification_plan.EXPECTED_FAILURE_RULE, str(reported.exception))
+        self.assertTrue(
+            report_repair_queue.queue(repair_state, valid_record, reported.exception, completed=lambda: True)
+        )
 
     def test_an_unrelated_success_does_not_replace_the_approved_command(self):
         calls = []
@@ -643,3 +661,43 @@ class ValidatorNoteTests(unittest.TestCase):
         self.assertEqual((len(validator.prompt.encode()) + 3) // 4, validator.metrics["estimated_prompt_tokens"])
         builder = common.execution_request(state, "terra", state_path, schemas)
         self.assertNotIn(check_replay.VALIDATOR_NOTE, builder.prompt)
+
+    def test_the_supplied_scratch_template_runs_output_writing_tests_without_touching_source(self):
+        self.assertIn("native Linux", check_replay.VALIDATOR_NOTE)
+        self.assertIn("read-only", check_replay.VALIDATOR_NOTE)
+        template = check_replay.VALIDATOR_NOTE.split("```sh\n", 1)[1].split("\n```", 1)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source with spaces"
+            root.mkdir()
+            (root / "tests").mkdir()
+            (root / "answer.py").write_text("def answer(): return 42\n")
+            (root / "tests/test_output.py").write_text(
+                "import unittest\nfrom pathlib import Path\nfrom answer import answer\n"
+                "class OutputTests(unittest.TestCase):\n"
+                " def test_answer(self):\n"
+                "  scratch=Path('tests/_scratch');scratch.mkdir()\n"
+                "  (scratch/'answer.txt').write_text(str(answer()))\n"
+                "  self.assertEqual('42',(scratch/'answer.txt').read_text())\n"
+            )
+            for private in (".git", ".autocode"):
+                (root / private).mkdir()
+                (root / private / "private.txt").write_text("must not enter the check copy")
+            original = {str(f.relative_to(root)): f.read_bytes() for f in root.rglob("*") if f.is_file()}
+            check_copy = Path(tmp) / "owned scratch" / "one-check"
+            command = template.replace("CHECK_COPY", shlex.quote(str(check_copy))).replace(
+                "CHECK_COMMAND", shlex.join([sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests", "-v"])
+            )
+            result = subprocess.run(["/bin/sh", "-c", command], cwd=root, text=True, capture_output=True, timeout=30)
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertIn("Ran 1 test", result.stderr)
+            self.assertEqual("42", (check_copy / "tests/_scratch/answer.txt").read_text())
+            self.assertFalse((check_copy / ".git").exists())
+            self.assertFalse((check_copy / ".autocode").exists())
+            self.assertEqual(
+                original, {str(f.relative_to(root)): f.read_bytes() for f in root.rglob("*") if f.is_file()}
+            )
+            self.assertFalse((root / "tests/_scratch").exists())
+            # A repeated command cannot silently reuse an earlier check's output.
+            repeated = subprocess.run(["/bin/sh", "-c", command], cwd=root, text=True, capture_output=True, timeout=30)
+            self.assertNotEqual(0, repeated.returncode)
+            self.assertEqual("", repeated.stderr, "the fresh-copy guard must stop before rerunning the suite")

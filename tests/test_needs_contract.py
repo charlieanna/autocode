@@ -148,6 +148,10 @@ _PERSON_INT = frozenset(
         "--max-seconds",
         "--max-idle-seconds",
         "--max-cost-usd",
+        "--max-iterations",
+        "--max-milestone-seconds",
+        "--max-milestone-replans",
+        "--grant-recovery",
     }
 )
 
@@ -234,7 +238,11 @@ class CostPauseCommandTests(unittest.TestCase):
         }
         view = run_view.view(state)
         self.assertEqual("resume", view["needs"]["kind"])
-        self.assertTrue(view["next_command"].endswith("--resume-paused --max-cost-usd N"), view["next_command"])
+        self.assertTrue(
+            view["next_command"].endswith("--resume-paused --max-cost-usd N --expected-recovery-token -"),
+            view["next_command"],
+        )
+        self.assertEqual("max_cost_usd", view["needs"]["command_inputs"][0]["id"])  # #2044: a client can fill it
         args, words = parse_next_command(view["next_command"])
         self.assertEqual("10", words[words.index("--max-cost-usd") + 1])
         self.assertTrue(args.resume_paused)
@@ -298,6 +306,14 @@ _RESOLVER = {
     "settings": {},
 }
 KIND_SHAPES = {
+    "continue": [
+        {
+            "status": "PAUSED_BUDGET",
+            "stop_reason": "quota restored; set the attempt aside",
+            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"},
+            "settings": {},
+        }
+    ],
     "answer": [
         _RESOLVER,
         {
@@ -316,9 +332,16 @@ KIND_SHAPES = {
     ],
     "resume": [
         {
-            "status": "PAUSED_BUDGET",
-            "stop_reason": "quota restored; set the attempt aside",
-            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"},
+            # A cleanly finished attempt keeps the result its hold stands on; archiving it is not routine.
+            "status": "PAUSED_VERIFICATION_UNCERTAIN",
+            "stop_reason": "verification cleanup was not confirmed",
+            "active_stage": {
+                "iteration": 1,
+                "output": "/run/review-change-01.json",
+                "stage": "review_change",
+                "exit_code": 0,
+                "finished_at": "2026-10-30T00:00:00Z",
+            },
             "settings": {},
         },
         {"status": "PAUSED_COMPONENT_PLAN", "stop_reason": "component plan", "task": "Build a CLI", "settings": {}},

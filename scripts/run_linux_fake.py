@@ -126,6 +126,7 @@ def docker_run_prefix(repo: Path) -> list[str]:
         "--cap-drop=ALL",
         "--security-opt=no-new-privileges:true",
         "--security-opt=seccomp=unconfined",
+        "--security-opt=systempaths=unconfined",
         "--pid=host",
         "--network=none",
         "--pids-limit=1024",

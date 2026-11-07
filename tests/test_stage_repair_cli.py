@@ -194,6 +194,10 @@ class StageRepairCLI(unittest.TestCase):
             "--plan-reviewer-reasoning-effort",
             "high",
         )
+        if case in ("finalizer", "repair-limit", "oversized"):
+            # These faults remove the first task authored by the finalizer. In
+            # adaptive planning it is already validated in the retained draft.
+            fixture.new_run_engine_args += ("--no-adaptive-planning",)
         return fixture
 
     def plan(self, fixture):
@@ -263,6 +267,335 @@ class StageRepairCLI(unittest.TestCase):
         concerns = state["planning"]["reports"]["astra_challenge"]["report"]["concerns"]
         self.assertEqual([row["id"] for row in concerns], [row["concern_id"] for row in final["decisions"]])
 
+    def test_malformed_report_text_edits_reach_plan_approval_without_recopying(self):
+        fixture = self.fixture_for("malformed-text-edits")
+        run, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        repairs = [row for row in trace if row["repair"]]
+        self.assertEqual(1, len(repairs), repairs)
+        self.assertTrue(repairs[0]["text_rule"])
+        self.assertLess(repairs[0]["patch_bytes"], repairs[0]["source_bytes"])
+        report = Path(repairs[0]["output"])
+        self.assertEqual(repairs[0]["patch"], json.loads(report.with_suffix(".reported.json").read_text()))
+        self.assertIn("contract", json.loads(report.read_text()))
+        plan = fixture.launch(["--run-dir", str(run), "--show-goal"], 0).stdout
+        self.assertIn("C1", plan)
+        self.assertIn("Greet", plan)
+
+    def test_malformed_report_text_edits_cannot_weaken_or_lose_the_exact_source(self):
+        for case in ("stale", "protected", "ambiguous"):
+            with self.subTest(case=case):
+                fixture = self.fixture_for("malformed-text-edits-" + case)
+                _, _, view, trace = self.plan(fixture)
+                self.assertNotEqual("AWAITING_GOAL_APPROVAL", view["status"])
+                self.assertFalse(view["done"])
+                self.assertFalse(any(row["stage"] == "terra" for row in trace))
+                self.assertTrue(any(row.get("patch") for row in trace))
+                expected = {
+                    "stale": "exact rejected source",
+                    "protected": "without a user-backed contract change",
+                    "ambiguous": "exactly once in the pinned source",
+                }[case]
+                self.assertTrue(any(expected in row.get("error", "") for row in trace), trace)
+
+    def test_bounded_report_edits_reach_exact_plan_gate_without_recopying(self):
+        fixture = self.fixture_for("bounded-report-edits")
+        run, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        repairs = [row for row in trace if row["repair"]]
+        self.assertEqual(1, len(repairs), repairs)
+        self.assertEqual(["repair_report"], list(repairs[0]["patch"]))
+        report = Path(repairs[0]["output"])
+        self.assertEqual(repairs[0]["patch"], json.loads(report.with_suffix(".reported.json").read_text()))
+        self.assertNotIn("acceptance_test", json.loads(report.read_text()))
+        plan = fixture.launch(["--run-dir", str(run), "--show-goal"], 0).stdout
+        self.assertIn("C1", plan)
+        self.assertIn("Greet", plan)
+
+    def test_bounded_report_edits_cannot_change_binding_or_protected_outcome(self):
+        for case in ("stale", "protected"):
+            with self.subTest(case=case):
+                fixture = self.fixture_for("bounded-report-edits-" + case)
+                _, _, view, trace = self.plan(fixture)
+                self.assertNotEqual("AWAITING_GOAL_APPROVAL", view["status"])
+                self.assertFalse(view["done"])
+                self.assertFalse(any(row["stage"] == "terra" for row in trace))
+                self.assertTrue(any(row.get("patch") for row in trace))
+
+    def test_sparse_revision_reaches_approval_without_recopying_or_repair(self):
+        fixture = self.fixture_for("revision-reference")
+        run, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual(1, len(revisions))
+        self.assertFalse(revisions[0]["repair"])
+        self.assertTrue(revisions[0]["reference_instruction"])
+        ref = revisions[0]["revision_reference"]
+        self.assertNotIn("acceptance_criteria", ref)
+        self.assertNotIn("required_behaviors", ref["changes"])
+        # The public plan contains the original obligations and the revised approach,
+        # though the provider never retranscribed them in its revision.
+        plan = fixture.launch(["--run-dir", str(run), "--show-goal"], 0).stdout
+        self.assertIn("Greet", plan)
+        self.assertIn("C1", plan)
+        self.assertFalse(any(row["repair"] for row in trace))
+
+    def test_sparse_revision_repair_preserves_reference_and_approval_gate(self):
+        fixture = self.fixture_for("revision-reference-repair")
+        _, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        repairs = [row for row in trace if row["repair"]]
+        self.assertEqual(1, len(repairs))
+        self.assertTrue(repairs[0]["reference_instruction"])
+        self.assertIn("revise_contract", repairs[0]["revision_reference"])
+
+    def test_sparse_revision_rejects_stale_protected_and_missing_criteria(self):
+        for case in ("stale", "protected", "missing-criterion"):
+            with self.subTest(case=case):
+                fixture = self.fixture_for("revision-reference-" + case)
+                _, _, view, trace = self.plan(fixture)
+                self.assertNotEqual("AWAITING_GOAL_APPROVAL", view["status"])
+                self.assertFalse(view["done"])
+                self.assertFalse(any(row["stage"] == "terra" for row in trace))
+                errors = " ".join(row["error"] for row in trace)
+                self.assertTrue("reference" in errors or "criterion" in errors, errors)
+
+    def test_unchanged_rewording_metadata_repairs_without_a_human_question(self):
+        from autocode_taskrun import TaskRun
+
+        fixture = self.fixture_for("unchanged-rewording")
+        _, _, first, _ = self.plan(fixture)
+        run = TaskRun.attach(fixture.project, command=fixture.entry, env=fixture.env, cwd=fixture.root)
+        self.assertIsNotNone(run)
+        old_token = first["displayed_plan"]["token"]
+        run.show_goal()
+        run.approve_plan(old_token)
+        finished = run.advance_until_input()
+        self.assertEqual("TASK_COMPLETE", finished["status"], finished.get("stop_reason"))
+        original_source = (fixture.project / "greet.py").read_bytes()
+        trace_path = fixture.root / "stage-repair-trace.jsonl"
+        first_calls = len(trace_path.read_text().splitlines())
+        run.follow_up("Keep the greeting and its exact output unchanged.")
+        current = run.advance_until_input()
+        needs = current.get("needs") or {}
+        if needs.get("kind") == "planning_budget" or needs.get("pause_origin") == "PAUSED_PLANNING_BUDGET":
+            # A separate fake planning cycle retains its prior charges. Authorize
+            # its two review calls through the published exhausted checkpoint.
+            fixture.launch(["--run-dir", str(run.run_dir), "--planning-review-call-limit", "4"], 0)
+            current = run.resume_paused()
+
+        self.assertEqual("approve_plan", current["needs"]["kind"], current.get("stop_reason"))
+        self.assertNotEqual(old_token, current["displayed_plan"]["token"])
+        self.assertFalse(current["done"])
+        self.assertEqual(original_source, (fixture.project / "greet.py").read_bytes())
+        trace = [json.loads(line) for line in trace_path.read_text().splitlines()][first_calls:]
+        self.assertFalse(any(row["stage"] == "terra" for row in trace), "The next plan is still unapproved")
+        attempts = [row for row in trace if row.get("spurious_rewording")]
+        self.assertEqual([False, True], [row["repair"] for row in attempts], trace)
+        self.assertIn("was not changed", attempts[1]["error"])
+
+    def test_empty_planning_repair_uses_original_within_existing_allowance(self):
+        fixture = self.fixture_for("empty-planning-repair")
+        _, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual([False, True, True], [row["repair"] for row in revisions])
+        self.assertEqual([True, False], [row["empty"] for row in revisions if row["repair"]])
+        self.assertTrue(revisions[-1]["original_retained"])
+        first_revision = next(i for i, row in enumerate(trace) if row["stage"] == "glm_revise")
+        self.assertFalse(any(row["stage"] == "astra_discovery" for row in trace[first_revision:]))
+        usage = view["usage"]["accounting"]["attempts"]
+        repairs = [row for row in usage if row["stage"] == "glm_revise_report_repair"]
+        self.assertEqual(2, len(repairs))
+        self.assertTrue(any(row["rejected"] for row in repairs))
+
+    def test_empty_original_or_exhausted_empty_repairs_still_stop(self):
+        for suffix, count in (("original-empty", 0), ("always-empty", 2)):
+            with self.subTest(suffix=suffix):
+                fixture = self.fixture_for("empty-planning-repair-" + suffix)
+                _, _, view, trace = self.plan(fixture)
+                self.assertNotEqual("approve_plan", view["needs"]["kind"])
+                self.assertFalse(view["done"])
+                self.assertFalse(any(row["stage"] == "terra" for row in trace))
+                self.assertEqual(count, sum(row["stage"] == "glm_revise" and row["repair"] for row in trace))
+
+    def test_json_syntax_location_repairs_the_retained_report_before_plan_approval(self):
+        fixture = self.fixture_for("json-syntax-diagnostic")
+        _, _, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        repairs = [row for row in trace if row["stage"] == "glm_revise" and row["repair"]]
+        self.assertEqual(1, len(repairs), trace)
+        self.assertEqual("Expecting ',' delimiter", repairs[0]["parse_error"]["message"])
+        self.assertTrue(repairs[0]["source_hash_matches"])
+        self.assertTrue(repairs[0]["syntax_instruction"])
+        self.assertFalse(any(row["stage"] in ("investigate_stuck", "terra") for row in trace))
+        self.assertFalse(view["done"])
+
+    def test_first_repair_reports_independent_missing_protected_text(self):
+        fixture = self.fixture_for("batched-protected-diagnostics")
+        _, _, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        repairs = [row for row in trace if row["stage"] == "glm_revise" and row["repair"]]
+        self.assertEqual(1, len(repairs), trace)
+        self.assertIn("summary", repairs[0]["error"])
+        self.assertEqual(
+            [{"field": "important_failure_cases", "missing": ["Reject an empty name with nonzero exit status"]}],
+            repairs[0]["protected_list_differences"],
+        )
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+        self.assertFalse(view["done"])
+
+    def test_revision_repair_answers_current_review_with_an_empty_execution_ledger(self):
+        fixture = self.fixture_for("revision-concerns")
+        _, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual([False, True], [row["repair"] for row in revisions], trace)
+        self.assertIn("Every plan-review concern", revisions[1]["error"])
+        self.assertEqual(["P1"], revisions[1]["current_review_ids"])
+        self.assertEqual([], revisions[1]["execution_findings"])
+        first_revision = next(i for i, row in enumerate(trace) if row["stage"] == "glm_revise")
+        self.assertFalse(any(row["stage"] == "astra_discovery" for row in trace[first_revision:]), trace)
+        self.assertEqual(1, sum(row["stage"] == "astra_challenge" for row in trace), trace)
+        self.assertFalse(any(row["stage"] == "investigate_stuck" for row in trace), trace)
+
+    def test_revision_repairs_a_stale_delta_using_the_current_contract_token(self):
+        fixture = self.fixture_for("retained-criteria")
+        _, state, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        repairs = [row for row in trace if row["stage"] == "glm_revise" and row["repair"]]
+        self.assertEqual(1, len(repairs), trace)
+        self.assertIn("Retained criteria delta", repairs[0]["error"])
+        self.assertTrue(repairs[0]["used_current_retained_contract"])
+        self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
+        self.assertFalse((fixture.project / "greet.py").exists())
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+
+    def test_criteria_delta_reaches_review_and_plan_approval_without_report_repair(self):
+        fixture = self.fixture_for("criteria-delta")
+        _, state, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        self.assertFalse(any(row["repair"] for row in trace), trace)
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual(1, len(revisions), trace)
+        self.assertTrue(revisions[0]["delta_offered"])
+        self.assertTrue(revisions[0]["current_contract_offered"])
+        self.assertEqual([], revisions[0]["criteria_delta"]["upsert"])
+        self.assertEqual(1, sum(row["stage"] == "astra_challenge" for row in trace), trace)
+        self.assertEqual(1, sum(row["stage"] == "astra_finalize" for row in trace), trace)
+        before = state["planning"]["reports"]["astra_discovery"]["report"]["contract"]["acceptance_criteria"]
+        after = state["planning"]["reports"]["glm_revise"]["report"]["contract"]["acceptance_criteria"]
+        self.assertEqual(before, after)
+        self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+        self.assertFalse((fixture.project / "greet.py").exists())
+
+    def test_one_format_repair_preserves_the_bound_delta_without_restarting_planning(self):
+        fixture = self.fixture_for("criteria-delta-repair")
+        _, _, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        repairs = [row for row in trace if row["repair"]]
+        self.assertEqual(["glm_revise"], [row["stage"] for row in repairs], trace)
+        self.assertTrue(repairs[0]["delta_offered"])
+        self.assertTrue(repairs[0]["current_contract_offered"])
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual([False, True], [row["repair"] for row in revisions], trace)
+        self.assertEqual(revisions[0]["criteria_delta"], revisions[1]["criteria_delta"])
+        self.assertEqual(1, sum(row["stage"] == "astra_finalize" for row in trace), trace)
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+
+    def test_proof_only_delta_keeps_criterion_and_sources_and_needs_only_plan_approval(self):
+        fixture = self.fixture_for("criteria-delta-proof-only")
+        _, _, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        self.assertFalse(any(row["repair"] for row in trace), trace)
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual(1, len(revisions), trace)
+        self.assertTrue(revisions[0]["proof_rule_offered"])
+        before = revisions[0]["criteria_before"]
+        after = view["displayed_plan"]["acceptance_criteria"]
+        expected = copy.deepcopy(before)
+        expected[0]["verification_method"] = "python3 -m unittest -v test_greet.py"
+        self.assertEqual(expected, after)
+        self.assertEqual(1, sum(row["stage"] == "astra_challenge" for row in trace))
+        self.assertEqual(1, sum(row["stage"] == "astra_finalize" for row in trace))
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+        self.assertNotIn("approved_contract", view)
+
+    def test_invalid_criteria_deltas_cannot_reach_approval_or_builder(self):
+        for case in (
+            "criteria-delta-stale",
+            "criteria-delta-invalid-row",
+            "criteria-delta-weakened-proof",
+            "criteria-delta-proof-weakened",
+        ):
+            with self.subTest(case=case):
+                fixture = self.fixture_for(case)
+                _, _, view, trace = self.plan(fixture)
+                self.assertNotEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("stop_reason"))
+                self.assertFalse(view["done"])
+                self.assertTrue(any(row["repair"] for row in trace), trace)
+                self.assertFalse(any(row["stage"] in ("astra_finalize", "terra") for row in trace))
+                if case == "criteria-delta-proof-weakened":
+                    self.assertIn("without a user-backed", view.get("stop_reason", ""))
+                    self.assertIn("test: test_c1_greeting", view.get("stop_reason", ""))
+
+    def test_one_report_repair_preserves_the_pinned_proof_only_delta(self):
+        fixture = self.fixture_for("criteria-delta-proof-only-repair")
+        _, _, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual([False, True], [row["repair"] for row in revisions])
+        self.assertTrue(revisions[1]["proof_rule_offered"])
+        self.assertEqual(revisions[0]["criteria_delta"], revisions[1]["criteria_delta"])
+        self.assertEqual(
+            "python3 -m unittest -v test_greet.py",
+            view["displayed_plan"]["acceptance_criteria"][0]["verification_method"],
+        )
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+
+    def test_large_revision_repair_keeps_the_latest_draft_without_repeating_its_predecessor(self):
+        fixture = self.fixture_for("retained-criteria-large")
+        _, state, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        repairs = [row for row in trace if row["stage"] == "glm_revise" and row["repair"]]
+        self.assertEqual(2, len(repairs), trace)
+        self.assertTrue(all(row["used_current_retained_contract"] for row in repairs))
+        self.assertIn("repair_fault", repairs[1]["error"])
+        self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
+        self.assertFalse((fixture.project / "greet.py").exists())
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+
+    def test_concern_only_review_reaches_approval_without_contract_field_repairs(self):
+        from autocode_taskrun import TaskRun
+
+        fixture = self.fixture_for("review-policy")
+        run = TaskRun.start(
+            fixture.project,
+            "Build a greeting tool",
+            options=fixture.new_run_engine_args,
+            command=fixture.entry,
+            env=fixture.env,
+            cwd=fixture.root,
+            timeout=240,
+        )
+        waiting = run.status()
+        needs = waiting["needs"]
+        self.assertEqual("answer", needs["kind"], waiting.get("stop_reason"))
+        question = needs["questions"][0]["id"]
+        run.answer(question, "CLI", resolver_token=needs["resolver_token"])
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        self.assertFalse(view["done"])
+        self.assertTrue(view["displayed_plan"]["token"])
+        self.assertFalse((fixture.project / "greet.py").exists(), "Builder must await actual plan approval")
+        trace = [json.loads(line) for line in (fixture.root / "stage-repair-trace.jsonl").read_text().splitlines()]
+        reviews = [row for row in trace if row["stage"] == "astra_challenge"]
+        self.assertEqual(1, len(reviews), reviews)
+        self.assertFalse(reviews[0]["repair"], reviews)
+        self.assertEqual([], reviews[0]["active_contract_commands"])
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+
     def test_exhausted_report_repair_allowance_buys_no_third_provider_call(self):
         fixture = self.fixture_for("repair-limit")
         run, _, view, trace = self.plan(fixture)
@@ -295,35 +628,33 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual(1, len(accepted))
         self.assertEqual(original["events"], accepted[0]["repair"]["applied_original_events"])
 
-    def test_oversized_finalizer_repair_resumes_as_a_fresh_review_then_awaits_approval(self):
+    def test_oversized_finalizer_repair_starts_a_fresh_review_by_itself_then_awaits_approval(self):
         # 2026-10-05 self-build: the rejected final review's repair handoff exceeded 256 KiB, and every
-        # resume retried the same unlaunchable repair. An explicit resume now starts a fresh review.
+        # resume retried the same unlaunchable repair. A resume then started a fresh review, but the run
+        # still paused to ask a person for that resume (2026-11-06). The runner now archives the spent
+        # repair and starts the fresh review itself.
         fixture = self.fixture_for("oversized")
         run, state, view, trace = self.plan(fixture)
-        self.assertEqual("PAUSED_REPORT_REPAIR_INPUT", state["status"], state.get("stop_reason"))
-        self.assertIn("Complete report-repair handoff exceeds", state["stop_reason"])
-        self.assertIn("autocode resume to archive this repair", state["stop_reason"])
-        pending = state["pending_report_repair"]
-        self.assertEqual(("astra_finalize", 0), (pending["original"]["stage"], pending["attempts"]))
-        self.assertLess(Path(pending["original"]["output"]).stat().st_size, repair_support.runner.REPAIR_REPORT_BYTES)
-        self.assertEqual([False], [row["repair"] for row in trace if row["stage"] == "astra_finalize"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
-
-        # The fresh review is a third plan-review call: it stops at the allowance as any review does,
-        # and AutoResolver asks for the operator's decision.
-        fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
-        run, state = fixture.saved()
-        self.assertEqual(
-            ("WAITING_FOR_USER", "astra_finalize"), (state["status"], state["next_stage"]), state.get("stop_reason")
-        )
-        self.assertIn("2/2 plan-review calls used", state["stop_reason"])
-        trace = [json.loads(line) for line in (fixture.root / "stage-repair-trace.jsonl").read_text().splitlines()]
-        self.assertEqual([False], [row["repair"] for row in trace if row["stage"] == "astra_finalize"])
         self.assertNotIn("pending_report_repair", state)
         archived = state["report_repair_archive"][-1]
-        self.assertEqual(pending, archived["repair"])
+        pending = archived["repair"]
+        self.assertEqual(("astra_finalize", 0), (pending["original"]["stage"], pending["attempts"]))
+        self.assertLess(Path(pending["original"]["output"]).stat().st_size, repair_support.runner.REPAIR_REPORT_BYTES)
         self.assertIn("cannot launch from its saved inputs", archived["reason"])
         self.assertTrue(all(Path(path).is_file() for path in pending["pins"]))
+        restarts = [row for row in state["user_events"] if row["kind"] == "automatic_unlaunchable_repair_restart"]
+        self.assertEqual(["astra_finalize"], [row["stage"] for row in restarts])
+        self.assertIn("Complete report-repair handoff exceeds", restarts[0]["reason"])
+        self.assertEqual([False], [row["repair"] for row in trace if row["stage"] == "astra_finalize"])
+
+        # The fresh review is a third plan-review call: it stops at the allowance as any review does.
+        self.assertEqual(
+            ("PAUSED_PLANNING_BUDGET", "astra_finalize"),
+            (state["status"], state["next_stage"]),
+            state.get("stop_reason"),
+        )
+        self.assertIn("2/2 plan-review calls used", state["stop_reason"])
+        self.assertEqual(2, state["planning"]["astra_calls"])
 
         fixture.launch(["--run-dir", str(run), "--planning-review-call-limit", "3"], 0)
         fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)

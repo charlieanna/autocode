@@ -1,8 +1,8 @@
 """Whether a run's built-in OpenCode stages launch inside the kernel tool boundary (#413).
 
-Every built-in OpenCode stage that is not planning (Builder, Validator, Completion
-Reviewer, Resolver, Investigator, workflow jobs) launches only inside the strict tool
-boundary of autocode_tool_containment, which exists on macOS sandbox-exec and on Linux
+Every built-in OpenCode stage (Builder, Validator, Completion Reviewer, Resolver,
+Investigator, workflow jobs, and since 2026-10-21 planning, whose shell is read-only)
+launches only inside the strict tool boundary of autocode_tool_containment, which exists on macOS sandbox-exec and on Linux
 bubblewrap with the conformance-tested OpenCode. A run that cannot have it is refused at setup, before
 any planning stage spends money, unless the person explicitly accepted uncontained
 tools with --allow-uncontained-tools.

@@ -1,10 +1,13 @@
 """Report repair reads the original report from wherever the stage's provider kept it (#717)."""
 
+import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import autocode_report_repair_context as repair_context
 import autocode_report_source as report_source
 from providers import claude, claude_stream
 
@@ -50,6 +53,117 @@ class ReportSourceTests(unittest.TestCase):
             {"report": None, "extraction_error": claude.FORMAT_REJECTION},
             report_source.original_report_for_repair(record),
         )
+
+    def test_malformed_report_retains_exact_text_and_unicode_syntax_location(self):
+        # Representative live failure: a list closes before its milestone object.
+        raw = '{\n"milestones":[{"title":"café", "summary":"keep every finding"],"other":[]} '
+        response = self.root / "revision.response.txt"
+        response.write_text(raw)
+        record = {"engine": "codex", "output": str(self.root / "revision.json"), "response_text": str(response)}
+        source = report_source.repair_report_source(record)
+        position = raw.index('],"other"')
+        self.assertEqual("text", source["format"])
+        self.assertEqual(raw, source["content"])
+        self.assertEqual(raw.encode(), response.read_bytes())
+        self.assertEqual(hashlib.sha256(raw.encode()).hexdigest(), source["sha256"])
+        self.assertEqual(len(raw.encode()), source["bytes"])
+        self.assertEqual(
+            {"message": "Expecting ',' delimiter", "position": position, "line": 2, "column": position - 1},
+            source["parse_error"],
+        )
+        self.assertFalse(source["truncated"])
+        self.assertFalse(Path(record["output"]).exists())
+
+    def test_valid_json_has_no_syntax_diagnostic_and_prose_is_not_coerced(self):
+        output = self.root / "report.json"
+        for raw, format_, content in (
+            ('{"summary": "done"}', "json", {"summary": "done"}),
+            ("not JSON", "text", "not JSON"),
+        ):
+            with self.subTest(raw=raw):
+                output.write_text(raw)
+                source = report_source.repair_report_source({"engine": "codex", "output": str(output)})
+                self.assertEqual(format_, source["format"])
+                self.assertEqual(content, source["content"])
+                if format_ == "json":
+                    self.assertNotIn("parse_error", source)
+                else:
+                    self.assertEqual(0, source["parse_error"]["position"])
+
+    def test_formatting_overhead_does_not_block_complete_bounded_json(self):
+        report = {"rows": [{"line": i, "reason": "retained café"} for i in range(2200)]}
+        compact = json.dumps(report, ensure_ascii=False, separators=(",", ":")).encode()
+        output = self.root / "report.json"
+        raw = json.dumps(report, ensure_ascii=True, indent=2).encode()
+        self.assertLess(len(compact), 128 * 1024)
+        self.assertGreater(len(raw), 128 * 1024)
+        output.write_bytes(raw)
+        source = report_source.repair_report_source({"engine": "codex", "output": str(output)})
+        self.assertEqual(report, source["content"])
+        self.assertEqual("json", source["format"])
+        self.assertEqual(len(raw), source["bytes"])
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), source["sha256"])
+        self.assertFalse(source["truncated"])
+        self.assertEqual(raw, output.read_bytes())
+
+    def test_large_complete_json_and_malformed_text_keep_exact_source_within_hard_bound(self):
+        report = {"decisions": [{"line": i, "reason": "Exact tested source retained. " * 8} for i in range(704)]}
+        output = self.root / "report.json"
+        encoded = json.dumps(report)
+        for raw, expected_format in ((encoded, "json"), ("Checked.\n```json\n" + encoded + "\n```", "text")):
+            with self.subTest(format=expected_format):
+                self.assertGreater(len(raw.encode()), 128 * 1024)
+                self.assertLess(len(raw.encode()), 512 * 1024)
+                output.write_text(raw)
+                source = report_source.repair_report_source({"engine": "codex", "output": str(output)})
+                self.assertEqual(expected_format, source["format"])
+                self.assertEqual(report if expected_format == "json" else raw, source["content"])
+                self.assertEqual(hashlib.sha256(raw.encode()).hexdigest(), source["sha256"])
+                self.assertEqual(raw, output.read_text())
+        self.assertEqual(512 * 1024, report_source.REPAIR_ARTIFACT_BYTES)
+
+    def test_report_that_grows_after_stat_is_still_refused_at_the_hard_byte_bound(self):
+        output = self.root / "report.json"
+        output.write_text("{}")
+        oversized = json.dumps({"summary": "x" * (512 * 1024)})
+        with patch.object(Path, "read_text", return_value=oversized), self.assertRaises(report_source.support.Paused):
+            report_source.repair_report_source({"engine": "codex", "output": str(output)})
+        self.assertEqual("{}", output.read_text())
+
+    def test_formatting_allowance_does_not_admit_oversized_content_or_text(self):
+        output = self.root / "report.json"
+        for raw in (
+            json.dumps({"summary": "é" * (report_source.REPAIR_REPORT_BYTES // 2)}, ensure_ascii=False),
+            "not JSON " + "x" * report_source.REPAIR_REPORT_BYTES,
+            " " * (4 * report_source.REPAIR_REPORT_BYTES) + "{}",
+        ):
+            with self.subTest(prefix=raw[:12]):
+                output.write_text(raw)
+                with self.assertRaises(report_source.support.Paused) as caught:
+                    report_source.repair_report_source({"engine": "codex", "output": str(output)})
+                self.assertEqual("PAUSED_REPORT_REPAIR_INPUT", caught.exception.status)
+                self.assertEqual(raw.encode(), output.read_bytes())
+                self.assertEqual(raw, output.read_text())
+
+    def test_repair_context_uses_latest_syntax_diagnostic_not_the_original(self):
+        original = self.root / "original.json"
+        latest = self.root / "latest.response.txt"
+        original.write_text('{"summary": "original schema failure"}')
+        latest.write_text('{"summary": "latest syntax failure" "checks": []}')
+        pending = {
+            "original": {"engine": "codex", "stage": "sol", "output": str(original)},
+            "latest_rejected": {"engine": "codex", "output": str(latest)},
+        }
+        before, current = repair_context.sources(pending, report_source.repair_report_source)
+        instruction, _ = repair_context.prompt_parts({}, pending, before, current, ("", {}))
+        self.assertNotIn("parse_error", before)
+        self.assertEqual(latest.read_text(), current["content"])
+        self.assertEqual(latest.read_text().index('"checks"'), current["parse_error"]["position"])
+        self.assertIn("rejected_report.parse_error", instruction)
+        self.assertIn("zero-based Unicode character offset", instruction)
+        for unknown in ({**current, "truncated": True}, before):
+            instruction, _ = repair_context.prompt_parts({}, pending, before, unknown, ("", {}))
+            self.assertNotIn("JSON SYNTAX DIAGNOSTIC", instruction)
 
     def test_a_truncated_claude_review_keeps_its_partial_report(self):
         partial = {"id": claude_stream.PARTIAL_ITEM, "type": "agent_message", "text": '{"findings": [{"id": "F1"'}

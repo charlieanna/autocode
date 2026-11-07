@@ -1,10 +1,9 @@
-title = "A three-line fix, through the full bug-fix path"
+title = "A three-line fix through the standard implementation sequence"
 category = "bugfix"
 # An off-by-one in page_count. Correctness is the easy part (hidden tests
 # cover every small total/size pair, so `// size + 1` fails on exact
-# multiples). It takes the full path: diagnosis, Planner, Plan Reviewer, the
-# user's approval, no requirements gathering, no questions. Proportionality (no
-# plan-review rounds, at most five model stages) comes back with the short path.
+# multiples). New runs use Requirements, Planner, Plan Reviewer and exact-plan
+# approval, with no separate initial Investigator or Planner shortcut.
 
 [fake]
 check = "python3 -m unittest discover -s tests -t ."

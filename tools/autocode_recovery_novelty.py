@@ -25,6 +25,13 @@ except ImportError:
     import autocode_util as util
 
 
+# The hold for an incident that repeats with nothing new. Its caller takes one scoped retry of each
+# action itself, then ends the run with a recorded outcome (autocode_resolver_recovery.admit_dispatch, #2485).
+NO_PROGRESS = (
+    "No causal progress for the same incident: retain the original errors and attempts; "
+    "supply a bounded source/input correction with a discriminating check, or use an explicit scoped retry"
+)
+
 CAUSES = frozenset(
     {"setup", "runtime", "implementation", "evidence_gap", "product", "permission", "provider_transient", "unresolved"}
 )
@@ -256,8 +263,4 @@ def decide(
         if action == "diagnosis" and not unresolved_question:
             return Decision("hold", "A bounded known repair does not need a paid diagnosis")
         return Decision(action, "bounded_change", change_id)
-    return Decision(
-        "hold",
-        "No causal progress for the same incident: retain the original errors and attempts; "
-        "supply a bounded source/input correction with a discriminating check, or use an explicit scoped retry",
-    )
+    return Decision("hold", NO_PROGRESS)

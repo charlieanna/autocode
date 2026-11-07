@@ -91,13 +91,15 @@ def _validate_policy_arguments(command):
 def persists_final_message(command):
     """True when the argv asks Codex to persist the model's final message at {report}.
 
-    Tools that put ``-o {report}`` (or ``--output-last-message {report}``) in the
-    command list deliver the JSON report without a shell write. The prompt must
-    then ask for a final response, not for a tool write into a read-only sandbox.
+    Tools that put ``-o {report}`` (or ``--output-last-message {report}``, with or
+    without the ``=`` separator) in the command list deliver the JSON report
+    without a shell write. The prompt must then ask for a final response, not
+    for a tool write into a read-only sandbox.
     """
-    return any(
+    two_token = any(
         command[i] in ("-o", "--output-last-message") and command[i + 1] == "{report}" for i in range(len(command) - 1)
     )
+    return two_token or any(part in ("-o={report}", "--output-last-message={report}") for part in command)
 
 
 def validate(config):
@@ -195,7 +197,10 @@ def arguments(sandbox, workspace, run_dir, report):
         _artifact_tree(path)
     for path in directories:
         path.mkdir(parents=True, exist_ok=True)
-    rules = ",".join(json.dumps(str(path)) + '="write"' for path in [*directories, report])
+    # -o persists the validated report outside the tool sandbox. Codex's Linux
+    # sandbox treats write roots as directories, so granting the report file
+    # itself fails mount setup (and granting its parent would expose reports).
+    rules = ",".join(json.dumps(str(path)) + '="write"' for path in directories)
     profile = '{extends=":read-only",filesystem={' + rules + "}}"
     return [
         *isolated,

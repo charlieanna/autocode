@@ -14,13 +14,30 @@ except ImportError:
 
 
 import copy
+import json
 
 try:
+    from . import autocode_contract_revision as contract_revision
+    from . import autocode_coordination_context as coordination_context
+    from . import autocode_draft_failure_correction as failure_correction
     from . import autocode_goals as goals
+    from . import autocode_plan_retention as retention
+    from . import autocode_regression_reference as regression_reference
+    from . import autocode_report_edits as report_edits
+    from . import autocode_requirement_retention as requirement_retention
     from . import autocode_roles as roles
+    from . import autocode_source_trace as source_trace
 except ImportError:
+    import autocode_contract_revision as contract_revision
+    import autocode_coordination_context as coordination_context
+    import autocode_draft_failure_correction as failure_correction
     import autocode_goals as goals
+    import autocode_plan_retention as retention
+    import autocode_regression_reference as regression_reference
+    import autocode_report_edits as report_edits
+    import autocode_requirement_retention as requirement_retention
     import autocode_roles as roles
+    import autocode_source_trace as source_trace
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
 DECISION_STAGES = frozenset({"astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"})
@@ -30,20 +47,10 @@ def requirements_sources(state: RunState, stage: str) -> dict:
     """Give a Requirements repair the saved IDs needed to cite a user correction."""
     if stage != "requirements_gather":
         return {"previous_requirements": None}
-    sources = [
-        {"basis": "user_feedback", "event_id": event["id"], "text": event.get("text", "")}
-        for event in state.get("brief_feedback", [])
-        if event.get("id") and event in state.get("user_events", [])
-    ]
-    sources.extend(
-        {"basis": "user_answer", "event_id": key, "text": value.get("text", "") if isinstance(value, dict) else value}
-        for key, value in (state.get("answers") or {}).items()
-    )
+    previous = ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements", [])
     return {
-        "previous_requirements": copy.deepcopy(
-            ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements", [])
-        ),
-        "requirements_correction_sources": sources,
+        "previous_requirements": copy.deepcopy(previous),
+        "requirements_correction_sources": requirement_retention.correction_sources(state, previous),
     }
 
 
@@ -54,7 +61,12 @@ def baseline_instruction(stage: str) -> str:
             "fragments/report-repair-context/requirements-corrections.md"
         )
     if stage in PLANNING_STAGES:
-        return prompts.get("fragments/report-repair-context/baseline-instruction-02.md")
+        instruction = prompts.get("fragments/report-repair-context/baseline-instruction-02.md") + prompts.get(
+            "fragments/autoplanner/proof-reference-rule.md"
+        )
+        if stage in source_trace.REVIEW_STAGES:
+            instruction += prompts.get("fragments/autoplanner/source-citation-rule.md")
+        return instruction
     if stage in DECISION_STAGES:
         return prompts.get("fragments/report-repair-context/baseline-instruction-03.md")
     return prompts.get("fragments/report-repair-context/baseline-instruction.md")
@@ -63,7 +75,10 @@ def baseline_instruction(stage: str) -> str:
 def clarification_context(state: RunState, stage: str) -> dict:
     """Return the human and investigation context needed to repair a planning report."""
     if stage not in PLANNING_STAGES:
-        return {}
+        # The Investigator reports external owners too; its repair must see the same
+        # canonical member names the rejection names (#2420).
+        member = coordination_context.context(state) if stage == "investigate_bug" else None
+        return {**({"coordinated_member": member} if member else {})}
 
     handoff = copy.deepcopy(state.get("requirements_handoff"))
     questions = ((handoff or {}).get("report") or {}).get("open_questions", [])
@@ -85,6 +100,12 @@ def clarification_context(state: RunState, stage: str) -> dict:
         else ()
     )
     return {
+        **({"coordinated_member": member} if (member := coordination_context.context(state)) else {}),
+        **(
+            {"retained_contract": retention.token(state), "retained_criteria": retention.inventory(state)}
+            if retention.token(state)
+            else {}
+        ),
         "protected_contract": goals.protected_contract_snapshot(state) if stage in goals.PLANNER_ORIGINS else None,
         "planning_exchange": planning_exchange(reports, predecessors),
         "requirements_handoff": handoff,
@@ -133,6 +154,277 @@ def repair_payloads(state: RunState, stage: str) -> tuple[dict, dict | None]:
     return clarification, protected_contract
 
 
+def criterion_retention(clarification: dict, stage: str, schema: dict | None = None) -> tuple[str, dict]:
+    """Author repairs need exact current references, without repeating earlier plan reports."""
+    if stage not in retention.AUTHORS - retention.FINAL or not clarification.get("retained_contract"):
+        return "", {}
+    if (
+        stage == "glm_revise"
+        and schema is not None
+        and retention.allows_delta(schema)
+        and not retention.allows_row_references(schema)
+    ):
+        return "", {"retained_contract": clarification["retained_contract"]}
+    return retention.RULE, {
+        "retained_criteria": copy.deepcopy(clarification["retained_criteria"]),
+        "retained_contract": clarification["retained_contract"],
+    }
+
+
+def _original_overlay(original, latest) -> dict:
+    """Losslessly encode an older JSON value relative to the complete current value."""
+    delta: dict = {"remove": [], "replace": []}
+
+    def compare(old, new, path):
+        if isinstance(old, dict) and isinstance(new, dict):
+            delta["remove"].extend([*path, key] for key in new if key not in old)
+            for key, value in old.items():
+                if key in new:
+                    compare(value, new[key], [*path, key])
+                else:
+                    delta["replace"].append({"path": [*path, key], "value": copy.deepcopy(value)})
+        elif isinstance(old, list) and isinstance(new, list) and len(old) == len(new):
+            for index, (before, after) in enumerate(zip(old, new, strict=True)):
+                compare(before, after, [*path, index])
+        elif type(old) is not type(new) or old != new:
+            delta["replace"].append({"path": path, "value": copy.deepcopy(old)})
+
+    compare(original, latest, [])
+    return delta
+
+
+def historical_author_report(stage: str, original: dict, latest: dict | None) -> tuple[str, dict | None]:
+    """Keep every older author/reviewer value inline without duplicating JSON subtrees."""
+    if latest is None:
+        return "", None
+    if (
+        stage not in (retention.AUTHORS - retention.FINAL) | report_edits.REVIEW_STAGES
+        or any(source.get("format") != "json" or source.get("truncated") for source in (original, latest))
+        or any(not isinstance(source.get("content"), dict) for source in (original, latest))
+    ):
+        return "", original
+    reference = {key: copy.deepcopy(value) for key, value in original.items() if key != "content"}
+    reference["content_base"] = "rejected_report.content"
+    reference["content_delta"] = _original_overlay(original["content"], latest["content"])
+    if len(json.dumps(reference, indent=2)) >= len(json.dumps(original, indent=2)):
+        return "", original
+    review = stage in report_edits.REVIEW_STAGES
+    return (
+        ("HISTORICAL EXECUTION REPORT. " if review else "HISTORICAL PLANNING DRAFT. ")
+        + "original_report encodes its complete older JSON inline relative to "
+        "rejected_report.content: copy that base, remove each content_delta.remove path, then replace each "
+        "content_delta.replace path with its exact supplied value. Path arrays name object keys or list indices; "
+        "an empty path replaces the root. No file access is needed. The original artifact path/hash stay pinned. "
+        + (
+            "The reconstructed original is the immutable execution-history baseline, not an accepted report. "
+            "Preserve exact recorded commands, including literal escape sequences; do not normalize Unicode "
+            "or quoting. Repair the latest report against both recorded errors without undoing valid corrections, "
+            "inventing execution or erasing failures. All ordinary evidence checks still run.\n"
+            if review
+            else "The complete latest rejected_report and protected_contract remain below; repair the latest draft, "
+            "not the superseded one.\n"
+        ),
+        reference,
+    )
+
+
+def sources(pending: dict, read_source) -> tuple[dict, dict]:
+    """Load the original and current pinned report once, in their existing order."""
+    original = read_source(pending["original"])
+    # An empty report-only answer is input, never a report: the next repair corrects the
+    # pinned original instead (#2426). Planning and execution stages share this rule.
+    latest = read_source(pending["latest_rejected"], allow_empty=True) if pending.get("latest_rejected") else original
+    return original, latest
+
+
+def protected_list_differences(protected, latest) -> list[dict]:
+    """Show independent literal differences even when validation stopped earlier.
+
+    This is a read-only inventory, not another validator or a semantic comparison.
+    Full contract references retain their fields and must not be treated as drops.
+    Partial/malformed artifacts keep the existing error instead of guessing values.
+    """
+    if not isinstance(protected, dict) or latest.get("format") != "json" or latest.get("truncated"):
+        return []
+    report = latest.get("content")
+    body = report.get("contract") if isinstance(report, dict) else None
+    if not isinstance(body, dict) or "retain_contract" in body:
+        return []
+    differences = []
+    for field in contract_revision.PROTECTED_LISTS:
+        before, after = protected.get(field), body.get(field)
+        if not isinstance(before, list) or not isinstance(after, list):
+            continue
+        if not all(isinstance(value, str) for value in [*before, *after]):
+            continue
+        missing = list(dict.fromkeys(value for value in before if value not in after))
+        if missing:
+            differences.append({"field": field, "missing": missing})
+    return differences
+
+
+def prompt_parts(
+    state: RunState, pending: dict, original: dict, latest: dict, receipt_parts: tuple, *, schema: dict | None = None
+) -> tuple[str, dict]:
+    """Assemble bounded planning context while keeping receipt policy with its caller."""
+    stage = pending["original"]["stage"]
+    clarification, protected = repair_payloads(state, stage)
+    retention_instruction, references = criterion_retention(clarification, stage, schema)
+    historical_instruction, historical_source = historical_author_report(
+        stage, original, latest if pending.get("latest_rejected") else None
+    )
+    receipt_instruction, receipt_handoff = receipt_parts
+    batch = batch_validation_context(state, stage)
+    citation = changed_code_citation_context(state, pending, stage)
+    interpretations = goals.feedback_interpretation_context(state) if stage in PLANNING_STAGES else {}
+    adjacent = failure_correction.repair_obligations(state) if stage == "glm_revise" else None
+    # Revision validation uses the current review, not the execution findings ledger.
+    # Carry that report once without restoring superseded predecessor contracts.
+    review = (
+        {"planning_exchange": {"astra_challenge": copy.deepcopy(entry)}}
+        if stage == "glm_revise" and (entry := clarification["planning_exchange"].get("astra_challenge"))
+        else {}
+    )
+    differences = protected_list_differences(protected, latest) if stage in retention.AUTHORS else []
+    difference_instruction = (
+        "PROTECTED LIST DIFFERENCES. protected_list_differences lists exact saved entries absent from the "
+        "latest rejected report, including differences independent of the first error. Address them in this "
+        "same repair: retain the saved text verbatim; put additional detail in separate entries. If the "
+        "existing change rules permit a recorded replacement/removal, keep its required change receipts "
+        "instead. This inventory is not a ruling on those receipts and grants no change authority. All "
+        "schema, provenance and protected-contract guards still run. Do not undo authorized changes or "
+        "invent user approval.\n"
+        if differences
+        else ""
+    )
+    syntax_instruction = (
+        "JSON SYNTAX DIAGNOSTIC. rejected_report.parse_error describes the first parser failure in the "
+        "exact rejected_report.content text: position is a zero-based Unicode character offset; line and "
+        "column are one-based. Use it to locate the syntax defect, then return the complete corrected "
+        "report or the offered exact-bound text edits. It may expose further errors after correction; "
+        "it does not authorize dropping findings, "
+        "changing requirements or bypassing schema, evidence or protected-contract validation.\n"
+        if latest.get("format") == "text"
+        and latest.get("parse_error")
+        and not latest.get("truncated")
+        and not latest.get("empty_response")
+        else ""
+    )
+    review_instruction = prompts.get("fragments/report-repair-context/revision-review.md") if review else ""
+    return (
+        receipt_instruction
+        + retention_instruction
+        + (
+            "CHANGED-CODE CITATION REPAIR. changed_code_citation_context names the enclosing runner proof "
+            "for this source. Individual mutation logs and raw coverage files are not accepted "
+            "changed_code_exceptions evidence_refs; cite the enclosing proof_reference for those "
+            "observations. You may also cite check:<n> from the report or exact inventoried product/test "
+            "files, subject to ordinary authentication. The reference is a citation choice, not proof of "
+            "PASS or permission to change a judgment. Preserve rejects, findings and missing evidence. "
+            "Repair the supplied JSON directly; do not return a shell command or request a tool call. "
+            "Do not invent a new check or claim execution during report-only repair. All original check, "
+            "source and citation admission still runs.\n"
+            if citation
+            else ""
+        )
+        + (
+            "ORIGINAL REJECTION. original_error records why the pinned original attempt was rejected; "
+            "error describes the latest failed repair. A format failure in repair does not erase the "
+            "original evidence or schema defect. Check both against the supplied drafts and current "
+            "context. The earlier rejection is not evidence that a later draft still has that defect; "
+            "do not undo valid corrections or restore superseded planning decisions. Preserve failures "
+            "and uncertainty; every ordinary admission check still runs.\n"
+            if pending.get("original_error") and pending.get("latest_rejected")
+            else ""
+        )
+        + historical_instruction
+        + review_instruction
+        + difference_instruction
+        + (
+            "COMBINED VALIDATION SCOPE. batch_validation is the runner's current task scope, not a model "
+            "proposal. milestone_results must report exactly the milestone_ids in batch_validation, once "
+            "each; do not add an earlier accepted milestone or use an internal batch ID. Preserve failed "
+            "or missing evidence: use FAIL or NOT_VERIFIED where appropriate, and never return an overall "
+            "PASS unless every batch member has passing evidence. For a proposed validate task, use the "
+            "approved primary milestone_id from batch_validation and retain all its acceptance_criteria; "
+            "do not split or narrow the batch to repair an identifier. No state-file lookup or new test "
+            "execution is needed to identify the required members. All existing evidence gates still apply.\n"
+            if batch
+            else ""
+        )
+        + (
+            "DRAFT FAILURE ADJACENT OBLIGATIONS. draft_failure_adjacent_obligations supplies the exact saved "
+            "assumption and decision rows that must be retained beside a receipted failure-case correction. "
+            "Use these rows directly, including their order, basis and answer_id; no private-state lookup is needed. "
+            "This context does not make a model-proposed assumption human-approved and grants no change authority. "
+            "Any separately permitted change must still satisfy its independent correction rules.\n"
+            if adjacent is not None
+            else ""
+        )
+        + syntax_instruction
+        + (
+            "EMPTY REPAIR RESPONSE. The latest report-only attempt returned no final report. "
+            "It supplies no replacement content. original_report contains the complete earlier rejected "
+            "report and its parse_error when malformed. Correct that report against the current review, "
+            "clarification context and protected contract; do not repeat the empty response. The original "
+            "remains rejected until all ordinary validation succeeds. Do not invent evidence or approval.\n"
+            if latest.get("empty_response")
+            else ""
+        )
+        + report_edits.instruction(stage, latest),
+        {
+            "header": {
+                **receipt_handoff,
+                **(
+                    {"original_error": pending["original_error"]}
+                    if pending.get("original_error") and pending.get("latest_rejected")
+                    else {}
+                ),
+                **({"changed_code_citation_context": citation} if citation else {}),
+                **({"batch_validation": batch} if batch else {}),
+                **({"protected_list_differences": differences} if differences else {}),
+                **({"draft_failure_adjacent_obligations": adjacent} if adjacent is not None else {}),
+                **references,
+                **review,
+                **({"feedback_interpretations": interpretations} if interpretations else {}),
+                **({"regression_reference": regression_reference.context(state)} if stage in PLANNING_STAGES else {}),
+                **({"approved_milestones": approved_milestones(state)} if stage in DECISION_STAGES else {}),
+                # The Investigator's report repair names external owners; it needs the
+                # same canonical member context its stage packet carries (#2420).
+                **(
+                    {"coordinated_member": clarification["coordinated_member"]}
+                    if stage == "investigate_bug" and "coordinated_member" in clarification
+                    else {}
+                ),
+            },
+            "original_report": historical_source,
+            "protected_contract": protected,
+            "clarification": {"clarification_context": clarification} if stage == "astra_finalize" else {},
+        },
+    )
+
+
+def batch_validation_context(state: RunState, stage: str) -> dict:
+    """Keep report-only repairs grounded in the exact current combined task."""
+    task = state.get("current_task") or {}
+    if stage not in DECISION_STAGES | {"sol"} or not task.get("milestone_ids"):
+        return {}
+    return {
+        "task_id": task["id"],
+        **copy.deepcopy(
+            {key: task[key] for key in ("milestone_id", "milestone_ids", "acceptance_criteria") if key in task}
+        ),
+    }
+
+
+def approved_milestones(state: RunState) -> list:
+    """The approved contract's milestones, inline: a Kilo report-only repair has no tools to read state_file."""
+    contract = state.get("goal_contract") or {}
+    if contract.get("approval_status") != "approved":
+        return []
+    return copy.deepcopy((contract.get("body") or {}).get("milestones") or [])
+
+
 def instruction(stage: str) -> str:
     """Explain how a planning report repair must use the saved clarification sources."""
     if stage not in PLANNING_STAGES:
@@ -140,3 +432,20 @@ def instruction(stage: str) -> str:
     if stage == "astra_finalize":
         return prompts.get("fragments/report-repair-context/instruction-02.md")
     return prompts.get("fragments/report-repair-context/instruction.md")
+
+
+def changed_code_citation_context(state: RunState, pending: dict, stage: str) -> dict:
+    """Offer the current enclosing proof as a citation, never new evidence authority."""
+    if stage not in {"sol", "astra_checkpoint"}:
+        return {}
+    proof = state.get("regression_proof") or {}
+    source = proof.get("source_revision")
+    if (
+        not isinstance(source, str)
+        or not source
+        or source != pending["original"].get("source_revision")
+        or not isinstance(proof.get("path"), str)
+        or not proof["path"]
+    ):
+        return {}
+    return {"proof_reference": proof["path"], "source_revision": source}

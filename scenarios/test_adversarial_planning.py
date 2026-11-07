@@ -47,7 +47,7 @@ class PlanningAttacks(AdversarialCase):
 
 
 class PlanningClarificationRecovery(AdversarialCase):
-    def test_verified_citation_correction_survives_clarification_and_finishes(self):
+    def test_citation_correction_expires_after_clarification_and_fresh_plan_finishes(self):
         from .harness.project import git
 
         (self.project / "README.md").write_text("Implement the requested greeting CLI.\n")
@@ -58,7 +58,8 @@ class PlanningClarificationRecovery(AdversarialCase):
         cycles = self.trace("citation_cycle")
         self.assertTrue(any(not row["guided"] for row in cycles), self.root)
         self.assertTrue(any(row["guided"] and not row["answered"] for row in cycles), self.root)
-        self.assertTrue(any(row["guided"] and row["answered"] for row in cycles), self.root)
+        self.assertTrue(any(not row["guided"] and row["answered"] for row in cycles), self.root)
+        self.assertFalse(any(row["guided"] and row["answered"] for row in cycles), self.root)
         self.assertEqual("TASK_COMPLETE", view["status"], self.root)
         self.assertEqual(
             1,
@@ -146,9 +147,22 @@ class DraftExamplePlanning(AdversarialCase):
 
     def test_example_receipt_cannot_also_change_an_input_and_dispatch_a_builder(self):
         self.set_fault("planning", "reject_draft_example_input_change")
-        view = self.driver.drive(self.scenario.brief)
+        self.driver.call("start", task=self.scenario.brief)
+        self.discover_run()
+        # A protected input change is a person decision, not malformed model output.
+        # Do not auto-answer KEEP and feed the same adversarial proposal back forever.
+        view = self.driver.until_stopped(say_at="needs:answer")
         self.assertFalse(view["done"], self.root)
         self.assertFalse(self.trace("stage_enter", "terra"))
         self.assertFalse(any(step["kind"] == "approve-plan" for step in self.driver.steps))
-        rejected = self.trace("example_rejection_observed", "glm_revise")
-        self.assertTrue(any("saved user answer" in row["error"] for row in rejected), self.root)
+        self.assertEqual("answer", view["needs"]["kind"])
+        questions = view["needs"]["questions"]
+        self.assertEqual(1, len(questions))
+        question = questions[0]
+        self.assertTrue(question["id"].startswith("rewording-"), question)
+        self.assertIn("B,130", question["question"])
+        self.assertIn("B,129", question["question"])
+        self.assertIn("C_COUNT", question["question"])
+        self.assertEqual("Keep the approved wording", question["proposed_default"])
+        self.assertEqual([], self.driver.answers, "The fixture must leave this decision to the person")
+        self.assertEqual(1, len(self.trace("stage_enter", "glm_revise")), self.root)

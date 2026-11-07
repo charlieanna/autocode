@@ -66,11 +66,66 @@ await delta("next-part", "new reasoning fragment", "next1", "next");
         positions = [r["progress"]["position"] for r in rows[:4]]
         self.assertEqual(sorted(set(positions)), positions)
         self.assertNotIn("private report fragment", result.stdout)
-        self.assertNotIn("reasoning fragment", result.stdout)
+        # A reasoning part carries its newest words for the live log; a text part (the report) never does.
+        self.assertNotIn("preview", json.dumps(rows[:4]))
+        self.assertEqual("new reasoning fragment", rows[4]["progress"]["preview"])
         self.assertNotIn("part", rows[0])  # no native part ID usable as command/report proof
         for row in rows:
             self.assertRegex(row["progress"]["content_hash"], r"^[0-9a-f]{64}$")
             self.assertRegex(row["progress"]["delta_hash"], r"^[0-9a-f]{64}$")
+
+    @unittest.skipUnless(shutil.which("node"), "Node is needed to execute the OpenCode hook")
+    def test_a_compaction_part_is_forwarded_once_for_the_bound_session(self):
+        """Kilo writes a ``compaction`` part when it summarizes the conversation (#1942); the row carries only its flags."""
+        script = r"""
+import plugin from HOOK;
+Date.now = () => 42;
+const hook = await plugin();
+const update = (part) => hook.event({event: {type: "message.part.updated", properties: {part}}});
+await hook["chat.message"]({sessionID: "main"});
+await update({id: "c1", type: "compaction", sessionID: "main", auto: true, overflow: true, tail_start_id: "msg_secret"});
+await update({id: "c1", type: "compaction", sessionID: "main", auto: true, overflow: true}); // replay
+await update({id: "c2", type: "compaction", sessionID: "foreign", auto: true});
+await update({type: "compaction", sessionID: "main", auto: true}); // no part id
+await update({id: "c3", type: "compaction", sessionID: "main"});
+await hook["chat.message"]({sessionID: "next"});
+await update({id: "c1", type: "compaction", sessionID: "next", overflow: false});
+""".replace("HOOK", json.dumps(HOOK.resolve().as_uri()))
+        result = subprocess.run(
+            [shutil.which("node"), "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=15,
+        )
+        rows = [json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual(
+            [
+                {
+                    "type": "autocode_compaction",
+                    "version": 1,
+                    "timestamp": 42,
+                    "sessionID": "main",
+                    "compaction": {"auto": True, "overflow": True},
+                },
+                {
+                    "type": "autocode_compaction",
+                    "version": 1,
+                    "timestamp": 42,
+                    "sessionID": "main",
+                    "compaction": {"auto": False, "overflow": False},
+                },
+                {
+                    "type": "autocode_compaction",
+                    "version": 1,
+                    "timestamp": 42,
+                    "sessionID": "next",
+                    "compaction": {"auto": False, "overflow": False},
+                },
+            ],
+            rows,
+        )
+        self.assertNotIn("msg_secret", result.stdout)
 
     def test_launch_preserves_plugins_and_registers_one_packaged_hook(self):
         uri = HOOK.resolve().as_uri()

@@ -62,7 +62,7 @@ async function test() {
  // A response begun before remove/restore cannot repopulate removed tasks.
  let finishFetch,setupCalls=0;
  const poll=vm.createContext({api:()=>new Promise(resolve=>finishFetch=resolve),setup:()=>setupCalls++,console});
- vm.runInContext("let seq=0,currentView='tasks',chosen=null,activeConversation=null,latestData=null;"+source.slice(source.indexOf('async function refreshOnce(){'),source.indexOf('async function refresh(){')),poll);
+ vm.runInContext("let seq=0,currentView='tasks',chosen=null,activeConversation=null,latestData=null;"+source.slice(source.indexOf('async function refreshOnce('),source.indexOf('async function refresh(')),poll);
  const inflight=poll.refreshOnce();vm.runInContext('seq++',poll);finishFetch({workspaces:['/removed']});await inflight;
  assert.equal(setupCalls,0);assert.equal(vm.runInContext('latestData',poll),null);
  console.log('Project review, repeat clicks, removal, restore, retained errors, mutation and stale-poll guards passed.');

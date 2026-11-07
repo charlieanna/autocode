@@ -9,6 +9,10 @@ The full brief runs to hundreds of lines, so it ends with a short summary of the
 (``summary``), just above the limits and the commands: what the plan will do, what it may
 change, when it is done and what passing proves. That is the last screen of the terminal.
 
+The approval stop a person first sees is that summary alone (#2535): the limits, one line
+(``details``) naming the command that prints the full brief with its contract diff and request
+tokens, then the commands. ``--show-goal``, ``--details`` and ``--json`` keep the full brief.
+
 Pure functions over saved values. Only the pure cost formatter (autocode_cost, which imports
 nothing above the standard library) is imported, so the brief renderer (autocode_goal_lifecycle)
 uses them without adding to an import cycle.
@@ -56,12 +60,28 @@ def token_note() -> str:
 
 def actions(token: str, settings: dict, iteration: int, run_dir=None) -> list[str]:
     """Last: the limits in effect, then how to approve this plan or ask for a change."""
-    command = "autocode" + (f" --run-dir {shlex.quote(str(run_dir))}" if run_dir else "")
+    return [limits(settings, iteration)] + commands(token, run_dir)
+
+
+def commands(token: str, run_dir=None) -> list[str]:
+    """How to approve this plan or ask for a change."""
+    command = _command(run_dir)
     return [
-        limits(settings, iteration),
         f"To approve this plan: {command} --approve-goal {shlex.quote(token)}",
         f"To change it instead: {command} --feedback 'WHAT TO CHANGE' (the revised plan gets a new token)",
     ]
+
+
+def details(run_dir=None) -> str:
+    """The one line of the short approval stop that points at the full brief (#2535)."""
+    return (
+        "The full plan, its changes since the last revision and the request tokens: "
+        f"{_command(run_dir)} --details (in the chat, /details)"
+    )
+
+
+def _command(run_dir=None) -> str:
+    return "autocode" + (f" --run-dir {shlex.quote(str(run_dir))}" if run_dir else "")
 
 
 def limits(settings: dict, iteration: int) -> str:
@@ -105,16 +125,21 @@ def duration(seconds) -> str:
     return f"{seconds} s"
 
 
-def summary(body: dict, revision, cases: list[dict], *, design_only: bool = False) -> list[str]:
-    """The decision in brief, shown between the full brief and the limits.
+def summary(
+    body: dict, revision, cases: list[dict], *, design_only: bool = False, proxied=(), above: bool = True
+) -> list[str]:
+    """The decision in brief, shown between the full brief and the limits, or first and alone when
+    ``above`` is false (the short approval stop, #2535).
 
     Every plan field is quoted verbatim from the contract body; a field an older body lacks is
     left out. ``cases`` are the cases the regression proof will require a test for at completion
     (autocode_test_cases.proof_cases) — a reproduced bug's diagnosis or the plan's marked criteria,
     never a mix, so ``proof`` tells which from the cases themselves; ``design_only`` is a design
-    job (autocode_test_cases.design_only), whose criteria no named test proves."""
+    job (autocode_test_cases.design_only), whose criteria no named test proves. ``proxied`` are the
+    trace's proxied rows (autocode_trace_coverage.proxied_rows, #2068): requirements whose criteria prove
+    a stand-in for what the user sees, listed so the person never reads them as fully covered."""
     body = body if isinstance(body, dict) else {}
-    lines = [f"Before you approve r{revision} (a summary of the plan above):"]
+    lines = [f"Before you approve r{revision}" + (" (a summary of the plan above):" if above else ":")]
     outcome = body.get("intended_outcome")
     if isinstance(outcome, str) and outcome.strip():
         lines += ["What it will do:"] + ["  " + line for line in outcome.splitlines()]
@@ -130,7 +155,10 @@ def summary(body: dict, revision, cases: list[dict], *, design_only: bool = Fals
     if exclusions is not None:
         lines += ["Out of scope:"] + (["  - " + row for row in exclusions[:SCOPE_SHOWN]] or ["  (none declared)"])
         if len(exclusions) > SCOPE_SHOWN:
-            lines.append(f"  - ... and {len(exclusions) - SCOPE_SHOWN} more in the plan above")
+            lines.append(
+                f"  - ... and {len(exclusions) - SCOPE_SHOWN} more in the "
+                + ("plan above" if above else "full plan (--details)")
+            )
     criteria = [row for row in _rows(body.get("acceptance_criteria")) if isinstance(row, dict)]
     if criteria:
         lines.append("Done when:")
@@ -143,11 +171,22 @@ def summary(body: dict, revision, cases: list[dict], *, design_only: bool = Fals
                     if part
                 )
             )
+            if row.get("current_behavior"):
+                lines.append(f"    Today: {row['current_behavior']}")
+            for entry in row.get("supersedes") or []:
+                if isinstance(entry, dict):
+                    lines.append(f"    Replaces existing test: {entry.get('file')}::{entry.get('test')}")
             if row.get("verification_method"):
                 lines.append(f"    Checked by: {row['verification_method']}")
             if row.get("human_review") is True:
                 lines.append("    Also needs your review of the result before the run can complete.")
         lines += ["What passing proves:"] + ["  - " + line for line in proof(body, criteria, cases, design_only)]
+    rows = [row for row in proxied or () if isinstance(row, dict)]
+    if rows:
+        lines.append("Proven only on a stand-in (what you see is rendered outside this checkout):")
+        for row in rows:
+            lines.append(f"  - {row.get('requirement_id')}: {row.get('evidence')}")
+            lines.append(f"    Why: {row.get('proxy_reason')}")
     return lines
 
 
@@ -220,3 +259,66 @@ def _items(value) -> list[str] | None:
     if not isinstance(value, list):
         return None
     return [row if isinstance(row, str) else json.dumps(row, sort_keys=True) for row in value]
+
+
+def review_request(
+    body: dict, request: dict, validation: dict | None, changes: dict | None = None, run_dir=None
+) -> list[str]:
+    """The human-review gate as a person reads it: each criterion to review with its text, how the
+    independent check covered it, which files its saved Builder steps changed, what the gate asks
+    (#2327), and the one command that shows the change with its evidence (#2360). ``changes`` is the
+    status view's ``changes_by_criterion``; the raw request stays in the payload."""
+    rows = {row.get("id"): row for row in body.get("acceptance_criteria") or [] if isinstance(row, dict)}
+    results = {
+        row.get("id"): row.get("status")
+        for row in (validation or {}).get("criterion_results") or []
+        if isinstance(row, dict)
+    }
+    changed = {
+        row.get("id"): [str(path) for path in row.get("files") or []]
+        for row in (changes or {}).get("criteria") or []
+        if isinstance(row, dict)
+    }
+    lines = ["Your review is needed before the run can complete:"]
+    for identifier in request.get("criteria") or []:
+        row = rows.get(identifier) or {}
+        text = str(row.get("criterion") or row.get("text") or "").strip()
+        lines.append(f"  [{identifier}] {text}".rstrip())
+        if row.get("verification_method"):
+            status = results.get(identifier)
+            verdict = f" ({str(status).lower()} in the independent check)" if status else ""
+            lines.append(f"    Checked by: {row['verification_method']}{verdict}")
+        if changed.get(identifier):
+            lines.append(f"    Changed: {', '.join(changed[identifier])}")
+    if request.get("discovered"):
+        lines.append(f"  {request['discovered']}")
+    if run_dir is not None:
+        lines.append(f"  See the change and its evidence: autocode review --show --run-dir {run_dir}")
+    return lines
+
+
+def validation_summary(validation: dict) -> list[str]:
+    """The independent check's verdict in a few lines instead of its whole record (#2327): what ran,
+    how it exited, the findings and any criterion it left unverified, then where the record is."""
+    checks = [row for row in validation.get("checks") or [] if isinstance(row, dict)]
+    exits = [row.get("exit_code") for row in checks]
+    ran = f"{len(checks)} check(s) ran"
+    if checks:
+        ran += ", each exited 0" if all(code == 0 for code in exits) else f", exit codes {exits}"
+    findings = [row for row in validation.get("findings") or []]
+    unverified = [str(item) for item in validation.get("unverified_criteria") or []]
+    lines = [f"Validation: {validation.get('verdict') or 'no verdict'}; {ran}; {len(findings)} finding(s)."]
+    for row in findings[:10]:
+        if isinstance(row, dict):
+            label = row.get("criterion_id") or row.get("id") or row.get("severity") or "finding"
+            text = row.get("text") or row.get("description") or row.get("summary") or json.dumps(row, sort_keys=True)
+            lines.append(f"  - {label}: {text}")
+        else:
+            lines.append(f"  - {row}")
+    if len(findings) > 10:
+        lines.append(f"  ... and {len(findings) - 10} more")
+    if unverified:
+        lines.append(f"  Not verified by the check: {', '.join(unverified)}")
+    if validation.get("output"):
+        lines.append(f"  Full record: {validation['output']}")
+    return lines

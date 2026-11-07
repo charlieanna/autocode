@@ -2,7 +2,7 @@
 keep retries for lost requests, and come with a diagnosis that names the real
 cause. Run checks: the workflow starts by investigating, not gathering requirements."""
 
-from harness.oracle import Check, load_json, mentions, python_change_checks, run_checks
+from harness.oracle import Check, bugfix_entry, load_json, mentions, python_change_checks, run_checks
 
 DIAGNOSIS_FIELDS = ("observed", "reproduction", "root_cause", "affected_paths", "invariant")
 
@@ -34,5 +34,5 @@ def check(project, scenario, run=None):
                 str(paths),
             )
         )
-    checks += run_checks(run, workflow="bugfix", no_requirements=True)
+    checks += run_checks(run, workflow="bugfix", after_requirements=bugfix_entry(run))
     return checks

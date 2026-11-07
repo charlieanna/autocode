@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 try:
     from . import autocode_util as util
@@ -90,16 +90,13 @@ def parse_pull_request_url(text: str, *, api: str = API) -> IssueRef:
     except ValueError as error:
         raise GitHubError("invalid pull request authority") from error
     match = re.fullmatch(r"/(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)/pull/(?P<number>[1-9]\d*)/?", value.path)
-    if (
-        value.scheme != "https"
-        or not value.hostname
-        or value.username
-        or value.password
-        or not match
-        or value.hostname != expected_host
-        or port != expected_port
-    ):
-        raise GitHubError("pull request URL must match the configured GitHub API web host and port")
+    expected = f"https://{expected_host}{'' if expected_port == 443 else f':{expected_port}'}/OWNER/REPO/pull/N"
+    if value.scheme != "https" or not value.hostname or value.username or value.password or not match:
+        # A number, OWNER/REPO#N or an issue link: name the form, and the value unless it carries a credential.
+        given = "" if value.username or value.password or len(text) > 200 else f", not {text.strip()!r}"
+        raise GitHubError(f"pull request URL must be {expected}{given}")
+    if value.hostname != expected_host or port != expected_port:
+        raise GitHubError(f"pull request URL must match the configured GitHub API web host and port: {expected}")
     return IssueRef(match["owner"], match["repo"], int(match["number"]))
 
 
@@ -132,6 +129,24 @@ class Client:
         self.api = (api or os.environ.get("AUTOCODE_GITHUB_API") or API).rstrip("/")
         self.transport = transport
 
+    def pulls_for_branch(self, owner: str, repo: str, *, head: str, base: str) -> list[dict]:
+        query = urlencode({"state": "all", "head": f"{owner}:{head}", "base": base, "per_page": 100})
+        result = self._call("GET", f"/repos/{owner}/{repo}/pulls?{query}")
+        if not isinstance(result, list) or len(result) >= 100 or any(not isinstance(row, dict) for row in result):
+            raise GitHubError("Cannot reconcile pull-request identity for this branch")
+        return result
+
+    def repository(self, owner: str, repo: str) -> dict:
+        result = self._call("GET", f"/repos/{owner}/{repo}")
+        if not isinstance(result, dict):
+            raise GitHubError("Cannot inspect repository access")
+        return result
+
+    def update_pull_body(self, owner: str, repo: str, number: int, body: str) -> dict:
+        if not self.token:
+            raise GitHubError("updating a pull request needs GITHUB_TOKEN or GH_TOKEN")
+        return self._call("PATCH", f"/repos/{owner}/{repo}/pulls/{number}", {"body": util.redact(body)})
+
     def issue(self, ref: IssueRef, max_comments: int = 30) -> dict:
         """The issue with up to max_comments of its most recent comments under "comments_list"."""
         issue = self._call("GET", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}")
@@ -146,6 +161,21 @@ class Client:
                 "GET", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments?per_page={per_page}&page={page}"
             )
         return {**issue, "comments_list": comments[-max_comments:] if max_comments else []}
+
+    def open_issues(self, owner: str, repo: str, label: str) -> list[dict]:
+        """Open, non-PR issues carrying one label, newest first."""
+        rows = self._call("GET", f"/repos/{owner}/{repo}/issues?labels={label}&state=open&per_page=100")
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise GitHubError("GitHub returned an invalid issue list")
+        return [row for row in rows if "pull_request" not in row]
+
+    def issue_comment(self, ref: IssueRef, body: str) -> dict:
+        """Post one comment on an issue; reading needs no token, posting does."""
+        if not self.token:
+            raise GitHubError("posting an issue comment needs GITHUB_TOKEN or GH_TOKEN")
+        return self._call(
+            "POST", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments", {"body": util.redact(body)}
+        )
 
     def pull_request(self, ref: IssueRef) -> dict:
         """Read the current pull request, including its exact head and base commits."""

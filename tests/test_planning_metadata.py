@@ -49,6 +49,30 @@ class PlanningMetadataTests(unittest.TestCase):
         }
         return state, report
 
+    def test_expanded_report_binds_runner_current_behavior_before_trace_retention(self):
+        import autocode_current_behavior as current_behavior
+        import autocode_plan_retention as retention
+        import autocode_planning_metadata as metadata
+
+        state, report = self.inputs()
+        state["goal_contract"]["body"]["acceptance_criteria"][0]["current_behavior"] = "Missing greeting"
+        before = copy.deepcopy(report)
+        result = metadata.expand_report(state, "astra_discovery", report)
+        self.assertEqual(before, report)
+        self.assertEqual("Missing greeting", result["contract"]["acceptance_criteria"][0]["current_behavior"])
+        installed = current_behavior.prepare_body(state, result["contract"], "astra_discovery")
+        state["goal_contract"] = {"body": installed, "origin": "astra_discovery"}
+        state["planning"] = {"reports": {"astra_discovery": {"report": copy.deepcopy(result)}}}
+        self.assertEqual(report["requirement_trace"], retention.validated_trace(state))
+        for field, changed in (
+            ("criterion", "Wrong outcome"),
+            ("verification_method", "echo PASS"),
+            ("current_behavior", "Different observed behavior"),
+        ):
+            altered = copy.deepcopy(state)
+            altered["goal_contract"]["body"]["acceptance_criteria"][0][field] = changed
+            self.assertIsNone(retention.validated_trace(altered))
+
     def addition(self, report):
         report["contract"]["acceptance_criteria"].append(
             {
@@ -137,6 +161,27 @@ class PlanningMetadataTests(unittest.TestCase):
         self.assertEqual(report["contract"], result["contract"])
         self.assertEqual(before, (state, report))
         goals.revision_guard(state, result["contract"], result["contract_changes"], "glm_revise")
+
+    def test_a_criteria_delta_keeps_existing_metadata_recovery_without_changing_its_rows(self):
+        import autocode_plan_retention as retention
+
+        state, report = self.inputs()
+        state["goal_contract"].update(revision=4, hash="current")
+        self.addition(report)
+        complete = copy.deepcopy(report["contract"])
+        report["contract"]["acceptance_criteria"] = {
+            "retain_from": retention.token(state),
+            "upsert": [complete["acceptance_criteria"][-1]],
+            "remove": [],
+        }
+        before = copy.deepcopy((state, report))
+        result = normalize_planning_metadata(report, state, {"stage": "glm_revise"})
+        self.assertEqual([], result["contract_changes"])
+        self.assertEqual(report["contract"], result["contract"])
+        self.assertEqual(before, (state, report))
+        expanded = retention.expand(state, "glm_revise", result)
+        self.assertEqual(complete, expanded["contract"])
+        goals.revision_guard(state, expanded["contract"], expanded["contract_changes"], "glm_revise")
 
     def test_addition_receipts_cannot_hide_changes_to_existing_obligations(self):
         for kind in ("criterion", "proof", "permission", "behavior", "failure_case", "review"):

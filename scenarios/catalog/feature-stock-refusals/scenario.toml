@@ -34,7 +34,7 @@ fault = "vacuous_refusal_tests"
 # regression proof then fails on those planned cases by construction, and every later call is live: the
 # Validator, the Completion Owner, AutoResolver and the repair Builder.
 [hybrid]
-scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "astra_challenge", "glm_revise",
+scripted = ["requirements_gather", "astra_discovery", "astra_challenge", "glm_revise",
             "astra_finalize"]
 first_attempt = ["terra"]
 

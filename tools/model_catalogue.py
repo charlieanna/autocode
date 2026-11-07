@@ -99,8 +99,8 @@ def usable(models: list[str]) -> list[str]:
 
 
 def family(model: str) -> str:
-    lineage_name = lineage(model)
-    return lineage_name if lineage_name in ("glm", "mimo") else model.split("/", 1)[0]
+    """The one family rule (autocode_model_identity): GLM, MiMo, Claude and GPT each one family, via any gateway."""
+    return model_identity.family(model)
 
 
 def by_provider(models: list[str]) -> dict[str, list[str]]:
@@ -215,14 +215,8 @@ TIERS = {
 }
 TIER_LABELS = {"worker": "cheap worker", "judge": "strong judge", "resolver": "Resolver tier", None: "tier unknown"}
 WANTED = {"worker": "cheap worker", "judge": "strong judge", "resolver": "Resolver-tier model"}
-# How a provider prefix bills. OpenAI depends on how OpenCode signs in (see ``plan``).
-PLANS = {
-    "zai-coding-plan": ("Z.AI Coding Plan", "subscription"),
-    "github-copilot": ("GitHub Copilot", "subscription"),
-    "zai": ("Z.AI API", "pay per token"),
-    "opencode": ("OpenCode Zen", "pay per token"),
-    "kilo": ("Kilo Gateway", "pay per token"),
-}
+# How a provider prefix bills: one table, in autocode_role_route (#1924).
+PLANS = role_route.PLANS
 # A run's roles in pipeline order: screen name (autocode_roles), the flag that
 # selects its model, the tier it wants. Labels are not a second name table.
 ROLES = {
@@ -252,16 +246,7 @@ def tier(model: str) -> str | None:
     return TIERS.get(model.rsplit("/", 1)[-1])
 
 
-def plan(model: str, openai_auth: str | None = None) -> tuple[str, str | None]:
-    """(plan, billing) for display; authentication never bans a model."""
-    provider = model.split("/", 1)[0]
-    if provider != "openai":
-        return PLANS.get(provider, (provider, None))
-    if openai_auth == "oauth":
-        return "ChatGPT login", "subscription"
-    if openai_auth == "api":
-        return "OpenAI via api", "pay per token"
-    return "OpenAI", None
+plan = role_route.plan
 
 
 def lineage(model: str) -> str:
@@ -511,8 +496,92 @@ def _serve(settings: dict, available, named_strong, roles=None) -> dict:
 
 
 def default_roles(provider) -> dict[str, dict]:
-    """The route every role of a new run takes on ``provider``: what `autocode models` and doctor check."""
+    """The profile's own route for every role on ``provider``: the fixed defaults a run falls back to.
+
+    A new run does not always take these; see `route_advice`, which also weighs automatic selection.
+    """
     return {role: {"model": model} for role, model in provider.DEFAULT_MODELS.items() if role in ROLES}
+
+
+# `autocode_route_discovery.discover` picks its producer from these two declarations, so asking the
+# same way here keeps a provider that declares neither from ever reaching a listing command.
+SELECTION_DECLARATIONS = ("auth_table", "auth_logins")
+
+
+def selection_possible(provider) -> bool:
+    """Whether automatic selection could field routes for ``provider`` from its own local listings."""
+    return any(callable(getattr(provider, key, None)) for key in SELECTION_DECLARATIONS)
+
+
+class _ListedModels:
+    """A listing already read, handed to discovery so checking the selected routes lists once."""
+
+    def __init__(self, models):
+        self._models = list(models)
+
+    def available_models(self, workspace=None, env=None):
+        return self._models
+
+
+def route_advice(provider, available, workspace=None) -> dict:
+    """The routes a new run would take on ``provider``, and which of them it does not offer.
+
+    A profile route the run would never use is not a gap: `autocode_configure.select_routes` replaces
+    the profile defaults with the selected routes whenever selection can field a set, and only falls
+    back to the profile when it cannot. So the profile is weighed first and selection is consulted
+    only when the profile shows a gap, which keeps the ordinary check to the one listing the caller
+    already has. Listing only: this launches no model and touches no credential.
+
+    ``source`` names which routes were weighed ("profile" or "selection"), ``replaced`` lists the
+    roles selection moved off their profile route, and ``reason`` says why selection could not.
+    """
+    fixed = default_roles(provider)
+    result = {
+        "roles": fixed,
+        "missing": advise(fixed, available)["missing"],
+        "source": "profile",
+        "replaced": {},
+        "reason": None,
+    }
+    if not result["missing"] or not selection_possible(provider):
+        return result
+    try:
+        try:
+            from . import autocode_route_discovery as discovery
+            from . import autocode_route_selector as route_selector
+        except ImportError:
+            import autocode_route_discovery as discovery
+            import autocode_route_selector as route_selector
+
+        found = discovery.discover(
+            provider, workspace, inventory=_ListedModels(available) if available is not None else None
+        )
+        chosen = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"])
+    except (RuntimeError, ValueError, OSError) as error:
+        result["reason"] = str(error)
+        return result
+    if chosen.get("stop"):
+        result["reason"] = chosen["stop"]
+        return result
+    routes = {
+        role: {"model": route["model"]}
+        for role, route in (chosen.get("routes") or {}).items()
+        if role in ROLES and route.get("model")
+    }
+    if not routes:
+        result["reason"] = "automatic selection named no route for any role"
+        return result
+    return {
+        "roles": routes,
+        "missing": advise(routes, available)["missing"],
+        "source": "selection",
+        "replaced": {
+            role: (fixed[role]["model"], route["model"])
+            for role, route in routes.items()
+            if role in fixed and fixed[role]["model"] != route["model"]
+        },
+        "reason": None,
+    }
 
 
 def price_report(routes: dict[str, dict]) -> dict:
@@ -595,19 +664,22 @@ def render_selection(result: dict, found: dict) -> str:
             spellings = {model_identity.identity(route_id) for route_id in entry.get("routes") or [entry["model"]]}
             candidate = next((connected.get(identity) for identity in spellings if identity in connected), None)
             if candidate is None:
-                lines.append(f"  not available: {entry['model']} — not connected on this tool's logins")
+                lines.append(
+                    f"  not available: {entry['model']} — not connected on this tool's logins"
+                    f" [{route_selector.evidence_summary(entry)}]"
+                )
                 continue
             if candidate["model"] == route["model"]:
                 row = prices.rate(candidate["model"])
                 cost = f"input+output {row['input'] + row['output']:.4g} per million" if row else "no price row"
                 billing = candidate.get("billing") or "billing unknown"
-                lines.append(f"  chosen: {candidate['model']} — {cost}, {billing}")
+                lines.append(
+                    f"  chosen: {candidate['model']} — {cost}, {billing} [{route_selector.evidence_summary(entry)}]"
+                )
                 continue
             clash = route_selector.explains_clash(role, candidate["model"], chosen)
-            if clash:
-                lines.append(f"  not chosen: {candidate['model']} — {clash}")
-            else:
-                lines.append(f"  not chosen: {candidate['model']} — a cheaper qualified route won")
+            why = clash or "a preferred or cheaper qualified route won"
+            lines.append(f"  not chosen: {candidate['model']} — {why} [{route_selector.evidence_summary(entry)}]")
     if result["probe"]:
         lines.append("")
         lines.append(
@@ -617,36 +689,117 @@ def render_selection(result: dict, found: dict) -> str:
     return "\n".join(lines)
 
 
+def preview(workspace=None, provider=None) -> dict:
+    """The routes automatic selection would choose now, from the tool's own local listings (#2057).
+
+    Listing only: discovery reads the tool's model and login lists and the selector is a pure
+    function; nothing launches a model and no credential is returned. ``stop`` explains a
+    selection that cannot field an independent checker; an unreadable listing raises the
+    discovery error.
+    """
+    try:
+        from . import autocode_providers
+        from . import autocode_route_discovery as discovery
+        from . import autocode_route_selector as route_selector
+    except ImportError:
+        import autocode_providers
+        import autocode_route_discovery as discovery
+        import autocode_route_selector as route_selector
+    module = autocode_providers.resolve(provider or autocode_providers.default_name())
+    found = discovery.discover(module, workspace)
+    result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"])
+    return {**result, "tool": found["tool"], "accounts": found["accounts"], "candidates": found["candidates"]}
+
+
+def route_rows(result: dict, roles=None) -> list[dict]:
+    """One row per role the selection fills, for `connections` clients (#2057)."""
+    if result.get("stop"):
+        return []
+    connected = {candidate["model"]: candidate for candidate in result.get("candidates") or ()}
+    rows = []
+    for role in route_selector.PIPELINE_ROLES:
+        if roles is not None and role not in roles:
+            continue
+        route = (result.get("routes") or {}).get(role)
+        if not route:
+            continue
+        candidate = connected.get(route["model"]) or {}
+        rows.append(
+            {
+                "role": role,
+                "job": ROLES[role][0],
+                "model": route["model"],
+                "tool": route.get("tool") or result.get("tool"),
+                "account": route.get("account") or candidate.get("account"),
+                "billing": candidate.get("billing"),
+                "reasoning_effort": route.get("reasoning_effort"),
+                "origin": route.get("origin"),
+            }
+        )
+    return rows
+
+
+def route_lines(result: dict, roles=None) -> list[str]:
+    """The per-role line `connections` and a new run print: model, level and why (#2057)."""
+    lines = []
+    for row in route_rows(result, roles):
+        label = row["job"]
+        level = row["reasoning_effort"] or "its own default"
+        account = row["account"] or row["tool"] or "the tool"
+        billing = f" {row['billing']}" if row["billing"] else ""
+        lines.append(f"{label}: {row['model']} at {level} ({account}{billing}; qualified for {label})")
+    return lines
+
+
+CODEX_PROJECT = (
+    "autocode models: this project's engine is codex (set in {source}); a Codex run takes its fixed "
+    "default routes (docs/models.md#default-models), not a catalogue listing. "
+    "The OpenCode catalogue is still listed with --provider opencode."
+)
+
+
+def project_engine(workspace) -> tuple[str | None, str | None]:
+    """The engine the project's files set for a new run (#707), as doctor and a task read it, or
+    (None, None); `autocode models` follows it when no --provider is given (#2369)."""
+    try:
+        from . import autocode_project_config as project_config
+    except ImportError:
+        import autocode_project_config as project_config
+    try:
+        value, source = project_config.read(workspace).get("engine", (None, None))
+    except (OSError, ValueError):
+        return None, None
+    return (value, str(source)) if value in ("codex", "claude") else (None, None)
+
+
 def cli(argv: list[str]) -> int:
     """`autocode models`: what your plans offer, and whether the default routes can be used."""
     arguments = parser()
     args = arguments.parse_args(argv)
+    if not args.provider:
+        # Doctor and a task honour the project's engine; listing OpenCode's catalogue in a Codex or
+        # Claude project answered a question nobody asked (#2369).
+        engine, source = project_engine(args.workspace)
+        if engine == "codex":
+            print(CODEX_PROJECT.format(source=source))
+            return 0
+        if engine == "claude":
+            args.provider = "claude"
     if args.selection:
         # Local listings only: discovery reads the tool's model and login lists, and
         # the selector is a pure function; neither launches a model.
         try:
-            try:
-                from . import autocode_providers
-                from . import autocode_route_discovery as discovery
-                from . import autocode_route_selector as route_selector
-            except ImportError:
-                import autocode_providers
-                import autocode_route_discovery as discovery
-                import autocode_route_selector as route_selector
-            name = args.provider or autocode_providers.default_name()
-            provider = autocode_providers.resolve(name)
-            found = discovery.discover(provider, args.workspace)
-            result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"])
+            found = preview(args.workspace, args.provider)
         except (RuntimeError, ValueError, OSError) as error:
             print(f"autocode models: {error}", file=sys.stderr)
             return 2
         if args.json:
-            print(json.dumps({**result, "tool": found["tool"], "accounts": found["accounts"]}, indent=2))
-        elif result["stop"]:
-            print(result["stop"])
+            print(json.dumps({key: value for key, value in found.items() if key != "candidates"}, indent=2))
+        elif found["stop"]:
+            print(found["stop"])
         else:
-            print(render_selection(result, found))
-        return 1 if result["stop"] else 0
+            print(render_selection(found, found))
+        return 1 if found["stop"] else 0
     if args.prices:
         # Offline: the table ships with AutoCode, and resolving the provider runs nothing.
         try:
@@ -671,7 +824,8 @@ def cli(argv: list[str]) -> int:
         available = provider.available_models(args.workspace)
         if available is None:
             raise RuntimeError(f"provider {name} does not list its models (no models or models_command)")
-        roles = default_roles(provider)
+        routes = route_advice(provider, available, args.workspace)
+        roles = routes["roles"]
         signed_in = getattr(provider, "openai_auth", None)
         openai_auth = (
             signed_in(args.workspace) if signed_in and any(m.startswith("openai/") for m in available) else None
@@ -685,8 +839,17 @@ def cli(argv: list[str]) -> int:
     elif advice["missing"]:
         print(render_advice(advice, getattr(provider, "NAME", "OpenCode")))
     else:
-        lines = render_catalogue(advice) + ["Every default route can be used:"]
+        lines = render_catalogue(advice) + [
+            "Every default route can be used:"
+            if routes["source"] == "profile"
+            else "Every route a new run takes can be used:"
+        ]
         lines += [f"  {ROLES[role][0]} ({ROLES[role][1]}): {route['model']}" for role, route in roles.items()]
+        if routes["replaced"]:
+            lines.append(
+                "Automatic selection replaces the profile's route for: "
+                + "; ".join(f"{ROLES[role][0]} {seed} -> {taken}" for role, (seed, taken) in routes["replaced"].items())
+            )
         print("\n".join(lines))
     return 1 if advice["missing"] else 0
 

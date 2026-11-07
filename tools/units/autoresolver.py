@@ -26,10 +26,13 @@ if TYPE_CHECKING:
 try:
     from .. import autocode_bug_job as bug_job
     from .. import autocode_bug_questions as bug_questions
+    from .. import autocode_compact_planning as compact_planning
+    from .. import autocode_counterexample as counterexample
     from .. import autocode_discuss_job as discuss_job
     from .. import autocode_failures as failures
     from .. import autocode_goal_lifecycle as lifecycle
     from .. import autocode_goals as goals
+    from .. import autocode_investigation_evidence as investigation_evidence
     from .. import autocode_investigation_workspace as investigation_workspace
     from .. import autocode_job_report_recovery as job_report_recovery
     from .. import autocode_launch_inputs as launch_inputs
@@ -50,10 +53,13 @@ try:
 except ImportError:
     import autocode_bug_job as bug_job
     import autocode_bug_questions as bug_questions
+    import autocode_compact_planning as compact_planning
+    import autocode_counterexample as counterexample
     import autocode_discuss_job as discuss_job
     import autocode_failures as failures
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
+    import autocode_investigation_evidence as investigation_evidence
     import autocode_investigation_workspace as investigation_workspace
     import autocode_job_report_recovery as job_report_recovery
     import autocode_launch_inputs as launch_inputs
@@ -133,54 +139,63 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
         state, workspace, run_dir or Path(record.get("output") or workspace).parent.parent, verify.scratch_run
     )
     if stage == discuss_job.STAGE:
-        # The runner, not the Analyst, runs each claim's probe, in a scratch copy of the code.
+        # The runner, not the Analyst, runs each claim's probe, in a scratch copy of the code, and again
+        # in one with the claim's counterexample made, where it must fail (#1769).
+        probes = Path(record.get("output") or workspace).parent / "answer-probes"
         return discuss_job.apply(
             state,
             value,
             record,
             workspace,
-            run_probe=lambda command: clean_run(
-                workspace,
-                Path(record.get("output") or workspace).parent / "answer-probes",
-                command=command,
-                timeout=PROBE_TIMEOUT,
-            ),
+            run_probe=lambda command: clean_run(workspace, probes, command=command, timeout=PROBE_TIMEOUT),
+            run_counterexample=counterexample.runner(clean_run, workspace, probes, timeout=PROBE_TIMEOUT),
         )
     if stage == stuck_job.STAGE:
-        # The runner shows the diagnosed cause: the probe runs in a scratch tree holding only the cited files.
-        def probe(command, files):
+        # The runner shows the diagnosed cause: the probe runs in a scratch tree holding only the cited files,
+        # and again with its counterexample made, where it must fail (#1769).
+        probes = Path(record.get("output") or workspace).parent / "investigation-probe"
+
+        def contained(workspace, directory, *, command, timeout, **inputs):
             if (state.get("stuck_investigation") or {}).get("mode") == "builder_failure":
                 try:
                     from .. import autocode_builder_failure as builder_failure
                 except ImportError:
                     import autocode_builder_failure as builder_failure
                 command = builder_failure.readonly_probe(command)
-            return clean_run(
-                workspace,
-                Path(record.get("output") or workspace).parent / "investigation-probe",
-                command=command,
-                files=files,
-                timeout=PROBE_TIMEOUT,
+            return clean_run(workspace, directory, command=command, timeout=timeout, **inputs)
+
+        def probe(command, files):
+            return contained(workspace, probes, command=command, files=files, timeout=PROBE_TIMEOUT)
+
+        def against(command, edit, files):
+            return counterexample.runner(contained, workspace, probes, timeout=PROBE_TIMEOUT, files=files)(
+                command, edit
             )
 
-        return stuck_job.apply(state, value, record, workspace, run_probe=probe)
+        return stuck_job.apply(state, value, record, workspace, run_probe=probe, run_counterexample=against)
     # The runner, not the Investigator, shows the bug: its probe must exit 0 on the code as it is.
     guard = job_report_recovery.BEFORE_WRITE.get()
     if guard:
         guard()
 
-    def run_probe(command):
-        result = clean_run(
-            workspace,
-            Path(record.get("output") or workspace).parent / "investigation-probe",
-            command=command,
-            timeout=PROBE_TIMEOUT,
-        )
+    probes = Path(record.get("output") or workspace).parent / "investigation-probe"
+
+    def guarded(*args, **kwargs):
+        result = clean_run(*args, **kwargs)
         if guard:
             guard()  # No note or result is published if inspected bytes/source changed during the probe.
         return result
 
-    bug_job.apply(state, value, record, workspace, run_probe=run_probe)
+    def run_probe(command):
+        return guarded(workspace, probes, command=command, timeout=PROBE_TIMEOUT)
+
+    # The probe must also fail with the bug removed, in another scratch copy (#1769).
+    against = counterexample.runner(guarded, workspace, probes, timeout=PROBE_TIMEOUT)
+    captured = investigation_evidence.begin(
+        state, value, record, workspace, run_dir or Path(record["output"]).parent.parent.parent
+    )
+    bug_job.apply(state, value, record, workspace, run_probe=run_probe, run_counterexample=against)
+    investigation_evidence.finish(state, value, record, workspace, captured)
     if bug_questions.has_questions(state):
         human.queue(
             state,
@@ -194,6 +209,10 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
         return
     if bug_job.small_correction(state):
         start_small_correction(state, workspace)
+        return
+    # An opted-in, reproduced, localized bug may plan on the compact path: the runner's draft goes to the Plan
+    # Reviewer and then to the person; otherwise the Planner drafts, as bug_job.apply arranged (#2021).
+    compact_planning.start(state, workspace)
 
 
 def wait_on_existing_diagnosis(state: RunState, decision, record, request, *, source_stage):
@@ -301,11 +320,6 @@ def guard(state: RunState, workspace):
         raise util.Paused(
             "PAUSED_RESOLVER", "The saved blocker already has a diagnosis; reconcile it before another resolver call"
         )
-    if failures.repeated(state, {"stage": "astra_resolve", "source_revision": request["source_revision"]}):
-        raise util.Paused(
-            "PAUSED_REPEATED_FAILURE",
-            "Resolver failure limit reached for this source; no additional diagnosis authorized",
-        )
     for path, digest in request.get("evidence_hashes", {}).items():
         if not Path(path).is_file() or util.file_hash(path) != digest:
             raise util.Paused("PAUSED_STALE_HANDOFF", "Repair evidence changed; review again before resolving")
@@ -352,7 +366,7 @@ def prepare_stuck(state: RunState, state_path):
     return ModelRequest("astra", stuck_job.ROUTE, prompt, metrics, stuck_job.schema(state), False)
 
 
-def prepare(state: RunState, stage, state_path, schema_dir):
+def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorization=None):
     if stage == stuck_job.STAGE:
         return prepare_stuck(state, state_path)
     if stage == bug_job.STAGE:
@@ -364,11 +378,19 @@ def prepare(state: RunState, stage, state_path, schema_dir):
     if stage != "astra_resolve":
         raise ValueError(f"Autoresolver cannot run {stage}")
     guard(state, Path(state["workspace"]))
+    repeated = failures.repeated(
+        state, {"stage": stage, "source_revision": cast(dict, state["resolution_request"])["source_revision"]}
+    )
+    if repeated and not failures.admitted_retry(repeated, retry_authorization):
+        raise util.Paused(
+            "PAUSED_REPEATED_FAILURE",
+            "Resolver failure limit reached for this source; no additional diagnosis authorized",
+        )
     # Inherit the planner model, not its conversation. A dedicated route keeps
     # resolver sessions separate from planning, completion and implementation.
     state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["astra"]))
     role_transport.inherit(state.get("settings"), "resolver", "astra")
-    request = execution_request(state, "astra_review", state_path, schema_dir)
+    request = execution_request(state, "astra_review", state_path, schema_dir, report_stage=stage)
     instruction, payload = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
     data = json.loads(payload)
     data.update(
@@ -473,7 +495,9 @@ def prepare_diagnosis(state: RunState, stage, state_path, schema_dir):
     # Reuse the Plan Reviewer's handoff context (current source, task, evidence
     # inventory) for input only; the output schema below is unrelated to and far
     # narrower than the reviewer decision schema that context call would imply.
-    request = execution_request(state, "astra_review", state_path, schema_dir)
+    request = execution_request(
+        state, "astra_review", state_path, schema_dir, report_stage=stage, schema_override=DIAGNOSIS_SCHEMA
+    )
     instruction, payload = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
     data = json.loads(payload)
     data.update(

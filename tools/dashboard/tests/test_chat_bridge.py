@@ -625,7 +625,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         by_text = {row["text"]: row for row in messages}
         self.assertEqual("2026-09-20T10:01:00Z", by_text["First clarification reply"]["created_at"])
         self.assertEqual("2026-09-20T10:02:00Z", by_text["Current Planner draft"]["created_at"])
-        self.assertEqual(["Requirements", "Requirements"], [row["speaker"] for row in messages])
+        self.assertEqual(["Planner", "Planner"], [row["speaker"] for row in messages])
 
     def test_stale_question_and_conflicting_replay_are_rejected_without_commands(self):
         self.make_run([{"id": "current", "question": "Current question"}])
@@ -969,7 +969,7 @@ class PlanningReportNames(unittest.TestCase):
                 path.write_text(json.dumps({"summary": "Clarification " + str(number)}))
                 stages.append({"stage": "astra_discovery", "role": role, "output": str(path), "exit_code": 0})
             messages = planning_messages({"stages": stages}, run)
-            self.assertEqual(["Requirements"] * 3, [row["speaker"] for row in messages])
+            self.assertEqual(["Planner"] * 3, [row["speaker"] for row in messages])
 
 
 if __name__ == "__main__":

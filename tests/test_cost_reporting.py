@@ -276,6 +276,22 @@ class SavedRunTest(unittest.TestCase):
 
 
 class ModelRoutingTests(unittest.TestCase):
+    def test_independence_follows_the_one_family_rule(self):
+        # The scorer judges a run's independence by autocode_model_identity, like the dispatch rule it
+        # scores: two GPT tiers, or one model through two gateways, are not independent.
+        for producer, verifier in (
+            ("openai/gpt-6-luna", "openai/gpt-6-sol"),
+            ("kilo/anthropic/claude-opus-5.5", "anthropic/claude-opus-5.5"),
+        ):
+            with self.subTest(producer=producer, verifier=verifier):
+                report = scorer.ladder_alignment({"glm": {"model": producer}, "plan_reviewer": {"model": verifier}})
+                self.assertFalse(report["independence_ok"])
+                self.assertTrue(any(m.startswith("independence Planner/Plan Reviewer") for m in report["mismatches"]))
+        report = scorer.ladder_alignment(
+            {"glm": {"model": "zai-coding-plan/glm-5.3"}, "plan_reviewer": {"model": "openai/gpt-6-sol"}}
+        )
+        self.assertTrue(report["independence_ok"])
+
     def test_any_recorded_model_is_allowed_and_not_penalized_for_billing_or_ladder(self):
         for model in (
             "mimo-token-plan/mimo-v2.6-pro",

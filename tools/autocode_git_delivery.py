@@ -1,8 +1,9 @@
 """Controller-owned atomic local delivery, followed by fresh source verification.
 
-Only a sealed approved ``git_delivery`` contract authorizes a write. No model
-worker commits. The durable intent/receipt makes a lost controller response
-recoverable without replaying a successful commit. Existing hooks are honored.
+Only a sealed approved ``git_delivery`` contract authorizes a write. Accidental
+Builder commits are reconciled from runner evidence. The durable intent/receipt
+makes a lost controller response recoverable without replaying a successful
+commit. Existing hooks are honored.
 """
 
 from __future__ import annotations
@@ -19,17 +20,21 @@ if TYPE_CHECKING:
 try:
     from . import autocode_code_checkpoints as trees
     from . import autocode_contract_identity as contracts
+    from . import autocode_git_reconcile as reconcile
     from . import autocode_grader_process as processes
     from . import autocode_source_scope as scope
     from . import autocode_util as util
     from .autocode_git_delivery_policy import requirement as requirement
+    from .autocode_runner_files import runner_files
 except ImportError:
     import autocode_code_checkpoints as trees
     import autocode_contract_identity as contracts
+    import autocode_git_reconcile as reconcile
     import autocode_grader_process as processes
     import autocode_source_scope as scope
     import autocode_util as util
     from autocode_git_delivery_policy import requirement as requirement
+    from autocode_runner_files import runner_files
 
 
 def git(workspace, *args, env=None, data=None):
@@ -134,10 +139,22 @@ def commit(workspace, current, spec, path, intent):
             util.atomic_json(path, durable)
             if git(workspace, "rev-parse", "HEAD").decode().strip() != current["head"]:
                 raise ValueError("Git HEAD changed before atomic delivery")
-            git(workspace, "commit", "-m", spec["message"], env=environment)
+            if intent["reconciled_commits"]:
+                # Move only the ref, with compare-and-swap, under the index lock.
+                # The checked files and both indexes retain their original bytes.
+                git(workspace, "update-ref", "HEAD", intent["parent"], current["head"])
+            try:
+                git(workspace, "commit", "-m", spec["message"], env=environment)
+            except ValueError:
+                if (
+                    intent["reconciled_commits"]
+                    and git(workspace, "rev-parse", "HEAD").decode().strip() == intent["parent"]
+                ):
+                    git(workspace, "update-ref", "HEAD", current["head"], intent["parent"])
+                raise
             head = git(workspace, "rev-parse", "HEAD").decode().strip()
             actual = git(workspace, "rev-parse", "HEAD^", "HEAD^{tree}").decode().splitlines()
-            if actual != [current["head"], tree]:
+            if actual != [intent["parent"], tree]:
                 raise ValueError("Git delivery changed unexpectedly; reconcile HEAD before continuing")
             # Git committed through the separate index. Publish that exact index
             # under the lock so the ordinary worktree is clean, not reverse-staged.
@@ -162,10 +179,12 @@ def prepare(state: RunState, workspace, current):
         return False
     if not contracts.approved(state):
         raise ValueError("Git delivery needs the exact approved plan")
-    if (state.get("workflow") or {}).get("kind") not in (None, "build") or state.get("settings", {}).get(
+    if (state.get("workflow") or {}).get("kind") not in (None, "build", "bugfix") or state.get("settings", {}).get(
         "workflow", {}
     ).get("mode") == "glm_final_audit_v2":
-        raise ValueError("Atomic Git delivery currently requires the ordinary build review workflow")
+        raise ValueError(
+            "Atomic Git delivery currently requires the ordinary build review workflow or the bugfix workflow"
+        )
     if scope.snapshot(workspace, state) != current:
         raise ValueError("Source changed before Git delivery")
     path = Path(state["run_dir"]) / "git-delivery.json"
@@ -181,11 +200,28 @@ def prepare(state: RunState, workspace, current):
         if not ready(state, current):
             raise ValueError("Source, index or Git HEAD changed after delivery; reconcile before completion")
         return (state.get("validation") or {}).get("source_revision") != current["revision"]
-    if state.get("base_commit") != current["head"]:
-        raise ValueError("Preexisting dirty work or moved HEAD requires reconciliation before atomic delivery")
-    baseline = trees.tree_files(workspace, current["head"])
+    reconciled = reconcile.builder_commits(state, workspace, current, git)
+    baseline = trees.tree_files(workspace, state["base_commit"])
     files = trees.content_files(current)
-    changed = {name for name in baseline.keys() | files.keys() if baseline.get(name) != files.get(name)}
+    if reconciled and files != {
+        name: value
+        for name, value in trees.tree_files(workspace, current["head"]).items()
+        if not util.inventory_excluded(name)
+    }:
+        raise ValueError("Builder commit reconciliation requires the exact clean committed source")
+    # A name the source inventory excludes (bytecode caches, run state) is not source and
+    # leaves the delivered tree, so a tracked one is no delivery change whether or not a
+    # run rebuilt it. A runner-written file whose content the run recorded and still holds
+    # (a bugfix diagnosis note, a review report) is the runner's own investigation evidence
+    # in the delivered diff, not a workspace change to refuse (autocode_runner_files).
+    _, runner_kept = runner_files(state, workspace)
+    changed = {
+        name
+        for name in baseline.keys() | files.keys()
+        if baseline.get(name) != files.get(name)
+        and (name in files or not util.inventory_excluded(name))
+        and name not in runner_kept
+    }
     selected = scope.paths(state)
     if not changed or any(
         not any(name == root or name.startswith(root + "/") for root in selected) for name in changed
@@ -195,7 +231,8 @@ def prepare(state: RunState, workspace, current):
         "version": 1,
         "contract_hash": cast(dict, state["goal_contract"])["hash"],
         "workspace": str(Path(workspace).resolve()),
-        "parent": current["head"],
+        "parent": state["base_commit"],
+        "reconciled_commits": reconciled,
         "spec": spec,
         "tested_source": current,
         "state_scope": state,

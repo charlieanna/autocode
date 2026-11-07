@@ -317,6 +317,7 @@ class ViewTests(unittest.TestCase):
                 "contract_token": None,
                 "criterion": None,
                 "pause_status": None,
+                "source": None,
                 "provenance": stamped,
             },
             rows[-1],
@@ -455,6 +456,7 @@ class CompletionAcceptanceTests(unittest.TestCase):
                 "contract_token": None,
                 "criterion": None,
                 "pause_status": None,
+                "source": None,
                 "provenance": {
                     "git_user_name": "Ana Example",
                     "git_user_email": "ana@example.test",

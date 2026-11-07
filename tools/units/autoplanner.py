@@ -3,17 +3,27 @@
 from __future__ import annotations
 
 try:
+    from .. import autocode_gate_chat as gate_chat
+    from .. import autocode_packet_events as packet_events
     from .. import autocode_plan_chat as plan_chat
+    from .. import autocode_plan_retention as retention
+    from .. import autocode_planning_recovery_observations as recovery_observations
+    from .. import autocode_planning_recovery_policy as planning_recovery_policy
+    from .. import autocode_planning_time as planning_time
     from .. import autocode_prompts as prompts
 except ImportError:
+    import autocode_gate_chat as gate_chat
+    import autocode_packet_events as packet_events
     import autocode_plan_chat as plan_chat
+    import autocode_plan_retention as retention
+    import autocode_planning_recovery_observations as recovery_observations
+    import autocode_planning_recovery_policy as planning_recovery_policy
+    import autocode_planning_time as planning_time
     import autocode_prompts as prompts
 
 
 import copy
 import json
-import os
-import re
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -24,57 +34,89 @@ if TYPE_CHECKING:
 try:
     from .. import autocode_acceptance_policy as acceptance_policy
     from .. import autocode_adaptive_planning as adaptive
+    from .. import autocode_brief_acceptance as brief_acceptance
     from .. import autocode_brief_literals as brief_literals
     from .. import autocode_brief_obligations as brief_obligations
     from .. import autocode_bug_job as bug_job
+    from .. import autocode_compact_planning as compact_planning
     from .. import autocode_design_plan as design_plan
     from .. import autocode_draft_examples as examples
+    from .. import autocode_draft_failure_correction as failure_correction
+    from .. import autocode_failures as failures
     from .. import autocode_follow_up as follow_up
     from .. import autocode_goals as goals
+    from .. import autocode_investigation_evidence as investigation_evidence
     from .. import autocode_native_test_names as native_test_names
+    from .. import autocode_planner_escalation as planner_escalation
     from .. import autocode_planning_artifacts as artifacts
-    from .. import autocode_program_guidance as program_guidance
+    from .. import autocode_planning_metadata as metadata  # noqa: F401 - planning API
+    from .. import autocode_planning_report_policy as report_policy
+    from .. import autocode_planning_review_usage as review_usage
+    from .. import autocode_planning_scope as planning_scope
     from .. import autocode_progressive_state as progressive
+    from .. import autocode_regression_reference as regression_reference
     from .. import autocode_requirement_cues as requirement_cues
+    from .. import autocode_requirement_retention as requirement_retention
     from .. import autocode_risk_obligations as risk_obligations
     from .. import autocode_role_route as role_route
     from .. import autocode_roles as role_names
+    from .. import autocode_route_fit as route_fit
+    from .. import autocode_scope_question as scope_question
     from .. import autocode_source_trace as source_trace
     from .. import autocode_stage_context as stage_context
     from .. import autocode_support as s
     from .. import autocode_task_authority as task_authority
     from .. import autocode_test_cases as test_cases
+    from .. import autocode_trace_coverage as trace_coverage
     from .. import autocode_util as util
     from .. import autocode_utility_route as utility_route
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_workflows as workflows
+    from .. import autocode_workspace_inventory as workspace_inventory_impl
+    from .. import autocode_workspace_scope as workspace_scope
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_adaptive_planning as adaptive
+    import autocode_brief_acceptance as brief_acceptance
     import autocode_brief_literals as brief_literals
     import autocode_brief_obligations as brief_obligations
     import autocode_bug_job as bug_job
+    import autocode_compact_planning as compact_planning
     import autocode_design_plan as design_plan
     import autocode_draft_examples as examples
+    import autocode_draft_failure_correction as failure_correction
+    import autocode_failures as failures
     import autocode_follow_up as follow_up
     import autocode_goals as goals
+    import autocode_investigation_evidence as investigation_evidence
     import autocode_native_test_names as native_test_names
+    import autocode_planner_escalation as planner_escalation
     import autocode_planning_artifacts as artifacts
-    import autocode_program_guidance as program_guidance
+    import autocode_planning_metadata as metadata  # noqa: F401 - planning API
+    import autocode_planning_report_policy as report_policy
+    import autocode_planning_review_usage as review_usage
+    import autocode_planning_scope as planning_scope
     import autocode_progressive_state as progressive
+    import autocode_regression_reference as regression_reference
     import autocode_requirement_cues as requirement_cues
+    import autocode_requirement_retention as requirement_retention
     import autocode_risk_obligations as risk_obligations
     import autocode_role_route as role_route
     import autocode_roles as role_names
+    import autocode_route_fit as route_fit
+    import autocode_scope_question as scope_question
     import autocode_source_trace as source_trace
     import autocode_stage_context as stage_context
     import autocode_support as s
     import autocode_task_authority as task_authority
     import autocode_test_cases as test_cases
+    import autocode_trace_coverage as trace_coverage
     import autocode_util as util
     import autocode_utility_route as utility_route
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
+    import autocode_workspace_inventory as workspace_inventory_impl
+    import autocode_workspace_scope as workspace_scope
 # Which role and engine run a stage, and the planning cycle, live below this unit so the stage context and the
 # goal lifecycle use them without importing it back; they keep their names here (autocode_planning, autopilot).
 try:
@@ -112,9 +154,6 @@ BUG_DIAGNOSIS_RULE = prompts.get("fragments/autoplanner/bug-diagnosis-rule.md")
 # A follow-up that acts on an earlier review in the same run (autocode_follow_up) is planned
 # from the review's findings; requirements gathering is skipped.
 REVIEW_FINDINGS_RULE = prompts.get("fragments/autoplanner/review-findings-rule.md")
-# A program that rejected a draft for dropping an inherited requirement says what to keep (#866); that
-# guidance is the program's, never a requirement source or a user decision (autocode_program_guidance).
-PROGRAM_GUIDANCE_RULE = prompts.get("fragments/autoplanner/program-guidance-rule.md")
 # Features get the bug-fix proof too: the plan states testable criteria as concrete
 # examples marked "test:", and the runner proves each one at its milestone (autocode_test_cases).
 # A test: criterion must be new behavior: a live parallel-diamond plan made "the contract package is
@@ -134,6 +173,10 @@ EXAMPLE_CHECK_RULE = prompts.get("fragments/autoplanner/example-check-rule.md")
 # rejects a draft that drops a backticked brief literal (autocode_brief_literals); this rule asks the
 # reviewer whether the examples agree with it, which no mechanical check can decide.
 BRIEF_TRACE_RULE = prompts.get("fragments/autoplanner/brief-trace-rule.md")
+# The same question the runner raises mechanically (autocode_trace_coverage.proxy_gaps, #2068): a
+# criterion traced to a user-visible requirement may prove an internal value while a note places
+# the visible result outside this checkout, and only the person can confirm the connection.
+OUT_OF_CHECKOUT_PROXY_RULE = prompts.get("fragments/autoplanner/out-of-checkout-proxy-rule.md")
 # A live cent-drift plan (2026-09-30) required a 175,712-cart enumeration to "finish in under about 10 seconds". The
 # Builder asserted elapsed time, the test took 10.39 s on a loaded machine, and the run stopped after two retries
 # with correct billing code: no code change could make the criterion hold.
@@ -152,6 +195,7 @@ EVIDENCE_FACTS = (
     + prompts.get("fragments/autoplanner/evidence-facts.md")
 )
 REVISION_CONFLICT_RULE = prompts.get("fragments/autoplanner/revision-conflict-rule.md")
+PRIOR_REJECTION_RULE = prompts.get("fragments/autoplanner/prior-rejection-rule.md")
 RESPONSE_EVIDENCE_RULE = prompts.get("fragments/autoplanner/response-evidence-rule.md")
 # A live review-then-fix plan (2026-09-29) marked "the diff touches only the two fixes" for human
 # review although its own verification method was "Validator reads git diff"; the run then
@@ -165,7 +209,17 @@ CONTRACT_FIELDS_RULE = prompts.get("fragments/autoplanner/contract-fields-rule.m
 # handoff listed R1..Rn, buried in requirements_handoff. The stages that must trace them get the
 # IDs as a short list (requirement_trace_rows) and this rule; the runner's check is unchanged.
 REQUIREMENT_TRACE_RULE = prompts.get("fragments/autoplanner/requirement-trace-rule.md")
+# #1822: a greenfield Requirements handoff stated behaviors but cited nothing, though README.md existed.
+# The validator required a citation and neither the stage prompt nor the repair handoff said so; the
+# repair then cited an archived .autocode/ log. Both prompts now carry this one rule.
+SOURCE_REFS_RULE = prompts.get("fragments/autoplanner/source-refs-rule.md")
+# #2487: discovery and revision cite code_refs under the validator's runner-owned boundary;
+# their prompts and repairs state it, including the read-versus-cite distinction a joint
+# task's candidate inputs need, instead of teaching it per rejection.
+CODE_REFS_RULE = prompts.get("fragments/autoplanner/code-refs-rule.md")
+CODE_REFS_STAGES = ("astra_discovery", "glm_revise")
 TRACE_STAGES = ("astra_discovery", "glm_revise", "astra_finalize")
+REVIEW_SOURCE_TRACE_STAGES = source_trace.REVIEW_STAGES
 # Stages that draft or review contract criteria cite and check source traces (#595).
 CITATION_STAGES = (
     "requirements",
@@ -182,12 +236,111 @@ CITATION_STAGES = (
 
 def source_inventory(state: RunState):
     """The handoff list models quote in criterion sources (#595); shared by prepare and report repair."""
-    return [{"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in brief_obligations.sources(state)]
+    return [
+        {"id": row["id"], "kind": row["kind"], "text": row["text"]}
+        for row in source_trace.quotable(brief_obligations.sources(state))
+    ]
 
 
 def repair_source_inventory(state: RunState, stage):
     """Citation stages keep source_inventory on report-repair handoffs (#595 / #1201)."""
     return source_inventory(state) if stage in CITATION_STAGES else None
+
+
+def repair_citation_context(state: RunState, stage, workspace, schema=None):
+    """The handoff's citation context: source sentences, plus the citable files a repair may name.
+
+    The Requirements handoff check requires a complete report to cite an existing workspace file (#1822);
+    the repair previously repeated only its error, and a greenfield repair then cited an archived
+    .autocode/ log. workspace_inventory names the files the runner will accept, and SOURCE_REFS_RULE
+    states the same rule the stage prompt carries. Discovery and revision repairs cite code_refs under
+    the same runner-owned boundary (#2487), so they get the inventory and CODE_REFS_RULE: a joint
+    brief's candidate inputs stay readable task inputs, never source citations.
+    """
+    context = {"source_inventory": repair_source_inventory(state, stage)}
+    if stage in REVIEW_SOURCE_TRACE_STAGES:
+        context["review_source_sentences"] = review_source_sentence_rows(state)
+    if (
+        stage == "astra_challenge"
+        and failure_correction.offered(schema or {})
+        and (correction_snapshot := failure_correction.snapshot(state))
+    ):
+        context["draft_failure_correction_snapshot"] = correction_snapshot
+    if stage == "requirements_gather":
+        context["workspace_inventory"] = workspace_inventory(workspace, state.get("task", ""))
+        context["source_refs_rule"] = SOURCE_REFS_RULE
+    if stage in CODE_REFS_STAGES:
+        context["workspace_inventory"] = workspace_inventory(workspace, state.get("task", ""))
+        context["code_refs_rule"] = CODE_REFS_RULE
+    return context
+
+
+# Stages that write criteria, which cite sentences by id; the reviewing stages only check coverage.
+SENTENCE_ID_STAGES = tuple(
+    stage
+    for stage in CITATION_STAGES
+    if stage not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
+)
+
+
+def source_sentences(state: RunState, stage):
+    """The numbered sentences a drafting stage's criteria must cover, with the requirement rows each supports."""
+    if stage not in SENTENCE_ID_STAGES:
+        return []
+    return source_trace.sentence_rows(state, brief_obligations.sources(state), trace_rows(state, stage))
+
+
+def review_source_sentence_rows(state: RunState):
+    """Map each source sentence to the existing criteria that cite it for Plan Reviewer context."""
+    body = (state.get("goal_contract") or {}).get("body") or {}
+    rows = source_trace.sentence_rows(
+        state,
+        brief_obligations.sources(state),
+        criteria=body.get("acceptance_criteria") or [],
+    )
+    return [
+        {"source_id": row["source_id"], "sentence": row["text"], "criterion_ids": row["criterion_ids"]} for row in rows
+    ]
+
+
+def resolve_sentence_citations(state: RunState, contract):
+    """Turn a report's sentence-id citations into the verbatim quotes the rest of the runner checks."""
+    if isinstance(contract, dict):
+        source_trace.resolve_sentence_ids(contract, brief_obligations.sources(state))
+
+
+def record_uncited_sentences(state: RunState, contract):
+    """Save the source sentences ``contract``'s criteria leave uncited, for the next stage's handoff (#1630)."""
+    if isinstance(state.get("planning"), dict):
+        state["planning"]["uncited_sentences"] = source_trace.uncited_sentences(
+            state, contract, brief_obligations.sources(state)
+        )
+
+
+def check_revision_coverage(state: RunState, contract):
+    """A revision may not re-leave a sentence the last draft left uncited and its review did not excuse.
+
+    The handoff already named those sentences to the Plan Reviewer, who excuses one only through out_of_scope.
+    Refusing here costs no reviewer call; a first draft is never refused, since only the reviewer can say a
+    sentence is out of scope (#595)."""
+    planning = state.get("planning") or {}
+    previous = planning.get("uncited_sentences") or []
+    if not previous:
+        return
+    review = ((planning.get("reports") or {}).get("astra_challenge") or {}).get("report") or {}
+    left = source_trace.unexcused_repeats(
+        state,
+        contract,
+        brief_obligations.sources(state),
+        previous,
+        (review.get("source_trace") or {}).get("out_of_scope"),
+    )
+    if left:
+        raise ValueError(
+            "The revision still leaves source sentences uncited that the Plan Reviewer did not place out of scope: "
+            + "; ".join(f"[{row['source_id']}] {row['sentence'][:100]!r}" for row in left)
+            + ". Cite each in a criterion's sources."
+        )
 
 
 def traces_coverage(contract):
@@ -219,11 +372,19 @@ def trace_rows(state: RunState, stage):
 # a protected criterion) restarts planning after the answer, and the next review saw only the new draft:
 # 11 of 31 answer-driven re-drafts in live runs (2026-09-28..10-01) reviewed a whole plan again from scratch.
 REREVIEW_RULE = prompts.get("fragments/autoplanner/rereview-rule.md")
+SENTENCE_ID_RULE = prompts.get("fragments/autoplanner/source-sentence-ids-rule.md")
+UNCITED_REVIEW_RULE = prompts.get("fragments/autoplanner/uncited-sentences-review.md")
+UNCITED_REVISE_RULE = prompts.get("fragments/autoplanner/uncited-sentences-revise.md")
 
 
 def previous_review(state: RunState):
-    """The last planning cycle's review when it ended in questions the user has since answered, so the next
-    review checks the answers instead of reviewing the plan from scratch; None otherwise."""
+    """The last planning cycle's review when it ended in questions that have since been answered, so the next
+    review checks the answers instead of reviewing the plan from scratch; None otherwise.
+
+    An answer is the person's (``answers``) or AutoCode's own technical default (a ``technical_decision`` event,
+    autocode_technical_questions.settle): after an internal-answer restart the redraft applies that default, and a
+    review given nothing of its first review judged a live redraft cold (2026-10-20). Each answered question
+    names who answered it, so the reviewer weighs a default as the Planner's choice, not the person's."""
     history = state.get("planning_history") or []
     reports = ((history[-1] if history else None) or {}).get("reports") or {}
     last: dict = next(
@@ -235,7 +396,14 @@ def previous_review(state: RunState):
         {},
     )
     questions = (last.get("contract") or {}).get("open_blocking_questions") or []
-    answers = state.get("answers") or {}
+    answers = {
+        qid: {"text": row.get("text", ""), "answered_by": "user"}
+        for qid, row in (state.get("answers") or {}).items()
+        if isinstance(row, dict)
+    }
+    for event in state.get("user_events") or []:
+        if event.get("kind") == "technical_decision" and event.get("actor") == "autocode" and event.get("question_id"):
+            answers.setdefault(event["question_id"], {"text": event.get("text", ""), "answered_by": "autocode"})
     if not questions or any(question.get("id") not in answers for question in questions):
         return None
     concerns = ((reports.get("astra_challenge") or {}).get("report") or {}).get("concerns") or []
@@ -248,7 +416,8 @@ def previous_review(state: RunState):
             {
                 "id": question["id"],
                 "question": question.get("question", ""),
-                "answer": answers[question["id"]].get("text", ""),
+                "answer": answers[question["id"]]["text"],
+                "answered_by": answers[question["id"]]["answered_by"],
             }
             for question in questions
         ],
@@ -298,6 +467,8 @@ CONCERN = obj(
         "blocking": {"type": "boolean"},
     }
 )
+FIRST_CONCERN = copy.deepcopy(CONCERN)
+FIRST_CONCERN["properties"][failure_correction.FIELD] = failure_correction.RECEIPT_SCHEMA
 RESPONSE = obj({"concern_id": S, "response": S, "evidence_refs": SS, "change": S, "acceptance_test": S})
 DECISION = obj({"concern_id": S, "decision": S, "rationale": S, "acceptance_test": S, "resolved": {"type": "boolean"}})
 REQUIREMENT = obj({"id": S, "text": S, "source_quote": S})
@@ -327,10 +498,14 @@ CHANGE["properties"]["example_correction"] = {**examples.RECEIPT_SCHEMA, "type":
 TRACE = obj(
     {
         "requirement_id": S,
-        "disposition": {"type": "string", "enum": ["covered", "excluded", "superseded"]},
+        "disposition": {"type": "string", "enum": ["covered", "proxied", "excluded", "superseded"]},
         "evidence": S,
     }
 )
+# A proxied row's criteria prove a stand-in for what the user sees, rendered by code outside this checkout
+# (#2068); proxy_reason says why, and autocode_trace_coverage holds it to the person's confirmation. Every
+# other row says null, as CHANGE's example_correction does.
+TRACE["properties"]["proxy_reason"] = {"type": ["string", "null"]}
 # New reports use the structured form; this is also the generation schema, so
 # the model needs a concrete item shape. A report produced before structured
 # assumptions (a plain string item) is still accepted by apply_planning, which
@@ -383,7 +558,7 @@ SCHEMAS = {
             "requirement_trace": {"type": "array", "items": TRACE},
         }
     ),
-    "astra_challenge": obj({"summary": S, "concerns": {"type": "array", "items": CONCERN}}),
+    "astra_challenge": obj({"summary": S, "concerns": {"type": "array", "items": FIRST_CONCERN}}),
     "glm_revise": obj(
         {
             "contract": goals.BODY_SCHEMA,
@@ -452,6 +627,8 @@ CONTRACT_FIELD_NOTES = {
     "scope_exclusions": prompts.get("fragments/autoplanner/contract-field-notes-05.md"),
     "constraints": prompts.get("fragments/autoplanner/contract-field-notes-06.md"),
 }
+CURRENT_BEHAVIOR_NOTE = prompts.get("fragments/autoplanner/contract-field-notes-07.md")
+SUPERSEDES_NOTE = prompts.get("fragments/autoplanner/contract-field-notes-08.md")
 
 
 def _described(body):
@@ -460,6 +637,8 @@ def _described(body):
         body["properties"][key] = {**body["properties"][key], "description": note}
     criteria = body["properties"]["acceptance_criteria"]["items"]["properties"]
     criteria["human_review"] = {**criteria["human_review"], "description": HUMAN_REVIEW_NOTE}
+    criteria["current_behavior"] = {**criteria["current_behavior"], "description": CURRENT_BEHAVIOR_NOTE}
+    criteria["supersedes"] = {**criteria["supersedes"], "description": SUPERSEDES_NOTE}
     return body
 
 
@@ -483,6 +662,12 @@ SCHEMAS[RECOGNIZE] = workflows.SCHEMA
 # previous handoff had (goals.check_requirement_handoff enforces the citation).
 SCHEMAS["requirements_gather"]["properties"]["ignored_requirements"] = {"type": "array", "items": IGNORED_REQUIREMENT}
 SCHEMAS["requirements_gather"]["properties"]["assistant_reply"] = S
+# Requirements names the job it understood (#1846, #1860; workflows.from_requirements), or "none"
+# while no software outcome is named yet. Optional for saved reports; asked for in every run.
+SCHEMAS["requirements_gather"]["properties"]["job"] = {"type": "string", "enum": [*workflows.WORKFLOWS, "none"]}
+SCHEMAS["requirements_gather"]["properties"]["design_document"] = S
+# Judged with the job in an adaptive run (adaptive.requirements_judge_clarity), as the recognizer did.
+SCHEMAS["requirements_gather"]["properties"]["clarity"] = {"type": "string", "enum": list(adaptive.CLARITY)}
 # A discoverable question is answered from the workspace, never by the user.
 # machine_resolutions are accepted only during the runner's one investigation
 # pass, bound to the report that raised the question (handoff_hash). An
@@ -554,6 +739,10 @@ for _stage in ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_
 # The job type travels requirements -> contract -> approval. Every planning stage still runs;
 # for a bug fix they plan and review a small, defect-shaped plan instead of a feature.
 SCHEMAS["requirements_gather"]["properties"]["task_kind"] = goals.TASK_KIND
+# Work that belongs to another repository, validated on acceptance (autocode_workspace_scope, #2066).
+SCHEMAS["requirements_gather"]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
+for _stage in planning_scope.STAGES:
+    SCHEMAS[_stage]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
 JOB_TYPE_POLICY = goals.JOB_TYPE_POLICY
 
 
@@ -695,8 +884,17 @@ def apply_reviewer_effort_tier(state: RunState):
     if not isinstance(route, dict):
         return
     tier = reduced_reviewer_effort(route)
-    if tier is not None:
-        route["reasoning_effort"] = tier
+    if tier is None:
+        return
+    # The rung below may be one the model does not declare (GLM 5.3 declares low, high and max: a step from high
+    # lands on medium). Fit it at the one boundary rule (#2015, #2057), and record the move; with no listing the
+    # launch records the plain rung as unverified, as before (#2020).
+    model = route.get("model")
+    declared = route_fit.declared_for(settings, model) if isinstance(model, str) else None
+    fitted = route_fit.fit(settings, "plan_reviewer", effort=tier, declared=declared)
+    if fitted.reason == "fitted":
+        route_fit.record(settings, "plan_reviewer", fitted, cause="review_depth")
+    route["reasoning_effort"] = fitted.effort
 
 
 def apply_review_depth_policy(state: RunState):
@@ -712,13 +910,57 @@ def apply_review_depth_policy(state: RunState):
     planning = state.get("planning")
     if not isinstance(planning, dict):
         planning = state["planning"] = {}
+    review_usage.reconcile(state, at=s.now())
     if planning.get("review_depth_reduced"):
         return
-    archived = sum(row.get("astra_calls", 0) for row in state.get("planning_history") or [])
+    archived = sum(
+        row.get("astra_calls", 0)
+        for row in state.get("planning_history") or []
+        if row.get("turn_event_id") == planning.get("turn_event_id")
+    )
+    archived = review_usage.archived_calls(state, archived)
     planning["review_depth_reduced"] = True
     planning["review_calls_before_policy"] = archived
     planning["astra_calls"] = archived + planning.get("astra_calls", 0)
     apply_reviewer_effort_tier(state)
+
+
+def renew_for_revision(state: RunState, stage, limit) -> bool:
+    """One more review of a revision that answered blocking concerns, once per run (#1815).
+
+    Under the small-brief total (#1564) a live worker run spent its two calls on two challenges that both had
+    blocking concerns; the Planner revised, and nothing was left to review the revision, so the run stopped for
+    a person when the next step was simply the final review. A limit the person chose (a flag or config.toml)
+    is never raised here."""
+    planning = state.get("planning") or {}
+    reports = planning.get("reports") or {}
+    concerns = ((reports.get("astra_challenge") or {}).get("report") or {}).get("concerns") or []
+    if (
+        stage != "astra_finalize"
+        or state.get("next_stage") != stage
+        or not planning.get("review_depth_reduced")
+        or planning.get("revision_review_renewals")
+        or planning.get("review_call_limit_origin") == "user_explicit"
+        or (state.get("settings") or {}).get("planning_review_call_limit_origin")
+        or not adaptive.blocking(concerns)
+        or "glm_revise" not in reports
+    ):
+        return False
+    planning.update(
+        review_call_limit=limit + 1,
+        review_call_limit_origin="runner_default",
+        revision_review_renewals=1,
+        revision_review_renewal={
+            "stage": stage,
+            "challenge_output": reports["astra_challenge"].get("output"),
+            "revision_output": reports["glm_revise"].get("output"),
+            "blocking_ids": [str(concern.get("id")) for concern in adaptive.blocking(concerns)],
+            "from": limit,
+            "to": limit + 1,
+            "at": s.now(),
+        },
+    )
+    return True
 
 
 def review_call_limit(state: RunState):
@@ -811,6 +1053,10 @@ def refund_unreported(state: RunState, planning):
 
 
 def charge(state: RunState, stage, record=None, workspace=None):
+    if (message := gate_chat.pending(state)) and message["stage"] == stage:
+        return  # conversational interpretation is not another full plan review
+    if (message := plan_chat.pending(state)) and (message.get("context") or {}).get("kind") == "coordinated_plan":
+        return  # the saved reviewer is interpreting a reply, not reviewing another draft
     if stage not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
         return
     if progressive.charge_review(state, stage, record):
@@ -819,6 +1065,15 @@ def charge(state: RunState, stage, record=None, workspace=None):
     apply_review_depth_policy(state)
     refund_unreported(state, planning)
     limit = review_call_limit(state)
+    if (
+        limit
+        and planning["astra_calls"] >= limit
+        and not planning.get("recovery_review_grants")
+        and renew_for_revision(state, stage, limit)
+    ):
+        limit = review_call_limit(state)
+        if record is not None:
+            record["planning_revision_renewal"] = True
     if limit and planning["astra_calls"] >= limit:
         if planning.get("recovery_review_grants"):
             try:
@@ -850,7 +1105,8 @@ def charge(state: RunState, stage, record=None, workspace=None):
             f"{planning['astra_calls']}/{limit} plan-review calls used. "
             "AutoResolver could not authorize another safe operational call. "
             "Retained requirements and review evidence are unchanged; no approval is implied. "
-            "User feedback is needed only if the plan or requirements must change.",
+            "Allow more reviews with --resume-paused --planning-review-call-limit N (more than the calls used), "
+            "or give the Planner direction with --feedback TEXT.",
         )
     planning["astra_calls"] += 1
     if record is not None:
@@ -918,6 +1174,10 @@ OBLIGATION_POLICY = prompts.get("fragments/autoplanner/obligation-policy.md")
 
 def obligation_policy(stage):
     """Request only obligation fields this planning stage can return."""
+    if stage in ("astra_discovery", "glm_revise"):
+        return OBLIGATION_POLICY + prompts.get("fragments/autoplanner/obligation-planner-policy.md")
+    if stage == "astra_challenge":
+        return OBLIGATION_POLICY + prompts.get("fragments/autoplanner/obligation-review-policy.md")
     if stage != "astra_finalize":
         return OBLIGATION_POLICY
     return """
@@ -937,15 +1197,53 @@ the finalization report does not propose remediations.
 PROGRESSIVE_POLICY = prompts.get("fragments/autoplanner/progressive-policy.md")
 
 
+def progressive_policy(stage, state: RunState | None = None):
+    """A concern-only review checks proposals; it cannot return one."""
+    if stage == "astra_challenge" and state is not None and progressive.ordinary_initial_draft(state):
+        return (
+            "\nThe saved draft has no progressive proposal. Raise a concern if the proposed milestone is too broad "
+            "to deliver and verify as planned.\n"
+        )
+    instruction = (
+        prompts.get("fragments/autoplanner/progressive-review-policy.md")
+        if stage == "astra_challenge"
+        else prompts.get("fragments/autoplanner/progressive-proposal-policy.md")
+    )
+    return instruction + PROGRESSIVE_POLICY
+
+
 def repair_rules(stage, schema):
     """Repeat planning semantics only for fields allowed by the saved repair schema."""
     fields = schema.get("properties", {})
+    if stage == "astra_challenge":
+        return (
+            prompts.get("fragments/autoplanner/draft-failure-correction.md")
+            if failure_correction.offered(schema)
+            else ""
+        )
     if stage not in (*TRACE_STAGES, "plan", "plan_revise", "plan_finalize") or "contract" not in fields:
         return ""
+    if "retain_contract" in fields["contract"].get("properties", {}):
+        return (
+            "Use clarification_context.retained_contract as the current reference and "
+            "clarification_context.retained_criteria for retained criterion identities.\n"
+            + retention.final_rule(schema)
+            + (prompts.get("fragments/autoplanner/draft-failure-correction.md") if stage == "astra_finalize" else "")
+            + report_policy.concern_rule(schema)
+        )
     return (
         REVISION_CONFLICT_RULE
+        + (
+            prompts.get("fragments/autoplanner/draft-failure-correction.md")
+            if stage in ("glm_revise", "astra_finalize")
+            else ""
+        )
+        + report_policy.concern_rule(schema)
+        + (retention.revision_reference.RULE if retention.revision_reference.offered(schema) else "")
+        + (retention.delta_rule(schema) if retention.allows_delta(schema) else "")
+        + prompts.get("fragments/autoplanner/repair-citations.md")
         + (RESPONSE_EVIDENCE_RULE if "responses" in fields else "")
-        + (PROGRESSIVE_POLICY if "progressive_proposal" in fields else "")
+        + (progressive_policy(stage) if "progressive_proposal" in fields else "")
     )
 
 
@@ -965,7 +1263,7 @@ def split_code_ref(root, ref):
 # Paths the runner or the tools own: a plan may not cite them as evidence. They are transient (a run's
 # active-processes.json is gone when the run ends), so a plan built on one breaks when the citation is
 # re-read (VALIDATION.md, 2026-09-26: a bugfix plan cited .autocode/active-processes.json).
-RUNNER_OWNED_PARTS = (".autocode", ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache")
+RUNNER_OWNED_PARTS = workspace_inventory_impl.RUNNER_OWNED_PARTS
 
 
 def cited_file(root, path, field, ref):
@@ -984,32 +1282,8 @@ def cited_file(root, path, field, ref):
 
 
 def workspace_inventory(workspace, task, limit=40, scan_limit=5000):
-    """Bounded filesystem inventory; works in repositories and ordinary directories."""
-    root = Path(workspace)
-    ignored = {".git", ".autocode", ".venv", "venv", "node_modules", "__pycache__", ".next", "dist", "build", ".cache"}
-    words = set(re.findall(r"[a-z]{3,}", task.lower()))
-    candidates = []
-    truncated = False
-    for directory, dirs, files in os.walk(root):
-        dirs[:] = sorted(d for d in dirs if d not in ignored and not Path(directory, d).is_symlink())
-        for name in sorted(files):
-            path = Path(directory, name)
-            if name in ignored or name.endswith((".pyc", ".png", ".jpg", ".lock")) or path.is_symlink():
-                continue
-            relative = path.relative_to(root).as_posix()
-            score = sum(word in relative.lower() for word in words)
-            candidates.append((-score, relative))
-            if len(candidates) >= scan_limit:
-                truncated = True
-                break
-        if truncated:
-            break
-    candidates.sort()
-    return {
-        "files": [name for _, name in candidates[:limit]],
-        "truncated": truncated or len(candidates) > limit,
-        "instruction": prompts.get("fragments/autoplanner/workspace-inventory.md"),
-    }
+    """Bounded navigation hints shared by planning and standalone jobs."""
+    return workspace_inventory_impl.inventory(workspace, task, limit, scan_limit)
 
 
 def capture_command():
@@ -1028,31 +1302,52 @@ RISK_OBSERVATION_REVIEW_RULE = prompts.get("fragments/autoplanner/risk-observati
 
 
 def context(state: RunState, stage, state_path):
-    if stage == "requirements_gather" and plan_chat.pending(state):
+    if (message := gate_chat.pending(state)) and message["stage"] == stage:
+        return gate_chat.context(state)
+    if (
+        stage in ("requirements_gather", "astra_finalize")
+        and plan_chat.pending(state)
+        and state.get("next_stage") == stage
+    ):
         return plan_chat.context(state)
     predecessor = None
     if stage in V2_STAGES:
         predecessor = artifacts.verify_predecessor(state, stage, Path(state_path).parent)
+    report_recovery = planning_recovery_policy.active(state, stage)
     exchange: dict = copy.deepcopy(state.get("planning", {}))
+    current_body = (state.get("goal_contract") or {}).get("body")
+    has_contract_ref = False
     for entry in exchange.get("reports", {}).values():
+        report = entry.get("report") or {}
         # Current contract is included once. Older full drafts stay retrievable
         # via the artifact path; every concern, response and decision remains in
         # the handoff because later review stages must account for every ID.
-        entry["report"].pop("contract", None)
+        if not report_recovery:
+            report.pop("contract", None)
+        elif (
+            stage == "astra_challenge"
+            and current_body
+            and report.get("contract") == current_body
+            and util.digest(report["contract"]) == util.digest(current_body)
+        ):
+            # A tool-free recovery still needs all distinct historical drafts.
+            del report["contract"]
+            report["contract_ref"] = "#/goal_contract/body"
+            has_contract_ref = True
         # Trim verbose fields from older reports to keep the prompt bounded.
-        report = entry.get("report") or {}
-        for key in ("code_refs", "alternatives", "uncertainties", "summary"):
+        for key in () if report_recovery else ("code_refs", "alternatives", "uncertainties", "summary"):
             if isinstance(report.get(key), list) and len(report[key]) > 5:
                 report[key] = report[key][:5]
             elif isinstance(report.get(key), str) and len(report[key]) > 500:
                 report[key] = report[key][:500] + "…"
+    route = route_for(state, stage)
     packet = {
         "task": state["task"],
         "workspace": state["workspace"],
         "state_file": str(state_path),
         "joint_planning": True,
         **({"spec_first": True} if stage == "requirements_gather" and state["settings"].get("spec_first") else {}),
-        "execution_engine": engine_for(state["settings"], route_for(state, stage)),
+        "execution_engine": engine_for(state["settings"], route),
         "stage": stage,
         "goal_contract": None if stage == "requirements_gather" else state.get("goal_contract"),
         "requirements_handoff": None if stage == "requirements_gather" else state.get("requirements_handoff"),
@@ -1074,8 +1369,35 @@ def context(state: RunState, stage, state_path):
         "brief_feedback": state.get("brief_feedback", []),
         "planning": exchange,
         "budget": prompts.get("fragments/autoplanner/context.md").format(review_call_limit(state) or "Unlimited"),
+        "execution_budget": planning_time.context(state),
         "recovery_context": state.get("recovery_context"),
     }
+    if stage == "requirements_gather":
+        previous_requirements = ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements", [])
+        if previous_requirements:
+            packet["previous_requirements"] = [
+                {key: row.get(key) for key in ("id", "text", "source_quote")}
+                for row in previous_requirements
+                if isinstance(row, dict)
+            ]
+            packet["requirements_correction_sources"] = requirement_retention.correction_sources(
+                state, previous_requirements
+            )
+    if stage == "astra_challenge" and (correction_snapshot := failure_correction.snapshot(state)):
+        packet["draft_failure_correction_snapshot"] = correction_snapshot
+    coordinated = stage_context.coordination_context.context(state)
+    if coordinated:
+        packet["coordinated_member"] = coordinated
+    elif stage in ("requirements_gather", "requirements", "recognize_workflow"):
+        try:
+            from .. import autocode_catalog_context as source_catalog
+        except ImportError:
+            import autocode_catalog_context as source_catalog
+        if catalog := source_catalog.context(state):
+            packet["source_catalog"] = catalog
+    interpretations = goals.feedback_interpretation_context(state)
+    if interpretations:
+        packet["feedback_interpretations"] = interpretations
     if stage in ("requirements_gather", "requirements"):
         try:
             from .. import autocode_project_memory_lifecycle as project_memory
@@ -1089,6 +1411,16 @@ def context(state: RunState, stage, state_path):
     if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
         packet["brief_declaration_inventory"] = brief_obligations.inventory(state)
         packet["risk_declaration_inventory"] = risk_obligations.inventory(state)
+    uncited = exchange.pop("uncited_sentences", None)  # carried once, as uncited_source_sentences
+    if uncited and stage in ("astra_challenge", "glm_revise", "astra_finalize"):
+        packet["uncited_source_sentences"] = uncited
+    sentences = source_sentences(state, stage)
+    if sentences:
+        packet["source_sentences"] = sentences
+    if stage in REVIEW_SOURCE_TRACE_STAGES:
+        review_sentences = review_source_sentence_rows(state)
+        if review_sentences:
+            packet["review_source_sentences"] = review_sentences
     if stage in CITATION_STAGES:
         # The model quotes these verbatim in criterion sources (#595); the fake
         # provider reads the same list to build its scripted citations. The full
@@ -1105,8 +1437,19 @@ def context(state: RunState, stage, state_path):
         for grant in exchange.get("recovery_review_grants", [])
         if not grant.get("consumed") and grant.get("binding", {}).get("stage") == stage
     ]
-    recovery = packet["recovery_context"] or {}
-    if grants or (stage in ("astra_challenge", "astra_finalize") and recovery.get("stage") == stage):
+    if stage in ("astra_challenge", "astra_finalize") and (report_recovery or packet["recovery_context"]):
+        current_source = stage_context.source_scope.snapshot(Path(state["workspace"]), state)
+        retained = recovery_observations.context(state, stage, Path(state_path).parent, current_source["revision"])
+        if retained:
+            packet["retained_review_observations"] = retained
+    elif stage == "astra_finalize":
+        prior_examples = retention.prior_review_examples(
+            state, route, lambda: stage_context.source_scope.snapshot(Path(state["workspace"]), state)["revision"]
+        )
+        if prior_examples:
+            packet["prior_review_examples"] = prior_examples
+            exchange["reports"]["astra_challenge"]["report"].pop("summary", None)
+    if report_recovery:
         try:
             from ..autocode_resolver_runtime import OPERATIONAL_INSTRUCTION
         except ImportError:
@@ -1114,8 +1457,13 @@ def context(state: RunState, stage, state_path):
         packet["resolver_remediation"] = {
             "receipt_id": grants[0]["id"] if grants else None,
             "instruction": OPERATIONAL_INSTRUCTION,
+            "report_only": True,
         }
         recovery_instruction = "\n" + OPERATIONAL_INSTRUCTION + "\n"
+        if has_contract_ref:
+            recovery_instruction += (
+                "Resolve contract_ref within this handoff. It points to the identical saved draft.\n"
+            )
     if stage in ("astra_challenge", "astra_finalize") and (grants or packet["recovery_context"]):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"], limit=20)
     if stage == "requirements_gather":
@@ -1125,12 +1473,20 @@ def context(state: RunState, stage, state_path):
     rows = trace_rows(state, stage)
     if rows:
         packet["requirement_trace_rows"] = rows
+    left_out = list(dict.fromkeys(scope_question.effective_exclusions(state)))
+    if left_out and stage in TRACE_STAGES:
+        # The person kept this run to this repository (#2066): each entry goes in scope_exclusions
+        # verbatim. An installed person-authorized exact rewording contributes its corrected text
+        # instead of the superseded one (#2467).
+        packet["scope_exclusions_required"] = left_out
     earlier = previous_review(state) if stage == "astra_challenge" else None
     if earlier:
         packet["previous_review"] = earlier
     if state["settings"].get("figma_file"):
         packet["figma_file"] = state["settings"]["figma_file"]
-    packet["user_events"] = state.get("user_events", [])
+    packet["user_events"] = packet_events.reference_repeats(
+        state.get("user_events", []), packet.get("brief_feedback"), packet.get("saved_answers")
+    )
     try:
         from ..autocode_component_runtime import architecture_contract
     except ImportError:
@@ -1143,16 +1499,23 @@ def context(state: RunState, stage, state_path):
     diagnosis = bug_job.large_correction(state)
     if diagnosis:
         packet["bug_diagnosis"] = diagnosis
+        if stage in ("requirements_gather", "requirements", "astra_discovery", "plan"):
+            packet["bug_diagnosis_evidence"] = investigation_evidence.context(state, Path(state_path).parent)
     findings = follow_up.review_findings(state)
     if findings:
         packet["review_findings"] = findings
-    guidance = program_guidance.current(state)
-    if guidance:
-        packet["program_guidance"] = guidance
+    fallback = compact_planning.fallback_context(state)
+    if fallback:  # the Plan Reviewer refused the runner's compact draft: the Planner drafts afresh (#2021)
+        packet["compact_draft_fallback"] = fallback
     if stage == "requirements_gather":
         packet["previous_requirements_handoff"] = state.get("requirements_handoff")
+        # Requirements names a follow-up's job (#1860): the earlier turn, as the recognizer was told it.
+        earlier_turn = workflows.follow_up(state)
+        if earlier_turn:
+            packet["follow_up"] = earlier_turn
     if stage in ("requirements_gather", "astra_discovery"):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"])
+    packet["regression_reference"] = regression_reference.context(state)
     try:
         from .. import autocode_design_manifest as design_manifest
         from .. import autocode_figma as figma
@@ -1164,21 +1527,38 @@ def context(state: RunState, stage, state_path):
     if manifest_context:
         packet["design_manifest"] = manifest_context
         figma_instruction += design_manifest.INSTRUCTION
+    author_rules, audit_context, audit_instruction = report_policy.scope_contract_rules(
+        retention.model_schema(schema_for(state, stage), state, stage),
+        {
+            "decision_provenance": goals.DECISION_PROVENANCE,
+            "contract_references": goals.CONTRACT_REFERENCES,
+            "revision_conflicts": REVISION_CONFLICT_RULE,
+            "example_criteria": DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE,
+            "milestone_handoff": s.MILESTONE_POLICY,
+        },
+        contract=packet["goal_contract"],
+    )
+    packet.update(audit_context)
+    compact_final = stage in retention.FINAL and bool(retention.token(state))
     planning_policy = (
         ""
         if stage == "requirements_gather"
         else (
-            goals.DECISION_PROVENANCE
-            + goals.CONTRACT_REFERENCES
-            + examples.RULE
-            + s.MILESTONE_POLICY
+            author_rules["decision_provenance"]
+            + author_rules["contract_references"]
+            + ("" if compact_final else examples.RULE)
+            + author_rules["milestone_handoff"]
             + EVIDENCE_FACTS
-            + REVISION_CONFLICT_RULE
-            + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
+            + author_rules["revision_conflicts"]
+            + ("" if compact_final or stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
         )
     )
-    progressive_policy = (
-        PROGRESSIVE_POLICY
+    if stage in ("astra_challenge", "glm_revise", "astra_finalize"):
+        planning_policy += prompts.get("fragments/autoplanner/draft-failure-correction.md")
+    if stage != "requirements_gather":
+        planning_policy += prompts.get("fragments/autoplanner/proof-reference-rule.md")
+    progressive_rule = (
+        progressive_policy(stage, state)
         if stage
         in (
             "astra_discovery",
@@ -1210,30 +1590,48 @@ def context(state: RunState, stage, state_path):
         BUG_DIAGNOSIS_RULE if diagnosis else ""
     )
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
-    design_rule += PROGRAM_GUIDANCE_RULE if guidance else ""
-    design_rule += task_authority.instruction(state.get("investigation"))
+    design_rule += compact_planning.fallback_rule(state)
+    design_rule += task_authority.instruction(test_cases.current_diagnosis(state))
     if turn:
         design_rule += prompts.get("fragments/autoplanner/context-02.md")
+    if stage == "requirements_gather":
+        design_rule += SOURCE_REFS_RULE
+    if stage in CODE_REFS_STAGES:
+        design_rule += CODE_REFS_RULE
     if stage != "requirements_gather":
-        design_rule += DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE
+        design_rule += author_rules["example_criteria"]
         # #498: the Go tests the user named are declared under those names; the runner refuses a prose alias.
         native = native_test_names.requested(state)
         design_rule += native_test_names.rule(native) if native else ""
-        design_rule += EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize") else ""
+        design_rule += (
+            EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize") else ""
+        )
+        if packet.get("prior_review_examples"):
+            design_rule += retention.REVIEWED_EXAMPLES_RULE
         design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
+        if stage in ("astra_challenge", "astra_finalize"):
+            design_rule += stage_context.coordination_context.proxy_rule(state, OUT_OF_CHECKOUT_PROXY_RULE)
         design_rule += NO_TIMING_RULE
     design_rule += acceptance_policy.COVERAGE
     if stage != "requirements_gather" and not test_cases.design_only(state):
         design_rule += acceptance_policy.DOMAIN
     if rows and stage in TRACE_STAGES:
         design_rule += REQUIREMENT_TRACE_RULE
-    literals = brief_literals.literals(goals.scan_texts(state)) if stage in TRACE_STAGES else []
-    design_rule += brief_literals.rule(literals) if literals else ""
+    # Per-run citation lists go after the static policy so planning prompts share
+    # the longest static prefix a provider can cache (#2136).
+    citation_rule = ""
+    if stage in TRACE_STAGES:
+        literals = brief_literals.literals(goals.scan_texts(state))
+        citation_rule += brief_literals.rule(literals) if literals else ""
     if stage in CITATION_STAGES:
         records = brief_obligations.sources(state)
-        design_rule += source_trace.rule(records) if records else ""
+        citation_rule += source_trace.rule(records) if records else ""
     if stage != "requirements_gather":
         design_rule += BRIEF_ACCEPTANCE_CARRY_RULE
+    if packet.get("source_sentences"):
+        design_rule += SENTENCE_ID_RULE
+    if packet.get("uncited_source_sentences"):
+        design_rule += UNCITED_REVISE_RULE if stage == "glm_revise" else UNCITED_REVIEW_RULE
     if packet.get("brief_declaration_inventory"):
         design_rule += BRIEF_OBSERVATION_REVIEW_RULE
     if packet.get("risk_declaration_inventory"):
@@ -1244,17 +1642,52 @@ def context(state: RunState, stage, state_path):
         if stage in ("requirements_gather", "requirements")
         else ""
     )
+    rejection = failures.recent_rejection(state, stage)
+    rejection_rule = ""
+    if rejection:
+        packet["prior_rejection"] = {
+            "attempts": rejection.get("count"),
+            "last_error": str(rejection.get("last_error") or "")[:2000],
+        }
+        rejection_rule = PRIOR_REJECTION_RULE
+    retain_rule = ""
+    if stage in retention.AUTHORS and retention.token(state):
+        if stage != "glm_revise":
+            packet["retained_criteria"] = retention.inventory(state)
+        packet["retained_contract"] = retention.token(state)
+        if stage in retention.FINAL:
+            # The reference form takes no per-row references; its criteria delta is in the final rule.
+            packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
+            retention.compact_final_packet(packet)
+            retain_rule = retention.final_rule()
+        elif stage == "glm_revise":
+            retain_rule = retention.revision_reference.RULE + retention.delta_rule()
+            packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
+        else:
+            retain_rule = retention.RULE + retention.delta_rule()
+    progress_rule = (
+        prompts.get("fragments/autoplanner/review-progress.md")
+        if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
+        else ""
+    )
     prompt = (
-        PROMPTS[stage]
+        (retention.FINAL_PROMPT if compact_final else PROMPTS[stage])
+        + progress_rule
+        + prompts.get("fragments/autoplanner/time-budget.md")
+        + (prompts.get("fragments/autoplanner/late-repository-scope.md") if stage in planning_scope.STAGES else "")
+        + audit_instruction
         + memory_rule
         + JOB_TYPE_POLICY
         + design_rule
         + recovery_instruction
+        + rejection_rule
         + figma_instruction
         + planning_policy
         + clarification_policy
-        + progressive_policy
+        + progressive_rule
+        + citation_rule
         + s.COMMON
+        + retain_rule
         + prompts.get("fragments/autoplanner/context-03.md")
         + json.dumps(packet, separators=(",", ":"))
     )
@@ -1267,10 +1700,17 @@ def context(state: RunState, stage, state_path):
 def _model_report_schema(schema, state: RunState):
     """Protected contract provenance is retained by the runner, never generated by a model."""
     result = copy.deepcopy(schema)
-    if not (state.get("settings") or {}).get("spec_first"):
-        result.get("properties", {}).pop("assistant_reply", None)
-        if "assistant_reply" in result.get("required", []):
-            result["required"].remove("assistant_reply")
+    # assistant_reply only in a chat; job and design_document in every Requirements report (#1860), and
+    # clarity with them while an adaptive run's Requirements names the job.
+    fields = result.get("properties", {})
+    conversational = bool(plan_chat.pending(state) or gate_chat.pending(state))
+    dropped = [] if conversational or (state.get("settings") or {}).get("spec_first") else ["assistant_reply"]
+    if "job" in fields and not adaptive.requirements_judge_clarity(state):
+        dropped.append("clarity")
+    for field in dropped:
+        fields.pop(field, None)
+        if field in result.get("required", []):
+            result["required"].remove(field)
     for field in ("contract", "requirements"):
         body = result.get("properties", {}).get(field, {})
         for protected in ("brief_acceptance", "risk_acceptance", "source_trace"):
@@ -1293,7 +1733,15 @@ def _model_report_schema(schema, state: RunState):
             result.get("properties", {}).pop(field, None)
             if field in result.get("required", []):
                 result["required"].remove(field)
-    return result
+    result = report_policy.conflict_schema(
+        result,
+        (state.get("requirements_handoff") or {}).get("report"),
+        adaptive.feedback_requirements(state),
+        state.get("requirements_history", []),
+    )
+    review_stage = "plan_review" if role_names.planning_flow(state) == "v2" else "astra_challenge"
+    review = (((state.get("planning") or {}).get("reports") or {}).get(review_stage) or {}).get("report")
+    return report_policy.concern_schema(result, review)
 
 
 def prepare(state: RunState, stage, state_path, schema_dir):
@@ -1374,14 +1822,25 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         else design_plan.report_schema(goals.DISCOVERY_SCHEMA, (state.get("settings") or {}).get("design_manifest"))
     )
     return ModelRequest(
-        role, route_for(state, stage, role), prompt, metrics, _model_report_schema(schema, state), False
+        role,
+        route_for(state, stage, role),
+        prompt,
+        metrics,
+        retention.model_schema(_model_report_schema(schema, state), state, stage),
+        False,
     )
 
 
 def schema_for(state: RunState, stage):
     """The report schema for a planning stage in this run (adaptive runs extend two of them)."""
-    if stage == "requirements_gather" and plan_chat.pending(state):
-        return plan_chat.SCHEMA
+    if (message := gate_chat.pending(state)) and message["stage"] == stage:
+        return gate_chat.schema(state)
+    if (
+        stage in ("requirements_gather", "astra_finalize")
+        and plan_chat.pending(state)
+        and state.get("next_stage") == stage
+    ):
+        return plan_chat.message_context.schema(plan_chat.SCHEMA, plan_chat.pending(state))
     if stage == RECOGNIZE:
         return adaptive.recognizer_schema(state, SCHEMAS[stage])
     return design_plan.report_schema(
@@ -1390,10 +1849,62 @@ def schema_for(state: RunState, stage):
     )
 
 
+def proxy_concerns(state: RunState, value):
+    """One blocking concern per covered user-visible requirement a stand-in criterion discharges (#2068),
+    appended to the review report before it is stored, so the person sees the question the plan cannot
+    answer from this repository."""
+    trace = retention.validated_trace(state)
+    if not trace:
+        return
+    handoff = (state.get("requirements_handoff") or {}).get("report") or {}
+    body = (state.get("goal_contract") or {}).get("body") or {}
+    existing = {str(row.get("id") or "") for row in value.setdefault("concerns", [])}
+    # A proxy concern is raised once per requirement (#2068): the person's confirmation is the mechanical
+    # exit, so a later round of the same contract is not re-blocked. The prompt rule still covers what
+    # this check can no longer ask.
+    raised = state["planning"].setdefault("proxy_concerns_raised", [])
+    existing |= set(raised)
+    for gap in trace_coverage.proxy_gaps(handoff.get("requirements") or [], trace, body):
+        cid = "proxy-" + str(gap["requirement_id"])
+        if cid in existing:
+            continue
+        proven = "; ".join(gap["criteria"]) or "no criterion cited"
+        said = f"{proven} (the cited criteria)" if gap["criteria"] else proven
+        seen = "`" + str(gap["literal"]) + "`"
+        value["concerns"].append(
+            {
+                "id": cid,
+                "concern": (
+                    f"This proves {said}, the user sees {seen} (the literal), "
+                    f"{seen} is rendered by code outside this checkout; confirm {proven} changes {seen}, "
+                    "or ask the person"
+                ),
+                "evidence_refs": [str(gap["requirement_id"]), *gap["criteria"]],
+                "requested_change": (
+                    f"Trace {gap['requirement_id']} to a criterion that proves what the user sees for {seen}, "
+                    "or mark it proxied with a proxy_reason and ask the person, as a blocking decision question, "
+                    "whether the cited criteria change it"
+                ),
+                "acceptance_test": (
+                    f"A covered criterion for {gap['requirement_id']} names {seen} in its own text, "
+                    "or the row is proxied and a saved user answer or an open decision question settles it"
+                ),
+                "blocking": True,
+            }
+        )
+        existing.add(cid)
+        raised.append(cid)
+
+
 def after_challenge(state: RunState, value, record):
     """Where the first review leads. In an adaptive run, a review with no blocking concern approves
     the Planner's draft as the final plan (autocode_adaptive_planning); otherwise the Planner revises."""
+    failure_correction.receipts(state, value)
+    compact = compact_planning.reviewing(state)
     if not adaptive.enabled(state):
+        if compact:  # the runner's draft has no Planner to revise it: the full path plans afresh (#2021)
+            compact_planning.fall_back(state, "the run does not plan adaptively")
+            return
         state["next_stage"] = "glm_revise"
         return
     planning, contract = state["planning"], cast(dict, state["goal_contract"])
@@ -1410,30 +1921,84 @@ def after_challenge(state: RunState, value, record):
         or not adaptive.approvable(contract["body"])
         or progressive.view(state).get("candidate")
     ):
+        if compact:
+            # The compact draft is not revised: a blocking concern returns the run to the full path, where
+            # the Planner drafts with this review in its packet (autocode_compact_planning.fall_back, #2021).
+            blocking = adaptive.blocking(value["concerns"])
+            compact_planning.fall_back(
+                state,
+                "the Plan Reviewer raised blocking concerns " + ", ".join(c["id"] for c in blocking)
+                if blocking
+                else "the Plan Reviewer's review could not approve the draft as written",
+            )
+            return
         # A progressive delegation is authorized by an accepted revision and final
         # independent review. A challenge cannot supply that approval evidence.
         state["next_stage"] = "glm_revise"
+        escalate_planner(state, value)
         return
     try:
         from .. import autocode_goal_lifecycle as lifecycle
     except ImportError:
         import autocode_goal_lifecycle as lifecycle
     # The same path a final review takes: install the approved body and queue the user's approval.
-    body = brief_obligations.reviewed_body(
-        state,
-        contract["body"],
-        value.get("brief_observations") or [],
-        record,
-        changes=value.get("brief_observation_changes") or [],
-        trace=value.get("source_trace"),
-    )
-    body = risk_obligations.reviewed_body(
-        state, body, value.get("risk_observations") or [], record, changes=value.get("risk_observation_changes") or []
-    )
-    lifecycle.install_draft(state, body, origin="adaptive_review_approval", record=record)
+    # The same path a final review takes: install the approved body and queue the user's approval. A refused
+    # install is rolled back to the saved state, so no half-installed draft survives it.
+    saved = copy.deepcopy(state)
+    try:
+        body = brief_obligations.reviewed_body(
+            state,
+            contract["body"],
+            value.get("brief_observations") or [],
+            record,
+            changes=value.get("brief_observation_changes") or [],
+            trace=value.get("source_trace"),
+        )
+        body = risk_obligations.reviewed_body(
+            state,
+            body,
+            value.get("risk_observations") or [],
+            record,
+            changes=value.get("risk_observation_changes") or [],
+        )
+        lifecycle.install_draft(state, body, origin="adaptive_review_approval", record=record)
+    except brief_acceptance.ObservationProposalError:
+        # The Reviewer owns these proposals. Let the ordinary bounded report-repair path correct them;
+        # sending this to the Planner repeats work without giving it authority to fix the review.
+        raise
+    except ValueError as error:
+        # The draft cannot go to the user as it stands, for example a brief sentence no criterion
+        # cites. The Planner owns the contract: rejecting this review sent it to report repair,
+        # which cannot change the contract, and the run paused with no plan (#1630). Revise
+        # instead, as every first review leads to outside adaptive planning.
+        cast(dict, state).clear()
+        state.update(saved)
+        state["planning"]["adaptive"]["approval_refused"] = str(error)
+        if compact:
+            compact_planning.fall_back(state, f"the reviewed compact draft was refused: {error}")
+            return
+        state["next_stage"] = "glm_revise"
+        return
+    planning = state["planning"]
     planning["final_token"] = goals.token(state["goal_contract"])
     planning["adaptive"].update(
         approved_at=f"astra_challenge#{planning['adaptive']['challenges']}", final_stage="astra_challenge"
+    )
+
+
+def escalate_planner(state: RunState, value):
+    """A revised draft the Plan Reviewer blocks again moves the Planner once to a stronger model for the next
+    revision (autocode_planner_escalation). Only blocking concerns count: a draft sent back because it could not
+    be approved as written, or because a progressive delegation needs a revision, is not the reviewer's verdict."""
+    challenges = state["planning"]["adaptive"]["challenges"]
+    blocking = adaptive.blocking(value["concerns"])
+    if challenges < planner_escalation.CHALLENGE or not blocking:
+        return None
+    ids = ", ".join(str(concern["id"]) for concern in blocking)
+    return planner_escalation.escalate(
+        state,
+        detail=f"Plan Reviewer challenge {challenges} still blocks the revised plan: {ids}",
+        struggle_id=f"planning:{len(state.get('planning_history') or [])}",
     )
 
 

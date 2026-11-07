@@ -1,4 +1,4 @@
-"""Recover structural planning metadata without changing a contract or evidence.
+"""Expand runner-owned planning facts without rewriting model intent or evidence.
 
 The report loader retains the provider's response before saving the canonical
 report. Schema, requirement coverage and contract revision checks still apply.
@@ -15,9 +15,15 @@ if TYPE_CHECKING:
 import copy
 
 try:
+    from . import autocode_current_behavior as current_behavior
+    from . import autocode_plan_retention as retention
     from . import autocode_roles as roles
+    from . import autocode_scope_question as scope_question
 except ImportError:
+    import autocode_current_behavior as current_behavior
+    import autocode_plan_retention as retention
     import autocode_roles as roles
+    import autocode_scope_question as scope_question
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
@@ -56,11 +62,15 @@ def _trace_identity(report, state: RunState):
     )
 
 
-def _addition_declarations(report, state: RunState):
+def _addition_declarations(report, state: RunState, stage):
     previous = (state.get("goal_contract") or {}).get("body")
     current, changes = report.get("contract"), report.get("contract_changes")
     if not isinstance(previous, dict) or not isinstance(current, dict) or not isinstance(changes, list):
         return
+    if isinstance(current.get("acceptance_criteria"), dict):
+        # Inspect the same exact expansion the controller will validate, while
+        # preserving the provider's compact report and its original evidence.
+        current = retention.expand(state, stage, report)["contract"]
     old, new = previous.get("acceptance_criteria"), current.get("acceptance_criteria")
     if not isinstance(old, list) or not isinstance(new, list):
         return
@@ -121,5 +131,26 @@ def normalize_planning_metadata(value, state: RunState | None, record):
         return value
     result = copy.deepcopy(value)
     _trace_identity(result, state)
-    _addition_declarations(result, state)
+    _addition_declarations(result, state, stage)
+    return result
+
+
+def expand_report(state: RunState, stage, value):
+    """Record the same expanded contract the lifecycle will install.
+
+    Runner-derived baseline text and authenticated peer edit exclusions must be
+    present before saving the canonical report; otherwise exact trace inheritance
+    sees a different body.
+    An authorized exact rewording in this report's own contract_changes is honored
+    here already, because expansion runs before the revision guard consumes those
+    rows (#2467).
+    The original provider artifact and authored outcome remain unchanged.
+    """
+    result = retention.expand(state, stage, value)
+    body = result.get("contract")
+    if isinstance(body, dict):
+        prepared = scope_question.retain_assigned_exclusions(state, body, value.get("contract_changes") or [])
+        prepared = current_behavior.prepare_body(state, prepared, stage)
+        if prepared is not body:
+            result = {**result, "contract": prepared}
     return result
