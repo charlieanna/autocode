@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Builder sent back to settle changed lines gets those lines' evidence, not the whole proof's.
+  Each tested or excepted line is listed by number under its file; every open line keeps its full
+  row. A live returned Builder's handoff fell from 257 KB to 79 KB; at 257 KB its provider compacted
+  the conversation and the run paused for a person (#2815).
 - Large completed review reports can use exact text edits for syntax errors or a JSON fence, within
   the existing 512 KiB artifact ceiling. Repairs preserve the source hash, unchanged report text,
   the 32-edit/4096-byte correction limits, and every ordinary evidence and approval check.

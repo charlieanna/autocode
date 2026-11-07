@@ -191,3 +191,30 @@ def queued(state: RunState, record):
         and row.get("source_revision") == record.get("source_revision")
         for row in state.get("regression_proofs") or []
     )
+
+
+# Lines the Builder has nothing to do for: a test already settles them, or the independent Tester
+# accepted their reason. Their rows stay in the regression proof.
+SETTLED = ("tested", "excepted")
+
+
+def builder_evidence(assessment):
+    """The changed-line evidence a Builder acts on: every open line whole, settled lines by number.
+
+    A live Builder round got all 229 rows of its proof (205 KB, four fifths of its handoff) to repair
+    28 lines, and the provider compacted its conversation (#2815). The open rows keep every field;
+    each tested or excepted line is listed under its file, so the Builder still sees what is settled.
+    """
+    rows = assessment.get("obligations")
+    if not isinstance(rows, list):
+        return assessment
+    view = {key: value for key, value in assessment.items() if key != "obligations"}
+    view["obligations"] = [row for row in rows if not isinstance(row, dict) or row.get("status") not in SETTLED]
+    settled = {}
+    for row in rows:
+        if isinstance(row, dict) and row.get("status") in SETTLED:
+            lines = settled.setdefault(row["status"], {}).setdefault(row.get("path"), [])
+            lines.append(row.get("line"))
+    if settled:
+        view["settled_lines"] = settled
+    return view

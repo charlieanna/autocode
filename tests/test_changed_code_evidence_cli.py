@@ -278,6 +278,12 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         feedback = json.dumps(builders[1]["handoff"])
         self.assertIn("calc.py", feedback)
         self.assertIn(f"calc.py:{LOWER_RETURN_LINE}", feedback)
+        # The returned Builder gets its open lines whole and the settled ones by number only (#2815).
+        returned = builders[1]["handoff"]["changed_code_evidence"]
+        self.assertIn(("calc.py", LOWER_RETURN_LINE), [(row["path"], row["line"]) for row in returned["obligations"]])
+        self.assertEqual({"reason_required"}, {row["status"] for row in returned["obligations"]}, returned)
+        self.assertTrue(returned["settled_lines"]["tested"]["calc.py"], returned)
+        self.assertNotIn(LOWER_RETURN_LINE, returned["settled_lines"]["tested"]["calc.py"])
         self.assertEqual("TASK_COMPLETE", view["status"], self.diagnostic())
         self.assertEqual(self.approved_token, view["approved_contract"]["token"])
         self.assertEqual(self.routes, view["routes"])

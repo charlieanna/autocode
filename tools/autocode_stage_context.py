@@ -150,11 +150,11 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         )
         changed_code = (state.get("regression_proof") or {}).get("changed_code_evidence")
         if changed_code and changed_code.get("status") != "PASS":
-            base["changed_code_evidence"] = changed_code
             try:
                 from . import autocode_changed_code_rework as changed_code_rework
             except ImportError:
                 import autocode_changed_code_rework as changed_code_rework
+            base["changed_code_evidence"] = changed_code_rework.builder_evidence(changed_code)
             guidance = changed_code_rework.guidance(state, current["revision"])
             if guidance:
                 base["changed_code_investigation"] = guidance
