@@ -122,6 +122,45 @@ class KiloPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot accompany"):
             policy.restrict(argv, child, Path.cwd(), role="sol", request={}, portable_shell=True)
 
+    def test_the_config_and_the_usual_agent_are_read_together(self):
+        # Each debug command is a Kilo start; read one after another they cost every stage seconds
+        # (2026-11-07). Both reads wait for each other here, so reading them in turn fails.
+        together = threading.Barrier(2, timeout=10)
+        rules = [{"permission": "read", "pattern": "*", "action": "allow"}]
+
+        def debug(argv, **_kwargs):
+            together.wait()
+            answer = {"default_agent": "code"} if argv[2:] == ["config"] else {"permission": rules, "steps": 3}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(answer), "")
+
+        child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
+        argv = [sys.executable, "run", "--model", "zai-coding-plan/glm-5.3"]
+        with patch.object(policy.subprocess, "run", side_effect=debug) as run:
+            _, env = policy.restrict(argv, child, Path.cwd(), role="sol")
+        (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
+        self.assertEqual({"*": "allow"}, agent["permission"]["read"])
+        self.assertEqual(3, agent["steps"])
+        self.assertEqual(2, run.call_count)
+
+    def test_another_default_agent_never_gets_the_usual_agents_grants(self):
+        allow_all = [{"permission": "*", "pattern": "*", "action": "allow"}]
+        deny_all = [{"permission": "*", "pattern": "*", "action": "deny"}]
+
+        def debug(argv, **_kwargs):
+            if argv[2:] == ["config"]:
+                answer = {"default_agent": "careful"}
+            else:
+                answer = {"permission": allow_all if argv[3] == "code" else deny_all}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(answer), "")
+
+        child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
+        argv = [sys.executable, "run", "--model", "zai-coding-plan/glm-5.3"]
+        with patch.object(policy.subprocess, "run", side_effect=debug) as run:
+            _, env = policy.restrict(argv, child, Path.cwd(), role="sol")
+        (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
+        self.assertEqual({"*": "deny"}, agent["permission"]["read"])
+        self.assertIn(["debug", "agent", "careful"], [call.args[0][1:] for call in run.call_args_list])
+
     def test_malformed_or_absent_policy_refuses_before_launch(self):
         for rules in (None, [], [{"permission": "read"}], [{"permission": "*", "pattern": "*", "action": "maybe"}]):
             with self.subTest(rules=rules), self.assertRaises(ValueError):
@@ -259,6 +298,9 @@ class KiloContainmentPolicyTests(unittest.TestCase):
                 value = {"default_agent": self.selected}
             elif argv[1:] == ["debug", "agent", self.selected]:
                 value = self.original
+            elif argv[1:] == ["debug", "agent", "code"]:
+                # The usual agent read alongside the config; this operator chose another agent.
+                return subprocess.CompletedProcess(argv, 1, "", "no agent named code")
             elif "--params" in argv:
                 params = json.loads(argv[-1])
                 if "conformance-capture" in params["command"]:
@@ -300,9 +342,13 @@ class KiloContainmentPolicyTests(unittest.TestCase):
                 request={"private_run": str(self.run)} if private else {},
             )
 
+    def resolutions(self):
+        """The calls that decide this launch: the usual agent's speculative read is set aside."""
+        return [call for call in self.calls if call[0][1:] != ["debug", "agent", "code"]]
+
     def test_one_selected_and_one_final_resolution_preserve_all_native_probes(self):
         argv, child = self.launch(private=True)
-        non_tool = [args for args, _ in self.calls if "--params" not in args]
+        non_tool = [args for args, _ in self.resolutions() if "--params" not in args]
         self.assertEqual(
             [["debug", "config"], ["debug", "agent", self.selected], ["--version"], ["debug", "agent", argv[-1]]],
             [args[1:] for args in non_tool],
@@ -374,8 +420,8 @@ class KiloContainmentPolicyTests(unittest.TestCase):
         self.original["permission"].append({"permission": "bash", "pattern": "git push*", "action": "deny"})
         self.original["prompt"] = "Changed operator prompt"
         argv, child = self.launch()
-        self.assertEqual(["debug", "config"], self.calls[0][0][1:])
-        self.assertEqual(["debug", "agent", self.selected], self.calls[1][0][1:])
+        self.assertEqual(["debug", "config"], self.resolutions()[0][0][1:])
+        self.assertEqual(["debug", "agent", self.selected], self.resolutions()[1][0][1:])
         definition = json.loads(child["KILO_CONFIG_CONTENT"])["agent"][argv[-1]]
         self.assertEqual("deny", definition["permission"]["bash"]["git push*"])
         self.assertEqual(self.original["prompt"], definition["prompt"])
