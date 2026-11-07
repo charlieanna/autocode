@@ -31,6 +31,7 @@ try:
     from . import autocode_access_identity as access_identity
     from . import autocode_builder_failure as builder_failure
     from . import autocode_builder_policy as builder_policy
+    from . import autocode_changed_code_rework as changed_code_rework
     from . import autocode_check_refs as check_refs
     from . import autocode_cost as cost
     from . import autocode_efficiency as efficiency
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_access_identity as access_identity
     import autocode_builder_failure as builder_failure
     import autocode_builder_policy as builder_policy
+    import autocode_changed_code_rework as changed_code_rework
     import autocode_check_refs as check_refs
     import autocode_cost as cost
     import autocode_efficiency as efficiency
@@ -1753,6 +1755,10 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
     pointer = request.get("recovery_packet")
     if not pointer:
         return  # Legacy requests retain their existing conservative limits.
+    if stage == "terra" and changed_code_rework.owns_builder_round(
+        state, source_scope.snapshot(workspace, state)["revision"]
+    ):
+        return  # The changed-line repair of a fixed incident's source is not that incident's retry (#2815).
     packet = load_packet(pointer, run_dir)
     if stage == "astra_resolve" and (
         request.get("source_output") != packet.get("source_output")

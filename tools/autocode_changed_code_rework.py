@@ -218,3 +218,27 @@ def builder_evidence(assessment):
     if settled:
         view["settled_lines"] = settled
     return view
+
+
+def owns_builder_round(state: RunState, revision):
+    """True when the next Builder round is this module's own changed-line repair of ``revision``.
+
+    The latest proof record is a Builder ``changed_code_rework`` of the current task and contract,
+    queued from an independent review of exactly this source, whose regression proof passed. A
+    recovery packet that the current task came from does not own that round: its incident was
+    fixed, and REPAIR_ROUNDS bounds this one (#2815).
+    """
+    rows = state.get("regression_proofs") or []
+    last = rows[-1] if rows else {}
+    task, contract = state.get("current_task") or {}, state.get("goal_contract") or {}
+    proof = state.get("regression_proof") or {}
+    return (
+        isinstance(last, dict)
+        and last.get("kind") == "changed_code_rework"
+        and last.get("action") == "builder"
+        and bool(revision)
+        and last.get("source_revision") == revision == proof.get("source_revision")
+        and proof.get("verdict") == "PASS"
+        and (last.get("task_id"), last.get("contract_hash"), last.get("contract_revision"))
+        == (task.get("id"), contract.get("hash"), contract.get("revision"))
+    )

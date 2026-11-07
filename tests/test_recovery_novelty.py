@@ -635,6 +635,58 @@ class RecoveryPacketTests(unittest.TestCase):
             recovery.admit_dispatch(state, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
         self.assertEqual(settings, state["settings"])
 
+    def test_a_changed_line_repair_after_a_passing_proof_is_not_a_retry_of_the_old_incident(self):
+        # Live, #2815: a repair fixed the Completion Reviewer's failing proof; the Tester then sent the
+        # Builder back for changed lines without evidence, and that round was held as "no causal
+        # progress" on the fixed incident, which ended the run.
+        state = self.builder_retry_state()
+        diagnosis = {"stage": "astra_resolve", "started_at": util.now(), "output": str(self.run / "new-diagnosis.json")}
+        recovery.admit_dispatch(state, diagnosis, self.root, self.run)
+        state["stages"].append(diagnosis)
+        state["current_task"]["id"] = "T2"
+        plan = {"source_output": str(self.output), "tasks": [copy.deepcopy(state["current_task"])]}
+        recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
+        state.update(repair_plan=plan, next_stage="terra")
+        attempt = {"stage": "terra", "started_at": util.now(), "output": str(self.run / "granted-builder.json")}
+        recovery.admit_dispatch(state, attempt, self.root, self.run)
+        state["stages"].append(attempt)
+        state["regression_proof"] = {"verdict": "PASS", "source_revision": "s1"}
+        rework_row = {
+            "kind": "changed_code_rework",
+            "action": "builder",
+            "task_id": "T2",
+            "contract_hash": "h",
+            "contract_revision": 1,
+            "source_revision": "s1",
+            "review_output": str(self.run / "tester.json"),
+        }
+        state["regression_proofs"] = [rework_row]
+        again = {"stage": "terra", "output": "changed-line-builder"}
+        recovery.admit_dispatch(state, again, self.root, self.run)
+        self.assertNotIn("recovery_novelty", again)
+        # Anything short of that exact repair is still the packet's retry and is held.
+        for change in (
+            {"action": "investigator"},
+            {"source_revision": "s0"},
+            {"task_id": "T1"},
+            {"kind": "builder_retry"},
+        ):
+            with self.subTest(change=change):
+                held = copy.deepcopy(state)
+                held["regression_proofs"] = [{**rework_row, **change}]
+                with self.assertRaisesRegex(util.Paused, "No causal progress"):
+                    recovery.admit_dispatch(held, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+        for proof in ({"verdict": "FAIL", "source_revision": "s1"}, {"verdict": "PASS", "source_revision": "s0"}):
+            with self.subTest(proof=proof):
+                held = copy.deepcopy(state)
+                held["regression_proof"] = proof
+                with self.assertRaisesRegex(util.Paused, "No causal progress"):
+                    recovery.admit_dispatch(held, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+        held = copy.deepcopy(state)
+        held["regression_proofs"] = [rework_row, {"path": "later-proof.json", "verdict": "PASS"}]
+        with self.assertRaisesRegex(util.Paused, "No causal progress"):
+            recovery.admit_dispatch(held, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+
     def test_legacy_builder_grant_consumed_without_novelty_receipt_stays_spent(self):
         for stage, timestamp in (("terra", True), ("astra_resolve", True), ("terra", False)):
             with self.subTest(stage=stage, known_clock=timestamp):

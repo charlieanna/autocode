@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A run no longer ends on a failure it already fixed. When a repair made the regression proof pass
+  and the Tester then sent the Builder back for changed lines without evidence, that round was counted
+  as a retry of the fixed failure; with the one retry spent, a live run ended "kept failing for the same
+  reason". The changed-line repair now runs under its own two-round bound (#2815).
 - A Builder sent back to settle changed lines gets those lines' evidence, not the whole proof's.
   Each tested or excepted line is listed by number under its file; every open line keeps its full
   row. A live returned Builder's handoff fell from 257 KB to 79 KB; at 257 KB its provider compacted
