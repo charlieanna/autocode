@@ -49,6 +49,39 @@ with ChatTUI() as ui:
 
 
 class LiveDefaultScreenTests(unittest.TestCase):
+    def test_narrow_keyboard_navigation_keeps_hints_and_focus_through_resize(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.observe({'status': 'RUNNING', 'progress': {'stage': 'Requirements', 'headline': 'Requirements working'}})
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=40, rows=14, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda shown: "/ commands" in shown and "^C pause" in shown and "Requirements working" in shown,
+            what="narrow current status with navigation and pause guidance",
+        )
+        screen.type("/")
+        menu = screen.wait_for("Your chats in every project", what="the slash menu at narrow width")
+        self.assertIn("/ commands", menu)
+        screen.keys("Escape")
+        screen.type("x")
+        restored = screen.wait_for(lambda shown: composer_text(shown) == "x", what="composer focus after closing menu")
+        self.assertIn("/ commands", restored)
+        screen.resize(80, 20)
+        screen.wait_for(
+            lambda shown: (
+                len(shown.splitlines()) == 20 and "Requirements working" in shown and "AutoCode chat" in shown
+            ),
+            what="the resized chat with its current status",
+        )
+
     def test_repeated_enter_while_working_keeps_one_notice_and_the_draft(self):
         script = """
 import sys
