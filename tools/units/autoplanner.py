@@ -11,6 +11,7 @@ try:
     from .. import autocode_planning_recovery_policy as planning_recovery_policy
     from .. import autocode_planning_time as planning_time
     from .. import autocode_prompts as prompts
+    from .. import autocode_requirements_observations as requirements_observations
 except ImportError:
     import autocode_gate_chat as gate_chat
     import autocode_packet_events as packet_events
@@ -20,6 +21,7 @@ except ImportError:
     import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_planning_time as planning_time
     import autocode_prompts as prompts
+    import autocode_requirements_observations as requirements_observations
 
 
 import copy
@@ -1431,6 +1433,14 @@ def context(state: RunState, stage, state_path):
     if predecessor:
         packet["predecessor_artifact"] = predecessor["artifact"]["path"]
         packet["predecessor_delta"] = predecessor["delta"]["path"]
+    retained_requirements = requirements_observations.context(
+        state,
+        stage,
+        Path(state_path).parent,
+        lambda: stage_context.source_scope.snapshot(Path(state["workspace"]), state),
+    )
+    if retained_requirements:
+        packet["requirements_observations"] = retained_requirements
     recovery_instruction = ""
     grants = [
         grant

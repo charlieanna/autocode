@@ -29,6 +29,7 @@ try:
     from . import autocode_plan_chat as plan_chat
     from . import autocode_project_memory_lifecycle as project_memory
     from . import autocode_requirements_chat as requirements_chat
+    from . import autocode_requirements_observations as requirements_observations
     from . import autocode_requirements_review as requirements_review
     from . import autocode_run_status as run_status
     from . import autocode_technical_questions as technical_questions
@@ -40,6 +41,7 @@ except ImportError:
     import autocode_plan_chat as plan_chat
     import autocode_project_memory_lifecycle as project_memory
     import autocode_requirements_chat as requirements_chat
+    import autocode_requirements_observations as requirements_observations
     import autocode_requirements_review as requirements_review
     import autocode_run_status as run_status
     import autocode_technical_questions as technical_questions
@@ -48,6 +50,14 @@ except ImportError:
 
 
 def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue) -> None:
+    """Seal optional data only after every existing acceptance path succeeds."""
+    _accept(state, value, record, check_code_refs=check_code_refs, queue=queue)
+    accepted = state.get("requirements_handoff") or {}
+    if accepted.get("output") == record.get("output") and isinstance(accepted.get("report"), dict):
+        requirements_observations.seal(state, record, accepted["report"])
+
+
+def _accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue) -> None:
     """Install ``value`` as the requirements handoff; ``queue`` is resolver_human.queue for the spec-first stop."""
     if requirements_review.enabled(state) and not_yet_a_goal(value):
         value["open_questions"] = [outcome_question(state)]
