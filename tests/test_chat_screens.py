@@ -502,7 +502,12 @@ class ChatScreenTests(unittest.TestCase):
         screen = self.chat()
         screen.paste(BRIEF)
         screen.keys("Enter")
-        shown = screen.wait_for("Approve understanding", RUN_SECONDS)
+        # Wait for the whole frame: tmux can capture the question before curses has drawn the footer.
+        shown = screen.wait_for(
+            lambda shown: "Approve understanding" in shown and "/ commands" in shown and "ctrl-d quit" in shown,
+            RUN_SECONDS,
+            what="the decision screen's footer with its exit hint at 100 columns",
+        )
         self.assertIn("ctrl-d quit", shown, "the footer of a decision screen keeps the exit hint at 100 columns")
 
     def test_a_resize_redraws_the_whole_screen(self):
