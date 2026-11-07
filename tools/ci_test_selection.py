@@ -185,6 +185,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli"),
     ),
     ("tools/prompts/review-change.md", ("tests.test_review_attribution_cli",)),
+    ("tools/prompts/fragments/check-replay/validator-note.md", ("tests.test_check_replay",)),
     (
         "tools/prompts/fragments/provider-opencode/review-output.md",
         ("tests.test_review_attribution_cli", "tests.test_schema_prompt_formatting", "tests.test_tool_handoff"),
