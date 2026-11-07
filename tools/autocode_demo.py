@@ -186,6 +186,7 @@ def _plan(run: TaskRun) -> dict:
 def run_demo(root: Path) -> dict:
     started = time.monotonic()
     print("Offline demo — deterministic fake provider; no account, network or model spend.", flush=True)
+    print("Token and cost figures in this demo's run status are simulated; no charges are incurred.", flush=True)
     print("Demo files: " + str(root), flush=True)
     print("First, a check that passes only in the fake Tester's session.", flush=True)
     rejected = _prepare(root, "refused-check", failed_check=True)
