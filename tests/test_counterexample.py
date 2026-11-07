@@ -51,6 +51,23 @@ class EditedTests(unittest.TestCase):
             run("probe", {**self.edit, "file": "gone.py"}),
         )
 
+    def test_a_later_runner_never_reuses_an_earlier_probes_read_only_file(self):
+        # Seen live: a second Investigator in the same iteration probed into counterexample-01 again
+        # and stopped the run on the first probe's read-only edited file (Permission denied).
+        seen = []
+
+        def scratch_run(workspace, directory, *, command, files, timeout):
+            seen.append(Path(files["app.py"]))
+            return {"exit_code": 1}
+
+        out = self.root / "out"
+        counterexample.runner(scratch_run, self.root, out, timeout=5)("probe", self.edit)
+        seen[0].chmod(0o400)
+        later = counterexample.runner(scratch_run, self.root, out, timeout=5)
+        self.assertEqual({"exit_code": 1}, later("probe", self.edit))
+        self.assertEqual(["counterexample-01", "counterexample-02"], [path.parent.name for path in seen])
+        self.assertEqual(b"LIMIT = 6\r\n", seen[1].read_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()
