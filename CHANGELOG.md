@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Large completed review reports can use exact text edits for syntax errors or a JSON fence, within
+  the existing 512 KiB artifact ceiling. Repairs preserve the source hash, unchanged report text,
+  the 32-edit/4096-byte correction limits, and every ordinary evidence and approval check.
 - A run that reaches a limit you set (active time, cost, iterations, milestone time, unchanged
   batches) now offers what continues it. The terminal chat asks "1. Raise the total active time and
   continue / 2. Leave the run paused" instead of a reply box, explains that a written reply can't lift

@@ -7,10 +7,15 @@ ordinary report validation remains the caller's responsibility.
 from __future__ import annotations
 
 import json
+import re
+
+try:
+    from .autocode_report_bounds import MAX_REPORT_BYTES
+except ImportError:
+    from autocode_report_bounds import MAX_REPORT_BYTES
 
 MAX_EDITS = 32
 MAX_CHANGED_BYTES = 4096
-MAX_REPORT_BYTES = 128 * 1024
 RULE = (
     "BOUNDED JSON TEXT REPAIR. For malformed JSON the output schema offers repair_report.text_edits. "
     "Prefer this form instead of retranscribing the report: return only repair_report with the exact "
@@ -19,11 +24,24 @@ RULE = (
     "All edits refer to that original text, not an intermediate result; matches must not overlap. "
     "Supply at most 32 edits and 4096 UTF-8 bytes total across find/replace strings. Include missing "
     "wrappers or required fields explicitly; the runner never guesses them. Unedited text is retained "
-    "exactly. The complete reconstructed object still undergoes every schema, provenance, evidence and "
+    "exactly. A JSON fence or prose prefix is part of the pinned input and must be removed explicitly "
+    "by your edits. The complete reconstructed object still undergoes every schema, provenance, evidence and "
     "protected-contract check. This grants no changed requirements, evidence or approval. A complete "
     "corrected report remains supported; instructions to return a complete report also permit this "
     "exact-bound text-edit form.\n"
 )
+
+
+def _object_shaped(text):
+    """Offer edits for one JSON fence; never unwrap or repair its contents."""
+    stripped = text.strip()
+    if stripped.startswith("{"):
+        return True
+    match = re.fullmatch(r"([^`]*?)```json[ \t]*\r?\n(.*)\r?\n```[ \t]*", stripped, re.DOTALL)
+    if not match or len(match[1].encode("utf-8")) > 1024 or "```" in match[2]:
+        return False
+    body = match[2].strip()
+    return body.startswith("{") and body.endswith("}")
 
 
 def eligible(source):
@@ -32,8 +50,8 @@ def eligible(source):
         source.get("format") != "text"
         or source.get("truncated")
         or not isinstance(text, str)
-        or not text.lstrip().startswith("{")
         or len(text.encode("utf-8")) > MAX_REPORT_BYTES
+        or not _object_shaped(text)
     ):
         return False
     try:

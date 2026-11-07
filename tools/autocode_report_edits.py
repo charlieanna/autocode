@@ -49,8 +49,7 @@ def eligible(stage, source):
             source.get("format") == "json"
             and isinstance(source.get("content"), dict)
             and KEY not in source["content"]
-            or stage in PLANNING_STAGES
-            and text_edits.eligible(source)
+            or text_edits.eligible(source)
         )
         and isinstance(source.get("sha256"), str)
         and len(source["sha256"]) == 64

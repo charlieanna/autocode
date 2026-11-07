@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_report_repair_context as repair_context
 import autocode_report_source as report_source
@@ -94,8 +95,8 @@ class ReportSourceTests(unittest.TestCase):
         compact = json.dumps(report, ensure_ascii=False, separators=(",", ":")).encode()
         output = self.root / "report.json"
         raw = json.dumps(report, ensure_ascii=True, indent=2).encode()
-        self.assertLess(len(compact), report_source.REPAIR_REPORT_BYTES)
-        self.assertGreater(len(raw), report_source.REPAIR_REPORT_BYTES)
+        self.assertLess(len(compact), 128 * 1024)
+        self.assertGreater(len(raw), 128 * 1024)
         output.write_bytes(raw)
         source = report_source.repair_report_source({"engine": "codex", "output": str(output)})
         self.assertEqual(report, source["content"])
@@ -104,6 +105,30 @@ class ReportSourceTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(raw).hexdigest(), source["sha256"])
         self.assertFalse(source["truncated"])
         self.assertEqual(raw, output.read_bytes())
+
+    def test_large_complete_json_and_malformed_text_keep_exact_source_within_hard_bound(self):
+        report = {"decisions": [{"line": i, "reason": "Exact tested source retained. " * 8} for i in range(704)]}
+        output = self.root / "report.json"
+        encoded = json.dumps(report)
+        for raw, expected_format in ((encoded, "json"), ("Checked.\n```json\n" + encoded + "\n```", "text")):
+            with self.subTest(format=expected_format):
+                self.assertGreater(len(raw.encode()), 128 * 1024)
+                self.assertLess(len(raw.encode()), 512 * 1024)
+                output.write_text(raw)
+                source = report_source.repair_report_source({"engine": "codex", "output": str(output)})
+                self.assertEqual(expected_format, source["format"])
+                self.assertEqual(report if expected_format == "json" else raw, source["content"])
+                self.assertEqual(hashlib.sha256(raw.encode()).hexdigest(), source["sha256"])
+                self.assertEqual(raw, output.read_text())
+        self.assertEqual(512 * 1024, report_source.REPAIR_ARTIFACT_BYTES)
+
+    def test_report_that_grows_after_stat_is_still_refused_at_the_hard_byte_bound(self):
+        output = self.root / "report.json"
+        output.write_text("{}")
+        oversized = json.dumps({"summary": "x" * (512 * 1024)})
+        with patch.object(Path, "read_text", return_value=oversized), self.assertRaises(report_source.support.Paused):
+            report_source.repair_report_source({"engine": "codex", "output": str(output)})
+        self.assertEqual("{}", output.read_text())
 
     def test_formatting_allowance_does_not_admit_oversized_content_or_text(self):
         output = self.root / "report.json"
