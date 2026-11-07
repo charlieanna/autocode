@@ -2168,6 +2168,66 @@ class RefusedStartTests(unittest.TestCase):
         )
 
 
+class RelocatedStartTests(unittest.TestCase):
+    """A chat started in a folder outside Git: the core runs it in a project under autocode-projects/."""
+
+    MOVED = (
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "named = Path(sys.argv[sys.argv.index('--run-dir' if '--status' in sys.argv else '--new-run-dir') + 1])\n"
+        "folder = named.parents[2]\n"
+        "project = folder / 'autocode-projects' / 'hi-0123abcd'\n"
+        "if '--status' in sys.argv:\n"
+        "    run = project / '.autocode' / 'runs' / named.name\n"
+        "    print(json.dumps({'view': {'workspace': str(project), 'run_dir': str(run), 'status': 'WAITING_FOR_USER',\n"
+        "        'progress': {'needs_you': 'answer a question'}}}))\n"
+        "    sys.exit(0)\n"
+        "print('Next command: AUTOCODE_RESOLVER_TOKEN=secret autocode --answer Q1=ANSWER')\n"
+        "sys.exit(2)\n"
+    )
+
+    def test_the_chat_follows_the_moved_run_instead_of_reporting_it_never_started(self):
+        with tempfile.TemporaryDirectory() as folder:
+            script = Path(folder) / "autocode"
+            script.write_text(self.MOVED)
+            said: list[str] = []
+            client = chat.start(
+                Path(folder),
+                "hi",
+                [],
+                [],
+                command=(sys.executable, str(script)),
+                say=said.append,
+                poll_seconds=0.01,
+                wait=lambda seconds: None,
+            )
+            self.addCleanup(client.close)
+            project = Path(folder).resolve() / "autocode-projects" / "hi-0123abcd"
+            self.assertEqual(project, client.workspace)
+            self.assertEqual(project / ".autocode" / "runs", client.run_dir.parent)
+        self.assertNotIn("did not start the run", "\n".join(said))
+        self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", "\n".join(said))
+
+    def test_only_the_bootstrapped_project_counts_as_the_same_run(self):
+        folder = Path("/home/person")
+        asked = folder / ".autocode" / "runs" / "r1"
+        project = folder / "autocode-projects" / "hi-0123abcd"
+
+        def view(workspace, run):
+            return {"workspace": str(workspace), "run_dir": str(run)}
+
+        self.assertTrue(actions.same_run(view(folder, asked), folder, asked))
+        self.assertTrue(actions.same_run(view(project, project / ".autocode/runs/r1"), folder, asked))
+        self.assertFalse(actions.same_run(view(project, project / ".autocode/runs/r2"), folder, asked))
+        elsewhere = Path("/home/other/autocode-projects/hi-0123abcd")
+        self.assertFalse(actions.same_run(view(elsewhere, elsewhere / ".autocode/runs/r1"), folder, asked))
+        nested = folder / "autocode-projects" / "x" / "hi"
+        self.assertFalse(actions.same_run(view(nested, nested / ".autocode/runs/r1"), folder, asked))
+        self.assertFalse(actions.same_run(view(project, project / "runs/r1"), folder, asked))
+        moved_here = folder / "sub" / ".autocode" / "runs" / "r1"
+        self.assertFalse(actions.same_run(view(project, project / ".autocode/runs/r1"), folder, moved_here))
+
+
 class AdvancingDiagnosticTests(unittest.TestCase):
     def test_existing_run_exit_two_displays_refusal_without_retry_or_token_leak(self):
         client = ScriptedChat({"status": "PAUSED_JOB_FAILURE"})

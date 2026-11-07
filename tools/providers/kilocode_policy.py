@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 try:
     from .. import autocode_tool_containment as containment
@@ -84,9 +85,17 @@ def restrict(
 
     if "--agent" in argv:
         selected = argv[argv.index("--agent") + 1]
+        original = debug("agent", selected)
     else:
-        selected = debug("config").get("default_agent") or "code"
-    original = debug("agent", selected)
+        # Each debug command is a Kilo start of two to five seconds, paid before every stage. The usual
+        # default agent's policy is read alongside the config; it is used only when the config names that
+        # agent, and both are read fresh for this launch, so a changed default or permission still counts.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            usual = pool.submit(debug, "agent", "code")
+            selected = debug("config").get("default_agent") or "code"
+            if selected != "code":
+                usual.cancel()
+            original = usual.result() if selected == "code" else debug("agent", selected)
     prompt = original.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
         raise ValueError("Kilo effective agent prompt must be a string")
