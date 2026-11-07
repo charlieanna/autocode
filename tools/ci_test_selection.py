@@ -94,6 +94,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_acceptance_tests",
             "tests.test_acceptance_writer_route",
             "tests.test_follow_up_acceptance_cli",
+            "tests.test_requirements_first_cli",
         ),
     ),
     (
@@ -389,7 +390,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("tools/autocode_kilo_image_delivery.mjs", ("tests.test_kilo_image_delivery", "tests.test_native_image")),
-    ("tools/fixtures/multicomponent_fake.py", ("tests.test_multicomponent", "tests.test_local_compose_scenario")),
+    (
+        "tools/fixtures/multicomponent_fake.py",
+        ("tests.test_multicomponent", "tests.test_local_compose_scenario", "tests.test_multicomponent_fake_reasons"),
+    ),
     (
         "tools/fixtures/kilo-context-overflow-run.jsonl",
         ("tests.test_context_window", "tests.test_job_failure_recovery"),
