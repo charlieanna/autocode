@@ -942,6 +942,28 @@ class StallAndWorkedTests(unittest.TestCase):
         self.assertIn("Builder · worked 10m30s · ", footer)
         self.assertLess(footer.index("worked"), footer.index("/ commands"))
 
+    def test_the_optional_hints_give_way_before_the_way_out_does(self):
+        # A 100-column terminal at a question: after the worked time gave way, truncation was taking
+        # "ctrl-d quit" — the only way out of the full screen — off the edge of the footer.
+        ui = screen_ui()
+        view = self.view(None)
+        view["cost"] = {"spent_usd": 0.42, "complete": True}
+        view["usage"]["accounting"]["tokens"] = {
+            "input_tokens": {"value": 150_000, "known": 150_000, "complete": True},
+            "output_tokens": {"value": 34_000, "known": 34_000, "complete": True},
+        }
+        ui.observe(view)
+        ui._asking = True
+        puts = []
+        ui._put = lambda row, col, text, attr=0: puts.append(text)
+        ui._hints(ui._layout(40, 100))
+        footer = next(text for text in puts if "/ commands" in text)
+        self.assertIn("ctrl-d quit", footer)
+        self.assertIn("enter send", footer)
+        self.assertNotIn("worked", footer)
+        self.assertIn("Builder · $0.42 · 184k tokens · ", footer)
+        self.assertLessEqual(tui.display_width(footer), 98)
+
     def test_the_working_time_gives_way_before_the_footers_actions_do(self):
         # A 120-column terminal at a question: with the time the hints lost "ctrl-d quit" off the edge.
         ui = screen_ui()

@@ -498,6 +498,13 @@ class ChatScreenTests(unittest.TestCase):
         self.assertEqual("/Build something nice", composer_text(shown), "the text stays to edit")
         self.no_run_started()
 
+    def test_a_question_footer_keeps_the_way_out_visible_at_the_common_width(self):
+        screen = self.chat()
+        screen.paste(BRIEF)
+        screen.keys("Enter")
+        shown = screen.wait_for("Approve understanding", RUN_SECONDS)
+        self.assertIn("ctrl-d quit", shown, "the footer of a decision screen keeps the exit hint at 100 columns")
+
     def test_a_resize_redraws_the_whole_screen(self):
         screen = self.chat(cols=120, rows=34)
         screen.resize(70, 22)
