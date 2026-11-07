@@ -124,14 +124,7 @@ class OperatorTests(unittest.TestCase):
         )
         made, notes = mutants.python_mutants("guards.py", source, every_line(source), limit=20)
         self.assertEqual([], notes)
-        self.assertEqual(
-            [
-                (1, "drop_import", "from typing import TYPE_CHECKING", "pass"),
-                (6, "negate_condition", "n", "not (n)"),
-                (8, "constant_return", "n", "None"),
-            ],
-            shown(made),
-        )
+        self.assertEqual([(6, "negate_condition", "n", "not (n)"), (8, "constant_return", "n", "None")], shown(made))
 
     def test_only_an_ordering_comparison_has_a_bound_to_shift(self):
         source = b"if n == 0:\n    pass\nok = n != 3 and n is not 4 and n in (5,)\nr = 0 < n == 7\n"
@@ -228,7 +221,7 @@ class OperatorTests(unittest.TestCase):
             b"def load(name, env, seen):\n"
             b"    try:\n"
             b"        with open(name) as f:\n"
-            b"            data = json.load(f)\n"
+            b"            data = json.load(p.join(f))\n"
             b"    except ValueError as e:\n"
             b"        raise\n"
             b"    if env:\n"
@@ -265,6 +258,18 @@ class OperatorTests(unittest.TestCase):
             sorted(ops),
         )
         changes = {mutant.operator: (mutant.before, mutant.after) for mutant in made}
+        # Dropping an import counts only when a function reads its name: one read while the module loads
+        # fails collection, not a test, and an unused one changes nothing.
+        eager = b"import json\nimport os\nfrom a import b\nLOADS = json.loads\ndef f():\n    return os.sep\n"
+        self.assertEqual(
+            [(2, "drop_import", "import os", "pass")],
+            [row for row in shown(mutants.python_mutants("eager.py", eager, [1, 2, 3], limit=20)[0])],
+        )
+        local = b"def f():\n    import os\n    return os.sep\ndef g():\n    import sys\n"
+        self.assertEqual(
+            [(2, "drop_import", "import os", "pass")],
+            [row for row in shown(mutants.python_mutants("local.py", local, [2, 5], limit=20)[0]) if row[0] != 3],
+        )
         self.assertEqual(("ValueError", "()"), changes["never_catch"])
         self.assertEqual(("raise", "pass"), changes["drop_raise"])
         self.assertEqual(("1", "None"), changes["none_update"])
@@ -292,12 +297,9 @@ class OperatorTests(unittest.TestCase):
             b"run()\n"
         )
         made, _ = mutants.python_mutants("guarded.py", source, every_line(source), limit=50)
+        self.assertEqual([(6, "drop_call", "run()", "None")], shown(made))
         self.assertEqual(
-            [(1, "drop_import", "from typing import TYPE_CHECKING", "pass"), (6, "drop_call", "run()", "None")],
-            shown(made),
-        )
-        self.assertEqual(
-            len(mutants.NEWLINE.findall(source)), len(mutants.NEWLINE.findall(mutants.apply(source, made[1])))
+            len(mutants.NEWLINE.findall(source)), len(mutants.NEWLINE.findall(mutants.apply(source, made[0])))
         )
 
 

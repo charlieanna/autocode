@@ -29,7 +29,10 @@ Operators, each only on a span that touches a changed line:
   ``ports = [a, b]``) becomes ``None``.
 * ``skip_loop``: a ``for`` loop iterates over ``()``, so its body never runs.
 
-* ``drop_import``: an import (not ``from __future__``) becomes ``pass``, so its names are never bound.
+* ``drop_import``: an import (not ``from __future__`` or ``*``) becomes ``pass``, so its names are never
+  bound. Only an import a function reads a name of and the module's own top-level code does not: a
+  name read while the module loads, or one only other modules import, fails collection rather than a
+  test, which proves nothing, and an unused one changes nothing.
 * ``never_catch``: the exception type of an ``except`` clause becomes ``()``, so it catches nothing.
 * ``drop_raise``: a ``raise`` becomes ``pass``.
 * ``none_context``: the context manager of a ``with`` becomes ``None``.
@@ -314,10 +317,49 @@ def _constant(value: ast.expr) -> tuple[object, bytes]:
     return None, b"None"
 
 
+def _name_uses(tree) -> tuple[set[str], set[str], set[int]]:
+    """(names read while the module loads, names read only when a function runs, ids of imports in a function)."""
+    eager: set[str] = set()
+    lazy: set[str] = set()
+    local: set[int] = set()
+
+    def visit(node, deferred):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            (lazy if deferred else eager).add(node.id)
+        if deferred and isinstance(node, (ast.Import, ast.ImportFrom)):
+            local.add(id(node))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            for name, value in ast.iter_fields(node):
+                inner = deferred or name == "body"
+                for child in value if isinstance(value, list) else [value]:
+                    if isinstance(child, ast.AST):
+                        visit(child, inner)
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child, deferred)
+
+    visit(tree, False)
+    return eager, lazy, local
+
+
+def _import_site(node, uses) -> bool:
+    """Whether dropping this import makes a test fail, not its collection (see ``drop_import``)."""
+    if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+        return False
+    names = {alias.asname or alias.name.split(".")[0] for alias in node.names}
+    eager, lazy, local = uses
+    if "*" in names:
+        return False
+    if id(node) in local:
+        return bool(names & (eager | lazy))
+    return bool(names & lazy) and not names & eager
+
+
 def _sites(tree, body, starts, lines, notes, path):
     """Every candidate splice on the changed lines, in ast.walk order. A node whose sites cannot be built
     is skipped with a note; the other nodes still give theirs."""
     excluded: set[int] = set()
+    uses = _name_uses(tree)
     guarded: set[int] = set()  # statements no test can see (#2815: they get no statement-level site)
     for node in ast.walk(tree):
         if isinstance(node, ast.If) and _guard(node.test):
@@ -431,9 +473,7 @@ def _sites(tree, body, starts, lines, notes, path):
             yield _Site(operator, start, end, _pad(text, body[start:end], expression=True), value, constant, text)
         if not isinstance(node, ast.stmt) or not _touches(lines, node.lineno, node.end_lineno):
             return
-        if isinstance(node, (ast.Import, ast.Raise)) or (
-            isinstance(node, ast.ImportFrom) and node.module != "__future__"
-        ):
+        if isinstance(node, ast.Raise) or (isinstance(node, (ast.Import, ast.ImportFrom)) and _import_site(node, uses)):
             start, end = span(node)
             operator = "drop_raise" if isinstance(node, ast.Raise) else "drop_import"
             yield _Site(operator, start, end, _pad(b"pass", body[start:end], expression=False), node, None)
