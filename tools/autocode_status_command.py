@@ -12,6 +12,7 @@ try:
     from . import autocode_chat_progress as chat_progress
     from . import autocode_cost as cost
     from . import autocode_escalation_view as escalation_view
+    from . import autocode_failures as failures
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_review_result as review_result
     from . import autocode_source_scope as source_scope
@@ -23,6 +24,7 @@ except ImportError:
     import autocode_chat_progress as chat_progress
     import autocode_cost as cost
     import autocode_escalation_view as escalation_view
+    import autocode_failures as failures
     import autocode_launch_inputs as launch_inputs
     import autocode_review_result as review_result
     import autocode_source_scope as source_scope
@@ -339,6 +341,16 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         state, public_view, run_dir, finished=bool(active_finished), stopped=bool(next_action)
     ):
         public_view["chat"]["activity"] = activity
+    if last_output := chat_activity.last_output(
+        state, public_view, run_dir, finished=bool(active_finished), stopped=bool(next_action)
+    ):
+        public_view["chat"]["last_output_at"] = last_output
+    # The failure run the current stage is in (autocode_failures.episode): how many attempts in a row
+    # failed the same way, and how many stop it. Display only; the retry itself is the core's.
+    retrying = cast(dict, active) if isinstance(active, dict) else {}
+    retry_stage = retrying.get("original_stage") or retrying.get("stage") or state.get("next_stage")
+    if isinstance(retry_stage, str) and retry_stage and (retry := failures.episode(state, retry_stage)):
+        public_view["progress"]["retry"] = retry
 
     def supervised(attempt: dict) -> bool:
         saved = attempt.get("supervision")

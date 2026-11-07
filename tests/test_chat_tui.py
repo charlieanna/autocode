@@ -4,6 +4,7 @@ import contextlib
 import io
 import tempfile
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -884,6 +885,62 @@ class PauseHintTests(unittest.TestCase):
                 self.assertIn("history", footer)
                 self.assertIn("quit", footer)
                 self.assertLessEqual(tui.display_width(footer.splitlines()[-1]), cols - 3)
+
+
+class StallAndWorkedTests(unittest.TestCase):
+    """The status row says how long since the working stage last wrote anything, and the footer how
+    long the run has worked in all; both from the status view's own records."""
+
+    def drawn(self, view, *, cols=180):
+        ui = screen_ui()
+        ui.observe(view)
+        puts = []
+        ui._put = lambda row, col, text, attr=0: puts.append((text, attr))
+        with mock.patch.object(ui, "_can_detach", return_value=False):
+            layout = ui._layout(40, cols)
+            ui._question_or_status(layout)
+            ui._hints(layout)
+        return ui, puts
+
+    def view(self, last_output_at):
+        return {
+            "status": "RUNNING",
+            "progress": {"stage": "Builder", "line": "Builder working · 0 of 1 task done"},
+            "chat": {"last_output_at": last_output_at},
+            "usage": {
+                "accounting": {
+                    "attempts": [
+                        {"stage": "terra", "job": "Builder", "duration_seconds": 600, "exit_code": 0},
+                        {"stage": "terra", "job": "Builder", "duration_seconds": 30, "active": True},
+                    ]
+                }
+            },
+        }
+
+    def test_a_quiet_stage_is_flagged_on_the_status_row_and_a_writing_one_says_when(self):
+        recent = (datetime.now(UTC) - timedelta(seconds=5)).isoformat(timespec="seconds")
+        ui, puts = self.drawn(self.view(recent))
+        status = next(text for text, _ in puts if "Builder working" in text)
+        self.assertRegex(status, r"Builder working · 0 of 1 task done · last output \d+s ago$")
+        self.assertEqual(ui._style("working"), next(attr for text, attr in puts if text == status))
+        stale = (datetime.now(UTC) - timedelta(minutes=4, seconds=5)).isoformat(timespec="seconds")
+        ui, puts = self.drawn(self.view(stale))
+        status = next(text for text, _ in puts if "Builder working" in text)
+        self.assertRegex(status, r"no output for 4m0\ds$")
+        self.assertEqual(ui._style("panel-warn"), next(attr for text, attr in puts if text == status))
+
+    def test_without_the_time_the_status_row_is_as_before(self):
+        view = self.view(None)
+        del view["chat"]
+        _, puts = self.drawn(view)
+        status = next(text for text, _ in puts if "Builder working" in text)
+        self.assertTrue(status.endswith("0 of 1 task done"), status)
+
+    def test_the_footer_says_how_long_the_run_has_worked_before_its_spend(self):
+        _, puts = self.drawn(self.view(None))
+        footer = next(text for text, _ in puts if "/ commands" in text)
+        self.assertIn("Builder · worked 10m30s · ", footer)
+        self.assertLess(footer.index("worked"), footer.index("/ commands"))
 
 
 class HistoryFileTests(unittest.TestCase):
@@ -2054,7 +2111,7 @@ class MeterScreenTests(unittest.TestCase):
             with self.subTest(rows=rows, cols=cols):
                 puts = drawn(ui, rows=rows, cols=cols)
                 self.assertIn("my unsent draft", row_text(puts, rows - 3))
-                self.assertIn("Planner · $0.42 · 184k tokens", row_text(puts, rows - 1))
+                self.assertIn("Planner · worked 1m00s · $0.42 · 184k tokens", row_text(puts, rows - 1))
                 self.assertIsNone(ui._layout(rows, cols).panel_col)
                 self.assertEqual(cols - 1, ui._layout(rows, cols).body_width)
 

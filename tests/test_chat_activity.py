@@ -161,6 +161,32 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual([], self.project(), "a link out of the run is no better")
         outside.unlink()
 
+    def last_output(self, **flags):
+        return activity.last_output(self.state, self.public, self.run, **flags)
+
+    def test_the_last_output_time_is_when_the_supervised_attempts_event_file_was_written(self):
+        import os
+        from datetime import UTC, datetime
+
+        written = datetime(2026, 11, 7, 9, 30, 15, tzinfo=UTC)
+        os.utime(self.events, (written.timestamp(), written.timestamp()))
+        self.assertEqual("2026-11-07T09:30:15+00:00", self.last_output())
+
+    def test_the_last_output_time_follows_the_same_guards_as_the_activity(self):
+        for kind in ("unknown", "unsupervised", "interrupted", "stopped"):
+            self.public["liveness"] = {"kind": kind}
+            self.assertIsNone(self.last_output(), kind)
+        self.public["liveness"] = {"kind": "supervised"}
+        self.assertIsNone(self.last_output(finished=True))
+        self.assertIsNone(self.last_output(stopped=True))
+        self.public["status"] = "PAUSED_REQUESTED"
+        self.assertIsNone(self.last_output())
+        self.public["status"] = "RUNNING"
+        self.state["active_stage"]["events"] = str(self.run.parent / "elsewhere.jsonl")
+        self.assertIsNone(self.last_output(), "a file outside the run directory is never inspected")
+        self.state["active_stage"]["events"] = str(self.run / "iterations" / "missing.jsonl")
+        self.assertIsNone(self.last_output(), "a file that is not there has no time")
+
     def test_the_inputs_are_not_changed(self):
         before = json.dumps([self.state, self.public], sort_keys=True)
         self.project()
@@ -217,10 +243,13 @@ class StatusViewTests(unittest.TestCase):
         chat = self.render({}, [codex("item.started", "i1", type="command_execution", command="pytest -q")])
         self.assertEqual([{"kind": "command", "text": "pytest -q", "status": "running"}], chat["activity"])
         self.assertTrue(chat["progress"], "the existing progress lines are unchanged")
+        # When the attempt last wrote anything, so a client can tell a quiet stage from a busy one.
+        self.assertRegex(chat["last_output_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$")
 
     def test_an_attempt_without_supervision_shows_none(self):
         chat = self.render({"keeper": False}, [codex("item.started", "i1", type="command_execution", command="ls")])
         self.assertNotIn("activity", chat)
+        self.assertNotIn("last_output_at", chat)
 
 
 if __name__ == "__main__":
