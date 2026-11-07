@@ -46,6 +46,21 @@ class Derived(make_base(), metaclass=Meta):
         self.assertFalse(lines & {1, 2, 3, 4, 6, 8, 10, 12, 13, 14, 16})
         self.assertTrue({5, 7, 9, 11, 17, 18} <= lines, lines)
 
+    def test_a_try_header_or_a_pass_does_nothing_and_is_not_an_obligation(self):
+        # #2815: a live ladder-24 run left every changed `try:` and `pass` for the Tester to excuse by hand,
+        # though neither does anything a test could notice. The handler and the bodies still count.
+        data = b"""def save(path):
+    try:
+        write(path)
+    except OSError:
+        pass
+    try: flush(path)
+    except OSError: pass
+"""
+        lines = measurement.python_lines(data)
+        self.assertFalse(lines & {2, 5}, lines)
+        self.assertTrue({3, 4, 6, 7} <= lines, lines)
+
     def test_inline_body_and_evaluated_default_survive_header_classification(self):
         self.assertEqual({1}, measurement.python_lines(b"def value(): return 1\n"))
         self.assertEqual(set(), measurement.python_lines(b'def value(): "docs"\n'))

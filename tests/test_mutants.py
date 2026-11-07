@@ -124,7 +124,14 @@ class OperatorTests(unittest.TestCase):
         )
         made, notes = mutants.python_mutants("guards.py", source, every_line(source), limit=20)
         self.assertEqual([], notes)
-        self.assertEqual([(6, "negate_condition", "n", "not (n)"), (8, "constant_return", "n", "None")], shown(made))
+        self.assertEqual(
+            [
+                (1, "drop_import", "from typing import TYPE_CHECKING", "pass"),
+                (6, "negate_condition", "n", "not (n)"),
+                (8, "constant_return", "n", "None"),
+            ],
+            shown(made),
+        )
 
     def test_only_an_ordering_comparison_has_a_bound_to_shift(self):
         source = b"if n == 0:\n    pass\nok = n != 3 and n is not 4 and n in (5,)\nr = 0 < n == 7\n"
@@ -174,8 +181,11 @@ class OperatorTests(unittest.TestCase):
     def test_a_comment_between_the_operands_is_not_taken_for_the_operator(self):
         source = b"ok = (a  # < not this one\n      < b)\n"
         made, _ = mutants.python_mutants("comment.py", source, [1, 2], limit=20)
-        self.assertEqual([(2, "swap_bound", "<", "<=")], shown(made))
-        self.assertEqual(b"ok = (a  # < not this one\n      <= b)\n", mutants.apply(source, made[0]))
+        # Line 1 has no site of its own to start, so the statement's value gets one there (#2815).
+        self.assertEqual(
+            [(1, "none_assignment", "a # < not this one < b", "(None )"), (2, "swap_bound", "<", "<=")], shown(made)
+        )
+        self.assertEqual(b"ok = (a  # < not this one\n      <= b)\n", mutants.apply(source, made[1]))
 
     def test_a_line_with_only_a_call_a_computed_value_or_a_loop_gets_a_statement_site(self):
         # #2815: these lines had no site, so each changed one needed a written reason. A call made for its
@@ -207,6 +217,65 @@ class OperatorTests(unittest.TestCase):
         )
         self.assertEqual(source.replace(b"for item in items", b"for item in ()"), mutants.apply(source, made[3]))
 
+    def test_every_changed_statement_line_of_a_live_run_gets_a_site(self):
+        # #2815: on a live ladder-24 run (claude-tiers, 2026-11-07) these kinds of changed line had no
+        # mutant, so each needed a written reason: an import, an except clause, a re-raise, the context of
+        # a with, an argument or a dictionary entry on a line of its own, an augmented assignment, and
+        # every statement of an if body after its first. Each now has a site of its own.
+        source = (
+            b"import json\n"
+            b"from os import path as p\n"
+            b"def load(name, env, seen):\n"
+            b"    try:\n"
+            b"        with open(name) as f:\n"
+            b"            data = json.load(f)\n"
+            b"    except ValueError as e:\n"
+            b"        raise\n"
+            b"    if env:\n"
+            b"        key = env[0]\n"
+            b"        seen += 1\n"
+            b"    out = dict(\n"
+            b"        mode='w',\n"
+            b"        delete=False,\n"
+            b"    )\n"
+            b"    return {\n"
+            b"        'data': data,\n"
+            b"        'key': key,\n"
+            b"    }\n"
+        )
+        made, notes = mutants.python_mutants("live.py", source, every_line(source), limit=100)
+        self.assertEqual([], notes)
+        ops = {(mutant.line, mutant.operator) for mutant in made}
+        self.assertTrue(
+            {
+                (1, "drop_import"),
+                (2, "drop_import"),
+                (5, "none_context"),
+                (6, "none_assignment"),
+                (7, "never_catch"),
+                (8, "drop_raise"),
+                (10, "drop_branch"),
+                (11, "none_update"),
+                (13, "none_keyword"),
+                (14, "none_keyword"),
+                (17, "none_entry"),
+                (18, "none_entry"),
+            }
+            <= ops,
+            sorted(ops),
+        )
+        changes = {mutant.operator: (mutant.before, mutant.after) for mutant in made}
+        self.assertEqual(("ValueError", "()"), changes["never_catch"])
+        self.assertEqual(("raise", "pass"), changes["drop_raise"])
+        self.assertEqual(("1", "None"), changes["none_update"])
+        self.assertIn(("False", "True"), {(m.before, m.after) for m in made if m.operator == "none_keyword"})
+        self.assertEqual(source.replace(b"import json", b"pass"), mutants.apply(source, made[0]))
+        for mutant in made:
+            with self.subTest(mutant=mutant.id):
+                result = mutants.apply(source, mutant)
+                compile(result, "<mutant>", "exec", dont_inherit=True)
+                self.assertEqual(len(mutants.NEWLINE.findall(source)), len(mutants.NEWLINE.findall(result)))
+
     def test_a_statement_site_never_doubles_a_line_that_has_another_site(self):
         source = b"ok = a < 2\nhits = [x for x in y if x > 1]\nf(a if a < 2 else b)\nfor x in g(a > 1):\n    pass\n"
         made, _ = mutants.python_mutants("both.py", source, every_line(source), limit=50)
@@ -223,9 +292,12 @@ class OperatorTests(unittest.TestCase):
             b"run()\n"
         )
         made, _ = mutants.python_mutants("guarded.py", source, every_line(source), limit=50)
-        self.assertEqual([(6, "drop_call", "run()", "None")], shown(made))
         self.assertEqual(
-            len(mutants.NEWLINE.findall(source)), len(mutants.NEWLINE.findall(mutants.apply(source, made[0])))
+            [(1, "drop_import", "from typing import TYPE_CHECKING", "pass"), (6, "drop_call", "run()", "None")],
+            shown(made),
+        )
+        self.assertEqual(
+            len(mutants.NEWLINE.findall(source)), len(mutants.NEWLINE.findall(mutants.apply(source, made[1])))
         )
 
 
