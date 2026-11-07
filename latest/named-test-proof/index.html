@@ -2283,11 +2283,19 @@ from <code>tools/autocode_mutants.py</code>).</p>
   see. The tuple assignment operator swaps the first two distinct names in a
   simple unpacking on a changed line. A line none of those reaches gets one
   statement site (#2815): a call made for its effect is dropped (<code>log.write(x)</code>
-  becomes <code>None</code>), a computed value bound to a name becomes <code>None</code>, and a <code>for</code>
-  loop runs over nothing. No <code>None</code> is bound where the module would then fail to
-  load: in a function that runs on import, or for a module-level name that code
-  run on import reads afterwards. Test collection would fail before any test ran,
-  so that mutant could only end <code>not_run</code>, and the line counts as having no site.
+  becomes <code>None</code>), a computed value bound to a name becomes <code>None</code>, a <code>for</code>
+  loop runs over nothing, an import or a <code>raise</code> becomes <code>pass</code>, an <code>except</code>
+  clause catches <code>()</code> (nothing), the context manager of a <code>with</code> and the value
+  of an augmented assignment (<code>count += 1</code>) become <code>None</code>, and a keyword argument
+  or dictionary entry on a line of its own takes another constant or <code>None</code>. A
+  mutant counts for the line it starts on, so the later statements of a dropped
+  branch get their own sites. A line holding only <code>try:</code> or <code>pass</code> does nothing a
+  test could notice and is not a changed-line obligation at all. No mutant is
+  made where the module would then fail to load: in a function that runs on
+  import, or in module-level code whose result code run on import reads
+  afterwards (an <code>except</code> around an optional import, a module-level <code>with</code>).
+  Test collection would fail before any test ran, so that mutant could only end
+  <code>not_run</code>, and the line counts as having no site.
   Each mutant replaces a span of source bytes,
   keeps every line number, must compile, and must change its statement exactly as
   intended; a site that fails one of these, or cannot be checked at all (a
