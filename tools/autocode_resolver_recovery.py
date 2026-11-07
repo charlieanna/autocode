@@ -1765,6 +1765,10 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
             # The runner's own bounded Builder round for a new reason at this source is not a retry of the
             # packet's incident (#2815).
             return
+    if stage == "terra" and changed_code_rework.owns_builder_round(
+        state, source_scope.snapshot(workspace, state)["revision"]
+    ):
+        return  # The changed-line repair of a fixed incident's source is not that incident's retry (#2815).
     packet = load_packet(pointer, run_dir)
     if stage == "astra_resolve" and (
         request.get("source_output") != packet.get("source_output")

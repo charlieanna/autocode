@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
   is listed by number under its file; an open line with a mutant outcome keeps its full row. Live
   returned Builders' handoffs fell from 257 KB to 79 KB and from 179 KB to 75 KB; at 257 KB the
   provider compacted the conversation and the run paused for a person (#2815).
+- When AutoCode gives a timed-out job such as the Investigator a longer deadline, only that job's
+  retry gets it. The rest of the run keeps the stage time limit you set, instead of every later
+  stage inheriting the longer one (#2823).
 - A second Investigator in the same step no longer stops the run with "Permission denied" when it
   tests a counterexample. Each probe now gets a folder of its own instead of reusing the first
   probe's folder, whose edited file can be read-only.

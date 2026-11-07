@@ -258,7 +258,7 @@ class BuildBlackbox(unittest.TestCase):
     def command(self, unit, args):
         return [sys.executable, str(self.source / (unit + ".py")), "--workspace", str(self.project), *args]
 
-    def invoke(self, unit, args, code=0):
+    def invoke(self, unit, args, code=0, *, timeout=None):
         if (
             "--run-dir" in args
             and any(flag in args for flag in ("--answer", "--delegate"))
@@ -271,7 +271,7 @@ class BuildBlackbox(unittest.TestCase):
             current = human.current(json.loads((Path(args[args.index("--run-dir") + 1]) / "state.json").read_text()))
             if current:
                 args = [*args, "--resolver-token", current["request_token"]]
-        limit = 600 if self.env.get("BUILD_AUDIT_LIVE_CODEX") else 90
+        limit = timeout if timeout is not None else 600 if self.env.get("BUILD_AUDIT_LIVE_CODEX") else 90
         self.counter += 1
         receipt = self.root / f"cli-{self.counter}.json"
         started = time.monotonic()

@@ -1009,9 +1009,10 @@ Inspect its archive and current changes before starting a new run.
 A workflow job stopped by its hard stage deadline first settles that itself
 (#2605): AutoCode retries it on the same model with the stage deadline doubled,
 never past the run's remaining total time, at most twice for that job in a run, and
-under the run's money cap. Each extension is saved in the run's limits and recorded
-with its reason as a runner `automatic_job_stage_deadline_extended` event and a
-configuration change. No question is asked. Only when no extension is left, or the
+under the run's money cap. Each extension belongs to that job's retry alone: the
+run's own stage limit stays as set, so other stages keep it (#2823). It is recorded
+with its reason as a runner `automatic_job_stage_deadline_extended` event, and the
+job's exact retry keeps the last deadline it ran on. No question is asked. Only when no extension is left, or the
 total time cap leaves no room, does the job pause as below, for its exact retry on the
 same model: a stage-deadline stop asks no model question and takes no model answer.
 
