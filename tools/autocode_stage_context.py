@@ -36,7 +36,9 @@ try:
     from . import autocode_milestone_replan as replan
     from . import autocode_package_writes as package_writes
     from . import autocode_protected_oracles as protected_oracles
+    from . import autocode_ready_capture_batch as ready_capture_batch
     from . import autocode_review_source as review_source
+    from . import autocode_roles as roles
     from . import autocode_stage_roles as stage_roles
     from . import autocode_support as support
     from . import autocode_visual_evidence as visual
@@ -47,7 +49,9 @@ except ImportError:
     import autocode_milestone_replan as replan
     import autocode_package_writes as package_writes
     import autocode_protected_oracles as protected_oracles
+    import autocode_ready_capture_batch as ready_capture_batch
     import autocode_review_source as review_source
+    import autocode_roles as roles
     import autocode_stage_roles as stage_roles
     import autocode_support as support
     import autocode_visual_evidence as visual
@@ -242,6 +246,14 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
             import autocode_verification_plan as verification_plan
         progressive = progressive_state.context(state)
         base["verification_obligations"] = verification_plan.obligations(state, progressive_context=progressive)
+        if roles.job_for_stage(stage, state) == "tester":
+            batch = ready_capture_batch.context(
+                base["capture_command"],
+                base["verification_obligations"]["required_commands"],
+                Path(state_path).parent / "evidence",
+            )
+            if batch:
+                base["ready_capture_batch"] = batch
         instruction += prompts.get("fragments/stage-context/context-packet-03.md")
         if progressive:
             base["progressive_verification"] = {

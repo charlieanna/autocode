@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Prepared verification batches avoid nested shell quoting that could fail before any check ran,
+  while preserving individual fresh receipts and verification gates.
+- Testers can run plain approved verification commands as one prepared batch, preserving their order,
+  separate fresh capture receipts and existing verification gates. Unsupported shell commands keep
+  individual execution. Contained Testers keep receipts in their current writable scratch directory.
 - Saved-run replay refuses referenced unsupported native capture dependencies at export,
   before creating an unusable recording or starting a replay. Original completion
   and evidence are preserved; old receipts do not gain fresh verification authority.
