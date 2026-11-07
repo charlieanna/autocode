@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Accepted Requirements report repairs retain the original observations for the first Planner
+  without repeating the Requirements probes.
 - The first Planner can reuse small, successful Requirements observations from the same unchanged
   source. Requirements, independent reviews, plan approval and verification checks remain required.
 - A run no longer stops to ask you how to route a fix when the approved plan's test command cannot find
