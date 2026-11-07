@@ -94,6 +94,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_acceptance_tests",
             "tests.test_acceptance_writer_route",
             "tests.test_follow_up_acceptance_cli",
+            "tests.test_requirements_first_cli",
         ),
     ),
     (
@@ -245,6 +246,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
+    (
+        "scenarios/catalog/review-then-fix/",
+        ("tests.test_scenario_changed_code_fixtures", "tests.test_requirements_first_cli"),
+    ),
     ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
     ("scenarios/harness/components_driver.py", ("tests.test_local_compose_scenario",)),
     ("tools/prompts/fragments/provider-launch/tool-free-report-repair.md", ("tests.test_provider_launch",)),

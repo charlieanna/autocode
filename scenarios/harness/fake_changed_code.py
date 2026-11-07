@@ -350,8 +350,8 @@ REGCLIENT_SOURCES = {
     "regclient/policies.py": "88b3caa3a14464c9a97265f21c86b4f354f12fd692b8fbcb88502d128db92bfd",
 }
 REGCLIENT_TESTS = {
-    "tests/test_client.py": "50be50fdb5170c1c801fd655bd2214fdd75790b8e7d1df18de141e109fd98991",
-    "tests/test_policies.py": "6c96a819059b633b740351c2e695606ecfc1a82bab74320c7328e229a20a8171",
+    "tests/test_client.py": "3bc7c3654fb72828b948c65998796a4743d9d51803c3f4e9caefa214d3563271",
+    "tests/test_policies.py": "50840d375777b047a420a30673a70dfcb522d76e153aaabcc55c632327f1548e",
 }
 _REGCLIENT_LOOP = (
     "instrumentation_unavailable",

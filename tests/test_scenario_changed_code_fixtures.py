@@ -9,6 +9,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_mutation_check as mutation_check
+import autocode_python_tests as python_tests
+import autocode_test_setup as test_setup
+
 from scenarios.harness import fake_changed_code as fixture
 from tests import test_follow_up_acceptance_cli as follow_up
 
@@ -431,7 +435,13 @@ class RegclientFixtureReviewTests(unittest.TestCase):
         self.assertEqual(
             ["regclient/client.py:38"], [row["gap_id"] for row in rows if row["reason_kind"] == "defensive_unreachable"]
         )
-        for mutation in ({"mutation_outcomes": ["survived"]}, {"sha256": "0" * 64}, {"path": "unknown.py"}):
+        for mutation in (
+            {"mutation_outcomes": ["killed"]},
+            {"mutation_outcomes": ["survived"]},
+            {"mutation_outcomes": ["not_run"]},
+            {"sha256": "0" * 64},
+            {"path": "unknown.py"},
+        ):
             changed = copy.deepcopy(self.data)
             for row in changed["regression_proof"]["changed_code_evidence"]["obligations"]:
                 row.update(mutation)
@@ -456,6 +466,39 @@ class RegclientFixtureReviewTests(unittest.TestCase):
         policies.write_text(policies.read_text().replace("backoff_seconds: float = 0.0", "backoff_seconds: float = 1"))
         broken = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
         self.assertIn("FAILED (failures=1)", broken.stderr)
+
+    def test_policy_initialization_mutants_fail_collected_test_bodies(self):
+        shutil.copytree(REFERENCE.parents[1] / "review-then-fix/seed", self.root, dirs_exist_ok=True)
+        shutil.copytree(REFERENCE.parents[1] / "review-then-fix/reference", self.root, dirs_exist_ok=True)
+        command = [sys.executable, "-m", "unittest", "discover", "-v", "-s", "tests", "-t", "."]
+        passing = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(0, passing.returncode, passing.stderr)
+        expected = python_tests.unittest_results(passing.stderr)["passed"]
+        self.assertEqual(13, len(expected))
+        policies = self.root / "regclient/policies.py"
+        source = policies.read_text()
+        for original in (
+            "merged = []",
+            'TRANSIENT = ("SERVER_BUSY", "RATE_LIMITED")',
+            'SESSION = ("SESSION_LIMIT_EXCEEDED",)',
+        ):
+            with self.subTest(original=original):
+                self.assertEqual(1, source.count(original))
+                policies.write_text(source.replace(original, original.partition(" = ")[0] + " = None"))
+                broken = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
+                results = python_tests.unittest_results(
+                    broken.stderr,
+                    classify_setup=lambda detail: test_setup.setup_error(
+                        detail, self.root, lambda path: path.startswith("tests/")
+                    ),
+                )
+                receipt = {"exit_code": broken.returncode, "results": results}
+                outcome, failed = mutation_check.proved_outcome(receipt, expected)
+                self.assertEqual("killed", outcome, broken.stderr)
+                self.assertEqual(set(expected), set(failed), "every test reaches the invalid policy initialization")
+                self.assertFalse(results["collection_errors"])
+                self.assertFalse(results.get("setup_errors"))
+                policies.write_text(source)
 
 
 class LifecycleFixtureReviewTests(unittest.TestCase):

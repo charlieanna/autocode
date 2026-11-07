@@ -8,6 +8,18 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_review_then_fix_keeps_the_public_requirements_regression(self):
+        consumer = "tests.test_requirements_first_cli"
+        for path in (
+            "scenarios/harness/fake_changed_code.py",
+            "scenarios/catalog/review-then-fix/reference/tests/test_client.py",
+            "scenarios/catalog/review-then-fix/reference/tests/test_policies.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_scripted_changed_code_reasons_keep_the_protected_oracle_cli_regression(self):
         consumer = "tests.test_protected_oracles_cli"
         selected = run_suite.select_tests(["tools/goal_fixtures.py"], {consumer: "", "tests.test_unrelated": ""})

@@ -1,14 +1,17 @@
 import unittest
 
-from regclient.client import Command, RegistryClient
 from regclient.transport import RegistryError, ScriptedTransport, Timeout
 
 
 def command(tld="com"):
+    from regclient.client import Command
+
     return Command(tld=tld, name=f"example.{tld}", txn_id="txn-1")
 
 
 def client(transport):
+    from regclient.client import RegistryClient
+
     return RegistryClient(transport, sleep=lambda seconds: None)
 
 
@@ -56,6 +59,8 @@ class ClientTests(unittest.TestCase):
             client(transport).send(command("org"))
 
     def test_backoff_is_applied_between_attempts(self):
+        from regclient.client import RegistryClient
+
         waits = []
         transport = ScriptedTransport(["error:SERVER_BUSY", "ok"])
         RegistryClient(transport, sleep=waits.append).send(command("org"))
