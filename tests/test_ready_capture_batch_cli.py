@@ -22,7 +22,8 @@ class ReadyCaptureBatchCLI(unittest.TestCase):
             shlex.join([sys.executable, "-B", "-m", "unittest", "test_greet.py", "-v"]),
         ]
         provider = self.root / "bin/codex"
-        script = provider.read_text()
+        self.offered_plan = self.root / "offered-batch-plan.json"
+        script = provider.read_text().replace("import json\n", "import json\nimport base64\n", 1)
         script = script.replace(
             "PLANNED_CHECK = " + repr(self.command),
             "PLANNED_CHECK = " + repr(" and ".join("`" + command + "`" for command in self.commands)),
@@ -52,11 +53,24 @@ class ReadyCaptureBatchCLI(unittest.TestCase):
 """
             + script[end:]
         )
+        script = script.replace(
+            "        batch = data['ready_capture_batch']['command']\n",
+            "        batch = data['ready_capture_batch']['command']\n"
+            + "        Path("
+            + repr(str(self.offered_plan))
+            + ").write_text(json.dumps("
+            + "json.loads(base64.urlsafe_b64decode(shlex.split(batch)[-1]))))\n",
+            1,
+        )
         provider.write_text(script)
 
     def test_one_batch_keeps_four_independently_bound_checks_and_completes(self):
         run, view = self.run_to_validation()
         self.assertEqual("TASK_COMPLETE", view["status"], view)
+        offered = json.loads(self.offered_plan.read_text())
+        self.assertEqual({"mode", "commands", "directory"}, set(offered))
+        self.assertIn(offered["mode"], ("raw", "conservative"))
+        self.assertEqual([shlex.split(command) for command in self.commands], offered["commands"])
         receipts = sorted((run.run_dir / "evidence").glob("ready-*.json"))
         self.assertEqual(4, len(receipts))
         records = [json.loads(path.read_text()) for path in receipts]

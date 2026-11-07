@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Prepared verification batches avoid copying the capture executable path inside the encoded plan,
+  preventing a path typo from stopping checks before execution while preserving fresh receipts and gates.
 - A retried bug investigation no longer copies the whole repository again. Each attempt took a fresh
   complete copy of the workspace, so four attempts on a 544 MB checkout held four copies (#2606). A retry
   of the same run now reuses its own copy when nothing was written into it and its bytes still match the
