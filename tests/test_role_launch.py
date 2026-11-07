@@ -16,6 +16,34 @@ from autocode_support import Paused
 
 
 class ReplayContextTests(unittest.TestCase):
+    def test_first_review_and_its_repair_bind_the_current_draft_snapshot(self):
+        for report_only in (False, True):
+            with (
+                self.subTest(report_only=report_only),
+                patch.object(role_launch.failure_correction, "snapshot", return_value="draft-failure-v1:current"),
+            ):
+                context = role_launch.replay_context(
+                    {},
+                    stage="astra_challenge_report_repair" if report_only else "astra_challenge",
+                    iteration=1,
+                    report_only=report_only,
+                    original_stage="astra_challenge",
+                    changed_code_proof=None,
+                )
+                self.assertEqual("draft-failure-v1:current", context["draft_inference_snapshot"])
+
+    def test_first_review_without_a_draft_snapshot_keeps_the_legacy_context_shape(self):
+        with patch.object(role_launch.failure_correction, "snapshot", return_value=None):
+            context = role_launch.replay_context(
+                {},
+                stage="astra_challenge",
+                iteration=1,
+                report_only=False,
+                original_stage=None,
+                changed_code_proof=None,
+            )
+        self.assertNotIn("draft_inference_snapshot", context)
+
     def test_the_context_names_the_launch_replay_matches(self):
         state = {
             "turns": [{}, {}],

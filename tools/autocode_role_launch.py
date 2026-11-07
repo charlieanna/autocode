@@ -86,7 +86,7 @@ def native_environment(state: RunState, workspace, events, adapter, output, befo
 
 def replay_context(state: RunState, *, stage, iteration, report_only, original_stage, changed_code_proof):
     """What replay needs to match this launch to its recorded answer (docs/replay.md)."""
-    return {
+    context = {
         "stage": stage,
         "iteration": iteration,
         "turn": len(state.get("turns") or []) + 1,
@@ -99,10 +99,12 @@ def replay_context(state: RunState, *, stage, iteration, report_only, original_s
         "consumed": sum(isinstance(row.get("replay"), dict) for row in state.get("stages", [])),
         "changed_code_proof": changed_code_proof,
         "regression_proof_path": (state.get("regression_proof") or {}).get("path"),
-        "draft_inference_snapshot": failure_correction.snapshot(state)
-        if (original_stage if report_only else stage) == "astra_challenge"
-        else None,
     }
+    if (original_stage if report_only else stage) == "astra_challenge":
+        draft_snapshot = failure_correction.snapshot(state)
+        if draft_snapshot is not None:
+            context["draft_inference_snapshot"] = draft_snapshot
+    return context
 
 
 def prepare_visual(
