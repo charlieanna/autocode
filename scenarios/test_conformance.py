@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import shlex
 import signal
 import subprocess
 import sys
@@ -559,7 +560,24 @@ class LifecycleScenarioTests(unittest.TestCase):
         self.assertEqual(
             ["interrupted", "feedback"], [row["did"] for row in journal if row["did"] in ("interrupted", "feedback")]
         )
-        self.assertIn("needs.retry_action", [row["source"] for row in journal])
+        interrupted = next(i for i, row in enumerate(journal) if row["did"] == "interrupted")
+        feedback = next(i for i, row in enumerate(journal) if row["did"] == "feedback")
+        recovery = [row for row in journal[interrupted + 1 : feedback] if row["did"] == "took"]
+        self.assertTrue(recovery, "the interrupted run never took a recovery action")
+        for row in recovery:
+            self.assertNotEqual("answer", row["needs"], "machinery recovery asked a person a question")
+            self.assertEqual("next_command", row["source"])
+            self.assertTrue(row["next_command"], "recovery did not name its action")
+            executed = shlex.split(row["what"])
+            self.assertTrue(executed)
+            self.assertEqual(executed, shlex.split(row["next_command"])[-len(executed) :])
+        self.assertTrue(
+            any(
+                row["needs"] in ("resume", "retry_job") and "--resume-paused" in shlex.split(row["what"])
+                for row in recovery
+            ),
+            "the interrupted run never took its named resume action",
+        )
         # #722: each plan approval the client took is listed in the final view with the person's provenance.
         taken = [row for row in journal if row["did"] == "took" and "--approve-goal" in row["what"].split()]
         self.assertEqual(len(taken), sum(gate["gate"] == "approve_plan" for gate in result["approvals"]))
