@@ -64,6 +64,11 @@ _ROUTE_STOPS = {
 }
 
 
+def launch_deadline(state: RunState, stage, configured, report_only=False):
+    """The hard deadline this launch runs under: a stopped job's authorized retry keeps its own (#2823)."""
+    return job_deadline.launch_limit(state, stage, configured, report_only=report_only)
+
+
 def owner(record):
     stage = record.get("stage")
     return stage if stage in jobs.STAGES and not record.get("report_only") else None
@@ -314,6 +319,10 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
     }
     if record.get("timed_out") and record.get("timeout_kind"):
         failure["timeout_kind"] = record["timeout_kind"]
+    if type(record.get("stage_timeout_seconds")) is int and record["stage_timeout_seconds"] > 0:
+        # The exact retry keeps the deadline this attempt ran under, which an automatic extension
+        # may have raised for this job alone (#2823); the run's own stage limit is not changed.
+        failure["retry_stage_timeout_seconds"] = record["stage_timeout_seconds"]
     if kind in _ROUTE_STOPS and not quota_route.deadline_stop(failure):
         failure["pause_status"] = _ROUTE_STOPS[kind]
     state.pop("job_retry_authorization", None)
@@ -329,7 +338,9 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         # Which limit stopped it (the deadline, or the exploration budget's ``progress``): the retry handoff says so.
         recovery["timeout_kind"] = record["timeout_kind"]
     state["recovery_context"] = recovery
-    extension = job_deadline.plan(state, failure, recovery, abandoned=abandoned)
+    extension = job_deadline.plan(
+        state, failure, recovery, abandoned=abandoned, deadline=record.get("stage_timeout_seconds")
+    )
     if not extension and kind == "timeout" and (spent := job_deadline.used(state, stage)):
         reason = failure["reason"] = reason + ". " + job_deadline.exhausted(roles.screen_name(stage), spent)
     if extension:
@@ -367,11 +378,13 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
 
 
 def _extend_deadline(state: RunState, run_dir, failure, extension):
-    """Save the longer stage deadline, rebind the exact retry to it and authorize that one retry."""
-    previous_settings = copy.deepcopy(state["settings"])
-    state["settings"]["limits"]["stage_timeout_seconds"] = extension["to"]
+    """Bind the exact retry to a longer deadline for this job alone and authorize that one retry.
+
+    The run's saved stage limit stays as the person set it (#2823): only this job's retry, through
+    job_deadline.launch_limit, runs on the extended deadline.
+    """
+    failure["retry_stage_timeout_seconds"] = extension["to"]
     previous_token = failure["job_retry_token"]
-    failure["configuration"] = configuration(state)
     failure["job_retry_token"] = "jr:" + util.digest(
         {
             "run": str(run_dir),
@@ -379,18 +392,11 @@ def _extend_deadline(state: RunState, run_dir, failure, extension):
             "previous": previous_token,
             "source": failure["source_identity"],
             "configuration": failure["configuration"],
+            "retry_stage_timeout_seconds": extension["to"],
         }
     )
     decided = job_deadline.reason(roles.screen_name(failure["stage"]), extension)
     failure.update(automatic_deadline_extension=copy.deepcopy(extension), reason=failure["reason"] + ". " + decided)
-    state.setdefault("configuration_changes", []).append(
-        {
-            "at": util.now(),
-            "previous": previous_settings,
-            "selected": copy.deepcopy(state["settings"]),
-            "reason": decided,
-        }
-    )
     state.setdefault("user_events", []).append(
         {
             "kind": job_deadline.EVENT,
@@ -515,6 +521,10 @@ def change_total_caps(runtime, state: RunState, run_dir, workspace, args):
         )
     previous_token = failure["job_retry_token"]
     state["settings"] = expected
+    if stage_seconds is not None:
+        # The retry runs on the saved deadline, never shorter than an automatic extension it already had (#2823).
+        ran = failure.get("retry_stage_timeout_seconds")
+        failure["retry_stage_timeout_seconds"] = max(stage_seconds, ran if type(ran) is int else 0)
     failure["configuration"] = configuration(state)
     failure["job_retry_token"] = "jr:" + util.digest(
         {

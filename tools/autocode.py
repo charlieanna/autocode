@@ -460,7 +460,7 @@ def run_role(
     effort, effort_choice = review_effort.launch(state, original_stage, route_role, report_only, route)  # #1710
     effort = route_fit.launch(state["settings"], route_role, effort, original_stage, model=route.get("model"))  # #2057
     limits = state["settings"].get("limits", {})
-    stage_timeout = limits.get("stage_timeout_seconds")
+    stage_timeout = job_failure.launch_deadline(state, stage, limits.get("stage_timeout_seconds"), report_only)
     idle_timeout = limits.get("idle_timeout_seconds", 300)
     idle_limit, idle_origin = idle_policy.effective(
         idle_timeout,

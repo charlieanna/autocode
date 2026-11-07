@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- When AutoCode gives a timed-out job such as the Investigator a longer deadline, only that job's
+  retry gets it. The rest of the run keeps the stage time limit you set, instead of every later
+  stage inheriting the longer one (#2823).
 - A second Investigator in the same step no longer stops the run with "Permission denied" when it
   tests a counterexample. Each probe now gets a folder of its own instead of reusing the first
   probe's folder, whose edited file can be read-only.
