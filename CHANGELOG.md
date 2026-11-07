@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- When AutoCode gives a timed-out job such as the Investigator a longer deadline, only that job's
+  retry gets it. The rest of the run keeps the stage time limit you set, instead of every later
+  stage inheriting the longer one (#2823).
 - Large completed review reports can use exact text edits for syntax errors or a JSON fence, within
   the existing 512 KiB artifact ceiling. Repairs preserve the source hash, unchanged report text,
   the 32-edit/4096-byte correction limits, and every ordinary evidence and approval check.
