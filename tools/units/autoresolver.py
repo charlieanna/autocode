@@ -113,7 +113,8 @@ def prepare_investigation(state: RunState):
     source = "plan_reviewer" if "plan_reviewer" in roles else "astra"
     roles.setdefault("investigator", copy.deepcopy(roles.get(source) or roles["astra"]))
     role_transport.inherit(state.get("settings"), "investigator", source)
-    scratch = investigation_workspace.prepare(state["workspace"])
+    # A retry of this run reuses its own untouched copy; the cost of the copy goes with the attempt (#2606).
+    scratch, setup = investigation_workspace.prepare_measured(state["workspace"], owner=state.get("run_dir"))
     prompt, metrics = bug_job.prompt(
         state,
         autoplanner.workspace_inventory(state["workspace"], state["task"]),
@@ -127,6 +128,7 @@ def prepare_investigation(state: RunState):
         # A package run names its package and suite; the diagnosis must stay inside it (#711).
         package_context=package_writes.context(state["settings"], bug_job.STAGE),
     )
+    metrics["investigation_setup"] = setup
     return ModelRequest("astra", "investigator", prompt, metrics, bug_job.SCHEMA, True)
 
 

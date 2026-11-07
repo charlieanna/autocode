@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_context_window as context_window
+    from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_job_deadline as job_deadline
     from . import autocode_job_source as source
     from . import autocode_jobs as jobs
@@ -40,6 +41,7 @@ try:
     from . import autocode_util as util
 except ImportError:
     import autocode_context_window as context_window
+    import autocode_investigation_workspace as investigation_workspace
     import autocode_job_deadline as job_deadline
     import autocode_job_source as source
     import autocode_jobs as jobs
@@ -119,7 +121,11 @@ def configuration(state: RunState):
 def _reason(runtime, record, error):
     role = roles.screen_name(owner(record))
     if record.get("timed_out"):
-        return "timeout", role + ": " + (record.get("timeout_reason") or str(error))
+        reason = record.get("timeout_reason") or str(error)
+        if setup := (record.get("context") or {}).get("investigation_setup"):
+            # The deadline counted the workspace copy too: say so, or the model gets the blame (#2606).
+            reason += "; " + investigation_workspace.setup_note(setup)
+        return "timeout", role + ": " + reason
     path = Path(record.get("events", ""))
     raw = path.read_text(errors="replace") if path.is_file() else ""
     status = runtime.support.failure_status(path, record=record)

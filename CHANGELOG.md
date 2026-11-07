@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A retried bug investigation no longer copies the whole repository again. Each attempt took a fresh
+  complete copy of the workspace, so four attempts on a 544 MB checkout held four copies (#2606). A retry
+  of the same run now reuses its own copy when nothing was written into it and its bytes still match the
+  workspace; a copy another run made, one an attempt wrote into, or one the workspace has moved on from
+  still gets a fresh copy. When an Investigator stops on its stage deadline, the reason now says how
+  long the copy took and its size (`32.4 s of that copied the workspace for its investigation (20,513
+  files, 544 MB)`), so a slow copy is not read as a slow model.
 - Changed lines still without a test after two Builder rounds now go to the Investigator, as intended,
   when the Tester's report had to be repaired first. A repaired report was applied while its repair was
   still recorded as pending, so the run took that repair for an unrelated one and paused for operator
