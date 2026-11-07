@@ -314,6 +314,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_requirements_job_cli",
             "tests.test_changed_code_evidence_cli",
             "tests.test_scenario_report_envelope",
+            "tests.test_scenario_requirements_fixtures",
         ),
     ),
     ("tools/autocode_report_edits.py", ("tests.test_changed_code_evidence_cli", "tests.test_scenario_report_envelope")),

@@ -8,6 +8,14 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_scenario_requirements_provider_keeps_its_public_cli_consumer_when_slow(self):
+        consumer = "tests.test_scenario_requirements_fixtures"
+        selected = run_suite.select_tests(
+            ["scenarios/harness/fake_codex.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_ready_capture_batch_keeps_its_public_cli_consumer_when_slow(self):
         consumer = "tests.test_ready_capture_batch_cli"
         for source in ("tools/autocode_ready_capture_batch.py", "tools/autocode_stage_context.py"):
