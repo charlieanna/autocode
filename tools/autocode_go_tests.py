@@ -156,7 +156,7 @@ def results(text):
     package that fails without running any test (it did not build, so its tests could not run, like
     a Python module that fails to import) is a collection error named ``package::[build failed]``.
     None when there are no events at all."""
-    outcome, ran_in, package_fail, test_fail, seen = {}, set(), set(), set(), False
+    outcome, running, ran_in, package_fail, test_fail, seen = {}, set(), set(), set(), set(), False
     for line in text.splitlines():
         if not line.startswith("{"):
             continue
@@ -172,9 +172,13 @@ def results(text):
             key = f"{package}::{test}"
             if action == "run":
                 outcome.setdefault(key, None)
+                running.add(key)
                 ran_in.add(package)
             elif action in ("pass", "fail", "skip"):
-                outcome[key] = action
+                # -count can repeat an identity; a later pass cannot erase a failure.
+                if outcome.get(key) != "fail":
+                    outcome[key] = action
+                running.discard(key)
                 ran_in.add(package)
                 if action == "fail":
                     test_fail.add(package)
@@ -191,7 +195,7 @@ def results(text):
     package_failed = {f"{package}::[package failed]" for package in package_fail if package in ran_in - test_fail}
     failed |= collection | package_failed
     # A test that started but never ended (the binary panicked or timed out) is not attributed.
-    complete = all(action is not None for action in outcome.values())
+    complete = not running and all(action is not None for action in outcome.values())
     return {
         "passed": sorted(passed),
         "failed": sorted(failed),
