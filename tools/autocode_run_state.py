@@ -197,6 +197,7 @@ KEYS: frozenset[str] = frozenset(
         "phase",
         "plan",
         "plan_source",
+        "planned_check_reworks",
         "planning",
         "planning_artifact_history",
         "planning_artifact_reconciliation",
@@ -333,6 +334,9 @@ class RunState(TypedDict, total=False):
     # Original tests the runner sent back to plan review as supersedes entries, once each; written and read only by
     # autocode_superseded_correction (#2748 follow-up).
     superseded_corrections: list
+    # Builder rounds the runner queued because an approved plan check failed on the candidate, bounded per
+    # command; written by autocode_planned_check_rework, read there and by autocode_resolver_recovery.
+    planned_check_reworks: list
     acceptance_tests: dict  # spec-first receipts, redirect and contract-bound pending test names; route pins names, job writes receipts; read by job/check/run_view
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
     # The approved contract; written by goals. A revision loaded with --goal-file also names that file in

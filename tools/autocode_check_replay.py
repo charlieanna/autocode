@@ -386,7 +386,7 @@ def replay(
             what = f"exited {row['exit_code']}"
         planned = row.get("evidence_ref") in ("approved-plan", "approved-repeat")
         error_type = PlannedCheckFailure if planned else ValueError
-        raise error_type(
+        failure = error_type(
             (
                 f"Check `{row['command']}` is required by the approved verification methods or the current task's "
                 "validation plan (the Validator did not report it) and must exit 0, but when the runner ran it "
@@ -405,6 +405,8 @@ def replay(
             )
             + (RUN_FILES_HINT if ".autocode" in row["command"] else "")
         )
+        failure.command, failure.tail = row["command"], row["tail"]  # read by autocode_planned_check_rework
+        raise failure
     if refuted and not keep_lifecycle_failure:
         raise refuted
     # With keep_lifecycle_failure the reported checks reproduce and the product failed the runner's
