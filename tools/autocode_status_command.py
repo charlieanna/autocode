@@ -347,7 +347,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         public_view["chat"]["last_output_at"] = last_output
     # The failure run the current stage is in (autocode_failures.episode): how many attempts in a row
     # failed the same way, and how many stop it. Display only; the retry itself is the core's.
-    retrying = cast(dict, active) if isinstance(active, dict) else {}
+    retrying = active if isinstance(active, dict) else {}
     retry_stage = retrying.get("original_stage") or retrying.get("stage") or state.get("next_stage")
     if isinstance(retry_stage, str) and retry_stage and (retry := failures.episode(state, retry_stage)):
         public_view["progress"]["retry"] = retry
