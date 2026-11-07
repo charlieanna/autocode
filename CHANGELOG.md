@@ -11,6 +11,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Changed lines still without a test after two Builder rounds now go to the Investigator, as intended,
+  when the Tester's report had to be repaired first. A repaired report was applied while its repair was
+  still recorded as pending, so the run took that repair for an unrelated one and paused for operator
+  action instead of starting the Investigator (#2815).
+- Fewer changed lines need a reason written by hand. The mutation check had nothing to change on an
+  import, an `except` clause, a `raise`, the head of a `with`, an augmented assignment, a keyword
+  argument or dictionary entry on a line of its own, or a later statement of an `if` body, so a live
+  run left about 60 such lines for its Tester to excuse and stopped when it did not. Each now has a
+  mutant of its own, except where breaking it would stop the module loading, and a line holding only
+  `try:` or `pass`, which does nothing, is no longer counted (#2815).
 - Prepared verification batches avoid nested shell quoting that could fail before any check ran,
   while preserving individual fresh receipts and verification gates.
 - Testers can run plain approved verification commands as one prepared batch, preserving their order,

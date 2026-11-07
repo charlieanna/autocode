@@ -59,10 +59,12 @@ EQUIVALENT_TEST = (
 )
 # An import has no mutation site, so the mutator has nothing on line 2: no Builder test can mark it
 # tested, and only the independent Tester's decision settles it.
-NO_SITE_SOURCE = "def adjust(n):\n    from builtins import min as lower\n    return lower(n, 10)\n"
+# A None bound to a name has no supported mutation site: None has no other constant to become. (An import
+# was this example until #2815 gave imports a site of their own.)
+NO_SITE_SOURCE = "def adjust(n):\n    floor = None\n    return min(n, 10) if floor is None else floor\n"
 NO_SITE_REASON = (
-    "The import of min has no supported mutation site. test_t1_adjusts_limits asserts adjust(50), adjust(11) "
-    "and adjust(10) are 10 and adjust(0) is 0, so any other function or bound fails it."
+    "Binding None to floor has no supported mutation site. test_t1_adjusts_limits asserts adjust(50), adjust(11) "
+    "and adjust(10) are 10 and adjust(0) is 0, so any other floor fails it."
 )
 GUIDANCE = (
     "Add assertions for adjust(-1), adjust(0), adjust(10) and adjust(11) to test_t1_adjusts_limits; "
@@ -73,7 +75,14 @@ GUIDANCE = (
 @unittest.skipUnless(sys.platform.startswith("linux"), "supervised fake-provider workflow requires supported Linux")
 class ChangedCodeEvidenceCliTests(unittest.TestCase):
     def start(
-        self, *, ignored_result=False, equivalent=False, wait_for_investigator=False, checkpoint=False, no_site=False
+        self,
+        *,
+        ignored_result=False,
+        equivalent=False,
+        wait_for_investigator=False,
+        checkpoint=False,
+        no_site=False,
+        repaired_review=False,
     ):
         temporary = tempfile.TemporaryDirectory(prefix="changed-code-cli-")
         self.addCleanup(temporary.cleanup)
@@ -198,6 +207,23 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
             """)
                 .replace("REASON_LITERAL", repr(reason))
                 .replace("REASON_LINE", str(reason_line))
+                + witness
+            )
+        if repaired_review:
+            # The live ladder-24 shape (claude-tiers, 2026-11-07): the third Tester report, the one that hands the
+            # lines to the Investigator, first cites a product file as evidence and is repaired.
+            witness = (
+                textwrap.dedent("""
+                if stage == "sol" and not data.get("report_repair"):
+                    trace = Path(os.environ["CHANGED_CODE_TRACE"])
+                    earlier = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
+                    if sum(row["stage"] == "sol" and not row["repair"] for row in earlier) == 2:
+                        report["criterion_results"][0]["evidence_refs"] = ["calc.py"]
+                if stage == "sol" and "cites evidence the runner did not verify" in (data.get("error") or ""):
+                    for row in report["criterion_results"]:  # the repair cites the check instead
+                        row["evidence_refs"] = [ref for ref in row["evidence_refs"] if ref != "calc.py"] or [
+                            report["checks"][0]["evidence_ref"]]
+            """)
                 + witness
             )
         if no_site:
@@ -410,6 +436,24 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertEqual(
             original["source_revision"], final_builder["handoff"]["changed_code_evidence"]["source_revision"]
         )
+
+    def test_a_repaired_tester_report_still_hands_the_lines_to_the_investigator(self):
+        # Before, accepting the repaired report queued the Investigator while that report's own repair was still
+        # pending, so the run paused at PAUSED_BUILDER_CLASSIFICATION "requires ... operator action" instead.
+        view = self.start(wait_for_investigator=True, repaired_review=True)
+        self.assertEqual("TASK_COMPLETE", view["status"], self.diagnostic())
+        attempts = self.attempts()
+        stages = [(row["stage"], row["repair"]) for row in attempts]
+        self.assertEqual(1, stages.count(("sol", True)), self.diagnostic())
+        self.assertIn(
+            "cites evidence the runner did not verify", next(row for row in attempts if row["repair"])["error"]
+        )
+        self.assertEqual(1, stages.count(("investigate_stuck", False)), self.diagnostic())
+        self.assertEqual(4, stages.count(("terra", False)), self.diagnostic())
+        final_builder = next(row for row in reversed(attempts) if row["stage"] == "terra")
+        self.assertEqual(GUIDANCE, final_builder["handoff"]["changed_code_investigation"]["guidance"])
+        self.assertEqual("PASS", view["verification"]["changed_code_evidence"]["status"])
+        self.assertEqual(STRONG_TEST, (self.workspace / "tests/test_limits.py").read_text())
 
 
 class ChangedCodeCitationPromptTests(unittest.TestCase):

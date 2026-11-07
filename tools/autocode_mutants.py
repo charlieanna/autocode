@@ -28,14 +28,27 @@ Operators, each only on a span that touches a changed line:
 * ``none_assignment``: any other value assigned to a target (``args = parser.parse_args()``,
   ``ports = [a, b]``) becomes ``None``.
 * ``skip_loop``: a ``for`` loop iterates over ``()``, so its body never runs.
+* ``drop_import``: an import (not ``from __future__`` or ``*``) becomes ``pass``, so its names are never
+  bound. Only an import a function reads a name of and the module's own top-level code does not: a
+  name read while the module loads, or one only other modules import, fails collection rather than a
+  test, which proves nothing, and an unused one changes nothing.
+* ``never_catch``: the exception type of an ``except`` clause becomes ``()``, so it catches nothing.
+* ``drop_raise``: a ``raise`` becomes ``pass``.
+* ``none_context``: the context manager of a ``with`` becomes ``None``.
+* ``none_update``: the value of an augmented assignment (``count += 1``) becomes ``None``.
+* ``none_keyword``: a keyword argument on a line of its own (``delete=False,``) takes another constant,
+  as ``constant_return`` chooses it, or ``None``.
+* ``none_entry``: the value of a dictionary entry on a line of its own (``'ports': ports,``) does the same.
 
-The last three give an ordinary statement a site: without them most changed lines of a large change
-had none, and each such line became a decision the Tester had to write by hand (#2815). A statement
-under a ``__main__`` or ``TYPE_CHECKING`` guard gets none of them, as no test can see it, and a
-line that already has a site of another operator keeps only those. Nor does ``none_assignment`` bind
-None where the module would then fail to load: in a function that runs on import, or for a
-module-level name that load-time code reads. Test collection would fail before any test ran, so the
-mutant could only end ``not_run``.
+The last ten give an ordinary statement, or a line of a long one, a site: without them most changed
+lines of a large change had none, and each such line became a decision the Tester had to write by hand
+(#2815). A statement under a ``__main__`` or ``TYPE_CHECKING`` guard gets none of them, as no test can
+see it, and a line where a site of another operator starts keeps only those. A mutant counts for the
+line it starts on, so a dropped branch counts for its first statement and the later ones get their own.
+Nor does ``none_assignment``, or any of the last seven, change code where the module would then fail
+to load: in a function that runs on import, or for a module-level name that load-time code reads (an
+``except`` or ``with`` at module level always runs on import). Test collection would fail before any
+test ran, so the mutant could only end ``not_run``.
 
 ``TYPE_CHECKING`` and ``__main__`` guards, f-strings and annotations are never mutated, and a
 branch that already does nothing is never dropped: those mutants change nothing a test can see.
@@ -69,9 +82,18 @@ OPERATORS = (
     "drop_call",
     "none_assignment",
     "skip_loop",
+    "drop_import",
+    "never_catch",
+    "drop_raise",
+    "none_context",
+    "none_update",
+    "none_keyword",
+    "none_entry",
 )
-# Sites that stand for a whole ordinary statement; used only on a line no other operator reaches.
-STATEMENT_OPERATORS = frozenset({"drop_call", "none_assignment", "skip_loop"})
+# Sites for an ordinary statement or a line of a long one; used only on a line where no other operator's
+# site starts.
+STATEMENT_OPERATORS = frozenset(OPERATORS[OPERATORS.index("drop_call") :])
+WHOLE_STATEMENT = frozenset({"drop_import", "drop_raise"})  # the statement itself becomes ``pass``
 PER_FILE_LIMIT = 6
 DISPLAY_CHARS = 60
 NEWLINE = re.compile(rb"\r\n|\r|\n")
@@ -188,13 +210,16 @@ def python_mutants(
         key=lambda site: (site.start, OPERATORS.index(site.operator), site.end, site.replacement),
     )
 
-    # A statement-level site only gives a line that has no other site one (#2815): a line whose
-    # condition, bound, return or literal is already mutated keeps exactly the mutants it had.
-    def lines_of(site: _Site) -> range:
-        return range(bisect_right(starts, site.start), bisect_right(starts, max(site.start, site.end - 1)) + 1)
-
-    sited = {line for site in sites if site.operator not in STATEMENT_OPERATORS for line in lines_of(site)}
-    sites = [site for site in sites if site.operator not in STATEMENT_OPERATORS or sited.isdisjoint(lines_of(site))]
+    # A statement-level site only gives a line where no other site starts one (#2815): a line whose
+    # condition, bound, return or literal is already mutated keeps exactly the mutants it had. A mutant
+    # counts for the line it starts on, so only that line is taken: the later statements of a dropped
+    # branch, or the later lines of a long call, still get their own.
+    sited = {bisect_right(starts, site.start) for site in sites if site.operator not in STATEMENT_OPERATORS}
+    sites = [
+        site
+        for site in sites
+        if site.operator not in STATEMENT_OPERATORS or bisect_right(starts, site.start) not in sited
+    ]
     ordinals: dict[tuple[int, str], int] = {}
     numbered = []
     for site in sites:
@@ -295,6 +320,44 @@ def _constant(value: ast.expr) -> tuple[object, bytes]:
     return None, b"None"
 
 
+def _name_uses(tree) -> tuple[set[str], set[str], set[int]]:
+    """(names read while the module loads, names read only when a function runs, ids of imports in a function)."""
+    eager: set[str] = set()
+    lazy: set[str] = set()
+    local: set[int] = set()
+
+    def visit(node, deferred):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            (lazy if deferred else eager).add(node.id)
+        if deferred and isinstance(node, (ast.Import, ast.ImportFrom)):
+            local.add(id(node))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            for name, value in ast.iter_fields(node):
+                inner = deferred or name == "body"
+                for child in value if isinstance(value, list) else [value]:
+                    if isinstance(child, ast.AST):
+                        visit(child, inner)
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child, deferred)
+
+    visit(tree, False)
+    return eager, lazy, local
+
+
+def _import_site(node, uses) -> bool:
+    """Whether dropping this import makes a test fail, not its collection (see ``drop_import``)."""
+    if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+        return False
+    names = {alias.asname or alias.name.split(".")[0] for alias in node.names}
+    eager, lazy, local = uses
+    if "*" in names:
+        return False
+    if id(node) in local:
+        return bool(names & (eager | lazy))
+    return bool(names & lazy) and not names & eager
+
+
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 
 
@@ -369,6 +432,7 @@ def _sites(tree, body, starts, lines, notes, path):
     """Every candidate splice on the changed lines, in ast.walk order. A node whose sites cannot be built
     is skipped with a note; the other nodes still give theirs."""
     excluded: set[int] = set()
+    uses = _name_uses(tree)
     guarded: set[int] = set()  # statements no test can see (#2815: they get no statement-level site)
     for node in ast.walk(tree):
         if isinstance(node, ast.If) and _guard(node.test):
@@ -379,6 +443,23 @@ def _sites(tree, body, starts, lines, notes, path):
             if isinstance(root, ast.AST):
                 excluded.update(id(inner) for inner in ast.walk(root))
     level, reads, called = _load_time(tree, guarded)
+    enclosing: dict[int, ast.stmt] = {}  # innermost statement holding each expression (ast.walk goes outward in)
+    for statement in ast.walk(tree):
+        if isinstance(statement, ast.stmt):
+            enclosing.update((id(inner), statement) for inner in ast.walk(statement) if not isinstance(inner, ast.stmt))
+
+    def loads(statement) -> bool:
+        """Whether a mutant in ``statement`` could stop the module from loading (see ``_breaks_loading``).
+
+        The operators added after #2815 reach statements that run on import too: an ``except`` around an
+        optional import, a module-level ``with``, a keyword of a module-level call. Breaking one there fails
+        collection, not a test. An assignment is judged as ``none_assignment`` is, by what reads it later.
+        """
+        if statement is None or (id(statement) not in level and id(statement) not in called):
+            return False
+        if isinstance(statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            return _breaks_loading(statement, level, reads, called)
+        return True
 
     def offset(line, column):
         return starts[line - 1] + column
@@ -392,6 +473,10 @@ def _sites(tree, body, starts, lines, notes, path):
         if decorators:
             return body.rfind(b"@", 0, offset(decorators[0].lineno, decorators[0].col_offset))
         return offset(statement.lineno, statement.col_offset)
+
+    def own_line(node):
+        """Whether ``node`` is the first thing on its line (an argument or entry on a line of its own)."""
+        return not body[starts[node.lineno - 1] : offset(node.lineno, node.col_offset)].strip()
 
     def node_sites(node):
         tests = []
@@ -453,7 +538,52 @@ def _sites(tree, body, starts, lines, notes, path):
             start, end = span(node.value)
             replacement = _pad(text, body[start:end], expression=True)
             yield _Site("constant_assignment", start, end, replacement, node.value, constant, text)
-        if id(node) in guarded or not isinstance(node, ast.stmt) or not _touches(lines, node.lineno, node.end_lineno):
+        if id(node) in guarded or id(node) in excluded:
+            return
+        if (
+            isinstance(node, ast.ExceptHandler)
+            and node.type is not None
+            and not (isinstance(node.type, ast.Tuple) and not node.type.elts)
+            and _touches(lines, node.lineno, node.type.end_lineno)
+            and not loads(enclosing.get(id(node)))  # its try statement
+        ):
+            start, end = span(node.type)
+            yield _Site("never_catch", start, end, _pad(b"()", body[start:end], expression=True), node.type, None)
+        elements = []
+        if isinstance(node, ast.Call):
+            elements = [(item, item.value, "none_keyword") for item in node.keywords if item.arg is not None]
+        elif isinstance(node, ast.Dict):
+            pairs = zip(node.keys, node.values, strict=True)
+            elements = [(key, value, "none_entry") for key, value in pairs if key is not None]
+        for first, value, operator in elements:
+            if not own_line(first) or not _touches(lines, first.lineno, value.end_lineno):
+                continue
+            if loads(enclosing.get(id(node))):
+                break
+            if isinstance(value, ast.Constant) and value.value is None:
+                continue  # None has no other value to become here
+            constant, text = _constant(value)
+            start, end = span(value)
+            yield _Site(operator, start, end, _pad(text, body[start:end], expression=True), value, constant, text)
+        if not isinstance(node, ast.stmt) or not _touches(lines, node.lineno, node.end_lineno):
+            return
+        if isinstance(node, (ast.Raise, ast.With, ast.AsyncWith, ast.AugAssign)) and loads(node):
+            return
+        if isinstance(node, ast.Raise) or (isinstance(node, (ast.Import, ast.ImportFrom)) and _import_site(node, uses)):
+            start, end = span(node)
+            operator = "drop_raise" if isinstance(node, ast.Raise) else "drop_import"
+            yield _Site(operator, start, end, _pad(b"pass", body[start:end], expression=False), node, None)
+            return
+        if isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if _touches(lines, item.context_expr.lineno, item.context_expr.end_lineno):
+                    start, end = span(item.context_expr)
+                    replacement = _pad(b"None", body[start:end], expression=True)
+                    yield _Site("none_context", start, end, replacement, item.context_expr, None)
+            return
+        if isinstance(node, ast.AugAssign) and not (isinstance(node.value, ast.Constant) and node.value.value is None):
+            start, end = span(node.value)
+            yield _Site("none_update", start, end, _pad(b"None", body[start:end], expression=True), node.value, None)
             return
         if isinstance(node, ast.Expr) and isinstance(node.value, (ast.Call, ast.Await)):
             start, end = span(node.value)
@@ -533,11 +663,12 @@ def _check(tree, body, site, parents) -> tuple[str | None, tuple | None]:
         holder = parents.get(id(holder))
     if holder is None or len(parsed.body) != len(tree.body):
         return "changes more than its statement", None
+    kind = ast.Pass if site.operator in WHOLE_STATEMENT else type(holder)
     twin = next(
         (
             node
             for node in ast.walk(parsed)
-            if type(node) is type(holder) and (node.lineno, node.col_offset) == (holder.lineno, holder.col_offset)
+            if type(node) is kind and (node.lineno, node.col_offset) == (holder.lineno, holder.col_offset)
         ),
         None,
     )
@@ -551,6 +682,8 @@ def _check(tree, body, site, parents) -> tuple[str | None, tuple | None]:
 
 def _intended(holder, site) -> str:
     """The dump of ``holder`` with the site's mutation applied to a copy of its AST."""
+    if site.operator in WHOLE_STATEMENT:
+        return ast.dump(ast.Pass())
     clone = copy.deepcopy(holder)
     twin: Any = next(
         copied for original, copied in zip(ast.walk(holder), ast.walk(clone), strict=True) if original is site.target
@@ -563,7 +696,7 @@ def _intended(holder, site) -> str:
         twin.value = twin.value + 1
     elif site.operator == "drop_branch":
         setattr(twin, site.detail, [ast.Pass()])
-    elif site.operator == "skip_loop":
+    elif site.operator in ("skip_loop", "never_catch"):
         _replace(clone, twin, ast.Tuple(elts=[], ctx=ast.Load()))
     elif site.operator == "swap_tuple_assignment":
         twin.elts[0], twin.elts[1] = twin.elts[1], twin.elts[0]

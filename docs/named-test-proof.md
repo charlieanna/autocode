@@ -308,11 +308,19 @@ from `tools/autocode_mutants.py`).
   see. The tuple assignment operator swaps the first two distinct names in a
   simple unpacking on a changed line. A line none of those reaches gets one
   statement site (#2815): a call made for its effect is dropped (`log.write(x)`
-  becomes `None`), a computed value bound to a name becomes `None`, and a `for`
-  loop runs over nothing. No `None` is bound where the module would then fail to
-  load: in a function that runs on import, or for a module-level name that code
-  run on import reads afterwards. Test collection would fail before any test ran,
-  so that mutant could only end `not_run`, and the line counts as having no site.
+  becomes `None`), a computed value bound to a name becomes `None`, a `for`
+  loop runs over nothing, an import or a `raise` becomes `pass`, an `except`
+  clause catches `()` (nothing), the context manager of a `with` and the value
+  of an augmented assignment (`count += 1`) become `None`, and a keyword argument
+  or dictionary entry on a line of its own takes another constant or `None`. A
+  mutant counts for the line it starts on, so the later statements of a dropped
+  branch get their own sites. A line holding only `try:` or `pass` does nothing a
+  test could notice and is not a changed-line obligation at all. No mutant is
+  made where the module would then fail to load: in a function that runs on
+  import, or in module-level code whose result code run on import reads
+  afterwards (an `except` around an optional import, a module-level `with`).
+  Test collection would fail before any test ran, so that mutant could only end
+  `not_run`, and the line counts as having no site.
   Each mutant replaces a span of source bytes,
   keeps every line number, must compile, and must change its statement exactly as
   intended; a site that fails one of these, or cannot be checked at all (a

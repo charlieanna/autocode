@@ -174,8 +174,11 @@ class OperatorTests(unittest.TestCase):
     def test_a_comment_between_the_operands_is_not_taken_for_the_operator(self):
         source = b"ok = (a  # < not this one\n      < b)\n"
         made, _ = mutants.python_mutants("comment.py", source, [1, 2], limit=20)
-        self.assertEqual([(2, "swap_bound", "<", "<=")], shown(made))
-        self.assertEqual(b"ok = (a  # < not this one\n      <= b)\n", mutants.apply(source, made[0]))
+        # Line 1 has no site of its own to start, so the statement's value gets one there (#2815).
+        self.assertEqual(
+            [(1, "none_assignment", "a # < not this one < b", "(None )"), (2, "swap_bound", "<", "<=")], shown(made)
+        )
+        self.assertEqual(b"ok = (a  # < not this one\n      <= b)\n", mutants.apply(source, made[1]))
 
     def test_a_line_with_only_a_call_a_computed_value_or_a_loop_gets_a_statement_site(self):
         # #2815: these lines had no site, so each changed one needed a written reason. A call made for its
@@ -206,6 +209,77 @@ class OperatorTests(unittest.TestCase):
             shown(made),
         )
         self.assertEqual(source.replace(b"for item in items", b"for item in ()"), mutants.apply(source, made[3]))
+
+    def test_every_changed_statement_line_of_a_live_run_gets_a_site(self):
+        # #2815: on a live ladder-24 run (claude-tiers, 2026-11-07) these kinds of changed line had no
+        # mutant, so each needed a written reason: an import, an except clause, a re-raise, the context of
+        # a with, an argument or a dictionary entry on a line of its own, an augmented assignment, and
+        # every statement of an if body after its first. Each now has a site of its own.
+        source = (
+            b"import json\n"
+            b"from os import path as p\n"
+            b"def load(name, env, seen):\n"
+            b"    try:\n"
+            b"        with open(name) as f:\n"
+            b"            data = json.load(p.join(f))\n"
+            b"    except ValueError as e:\n"
+            b"        raise\n"
+            b"    if env:\n"
+            b"        key = env[0]\n"
+            b"        seen += 1\n"
+            b"    out = dict(\n"
+            b"        mode='w',\n"
+            b"        delete=False,\n"
+            b"    )\n"
+            b"    return {\n"
+            b"        'data': data,\n"
+            b"        'key': key,\n"
+            b"    }\n"
+        )
+        made, notes = mutants.python_mutants("live.py", source, every_line(source), limit=100)
+        self.assertEqual([], notes)
+        ops = {(mutant.line, mutant.operator) for mutant in made}
+        self.assertTrue(
+            {
+                (1, "drop_import"),
+                (2, "drop_import"),
+                (5, "none_context"),
+                (6, "none_assignment"),
+                (7, "never_catch"),
+                (8, "drop_raise"),
+                (10, "drop_branch"),
+                (11, "none_update"),
+                (13, "none_keyword"),
+                (14, "none_keyword"),
+                (17, "none_entry"),
+                (18, "none_entry"),
+            }
+            <= ops,
+            sorted(ops),
+        )
+        changes = {mutant.operator: (mutant.before, mutant.after) for mutant in made}
+        # Dropping an import counts only when a function reads its name: one read while the module loads
+        # fails collection, not a test, and an unused one changes nothing.
+        eager = b"import json\nimport os\nfrom a import b\nLOADS = json.loads\ndef f():\n    return os.sep\n"
+        self.assertEqual(
+            [(2, "drop_import", "import os", "pass")],
+            [row for row in shown(mutants.python_mutants("eager.py", eager, [1, 2, 3], limit=20)[0])],
+        )
+        local = b"def f():\n    import os\n    return os.sep\ndef g():\n    import sys\n"
+        self.assertEqual(
+            [(2, "drop_import", "import os", "pass")],
+            [row for row in shown(mutants.python_mutants("local.py", local, [2, 5], limit=20)[0]) if row[0] != 3],
+        )
+        self.assertEqual(("ValueError", "()"), changes["never_catch"])
+        self.assertEqual(("raise", "pass"), changes["drop_raise"])
+        self.assertEqual(("1", "None"), changes["none_update"])
+        self.assertIn(("False", "True"), {(m.before, m.after) for m in made if m.operator == "none_keyword"})
+        self.assertEqual(source.replace(b"import json", b"pass"), mutants.apply(source, made[0]))
+        for mutant in made:
+            with self.subTest(mutant=mutant.id):
+                result = mutants.apply(source, mutant)
+                compile(result, "<mutant>", "exec", dont_inherit=True)
+                self.assertEqual(len(mutants.NEWLINE.findall(source)), len(mutants.NEWLINE.findall(result)))
 
     def test_a_statement_site_never_doubles_a_line_that_has_another_site(self):
         source = b"ok = a < 2\nhits = [x for x in y if x > 1]\nf(a if a < 2 else b)\nfor x in g(a > 1):\n    pass\n"
@@ -258,6 +332,48 @@ class OperatorTests(unittest.TestCase):
         self.assertIn((3, "skip_loop", "groups", "()"), shown(made))
         self.assertEqual(
             len(mutants.NEWLINE.findall(source)), len(mutants.NEWLINE.findall(mutants.apply(source, made[0])))
+        )
+
+    def test_the_statement_operators_leave_code_that_runs_on_import_alone(self):
+        # never_catch on an optional import, or None for a module-level with, update, raise or a keyword
+        # that load-time code reads, fails collection, not a test. The same lines in a function keep theirs.
+        source = (
+            b"try:\n"
+            b"    import fast\n"
+            b"except ImportError:\n"
+            b"    fast = None\n"
+            b"with open('x') as f:\n"
+            b"    TEXT = f.read()\n"
+            b"COUNT = 1\n"
+            b"COUNT += 1\n"
+            b"if COUNT > 9:\n"
+            b"    raise SystemExit\n"
+            b"TABLE = dict(\n"
+            b"    size=COUNT,\n"
+            b")\n"
+            b"WIDTH = TABLE['size']\n"
+            b"LATER = dict(\n"
+            b"    b=1,\n"
+            b")\n"
+            b"def run():\n"
+            b"    try:\n"
+            b"        count = 0\n"
+            b"    except ValueError:\n"
+            b"        raise\n"
+            b"    with open('y') as g:\n"
+            b"        count += 1\n"
+            b"    return dict(\n"
+            b"        size=count,\n"
+            b"    )\n"
+        )
+        made, notes = mutants.python_mutants("load.py", source, every_line(source), limit=100)
+        self.assertEqual([], notes)
+        new = {"never_catch", "none_context", "none_update", "drop_raise", "none_keyword"}
+        ops = {(mutant.line, mutant.operator) for mutant in made if mutant.operator in new}
+        self.assertEqual(
+            {(16, "none_keyword"), (21, "never_catch"), (22, "drop_raise"), (23, "none_context")}
+            | {(24, "none_update"), (26, "none_keyword")},
+            ops,
         )
 
 

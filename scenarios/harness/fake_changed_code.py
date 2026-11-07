@@ -359,6 +359,8 @@ _REGCLIENT_LOOP = (
     "A loop header has no supported mutation. test_retryable_errors_are_deduplicated_and_sorted asserts .com and "
     ".net merge TRANSIENT and SESSION into exactly three sorted codes; skipping either loop loses codes and fails it.",
 )
+# The lines whose mutant survives because no public input reaches them (drop_raise, #2815).
+REGCLIENT_SURVIVORS = {"regclient/client.py": ('raise AssertionError("unreachable")',)}
 REGCLIENT_REASONS = {
     "regclient/client.py": {
         "import time": (
@@ -393,7 +395,7 @@ REGCLIENT_REASONS = {
             "defensive_unreachable",
             "Unreachable from public input: every policy has max_attempts of at least 1, and on the last attempt "
             "the loop body returns or re-raises (the killed conditions on lines 32 and 35), so the loop never "
-            "falls through to this line.",
+            "falls through to this line, and its surviving drop_raise mutant changes nothing a test can reach.",
         ),
     },
     "regclient/policies.py": {
@@ -481,13 +483,17 @@ def _regclient(data, root):
             or path not in REGCLIENT_SOURCES
             or row.get("sha256") != REGCLIENT_SOURCES[path]
             or type(line) is not int
-            or row.get("mutation_outcomes")
         ):
             continue
         lines = sources[path].decode().splitlines()
         if not 0 < line <= len(lines):
             continue
-        if judged := REGCLIENT_REASONS[path].get(lines[line - 1].strip()):
+        text = lines[line - 1].strip()
+        # A line with a mutant is judged only when it is the unreachable raise and that mutant survived.
+        outcomes = row.get("mutation_outcomes")
+        if outcomes and not (text in REGCLIENT_SURVIVORS.get(path, ()) and set(outcomes) == {"survived"}):
+            continue
+        if judged := REGCLIENT_REASONS[path].get(text):
             accepted.append(
                 {
                     "gap_id": row["gap_id"],
