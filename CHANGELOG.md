@@ -24,6 +24,8 @@ PR template asks for an entry here; a change without one is incomplete.
   person: the chat says which option it names and that the whole reply would otherwise be feedback,
   and takes the number to answer with that option or Enter to send the reply as typed. A number, an
   exact label and ordinary feedback are taken as before; nothing is inferred from the sentence.
+- Prepared verification batches avoid copying the capture executable path inside the encoded plan,
+  preventing a path typo from stopping checks before execution while preserving fresh receipts and gates.
 - A retried bug investigation no longer copies the whole repository again. Each attempt took a fresh
   complete copy of the workspace, so four attempts on a 544 MB checkout held four copies (#2606). A retry
   of the same run now reuses its own copy when nothing was written into it and its bytes still match the
