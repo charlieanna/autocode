@@ -88,6 +88,9 @@ The successful sample also stops at the completion gate until demo acceptance of
 the artifact is recorded. These automatic approvals apply only to the new demo
 project.
 
+Token and cost figures shown when inspecting the demo's run status are simulated;
+they do not represent charges.
+
 The command prints the run directory, canonical evidence record and `demo.json`,
 and keeps every output inside its new directory. To choose where it goes, use
 `autocode demo --directory /path/to/new-demo`; the directory must not exist.
