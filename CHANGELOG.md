@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A failing master no longer expands every pull request to the full repository
+  suite. PRs keep pinned change and consumer selection, all selected checks remain
+  required, and master and manual runs keep complete coverage.
 - A run no longer stops to ask you how to route a fix when the approved plan's test command cannot find
   a test it names. A Tester's report cannot change that result, so the run paused and the Investigator
   asked whether the Builder or the Resolver should take it. AutoCode now returns the task to the Builder
