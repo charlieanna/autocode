@@ -3,10 +3,11 @@ public status view's own attempt and cost records, never a route choice or a spe
 
 Every figure shown is a value the core wrote: an attempt's route, start, duration, outcome and
 attributed tokens (``usage.accounting.attempts``), a stage's accounted spend
-(``cost.breakdown.by_stage``) and the run's accounted total (``cost.spent_usd``). The only
-arithmetic is adding one stage's own attempt tokens and durations together, and adding separate
-chats' run totals for the session line; those are distinct ledgers, so nothing is counted twice,
-and a total built from an incomplete part says so.
+(``cost.breakdown.by_stage``), the run's accounted total (``cost.spent_usd``) and the tries the
+core still allows a failing stage (``progress.retry``). The only arithmetic is adding attempt
+tokens and durations together (one stage's for its row, every stage's for the run's working time),
+and adding separate chats' run totals for the session line; those are distinct ledgers, so nothing
+is counted twice, and a total built from an incomplete part says so.
 """
 
 from __future__ import annotations
@@ -213,20 +214,52 @@ def stage_lines(row: dict, *, unicode: bool = True) -> tuple[str, str, str]:
     return f"{mark} {' · '.join(head)}", "  " + " · ".join(detail), style
 
 
+def tries_left(view: dict | None) -> str:
+    """How many more failures the core allows the current stage before it stops trying, from the
+    view's own ``progress.retry`` (``failures`` so far, ``limit``): "2 tries left", "last try", or
+    empty when the view does not say."""
+    retry = _mapping(_mapping(_mapping(view).get("progress")).get("retry"))
+    failed, limit = retry.get("failures"), retry.get("limit")
+    if type(failed) is not int or type(limit) is not int or limit <= 0 or failed < 0:
+        return ""
+    left = limit - failed
+    if left <= 0:
+        return "no tries left"
+    return "last try" if left == 1 else f"{left} tries left"
+
+
 def struggling(view: dict | None, now: datetime | None = None) -> str:
     """For the working stage, when it is trying again after an attempt that did not succeed: which
-    attempt, how long it has run and why the previous one failed. Empty when nothing is wrong, as
-    for a stage that runs again after succeeding (a second review round)."""
+    attempt, how many tries the core still allows, how long it has run and why the previous one
+    failed. Empty when nothing is wrong, as for a stage that runs again after succeeding (a second
+    review round)."""
     working = [row for row in stages(view, now) if row["state"] in (WORKING, RETRYING)]
     if not working or working[-1]["state"] != RETRYING:
         return ""
     row = working[-1]
     parts = [row["job"], f"attempt {row['attempts']}"]
+    if left := tries_left(view):
+        parts.append(left)
     if row["attempt_seconds"] is not None:
         parts.append(duration(row["attempt_seconds"]))
     if row["why"]:
         parts.append(f"last one {row['why']}")
     return " · ".join(parts)
+
+
+def run_seconds(view: dict | None, now: datetime | None = None) -> float | None:
+    """How long the run's stages have worked in all: every recorded attempt's own duration added
+    together, the working one measured to ``now``. None before any attempt has a duration. Time
+    waiting for a person between attempts is not in it."""
+    rows = _rows(_mapping(_mapping(_mapping(view).get("usage")).get("accounting")).get("attempts"))
+    seconds = [value for row in rows if (value := _seconds(row, now)) is not None]
+    return sum(seconds) if seconds else None
+
+
+def worked_text(view: dict | None, now: datetime | None = None) -> str:
+    """The run's working time as the footer and the Stages section show it: "worked 42m05s"."""
+    seconds = run_seconds(view, now)
+    return f"worked {duration(seconds)}" if seconds is not None else ""
 
 
 def run_total(view: dict | None) -> dict | None:

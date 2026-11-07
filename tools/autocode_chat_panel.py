@@ -366,7 +366,44 @@ def stage_section(view: dict | None, now=None) -> Section | None:
         if detail.strip():  # the model it ran on and what it used; a stage with no model has none
             rows.append(Row(" ", detail.strip(), "dim"))
     cap = _mapping(_mapping(view).get("cost")).get("cap_usd")
-    return Section("Stages", meter.total_text(meter.run_total(view), cap), tuple(rows))
+    summary = " · ".join(
+        part
+        for part in (meter.total_text(meter.run_total(view), cap), meter.worked_text(view, now or _utc_now()))
+        if part
+    )
+    return Section("Stages", summary, tuple(rows))
+
+
+# A working stage that has written nothing for this long is said to be quiet, where the person
+# looks: the fact that tells a stalled stage from a busy one before it fails.
+QUIET_SECONDS = 120
+
+
+def last_output_age(view: dict | None, now: datetime | None = None) -> float | None:
+    """Seconds since the running attempt last wrote to its event file (``chat.last_output_at``), or
+    None when the view does not say. Never negative: a clock ahead of the core's reads as now."""
+    stamp = _mapping(_mapping(view).get("chat")).get("last_output_at")
+    if not isinstance(stamp, str) or not stamp:
+        return None
+    try:
+        written = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if written.tzinfo is None:
+        return None
+    return max(0.0, ((now or _utc_now()) - written).total_seconds())
+
+
+def quiet(view: dict | None, now: datetime | None = None) -> tuple[str, bool] | None:
+    """What the status row says about the running attempt's last output, and whether it is a
+    warning: ("last output 12s ago", False) while it keeps writing, ("no output for 4m05s", True)
+    once it has been quiet for ``QUIET_SECONDS``. None when the view carries no such time."""
+    age = last_output_age(view, now)
+    if age is None:
+        return None
+    if age >= QUIET_SECONDS:
+        return f"no output for {meter.duration(age)}", True
+    return f"last output {meter.duration(age)} ago", False
 
 
 def sections(view: dict | None, *, launched: bool = False, task_total: dict | None = None) -> list[Section]:

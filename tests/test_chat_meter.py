@@ -160,6 +160,40 @@ class StageTests(unittest.TestCase):
         done = meter.stages(view(*shown["usage"]["accounting"]["attempts"][:3]), NOW)[0]
         self.assertEqual("✓ Requirements · 1m30s total · 3 runs", meter.stage_lines(done)[0])
 
+    def test_a_retry_says_how_many_tries_the_core_still_allows(self):
+        # The core stops a stage after three failures in a row of the same kind (progress.retry);
+        # the person could not tell from "attempt 2" whether the next failure goes to the Investigator.
+        shown = view(
+            attempt("terra", "Builder", rejected=True),
+            attempt("terra", "Builder", active=True, duration_seconds=5),
+        )
+        self.assertEqual("", meter.tries_left(shown), "an older core says nothing about the bound")
+        shown["progress"] = {"retry": {"failures": 1, "limit": 3}}
+        self.assertEqual(
+            "Builder · attempt 2 · 2 tries left · 5s · last one answer rejected", meter.struggling(shown, NOW)
+        )
+        shown["progress"]["retry"] = {"failures": 2, "limit": 3}
+        self.assertEqual("last try", meter.tries_left(shown))
+        shown["progress"]["retry"] = {"failures": 3, "limit": 3}
+        self.assertEqual("no tries left", meter.tries_left(shown))
+        for malformed in ({"failures": "1", "limit": 3}, {"failures": 1}, {"failures": -1, "limit": 3}, {"limit": 0}):
+            with self.subTest(retry=malformed):
+                shown["progress"]["retry"] = malformed
+                self.assertEqual("", meter.tries_left(shown))
+
+    def test_the_run_has_worked_for_every_attempts_duration_added_together(self):
+        self.assertIsNone(meter.run_seconds(view(), NOW))
+        self.assertEqual("", meter.worked_text(view(), NOW))
+        shown = view(
+            attempt("requirements_gather", "Requirements", duration_seconds=90),
+            attempt("terra", "Builder", duration_seconds=600),
+            attempt("terra", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:05:00Z"),
+        )
+        self.assertEqual(990, meter.run_seconds(shown, NOW))  # the working attempt counts to now
+        self.assertEqual("worked 16m30s", meter.worked_text(shown, NOW))
+        unknown = view(attempt("sol", "Tester", active=True, duration_seconds=None, started_at="unknown"))
+        self.assertIsNone(meter.run_seconds(unknown, NOW), "an attempt with no known time adds nothing")
+
     def test_a_first_attempt_at_work_is_not_struggling(self):
         shown = view(attempt("terra", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:09:00Z"))
         self.assertEqual(meter.WORKING, meter.stages(shown, NOW)[0]["state"])
@@ -203,7 +237,7 @@ class PanelTests(unittest.TestCase):
     def test_the_panel_lists_the_newest_stages_and_their_total(self):
         attempts = [attempt(f"stage{number}", f"Job {number}") for number in range(7)]
         section = panel.stage_section(view(*attempts), NOW)
-        self.assertEqual("$0.42 · 184k tokens", section.summary)
+        self.assertEqual("$0.42 · 184k tokens · worked 3m30s", section.summary)
         texts = [row.text for row in section.rows]
         self.assertEqual("3 earlier stages: /details", texts[0])
         self.assertEqual(["Job 6 · 30s", "gpt-x high · 1.2k tokens"], texts[-2:])
@@ -235,7 +269,7 @@ class CalmPanelTests(unittest.TestCase):
         shown = view(attempt("terra", "Builder"), spent=1.73)
         shown["cost"]["cap_usd"] = 5
         titles = {section.title: section for section in panel.sections(shown)}
-        self.assertEqual("$1.73 of $5.00 · 184k tokens", titles["Stages"].summary)
+        self.assertEqual("$1.73 of $5.00 · 184k tokens · worked 30s", titles["Stages"].summary)
         self.assertNotIn("Usage", titles)
         # Without stage records the Usage section still says what the run spent.
         self.assertIn("Usage", {section.title for section in panel.sections(view(spent=1.73))})

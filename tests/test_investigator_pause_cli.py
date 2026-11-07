@@ -15,6 +15,57 @@ from . import test_stage_repair_cli as fixtures
 class InvestigatorPauseCLI(unittest.TestCase):
     fixture_for = fixtures.StageRepairCLI.fixture_for
 
+    def test_pause_after_stage_keeps_the_investigator_correction_on_resume(self):
+        fixture = self.fixture_for("investigator")
+        executable = fixture.root / "fixture-bin/codex"
+        source = executable.read_text()
+        anchor = "    output.write_text(text)\n    append_trace(row)"
+        self.assertEqual(1, source.count(anchor))
+        executable.write_text(
+            source.replace(
+                anchor,
+                '    row["active_guidance"] = "INVESTIGATOR GUIDANCE" in prompt.split("CURRENT HANDOFF DATA\\n", 1)[0]\n'
+                + anchor,
+            )
+        )
+        fixture.launch(["Build a greeting tool", "--no-chat"], 2)
+        run = next((fixture.project / ".autocode/runs").iterdir())
+        fixture.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
+
+        def status():
+            return json.loads(fixture.launch(["--run-dir", str(run), "--status"], 0).stdout)
+
+        def trace():
+            return [json.loads(line) for line in (fixture.root / "stage-repair-trace.jsonl").read_text().splitlines()]
+
+        for _ in range(20):
+            fixture.launch(["--run-dir", str(run), "--resume-paused", "--pause-after-stage", "--no-chat"], 2)
+            paused = status()
+            self.assertEqual("PAUSED_REQUESTED", paused["status"], paused["view"].get("stop_reason"))
+            before = trace()
+            if paused["next_stage"] == "astra_finalize" and before[-1]["stage"] == "investigate_stuck":
+                break
+        else:
+            self.fail("The scripted Investigator never reached its saved checkpoint")
+
+        # The pending retry first reaches its separate plan-review allowance. Preserve
+        # the advice through that hold too; raising a limit must not grant another diagnosis.
+        fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
+        self.assertEqual("PAUSED_PLANNING_BUDGET", status()["view"]["recovery"]["cause"])
+        fixture.launch(["--run-dir", str(run), "--planning-review-call-limit", "4", "--no-chat"], 0)
+        resumed = fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
+        after = trace()
+        finalizers = [row for row in after[len(before) :] if row["stage"] == "astra_finalize" and not row["repair"]]
+        self.assertTrue(finalizers, resumed.stdout[-3000:] + resumed.stderr[-1000:])
+        self.assertTrue(finalizers[0]["active_guidance"], "The resumed stage lost its Investigator correction")
+        self.assertEqual("approve_plan", status()["view"]["needs"]["kind"])
+        self.assertFalse(any(row["stage"] == "terra" for row in after), "No Builder before exact plan approval")
+        self.assertEqual(
+            [row for row in before if row["stage"] == "investigate_stuck"],
+            [row for row in after if row["stage"] == "investigate_stuck"],
+            "A checkpoint must not grant another investigation",
+        )
+
     def test_queued_pause_after_investigation_preserves_guidance_for_the_resumed_stage(self):
         fixture = self.fixture_for("investigator")
         executable = fixture.root / "fixture-bin/codex"

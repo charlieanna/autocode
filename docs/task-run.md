@@ -466,6 +466,12 @@ and a paused run have none, and the field is then omitted. Codex-style items
 (also what the built-in Claude provider writes) and OpenCode or Kilo tool parts
 are read; other event shapes show nothing. Older cores may omit the field.
 
+Under the same guards, optional `last_output_at` is when that event file was last
+written (UTC, to the second): the one fact that tells a quiet stage from a busy
+one before it fails. It says when the provider last emitted anything, not what,
+and is never proof of progress or a liveness decision; the terminal chat's status
+row shows it as "last output 12s ago" and, after two minutes, "no output for 4m05s".
+
 While a supervised step or parallel Builder works, optional `log` is the
 terminal chat's live agent log (owner decision 2026-10-21): an array of display
 entries `{id, agent, kind, text}` from each working attempt's own provider event
@@ -1408,7 +1414,7 @@ run carried on by itself: a list, oldest first and at most the newest 20, built 
 | `kind` | `rejected` (a stage's answer was not accepted), `report_repaired` (the work stood and only its report was rewritten), `sent_back` (the changed-code gate returned the Builder for lines with no test that fails when they break and no checked reason), `investigated` (a stage stopped making progress and went to the Investigator), `resolved` (the Resolver chose the next step by its rules) |
 | `at` | When it was recorded (UTC), or null |
 | `job` | The stage's screen name (`autocode_roles`) |
-| `headline` | One line, such as `Builder stuck` or `Tester rewrote its report` |
+| `headline` | One line, such as `Builder stuck`, `Tester rewrote its report` or `Builder sent back for untested lines (round 1 of 2)` (the round the record names, out of the rounds the gate allows; a record saved before rounds were recorded has none) |
 | `problem` | What went wrong, or null |
 | `action` | What AutoCode did about it |
 | `by` | The job that handled it: the stage itself, `Investigator` or `Resolver` |
@@ -1933,6 +1939,12 @@ its wording may change, so programs read the fields beside it:
 - `for_earlier_request`: true after a `--follow-up` until the follow-up's own plan is
   drafted; the previous request's tasks, requirements and review findings are then
   left out.
+- `retry`, only while the current stage (the active attempt's, else the next one's) is
+  in a run of failures (`tools/autocode_failures.py`): `failures`, how many attempts in
+  a row have failed the same way, and `limit`, how many such failures stop the stage
+  (`PAUSED_REPEATED_FAILURE`). A later outcome of the stage ends the run and the field
+  is omitted. Display only: the retry itself is the core's, and the terminal chat shows
+  it as "2 tries left" or "last try" beside the retrying stage.
 
 No field is a percentage or an estimate from elapsed time.
 
