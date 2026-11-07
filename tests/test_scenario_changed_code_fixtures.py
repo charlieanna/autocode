@@ -575,12 +575,20 @@ class RegclientFixtureReviewTests(unittest.TestCase):
         self.assertEqual(
             ["regclient/client.py:38"], [row["gap_id"] for row in rows if row["reason_kind"] == "defensive_unreachable"]
         )
-        for mutation in ({"mutation_outcomes": ["survived"]}, {"sha256": "0" * 64}, {"path": "unknown.py"}):
+        # A line with a mutant gets a reason only when it is the unreachable raise and its mutant survived
+        # (drop_raise, #2815): a killed or unrun one, or any other line, gets none.
+        for mutation, expected in (
+            ({"mutation_outcomes": ["survived"]}, ["regclient/client.py:38"]),
+            ({"mutation_outcomes": ["killed"]}, []),
+            ({"mutation_outcomes": ["survived", "not_run"]}, []),
+            ({"sha256": "0" * 64}, []),
+            ({"path": "unknown.py"}, []),
+        ):
             changed = copy.deepcopy(self.data)
             for row in changed["regression_proof"]["changed_code_evidence"]["obligations"]:
                 row.update(mutation)
             with self.subTest(mutation=mutation):
-                self.assertEqual([], fixture.judgments(changed, self.root))
+                self.assertEqual(expected, [row["gap_id"] for row in fixture.judgments(changed, self.root)])
         for name in (*fixture.REGCLIENT_SOURCES, *fixture.REGCLIENT_TESTS):
             target = self.root / name
             original = target.read_bytes()
