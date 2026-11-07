@@ -63,8 +63,8 @@ truncating, so `/ commands` and `ctrl-d quit` are the last to go.
 commands with no marker; with a run open the list ended at `/changeset` and the
 rest (`/runs`, `/new`, `/mode`, `/engine`, `/connect`, `/stages`, `/repos`,
 `/attention`, `/panel`, `/help`, `/quit`) were invisible with no hint they
-exist. Fixed with a dim count row (`↓ N more commands`, `↑ N above` when
-scrolled) under the visible entries.
+exist. Fixed with a dim count row (`↓ N more; ↑↓ chooses`, `↑ N above` once
+scrolled down) under the visible entries.
 
 ## 6. Tab status glyphs have no legend (Low, open)
 
