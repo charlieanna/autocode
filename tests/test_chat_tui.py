@@ -58,6 +58,57 @@ class WrapTests(unittest.TestCase):
 
 
 class TranscriptTests(unittest.TestCase):
+    def test_a_working_agents_newest_thought_shows_live_and_folds_when_its_stage_ends(self):
+        # #2699: while a stage runs, its newest thought is one live line under the conversation; when the
+        # agent leaves the view its thinking folds into one line of history that points at /live.
+        transcript = tui.Transcript()
+        transcript.add("You: Fix the export.")
+
+        def thought(identifier, text, agent="Planner"):
+            return {"id": identifier, "agent": agent, "kind": "thinking", "text": text}
+
+        transcript.progress({"chat": {"log": [thought("t1", "Reading the export module [partial]")]}})
+        rows = transcript.lines(80)
+        self.assertIn(("info-label", "Planner · thinking"), rows)
+        self.assertIn(("live-thinking", "  Reading the export module [partial]"), rows)
+        transcript.progress(
+            {"chat": {"log": [thought("t1", "Reading the export module"), thought("t2", "The *writer* skips Safari")]}}
+        )
+        rows = transcript.lines(80)
+        self.assertEqual(1, sum(1 for style, _ in rows if style == "live-thinking"), "one live line, the newest")
+        self.assertIn(("live-thinking", "  The writer skips Safari"), rows)
+        self.assertNotIn("folded", str(rows))
+        # The stage ends: the Planner is no longer in the view's log.
+        transcript.progress({"chat": {"log": []}})
+        rows = transcript.lines(80)
+        self.assertEqual(
+            ("info", "Planner · thinking\n▸ 2 thoughts folded; /live Planner shows them"), transcript.blocks[-1]
+        )
+        self.assertEqual(0, sum(1 for style, _ in rows if style == "live-thinking"))
+        # A second reading with the same empty log adds no second fold.
+        transcript.progress({"chat": {"log": []}})
+        self.assertEqual(1, sum(1 for _, text in transcript.blocks if "folded" in text))
+        # The Builder's thinking opens its own section; a streaming receipt is not a thought.
+        transcript.progress(
+            {
+                "chat": {
+                    "log": [
+                        thought("b1", "Adding the test", agent="Builder"),
+                        {
+                            "id": "b2",
+                            "agent": "Builder",
+                            "kind": "thinking",
+                            "text": "Reasoning stream activity received; text unavailable.",
+                            "status": "streaming",
+                        },
+                    ]
+                }
+            }
+        )
+        rows = transcript.lines(80)
+        self.assertIn(("info-label", "Builder · thinking"), rows)
+        self.assertIn(("live-thinking", "  Adding the test"), rows)
+
     def test_dismissing_inventory_retains_the_current_question_at_close(self):
         transcript = tui.Transcript()
         transcript.add("You: Original request.")
