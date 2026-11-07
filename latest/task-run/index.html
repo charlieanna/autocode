@@ -2372,7 +2372,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/82b169fc1d4afe757fa3be4530e72c202a476fad/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/989afeaf81aed6acfb7aacde48472e184ff79a86/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2628,8 +2628,15 @@ immediate child of <code>workspace/.autocode/runs</code>. Existing directories a
 are refused before a provider launches. The optional destination is used by
 <a href="../replay/">saved-run replay</a>; the run is created there without moving bound
 artifacts afterward.</p>
-<p>When the workspace is a plain, non-empty folder, the core bootstraps a task
-project inside <code>workspace/autocode-projects/</code> and runs there. A destination
+<p>When the workspace is a plain, non-empty folder, the core bootstraps a private
+scratch task project in the folder's own store, <code>workspace/.autocode/projects/ID</code>,
+and runs there, so a chat that never builds leaves nothing among the person's
+files. When a build or bug fix completes there, the core delivers its source to a
+named project beside those files, <code>workspace/NAME</code>, a Git repository on branch
+<code>main</code> whose remote <code>autocode</code> is the scratch project; a later turn of the chat
+fast-forwards it when it has no changes of its own. The chat history says where
+(message id <code>project-delivered-TURN</code>). Projects bootstrapped earlier under
+<code>workspace/autocode-projects/</code> keep working where they are. A destination
 named under the selected folder's <code>.autocode/runs</code> keeps its name: the run is
 created under the bootstrapped project instead, and commands may keep using the
 selected folder and that name as the run's handle. The status view names the
@@ -3501,7 +3508,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/82b169fc1d4afe757fa3be4530e72c202a476fad/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/989afeaf81aed6acfb7aacde48472e184ff79a86/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4189,7 +4196,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/82b169fc1d4afe757fa3be4530e72c202a476fad/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/989afeaf81aed6acfb7aacde48472e184ff79a86/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
