@@ -375,6 +375,7 @@ class Transcript:
     blocks: list[tuple[str, str]] = field(default_factory=list)
     activity: str = ""
     live: str = ""  # an assistant reply still being written (the view's streaming message), shown last
+    thinking: dict[str, str] = field(default_factory=dict)  # each working agent's newest thought (#2699)
     asked: int = 0  # how many blocks there were when the last question was put to the person
     block_starts: list[int] = field(default_factory=list)  # set by lines(): where each spoken block begins
     progress_blocks: dict[str, int] = field(default_factory=dict)
@@ -384,6 +385,8 @@ class Transcript:
     _lines_revision: int = field(default=-1, init=False, repr=False)
     _lines_live: str | None = field(default=None, init=False, repr=False)
     _lines_cache: list[tuple[str, str]] = field(default_factory=list, init=False, repr=False)
+    _thoughts: dict[str, set[str]] = field(default_factory=dict, init=False, repr=False)  # thought ids per agent
+    _folds: dict[str, int] = field(default_factory=dict, init=False, repr=False)  # each agent's folded block
 
     @property
     def last_block_start(self) -> int | None:
@@ -438,8 +441,14 @@ class Transcript:
     def progress(self, view: dict) -> None:
         """Keep readable agent updates in the same history, replacing streamed snapshots in place."""
         self.relabel_stops(view)
+        current: dict[str, str] = {}
         for row in panel.log_entries(view):
             text = panel.live_text(row["text"])
+            if row["kind"] == "thinking" and text.strip() and row.get("status") != "streaming":
+                # The newest thought of each agent working now is shown live under the conversation; the
+                # earlier ones stay in /live (#2699).
+                current[row["agent"]] = text
+                self._thoughts.setdefault(row["agent"], set()).add(row["id"])
             if row["kind"] != "message" or row.get("status") == "streaming" or not text.strip():
                 continue
             block = ("info", f"{safe_text(row['agent'])}\n{safe_text(text)}")
@@ -451,6 +460,34 @@ class Transcript:
             elif self.blocks[index] != block:
                 self.blocks[index] = block
                 self._revision += 1
+        self._fold_thinking(current)
+
+    def _fold_thinking(self, current: dict[str, str]) -> None:
+        """An agent that left the view has finished its stage: its live thought folds into one line of
+        history that says how many thoughts there were and where to read them (#2699). An agent back at
+        work opens a new live section."""
+        for agent in list(self.thinking):
+            if agent in current:
+                continue
+            count = len(self._thoughts.get(agent, ()))
+            noun = "thought" if count == 1 else "thoughts"
+            block = (
+                "info",
+                f"{safe_text(agent)} · thinking\n▸ {count} {noun} folded; /live {safe_text(agent)} shows them",
+            )
+            index = self._folds.get(agent)
+            if index is not None and index == len(self.blocks) - 1:
+                self.blocks[index] = block
+            else:
+                self._folds[agent] = len(self.blocks)
+                self.blocks.append(block)
+            self._revision += 1
+        for agent in current:
+            if agent not in self.thinking:
+                self._folds.pop(agent, None)  # back at work: its next fold is a new line of history
+        if current != self.thinking:
+            self.thinking = current
+            self._revision += 1
 
     def relabel_stops(self, view: dict) -> None:
         """A fresh running observation makes older stop diagnostics history, preserving their detail."""
@@ -542,6 +579,11 @@ class Transcript:
                     )
             rendered.append(("plain", ""))
             previous = role
+        for agent, thought in self.thinking.items():
+            # One line of live thinking per working agent; /live NAME unfolds the rest (#2699).
+            rendered.append(("info-label", f"{safe_text(agent)} · thinking"))
+            rendered.extend(body_rows("live-thinking", prose_text(safe_text(thought)), width))
+            rendered.append(("plain", ""))
         if self.live.strip():
             rendered.append(("assistant-label", "AutoCode · writing…"))
             text = safe_text(self.live).strip("\n")
