@@ -1,4 +1,4 @@
-"""A run reuses a tool check that already passed, and only that (providers/env_prep.reuse_checks)."""
+"""A project's runs reuse a tool check that already passed, and only that (providers/env_prep.reuse_checks)."""
 
 import os
 import tempfile
@@ -75,6 +75,44 @@ class PreflightReuseTests(unittest.TestCase):
         with env_prep.reuse_checks(self.root / "another-run"):
             self.check()
         self.assertEqual(6, self.calls())
+
+    def test_a_new_chat_in_the_same_project_reuses_the_checks(self):
+        runs = self.root / "project" / ".autocode" / "runs"
+        for run in ("first-chat", "second-chat"):
+            (runs / run).mkdir(parents=True)
+        (self.root / "elsewhere" / ".autocode" / "runs" / "chat").mkdir(parents=True)
+        with env_prep.reuse_checks(runs / "first-chat"):
+            self.check()
+        with env_prep.reuse_checks(runs / "second-chat"):  # a new run of the same project
+            self.check()
+        self.assertEqual(1, self.calls())
+        self.assertTrue((self.root / "project" / ".autocode" / env_prep.REUSE_FOLDER).is_dir())
+        with env_prep.reuse_checks(self.root / "elsewhere" / ".autocode" / "runs" / "chat"):  # another project
+            self.check()
+        self.assertEqual(2, self.calls())
+
+    def test_another_terminal_window_asks_the_same_question(self):
+        with env_prep.reuse_checks(self.run_dir):
+            self.check(env={**self.env, "TERM_SESSION_ID": "w0t0p0", "SHLVL": "1", "OLDPWD": "/a"})
+            self.check(env={**self.env, "TERM_SESSION_ID": "w1t0p0", "SHLVL": "2", "OLDPWD": "/b"})
+        self.assertEqual(1, self.calls())
+
+    def test_a_new_login_or_a_changed_setting_runs_the_check_again(self):
+        home = self.root / "home"
+        login = home / ".local" / "share" / "tool" / "auth.json"
+        settings = home / ".config" / "tool" / "tool.json"
+        for path in (login, settings):
+            path.parent.mkdir(parents=True)
+            path.write_text("{}")
+        env = {**self.env, "HOME": str(home)}
+        with env_prep.reuse_checks(self.run_dir):
+            self.check(env=env)
+            login.write_text('{"zai-coding-plan": {"type": "api"}}')  # `tool auth login`
+            self.check(env=env)
+            settings.write_text('{"model": "other"}')
+            self.check(env=env)
+            self.check(env=env)
+        self.assertEqual(3, self.calls())
 
     def test_kept_answers_are_private_to_the_person(self):
         with env_prep.reuse_checks(self.run_dir):

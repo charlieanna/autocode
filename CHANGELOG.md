@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A new chat in a project reuses the tool checks an earlier chat there passed within the hour, and a chat
+  picked up from another terminal window reuses its run's checks: the variables a terminal sets for its
+  own session no longer count as a different environment. A new login or a changed tool setting still
+  runs the checks again. Before each stage the candidate is compared with the run's base once, not twice.
 - A new Kilo task reaches the model sooner. The login, model-list and model-detail checks at the
   start of a task ran one after another, the login check ran twice and the reasoning-level check read a
   second model listing: six Kilo starts, about 12 s on 2026-11-07. They now run together and once each.
