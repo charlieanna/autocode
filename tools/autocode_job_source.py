@@ -23,16 +23,19 @@ from pathlib import Path
 
 try:
     from . import autocode_jobs as jobs
+    from . import autocode_requirements_observations as requirements_observations
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_util as util
 except ImportError:
     import autocode_jobs as jobs
+    import autocode_requirements_observations as requirements_observations
     import autocode_source_snapshot as source_snapshot
     import autocode_util as util
 
 
 def prepare_capture_context(record, before, output, child_options, *, native_context=None, protected=False):
     """Bind a report's original capture context without altering a protected launch environment."""
+    requirements_observations.prepare(record)
     if record["output_mode"] != "report_file":
         return
     record["capture_context"] = native_context or {
