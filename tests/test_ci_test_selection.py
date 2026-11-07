@@ -8,6 +8,14 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_replay_export_keeps_native_capture_refusal_cli_consumer(self):
+        consumer = "tests.test_replay_native_capture_export_cli"
+        selected = run_suite.select_tests(
+            ["tools/autocode_replay_recording.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_legacy_guard_keeps_json_status_cli_regression(self):
         consumer = "tests.test_json_status_observer_cli"
         selected = run_suite.select_tests(

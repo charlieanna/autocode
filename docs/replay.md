@@ -91,6 +91,13 @@ visual or Figma startup. Those paths need additional portable evidence; export
 does not drop them to make a recording appear replayable. An empty protected-test
 binding is recreated by the fresh runner.
 
+Retained answers referencing native tool captures that depend on an immutable
+verification copy are also unsupported in this format. Export refuses those
+dependencies before writing a bundle, including when export is implicit in a direct saved-run replay. The
+original completed run and its evidence remain usable and unchanged. A receipt's
+old paths and hashes cannot establish fresh capture authority in another run.
+Unreferenced tool output, such as a printed documentation example, remains exportable.
+
 Fresh checks also require the evidence their current verifier expects. Some older
 report-file provider archives lack retained tool-command receipts; replay refuses
 those paths instead of copying old supervision records into current proof.
