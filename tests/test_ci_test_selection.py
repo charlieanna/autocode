@@ -8,6 +8,14 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_ready_capture_batch_keeps_its_public_cli_consumer_when_slow(self):
+        consumer = "tests.test_ready_capture_batch_cli"
+        for source in ("tools/autocode_ready_capture_batch.py", "tools/autocode_stage_context.py"):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], {consumer: ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_scripted_changed_code_reasons_keep_the_protected_oracle_cli_regression(self):
         consumer = "tests.test_protected_oracles_cli"
         selected = run_suite.select_tests(["tools/goal_fixtures.py"], {consumer: "", "tests.test_unrelated": ""})
