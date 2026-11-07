@@ -25,6 +25,8 @@ PR template asks for an entry here; a change without one is incomplete.
   there (a Git repository on `main`, named from the approved plan) and says where in the chat. A later
   turn of the chat updates that folder when it has no changes of its own. Older `autocode-projects/`
   projects keep working.
+- A report-only repair that omits only its offered JSON patch wrapper can reuse the exact source-bound
+  edits, while retaining the raw response and all existing report, evidence and approval checks.
 - At a question with options, the terminal chat no longer sends a reply such as `Option 1, because …`
   to Requirements as feedback without a word, which reopened the question and ran intake again when
   the person meant option 1 (#2592). A reply that names an option and says more is now put back to the
