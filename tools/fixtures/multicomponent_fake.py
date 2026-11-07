@@ -470,7 +470,7 @@ EQUIVALENT_MUTANTS = {
 
 def _equivalent(row: dict, files: dict, proof: dict) -> tuple[str, str] | None:
     """The scripted Tester's equivalent-mutant judgement for an exact surviving line, or None."""
-    path, digest = row.get("path"), row.get("sha256")
+    path, digest = str(row.get("path")), str(row.get("sha256"))
     judged = EQUIVALENT_MUTANTS.get((path, digest))
     text = files.get(path)
     if judged is None or text is None or hashlib.sha256(text.encode()).hexdigest() != digest:
