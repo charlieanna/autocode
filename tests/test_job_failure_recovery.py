@@ -285,7 +285,8 @@ class JobDeadlineExtensionTests(JobHarness):
         view = run.status()
         self.assertTrue(view["done"], view.get("needs"))
         self.assertEqual(2, self.count())
-        self.assertEqual(1800, self.limits(run)["stage_timeout_seconds"])
+        # #2823: the longer deadline was the retry's own; the run keeps the limit the person set.
+        self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
         self.assertEqual(5000, self.limits(run)["max_seconds"])
 
     def test_extensions_stop_at_two_and_the_job_then_pauses_for_its_exact_retry(self):
@@ -294,8 +295,16 @@ class JobDeadlineExtensionTests(JobHarness):
         view = run.status()
         self.assertEqual("PAUSED_JOB_FAILURE", view["status"], view)
         self.assertEqual(3, self.count())
-        self.assertEqual(3600, self.limits(run)["stage_timeout_seconds"])
+        # Each retry ran on its own doubled deadline (900, 1800, 3600); the run's limit is unchanged (#2823).
+        self.assertIn("3600-second", view["needs"]["reason"])
+        self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
         self.assertTrue(view["needs"]["job_retry_token"])
+        # The exact retry keeps the last deadline the job ran on, not the run's shorter one.
+        again = run.retry_job(view["needs"]["job_retry_token"])
+        self.assertEqual("PAUSED_JOB_FAILURE", again["status"], again)
+        self.assertEqual(4, self.count())
+        self.assertIn("3600-second", again["needs"]["reason"])
+        self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
 
     def test_no_extension_without_room_under_the_total_time_cap(self):
         run = self.start()
