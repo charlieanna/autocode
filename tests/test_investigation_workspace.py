@@ -260,5 +260,82 @@ class ReclaimUnusedCopiesTests(unittest.TestCase):
             self.assertEqual("original", (second / "code.py").read_text())
 
 
+class ReuseTests(unittest.TestCase):
+    """A retry of the same run takes its own untouched copy again rather than a second whole tree (#2606)."""
+
+    def workspace(self, temporary):
+        workspace = Path(temporary) / "project"
+        (workspace / "pkg").mkdir(parents=True)
+        (workspace / "pkg/code.py").write_text("original")
+        (workspace / "README").write_text("read me")
+        return workspace
+
+    def test_the_same_run_reuses_its_untouched_copy_and_the_cost_says_so(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = self.workspace(temporary)
+            first, cost = investigation_workspace.prepare_measured(workspace, owner="run-a")
+            self.assertEqual(
+                {"files": 2, "bytes": len("original") + len("read me"), "reused": False},
+                {key: cost[key] for key in ("files", "bytes", "reused")},
+            )
+            self.assertGreaterEqual(cost["seconds"], 0)
+            second, again = investigation_workspace.prepare_measured(workspace, owner="run-a")
+            self.assertEqual(first, second)
+            self.assertTrue(again["reused"])
+            self.assertEqual(2, again["files"])
+            self.assertEqual([first], [path for path in first.parent.iterdir() if path.is_dir()])
+            self.assertIn("reused the previous attempt's copy", investigation_workspace.setup_note(again))
+
+    def test_another_run_a_written_copy_or_a_changed_workspace_gets_a_fresh_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = self.workspace(temporary)
+            first, _ = investigation_workspace.prepare_measured(workspace, owner="run-a")
+            other, cost = investigation_workspace.prepare_measured(workspace, owner="run-b")
+            self.assertNotEqual(first, other, "another run's copy may be in use")
+            self.assertFalse(cost["reused"])
+            (workspace / "pkg/code.py").write_text("original, edited")
+            moved, cost = investigation_workspace.prepare_measured(workspace, owner="run-a")
+            self.assertNotEqual(first, moved, "the workspace moved on")
+            self.assertEqual("original, edited", (moved / "pkg/code.py").read_text())
+            (moved / "scratch_test.py").write_text("an attempt's own test")
+            fresh, cost = investigation_workspace.prepare_measured(workspace, owner="run-a")
+            self.assertNotEqual(moved, fresh, "a copy an attempt wrote into is evidence, not a base")
+            self.assertFalse((fresh / "scratch_test.py").exists())
+            self.assertTrue((moved / "scratch_test.py").exists())
+            unowned = investigation_workspace.prepare(workspace)
+            self.assertNotEqual(fresh, unowned, "a copy with no owner is never reused")
+
+    def test_an_extra_file_in_the_copy_is_not_a_match_even_with_the_same_stamp(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = self.workspace(temporary)
+            first, _ = investigation_workspace.prepare_measured(workspace, owner="run-a")
+            since = investigation_workspace.stamp_path(first).stat().st_mtime
+            (first / "pkg/extra.py").write_text("x")
+            os.utime(first / "pkg/extra.py", (since - 100, since - 100))
+            os.utime(first / "pkg", (since - 100, since - 100))
+            second, _ = investigation_workspace.prepare_measured(workspace, owner="run-a")
+            self.assertNotEqual(first, second)
+
+    def test_the_setup_note_names_files_megabytes_and_seconds(self):
+        note = investigation_workspace.setup_note(
+            {"files": 20513, "bytes": 544_000_000, "seconds": 32.4, "reused": False}
+        )
+        self.assertEqual("32.4 s of that copied the workspace for its investigation (20,513 files, 544 MB)", note)
+
+    def test_reclaiming_a_copy_removes_its_owner_marker_too(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = self.workspace(temporary)
+            unused, _ = investigation_workspace.prepare_measured(workspace, owner="run-a")
+            past = time.time() - investigation_workspace.RECLAIM_GRACE_SECONDS - 60
+            for path in (unused, unused / "pkg", unused / "pkg/code.py", unused / "README"):
+                os.utime(path, (past, past))
+            os.utime(investigation_workspace.stamp_path(unused), (past, past))
+            (workspace / "README").write_text("changed, so the old copy is no match")
+            investigation_workspace.prepare_measured(workspace, owner="run-a")
+            self.assertFalse(unused.exists())
+            self.assertFalse(investigation_workspace.owner_path(unused).exists())
+            self.assertFalse(investigation_workspace.stamp_path(unused).exists())
+
+
 if __name__ == "__main__":
     unittest.main()

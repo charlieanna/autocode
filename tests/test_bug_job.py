@@ -126,7 +126,10 @@ class InvestigationRetryWorkflowTests(JobHarness):
         self.assertEqual("unverified_leads_only", prior["evidence_status"])
         self.assertTrue(Path(prior["previous_prompt"]).is_file())
         self.assertTrue(Path(prior["previous_events"]).is_file())
-        self.assertNotEqual(first["investigation_workspace"], retried["investigation_workspace"])
+        # The stopped attempt never wrote into its copy, so the retry takes the same copy instead of a second
+        # whole tree, and the stop reason says what the copy cost the deadline (#2606).
+        self.assertEqual(first["investigation_workspace"], retried["investigation_workspace"])
+        self.assertIn("copied the workspace for its investigation", held["needs"]["reason"])
         self.assertEqual(held["needs"]["source_identity"], after["needs"]["source_identity"])
         self.assertEqual(2, self.count())
 

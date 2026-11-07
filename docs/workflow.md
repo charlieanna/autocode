@@ -486,6 +486,14 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   (#2133). Any other change to it on a protected criterion still needs your
   saved answer, as a rewording of the criterion would. A planning report that
   leaves the box out has an empty one; that costs no report repair either.
+- **The Investigator's own copy.** The Investigator works in a complete copy of
+  the workspace under `.autocode/investigation/`, never in the workspace itself.
+  A copy that nothing was written into is reclaimed when the next attempt starts,
+  and a retry of the same run reuses its own untouched copy when the bytes still
+  match the workspace, so a retry does not duplicate a large checkout again. When
+  the Investigator stops on its stage deadline, the reason names what the copy
+  cost (files, size and seconds), since that time counted against the deadline
+  too (#2606).
 - **Regression tests in plain English.** When the Investigator reproduces a
   bug, it also writes the regression tests the fix must pass as `test_cases`
   in its diagnosis. Each case has an `id` (`T1`, `T2`, …) and `given`, `when`
