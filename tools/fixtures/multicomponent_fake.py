@@ -446,13 +446,66 @@ def component_id_for(prompt: str, data: dict) -> str:
     return found
 
 
+# Surviving mutants of scripted lines that no test can tell apart, by the exact file bytes, line and operator.
+# local-compose-two-services' analytics service: collect() and do_POST each talk over one HTTP/1.0
+# connection that the other end closes after its single reply.
+_ANALYTICS = "186dc632d4d6053ce735877229888b747c3664826ab178dbe39de00e132e12bd"
+EQUIVALENT_MUTANTS = {
+    ("components/analytics-service/server.py", _ANALYTICS): {
+        "connection.close()": (
+            "drop_call",
+            "The event source answers HTTP/1.0 and closes the connection after its one /events reply, which "
+            "collect() has already read in full; skipping the client's own close only leaves the socket for the "
+            "garbage collector. No reply, count or status any test or smoke step reads can differ.",
+        ),
+        'self.rfile.read(int(self.headers.get("Content-Length", 0)))': (
+            "drop_call",
+            "The handler answers HTTP/1.0, so the server closes the connection after this one reply; /collect "
+            "ignores its request body, and leaving those bytes unread changes neither this reply nor any later "
+            "request, which arrives on a new connection.",
+        ),
+    },
+}
+
+
+def _equivalent(row: dict, files: dict, proof: dict) -> tuple[str, str] | None:
+    """The scripted Tester's equivalent-mutant judgement for an exact surviving line, or None."""
+    path, digest = str(row.get("path")), str(row.get("sha256"))
+    judged = EQUIVALENT_MUTANTS.get((path, digest))
+    text = files.get(path)
+    if judged is None or text is None or hashlib.sha256(text.encode()).hexdigest() != digest:
+        return None
+    if set(row.get("mutation_outcomes") or ()) != {"survived"}:
+        return None
+    lines = text.splitlines()
+    line = row.get("line")
+    if type(line) is not int or not 0 < line <= len(lines):
+        return None
+    reason = judged.get(lines[line - 1].strip())
+    mutants = [
+        mutant
+        for file in (proof.get("mutation_check") or {}).get("files") or []
+        if file.get("path") == path
+        for mutant in file.get("mutants") or []
+        if mutant.get("line") == line
+    ]
+    if (
+        reason is None
+        or not mutants
+        or any((m.get("operator"), m.get("outcome")) != (reason[0], "survived") for m in mutants)
+    ):
+        return None
+    return "equivalent_mutant", reason[1]
+
+
 def changed_code_reasons(spec: dict, data: dict) -> list:
     """The fixture Tester's reasons for its own scripted lines that have no mutation site.
 
     A component whose check is a shell command (``test -f …``) declares no Python test runner, so
     the runner can neither cover nor mutate the scripted file. The real Tester records why such a
     line is covered; this fixture does the same, bound to the exact gap, file bytes and line it
-    wrote, and never for a file it did not script.
+    wrote, and never for a file it did not script. A surviving mutant of a scripted line is judged
+    only where ``EQUIVALENT_MUTANTS`` names those exact bytes, line and operator.
     """
     proof = data.get("regression_proof") or {}
     if not proof.get("path"):
@@ -460,6 +513,18 @@ def changed_code_reasons(spec: dict, data: dict) -> list:
     scripted = {path: hashlib.sha256(text.encode()).hexdigest() for path, text in (spec.get("files") or {}).items()}
     decisions = []
     for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        judged = _equivalent(row, spec.get("files") or {}, proof) if row.get("status") == "reason_required" else None
+        if judged:
+            decisions.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": judged[0],
+                    "reason": judged[1],
+                    "evidence_refs": [proof["path"], row["path"]],
+                }
+            )
+            continue
         if (
             row.get("status") != "reason_required"
             or row.get("mutation_outcomes")
