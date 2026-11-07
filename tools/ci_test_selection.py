@@ -103,6 +103,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_artifact_review",
             "tests.test_workflow",
             "tests.test_final_workflow",
+            "tests.test_protected_oracles_cli",
         ),
     ),
     (
