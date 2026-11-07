@@ -17,6 +17,10 @@ PR template asks for an entry here; a change without one is incomplete.
   line now counts as having no mutation site. The local two-service scenario's tests now check the
   `Content-Length` header, and its scripted Tester judges the two client-side calls no test can
   observe as equivalent mutants.
+- Accepted Requirements report repairs retain the original observations for the first Planner
+  without repeating the Requirements probes.
+- The first Planner can reuse small, successful Requirements observations from the same unchanged
+  source. Requirements, independent reviews, plan approval and verification checks remain required.
 - A new chat in a project reuses the tool checks an earlier chat there passed within the hour, and a chat
   picked up from another terminal window reuses its run's checks: the variables a terminal sets for its
   own session no longer count as a different environment. A new login or a changed tool setting still
