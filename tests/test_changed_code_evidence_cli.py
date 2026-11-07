@@ -59,10 +59,12 @@ EQUIVALENT_TEST = (
 )
 # An import has no mutation site, so the mutator has nothing on line 2: no Builder test can mark it
 # tested, and only the independent Tester's decision settles it.
-NO_SITE_SOURCE = "def adjust(n):\n    from builtins import min as lower\n    return lower(n, 10)\n"
+# A None bound to a name has no supported mutation site: None has no other constant to become. (An import
+# was this example until #2815 gave imports a site of their own.)
+NO_SITE_SOURCE = "def adjust(n):\n    floor = None\n    return min(n, 10) if floor is None else floor\n"
 NO_SITE_REASON = (
-    "The import of min has no supported mutation site. test_t1_adjusts_limits asserts adjust(50), adjust(11) "
-    "and adjust(10) are 10 and adjust(0) is 0, so any other function or bound fails it."
+    "Binding None to floor has no supported mutation site. test_t1_adjusts_limits asserts adjust(50), adjust(11) "
+    "and adjust(10) are 10 and adjust(0) is 0, so any other floor fails it."
 )
 GUIDANCE = (
     "Add assertions for adjust(-1), adjust(0), adjust(10) and adjust(11) to test_t1_adjusts_limits; "
