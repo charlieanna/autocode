@@ -164,6 +164,59 @@ def _eligible(record):
     )
 
 
+def _accepted_repairs(state: RunState):
+    """Resolve only core-committed repairs of a fresh, still-archived intake."""
+    handoff = state.get("requirements_handoff") or {}
+    records = state.get("stages") or []
+    accepted = []
+    for entry in state.get("report_repair_history") or []:
+        repair = entry.get("repair") or {}
+        if (
+            entry.get("result") != "accepted"
+            or repair.get("stage") != "requirements_gather_report_repair"
+            or repair.get("output") != handoff.get("output")
+            or repair.get("report_only") is not True
+            or not _eligible({**repair, "stage": "requirements_gather"})
+        ):
+            continue
+        owners = [i for i, row in enumerate(records) if row == repair]
+        originals = [
+            (i, row)
+            for i, row in enumerate(records)
+            if row.get("stage") == "requirements_gather"
+            and row.get("output") == entry.get("original_output")
+            and row.get("events") == repair.get("applied_original_events")
+        ]
+        if len(owners) != 1 or len(originals) != 1:
+            continue
+        index, original = originals[0]
+        if (
+            index >= owners[0]
+            or original.get(FIELD) != {"status": "pending"}
+            or original.get("rejected") is not True
+            or not _eligible({**original, "rejected": False})
+            or original.get("source_revision") != repair.get("source_revision")
+            or original.get("events") == repair.get("events")
+        ):
+            continue
+        # Exclude only the optional cache itself from its own binding. All core
+        # acceptance provenance and repair metadata remain bound to this seal.
+        binding = {**entry, "repair": {key: value for key, value in repair.items() if key != FIELD}}
+        accepted.append((index, original, repair, util.digest(binding)))
+    return accepted
+
+
+def seal_repaired(state: RunState, repair_record):
+    """Run only after the existing repair acceptance transaction recorded success."""
+    if (state.get("settings") or {}).get("replay_recording"):
+        return
+    matches = _accepted_repairs(state)
+    if len(matches) != 1 or matches[0][2] != repair_record:
+        return
+    _, original, owner, binding = matches[0]
+    _seal(state, original, state["requirements_handoff"]["report"], owner=owner, repair_binding=binding)
+
+
 def _product(value):
     result = {key: value[key] for key in ("head", "files", "revision")}
     if (
@@ -214,9 +267,14 @@ def seal(state: RunState, record, accepted_report):
     if (
         record.get(FIELD) != {"status": "pending"}
         or not _eligible(record)
+        or record.get("report_repaired")
         or (state.get("settings") or {}).get("replay_recording")
     ):
         return
+    _seal(state, record, accepted_report, owner=record)
+
+
+def _seal(state: RunState, record, accepted_report, *, owner, repair_binding=None):
     try:
         root = Path(state["run_dir"])
         events = _read(root, record["events"])
@@ -257,6 +315,12 @@ def seal(state: RunState, record, accepted_report):
             "events": events,
             **{key: _read(root, record[field]) for key, field in INPUTS.items() if key != "events"},
         }
+        if repair_binding is not None:
+            raw.update({"repair_" + key: _read(root, owner[field]) for key, field in INPUTS.items()})
+            if hashlib.sha256(raw["repair_report"]).hexdigest() != next(
+                entry["output_hash"] for entry in state["report_repair_history"] if entry.get("repair") == owner
+            ):
+                return
         before, after = (json.loads(raw[key]) for key in ("before", "after"))
         current = source.snapshot(Path(state["workspace"]), paths=before.get("source_paths", []))
         product = _product(before)
@@ -275,6 +339,8 @@ def seal(state: RunState, record, accepted_report):
             "observations": [],
             "omitted_observations": omitted,
         }
+        if repair_binding is not None:
+            payload["repair_binding"] = repair_binding
         for candidate in candidates:
             payload["observations"].append(candidate)
             if len(_bytes({FIELD: _packet(payload, placeholder)})) > MAX_PACKET:
@@ -284,7 +350,7 @@ def seal(state: RunState, record, accepted_report):
             payload["observations"].pop()
             payload["omitted_observations"] += 1
         if payload["observations"]:
-            record[FIELD] = _store(root, _bytes(payload))
+            owner[FIELD] = _store(root, _bytes(payload))
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError):
         return  # Optional data never creates a pause, retry or person question.
 
@@ -295,15 +361,20 @@ def context(state: RunState, stage, run_dir, current_source):
     handoff = state.get("requirements_handoff") or {}
     records = state.get("stages") or []
     matching = [
-        (i, r)
+        (i, r, r, None)
         for i, r in enumerate(records)
         if r.get("stage") == "requirements_gather" and r.get("output") == handoff.get("output")
     ]
+    matching.extend(_accepted_repairs(state))
     if len(matching) != 1:
         return None
-    index, record = matching[0]
-    seal = record.get(FIELD)
-    if not _eligible(record) or not isinstance(seal, dict) or seal.get("status") != "sealed":
+    index, record, owner, repair_binding = matching[0]
+    seal = owner.get(FIELD)
+    if (
+        (repair_binding is None and not _eligible(record))
+        or not isinstance(seal, dict)
+        or seal.get("status") != "sealed"
+    ):
         return None
     if any(r.get("stage") == "astra_discovery" for r in records[index + 1 :]):
         return None
@@ -316,6 +387,7 @@ def context(state: RunState, stage, run_dir, current_source):
         payload = json.loads(raw)
         if (
             payload["version"] != 1
+            or payload.get("repair_binding") != repair_binding
             or payload["report_digest"] != util.digest(handoff["report"])
             or payload["record_digest"] != util.digest({key: record.get(key) for key in BINDING})
             or payload["source"] != _product(current_source() if callable(current_source) else current_source)
@@ -324,6 +396,10 @@ def context(state: RunState, stage, run_dir, current_source):
         for key, field in INPUTS.items():
             if hashlib.sha256(_read(Path(run_dir), record[field])).hexdigest() != payload["inputs"][key]:
                 return None
+        if repair_binding is not None:
+            for key, field in INPUTS.items():
+                if hashlib.sha256(_read(Path(run_dir), owner[field])).hexdigest() != payload["inputs"]["repair_" + key]:
+                    return None
         packet = _packet(payload, seal)
         return packet if len(_bytes({FIELD: packet})) <= MAX_PACKET else None
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError):

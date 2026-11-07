@@ -180,5 +180,16 @@ class ChangedCodeTriggerTests(unittest.TestCase):
             regression.record_unmeasured(self.state)
             self.assertNotIn("changed_code_fallback", self.state)
 
+    def test_a_stage_check_compares_the_candidate_with_its_base_once(self):
+        # Each comparison stages the whole working tree in a scratch index (about nine Git commands), and
+        # this check runs before every stage: it compared twice, six times before one "hi" (2026-11-07).
+        (self.root / "calc.py").write_text("def answer():\n    return 2\n")
+        run_dir = self.root / ".autocode" / "runs" / "r1"
+        run_dir.mkdir(parents=True)
+        with mock.patch.object(trigger.verify, "changed_files", side_effect=trigger.verify.changed_files) as compared:
+            regression.before_review(self.state, "requirements_gather", str(self.root), str(run_dir))
+        self.assertEqual(1, compared.call_count)
+        self.assertEqual(trigger.UNMEASURABLE, self.state["changed_code_fallback"]["reason"])
+
     def test_an_unreadable_workspace_keeps_the_obligation(self):
         self.assertIsNone(trigger.unmeasurable({**self.state, "workspace": str(self.root / "missing")}))

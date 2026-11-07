@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 try:
@@ -82,16 +83,27 @@ def _from_command_provider(provider, workspace, env, inventory=None):
     table = provider.auth_table()
     if not table["command"] or not table["routes"]:
         return {"tool": table["name"], "candidates": [], "accounts": []}
-    summary = _run(table["command"], table["name"], workspace, env, table["timeout_seconds"])
+    # The login summary, the model roster and the verbose listing are independent local reads, each a
+    # tool start of one to three seconds; they ran one after another at the start of every task. They run
+    # together now, and each result is taken in the old order, so the first failure is still the one
+    # reported. The reads use the provider's own check environment, so its launch checks that follow
+    # are answered from the run's saved checks instead of running the same command again.
+    checked = _checked_environment(provider, env)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        login = pool.submit(_run, table["command"], table["name"], workspace, env, table["timeout_seconds"], checked)
+        roster = pool.submit(_models, provider, workspace, env, inventory)
+        listing = pool.submit(_listing, provider, workspace, env, checked)
+        summary = login.result()
+        models = roster.result()
+        levels = listing.result()
     connected = []
     for route in table["routes"]:
         found = re.findall(route["pattern"], summary, re.MULTILINE)
         if found and route["expect"] in found:
             connected.append(route)
-    models = _models(provider, workspace, env, inventory)
     return {
         "tool": table["name"],
-        "candidates": _candidates(models, table["name"], connected, *_listing(provider, workspace, env)),
+        "candidates": _candidates(models, table["name"], connected, *levels),
         "accounts": [
             {
                 "name": route["name"],
@@ -162,7 +174,7 @@ def _candidates(models, tool, routes, levels=None, metadata=None):
     return found
 
 
-def _listing(provider, workspace, env):
+def _listing(provider, workspace, env, checked=None):
     """``(levels, metadata)`` from one verbose model listing; both empty when it cannot be read."""
     # Only tools with this documented local-listing format. A custom provider's
     # arbitrary models command must never be rewritten or treated as a model call.
@@ -178,7 +190,7 @@ def _listing(provider, workspace, env):
     if command not in (["opencode", "models"], ["kilo", "models"]):
         return {}, {}
     try:
-        listing = _run([*command, "--verbose"], name, workspace, env, 30)
+        listing = _run([*command, "--verbose"], name, workspace, env, 30, checked)
     except RuntimeError:
         # Older tools may lack verbose metadata. Qualification evidence remains
         # the fallback; an unreadable optional listing never invents new levels.
@@ -197,11 +209,17 @@ def _models(provider, workspace, env, inventory=None):
     return listed
 
 
-def _run(command, name, workspace, env, timeout_seconds):
+def _checked_environment(provider, env):
+    """The environment ``provider`` runs its own checks with, else a snapshot of ``env``."""
+    prepare = getattr(provider, "preflight_environment", None)
+    return prepare(env) if callable(prepare) else None
+
+
+def _run(command, name, workspace, env, timeout_seconds, checked=None):
     try:
         result = env_prep.preflight_run(
             command,
-            env_prep.snapshot_environment(env),
+            checked if checked is not None else env_prep.snapshot_environment(env),
             cwd=workspace,
             require_executable=env is not None,
             capture_output=True,

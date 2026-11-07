@@ -14,8 +14,30 @@ PR template asks for an entry here; a change without one is incomplete.
 - Saved-run replay refuses referenced unsupported native capture dependencies at export,
   before creating an unusable recording or starting a replay. Original completion
   and evidence are preserved; old receipts do not gain fresh verification authority.
+- A computed value that the module's own import uses is no longer replaced with `None` by the
+  mutation check. That mutant stopped the module loading, so no test ran and the line stayed open
+  with an unrun mutant; the scripted review-then-fix run stopped at the changed-line gate. Such a
+  line now counts as having no mutation site. The local two-service scenario's tests now check the
+  `Content-Length` header, and its scripted Tester judges the two client-side calls no test can
+  observe as equivalent mutants.
+- Accepted Requirements report repairs retain the original observations for the first Planner
+  without repeating the Requirements probes.
 - The first Planner can reuse small, successful Requirements observations from the same unchanged
   source. Requirements, independent reviews, plan approval and verification checks remain required.
+- A new chat in a project reuses the tool checks an earlier chat there passed within the hour, and a chat
+  picked up from another terminal window reuses its run's checks: the variables a terminal sets for its
+  own session no longer count as a different environment. A new login or a changed tool setting still
+  runs the checks again. Before each stage the candidate is compared with the run's base once, not twice.
+- A new Kilo task reaches the model sooner. The login, model-list and model-detail checks at the
+  start of a task ran one after another, the login check ran twice and the reasoning-level check read a
+  second model listing: six Kilo starts, about 12 s on 2026-11-07. They now run together and once each.
+  Before every stage, Kilo's config and the usual agent's permissions are read together instead of in
+  turn; both are still read fresh for each launch, and another default agent never gets the usual
+  agent's grants.
+- A chat started in a folder outside Git now shows the run's reply and question. AutoCode runs that
+  task in a new project under `autocode-projects/`, and the chat refused the status of the moved run, so
+  it said "AutoCode did not start the run" and printed the raw resume command with its resolver token
+  (#2838).
 - A run no longer stops to ask you how to route a fix when the approved plan's test command cannot find
   a test it names. A Tester's report cannot change that result, so the run paused and the Investigator
   asked whether the Builder or the Resolver should take it. AutoCode now returns the task to the Builder
