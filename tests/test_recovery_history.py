@@ -148,6 +148,29 @@ class RecoveryHistoryTests(unittest.TestCase):
             [row["headline"] for row in waiting if row["job"] == "Builder" and row["problem"] == SCOPE],
         )
 
+    def test_a_send_back_names_its_round_out_of_the_rounds_the_gate_allows(self):
+        # The gate records the round it took (autocode_changed_code_rework); an older record has none,
+        # and the Investigator's record is not a Builder round.
+        rework = state()["regression_proofs"][1]
+        first = {**rework, "round": 1, "round_limit": 2}
+        second = {**rework, "at": "2026-11-02T05:45:00+00:00", "round": 2, "round_limit": 2}
+        third = {**rework, "at": "2026-11-02T05:50:00+00:00", "action": "investigator", "round": 3, "round_limit": 2}
+        rows = [
+            row
+            for row in history.project(state(regression_proofs=[first, second, third]))
+            if row["kind"] == "sent_back"
+        ]
+        self.assertEqual(
+            [
+                "Builder sent back for untested lines (round 1 of 2)",
+                "Builder sent back for untested lines (round 2 of 2)",
+                "Builder sent back for untested lines",
+            ],
+            [row["headline"] for row in rows],
+        )
+        legacy = history.project(state())
+        self.assertIn("Builder sent back for untested lines", [row["headline"] for row in legacy])
+
     def test_a_third_send_back_names_the_investigator_and_carries_its_guidance(self):
         rework = state()["regression_proofs"][1]
         third = {

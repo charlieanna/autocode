@@ -153,6 +153,24 @@ class RecentRejectionTests(unittest.TestCase):
         self.assertIs(later, failures.recent_rejection(self.state, "glm_revise"))
         self.assertIn("second refusal", later["last_error"])
 
+    def test_the_status_view_learns_how_many_tries_are_left_from_the_ledger(self):
+        # progress.retry: the streak of same-kind failures and the number that stops the stage, so a
+        # client can say "last try" instead of a bare attempt number; None once the stage moves on.
+        self.assertIsNone(failures.episode(self.state, "glm_revise"))
+        self.reject("same refusal", "t1")
+        self.assertEqual(
+            {"failures": 1, "limit": failures.REPEAT_THRESHOLD}, failures.episode(self.state, "glm_revise")
+        )
+        self.reject("same refusal", "t2")
+        self.assertEqual({"failures": 2, "limit": 3}, failures.episode(self.state, "glm_revise"))
+        self.assertIsNone(failures.episode(self.state, "astra_plan"), "another stage has no episode")
+        self.reject("a different refusal", "t3")
+        self.assertEqual(
+            {"failures": 1, "limit": 3}, failures.episode(self.state, "glm_revise"), "a new error starts over"
+        )
+        self.succeed()
+        self.assertIsNone(failures.episode(self.state, "glm_revise"), "a later outcome ends the run of failures")
+
     def test_reading_the_rejection_writes_nothing(self):
         self.reject("first refusal", "t1")
         before = copy.deepcopy(self.state)
