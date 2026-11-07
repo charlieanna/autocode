@@ -632,7 +632,9 @@ def lazy_citations(report):
         except ImportError:
             pass
         else:
-            report["changed_code_exceptions"] = judgments(DATA)
+            # The configured reference/paths are the Builder's copy source,
+            # never a producer identity asserted by model handoff data.
+            report["changed_code_exceptions"] = judgments(DATA, producer=CONFIG)
     if CONFIG.get("fault") not in ("lazy_validator", "extra_file_citation") or not isinstance(report, dict):
         return report
     for row in report.get("criterion_results") or []:
