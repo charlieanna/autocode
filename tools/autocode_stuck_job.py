@@ -853,10 +853,19 @@ def settle(state: RunState, stage: str) -> None:
 
 
 def retire(state: RunState, status: str | None = None) -> None:
-    """A requested boundary pause preserves applicable advice, never a new retry grant."""
+    """A checkpoint or usage hold preserves applicable advice, never a new retry grant."""
     current = state.get("stuck_investigation") or {}
     if (
-        status == "PAUSED_INTERVENTION"
+        status
+        in {
+            "PAUSED_INTERVENTION",
+            "PAUSED_REQUESTED",
+            "PAUSED_MILESTONE_BUDGET",
+            "PAUSED_PLANNING_BUDGET",
+            "PAUSED_TIME_LIMIT",
+            "PAUSED_COST_LIMIT",
+            "PAUSED_ITERATION_LIMIT",
+        }
         and current.get("in_force")
         and recovery_binding.applies(state, current, current.get("stage", ""))
     ):
