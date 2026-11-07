@@ -2230,10 +2230,14 @@ class InterruptTests(unittest.TestCase):
                 client, child, kill, shown = self.fake_interrupts(presses, denied=True)
                 self.assertEqual(presses + 1, len(shown))
                 self.assertEqual(2, child.returncode)
-                self.assertIn("operating system refused", client.text())
+                action = "interrupt the current step" if presses == 2 else "stop AutoCode"
+                self.assertIn(f"operating system refused to {action}", client.text())
                 self.assertIn("Still watching the current step", client.text())
                 self.assertNotIn("Stopping AutoCode...", client.text())
+                child.send_signal.assert_called_once_with(chat.signal.SIGINT)
                 self.assertEqual(int(presses == 3), kill.call_count)
+                if presses == 3:
+                    kill.assert_called_once_with(child.pid, chat.signal.SIGTERM)
 
     def test_stop_key_after_the_child_exits_does_not_signal_its_old_group(self):
         client, child, kill, shown = self.fake_interrupts(3, exits_on_last=True)
