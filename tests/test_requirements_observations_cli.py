@@ -15,6 +15,12 @@ class RequirementsObservationCLI(unittest.TestCase):
     setUp = test_subprocess.SubprocessFlow.setUp
 
     def test_actual_requirements_probe_reaches_only_first_planner_and_preserves_gates(self):
+        self.observation_flow(repair=False)
+
+    def test_repaired_requirements_preserve_original_probe_without_repeating_it(self):
+        self.observation_flow(repair=True)
+
+    def observation_flow(self, *, repair):
         (self.project / "greet.py").write_text(
             "import sys\nif len(sys.argv) == 2:\n    print('Hello, ' + sys.argv[1])\n"
         )
@@ -59,10 +65,15 @@ if sys.argv[1:] == ['login', 'status']:
 prompt = sys.stdin.read()
 data = json.loads(prompt.split('CURRENT HANDOFF DATA\\n', 1)[1])
 stage = data.get('stage')
+if data.get('report_repair'):
+    stage = data['original']['stage'] + '_report_repair'
 result = subprocess.run([sys.executable, {str(base)!r}, *sys.argv[1:]],
                         input=prompt, text=True, capture_output=True, check=True)
 output = Path(sys.argv[sys.argv.index('-o') + 1])
 report = json.loads(output.read_text())
+if {repair!r} and stage in ('requirements_gather', 'requirements_gather_report_repair'):
+    report['access_blockers'] = 'invalid fixture type' if stage == 'requirements_gather' else []
+    output.write_text(json.dumps(report))
 with Path({str(observed)!r}).open('a') as stream:
     stream.write(json.dumps({{'stage': stage, 'observations': data.get('requirements_observations'),
                              'handoff': data.get('requirements_handoff'),
@@ -95,7 +106,12 @@ print(''.join(lines), end='')
         requirements = next(row for row in rows if row["stage"] == "requirements_gather")
         planner = next(row for row in rows if row["stage"] == "astra_discovery")
         for key, value in requirements["report"].items():
+            if repair and key == "access_blockers":
+                value = []
             self.assertEqual(value, planner["handoff"]["report"][key], key)
+        repairs = [row for row in rows if row["stage"] == "requirements_gather_report_repair"]
+        self.assertEqual(int(repair), len(repairs), "repair the report once, without rerunning Requirements")
+        self.assertEqual(1, sum(row["stage"] == "requirements_gather" for row in rows))
         retained = planner["observations"]
         self.assertIsNotNone(retained, "first Planner must receive the completed source-bound intake probe")
         self.assertEqual("2025-01-01 (2025, 1)\n", retained["observations"][0]["output"])

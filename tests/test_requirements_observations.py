@@ -105,6 +105,112 @@ class RequirementsObservationsTests(unittest.TestCase):
         self.state["stages"].append({"stage": "astra_discovery"})
         self.assertIsNone(self.context(), "a later discovery must use its own current investigation")
 
+    def repaired(self):
+        observations.prepare(self.record)
+        self.record["rejected"] = True
+        repair = {
+            **self.record,
+            "stage": "requirements_gather_report_repair",
+            "report_only": True,
+            "rejected": False,
+            "applied_original_events": self.record["events"],
+        }
+        repair.pop(observations.FIELD)
+        for field in ("output", "events", "before_ref", "after_ref"):
+            repair[field] = str(Path(self.record[field]).with_name("repair-" + Path(self.record[field]).name))
+            Path(repair[field]).write_bytes(Path(self.record[field]).read_bytes())
+        Path(repair["events"]).write_text(
+            json.dumps(self.command("repairer", "echo repair", "Not the original execution\n")) + "\n"
+        )
+        self.state["requirements_handoff"]["output"] = repair["output"]
+        self.state["stages"].append(repair)
+        self.state["report_repair_history"] = [
+            {
+                "original_output": self.record["output"],
+                "repair": repair,
+                "output_hash": observations.util.file_hash(repair["output"]),
+                "attempts": 1,
+                "result": "accepted",
+                "at": "2026-11-07T00:00:01Z",
+            }
+        ]
+        return repair
+
+    def test_accepted_repair_seals_retained_owner_using_only_original_execution(self):
+        repair = self.repaired()
+        observations.seal_repaired(self.state, repair)
+        self.assertEqual({"status": "pending"}, self.record[observations.FIELD])
+        self.assertEqual("sealed", repair[observations.FIELD]["status"])
+        self.assertEqual(["2025\n"], [row["output"] for row in self.context()["observations"]])
+        self.assertEqual(self.report, self.state["requirements_handoff"]["report"])
+        self.state["stages"].append({"stage": "astra_discovery"})
+        self.assertIsNone(self.context(), "accepted repair does not extend the first-Planner boundary")
+
+    def test_repair_seal_requires_original_fresh_custody_and_completed_core_acceptance(self):
+        repair = self.repaired()
+        baseline = copy.deepcopy(self.state)
+        changes = (
+            lambda: self.record.pop(observations.FIELD),
+            lambda: self.record.update(replay={"dispatch": 1}),
+            lambda: self.record.update(recovered_at="now"),
+            lambda: self.record.update(rejected=False),
+            lambda: self.record.update(exit_code=1),
+            lambda: self.record.update(changed_files=["app.py"]),
+            lambda: repair.update(applied_original_events=repair["events"]),
+            lambda: repair.update(report_only=False),
+            lambda: repair.update(rejected=True),
+            lambda: repair.update(timed_out=True),
+            lambda: repair.update(source_revision="another source"),
+            lambda: self.state["report_repair_history"][0].update(result="rejected"),
+            lambda: self.state["report_repair_history"][0].update(original_output=repair["output"]),
+            lambda: self.state["report_repair_history"][0].update(output_hash="0" * 64),
+            lambda: self.state["report_repair_history"].append(copy.deepcopy(self.state["report_repair_history"][0])),
+            lambda: self.state["stages"].insert(0, copy.deepcopy(self.record)),
+            lambda: self.state["settings"].update(replay_recording={"checks": "fresh"}),
+        )
+        for index, change in enumerate(changes):
+            self.state = copy.deepcopy(baseline)
+            self.record, repair = self.state["stages"]
+            change()
+            observations.seal_repaired(self.state, repair)
+            with self.subTest(change=index):
+                self.assertNotIn(observations.FIELD, repair)
+                self.assertIsNone(self.context())
+
+    def test_accepted_repair_revalidates_original_and_repair_bytes_and_core_relation(self):
+        repair = self.repaired()
+        observations.seal_repaired(self.state, repair)
+        self.assertIsNotNone(self.context())
+        for record in (self.record, repair):
+            for field in ("output", "events", "before_ref", "after_ref"):
+                path = Path(record[field])
+                raw = path.read_bytes()
+                path.write_bytes(raw + b"\n ")
+                with self.subTest(stage=record["stage"], drift=field):
+                    self.assertIsNone(self.context())
+                path.write_bytes(raw)
+        entry = self.state["report_repair_history"][0]
+        entry["at"] = "another acceptance"
+        self.assertIsNone(self.context())
+        entry["at"] = "2026-11-07T00:00:01Z"
+        self.assertIsNotNone(self.context())
+        self.report["summary"] = "different accepted report"
+        self.assertIsNone(self.context())
+        self.report["summary"] = "Preserve the requested CLI"
+        self.assertIsNotNone(self.context())
+        (self.workspace / "app.py").write_text("VALUE = 2\n")
+        self.assertIsNone(self.context())
+
+    def test_repaired_seal_requires_source_agreement_and_does_not_upgrade_temporary_record(self):
+        repair = self.repaired()
+        temporary = {**self.record, "output": repair["output"], "rejected": False, "report_repaired": True}
+        observations.seal(self.state, temporary, self.report)
+        self.assertEqual({"status": "pending"}, temporary[observations.FIELD])
+        Path(self.record["after_ref"]).write_text("{}")
+        observations.seal_repaired(self.state, repair)
+        self.assertNotIn(observations.FIELD, repair)
+        self.assertIsNone(self.context())
+
     def test_large_failed_unknown_and_truncated_outputs_are_omitted_whole_with_count(self):
         self.events += [
             self.command("large", "cat app.py", "x" * 2049),
@@ -295,6 +401,8 @@ class RequirementsObservationsTests(unittest.TestCase):
         handoff["output"] = output
         self.state["stages"].append(copy.deepcopy(self.record))
         self.assertIsNone(self.context(), "two matching attempts are ambiguous")
+        self.state["stages"][-1]["rejected"] = True
+        self.assertIsNone(self.context(), "an ineligible duplicate does not resolve ambiguous ownership")
         self.state["stages"].pop()
         seal = copy.deepcopy(self.record[observations.FIELD])
         self.record[observations.FIELD]["path"] = "../outside.json"
