@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A run no longer stops to ask you how to route a fix when the approved plan's test command cannot find
+  a test it names. A Tester's report cannot change that result, so the run paused and the Investigator
+  asked whether the Builder or the Resolver should take it. AutoCode now returns the task to the Builder
+  to define each named test where the command names it, at most twice for a command (#2815).
 - A run no longer ends on a failure it already fixed. When a repair made the regression proof pass
   and the Tester then sent the Builder back for changed lines without evidence, that round was counted
   as a retry of the fixed failure; with the one retry spent, a live run ended "kept failing for the same

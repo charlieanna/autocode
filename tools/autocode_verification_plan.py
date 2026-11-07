@@ -47,6 +47,9 @@ except ImportError:
 class PlannedCheckFailure(ValueError):
     """An approved plan check failed independent clean replay; a report repair cannot change it."""
 
+    command: str | None = None  # the failing command and its output tail, set by autocode_check_replay
+    tail: str = ""  # and read by autocode_planned_check_rework
+
 
 # Plain text (no backticks) is a command only when all of it is one: prose after a command makes the whole
 # method prose, left to the Validator. Live bugfix-trivial runs (Claude models, 2026-09-30) approved

@@ -686,6 +686,17 @@ class RecoveryPacketTests(unittest.TestCase):
         held["regression_proofs"] = [rework_row, {"path": "later-proof.json", "verdict": "PASS"}]
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
             recovery.admit_dispatch(held, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+        # The Builder round the runner queued for an approved check that cannot find a test it names.
+        checked = copy.deepcopy(state)
+        checked["regression_proofs"] = []
+        planned_row = {"task_id": "T2", "contract_hash": "h", "contract_revision": 1, "source_revision": "s1"}
+        checked["planned_check_reworks"] = [{**planned_row, "command": "python -m unittest t.T.test_x"}]
+        checked["iteration"] = 3
+        checked["planned_check_reworks"][0]["iteration"] = 3
+        recovery.admit_dispatch(checked, {"stage": "terra", "output": "planned-check-builder"}, self.root, self.run)
+        checked["iteration"] += 1
+        with self.assertRaisesRegex(util.Paused, "No causal progress"):
+            recovery.admit_dispatch(checked, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
 
     def test_legacy_builder_grant_consumed_without_novelty_receipt_stays_spent(self):
         for stage, timestamp in (("terra", True), ("astra_resolve", True), ("terra", False)):

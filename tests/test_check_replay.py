@@ -111,6 +111,8 @@ class ReplayTests(unittest.TestCase):
             )
         message = str(rejected.exception)
         self.assertIsInstance(rejected.exception, check_replay.PlannedCheckFailure)
+        self.assertEqual("python3 -m notes add", rejected.exception.command)
+        self.assertEqual("Usage: notes <command> [args]", rejected.exception.tail.strip())
         self.assertIn("Replay summary:", message)
         self.assertNotIn("Receipt:", message)
         self.assertIn(
