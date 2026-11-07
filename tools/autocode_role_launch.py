@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_agent_env as agent_env
+    from . import autocode_changed_code_evidence as changed_code_evidence
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_draft_failure_correction as failure_correction
     from . import autocode_format_correction as format_correction
@@ -46,6 +47,7 @@ try:
     from . import autocode_visual_runtime as visual_runtime
 except ImportError:
     import autocode_agent_env as agent_env
+    import autocode_changed_code_evidence as changed_code_evidence
     import autocode_classification_recovery as classification_recovery
     import autocode_draft_failure_correction as failure_correction
     import autocode_format_correction as format_correction
@@ -82,6 +84,11 @@ def native_environment(state: RunState, workspace, events, adapter, output, befo
         }
         environment["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(capture)
     return environment, capture
+
+
+def changed_code_proof(state: RunState):
+    """The current changed-line proof's identity, for replay to rebind a recorded Tester's gap ids (#2500)."""
+    return changed_code_evidence.replay_identity(state.get("regression_proof"))
 
 
 def replay_context(state: RunState, *, stage, iteration, report_only, original_stage, changed_code_proof):

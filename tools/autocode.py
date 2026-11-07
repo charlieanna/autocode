@@ -13,11 +13,9 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
-    from . import autocode_changed_code_evidence as changed_code_evidence
     from . import autocode_planning_recovery_policy as planning_recovery_policy
     from . import autocode_prompts as prompts
 except ImportError:
-    import autocode_changed_code_evidence as changed_code_evidence
     import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_prompts as prompts
 
@@ -374,9 +372,7 @@ def reject_completed_stage(state: RunState, run_dir, record, error):
     raise support.Paused(status, message)
 
 
-def _changed_code_proof(state: RunState):
-    """The current changed-line proof's identity, for replay to rebind a recorded Tester's gap ids (#2500)."""
-    return changed_code_evidence.replay_identity(state.get("regression_proof"))
+_changed_code_proof = role_launch.changed_code_proof
 
 
 def run_role(
