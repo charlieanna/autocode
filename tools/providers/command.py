@@ -249,6 +249,10 @@ class CommandProvider:
             "routes": [dict(route, name=route.get("name") or route["models"]) for route in routes],
         }
 
+    def preflight_environment(self, env=None):
+        """The environment this provider's checks run with; route discovery reads the same one."""
+        return self._preflight_environment(env)
+
     def _preflight_environment(self, env):
         # Explicit environments are an intentional facade API. App-owned callers
         # supply their already prepared mapping; implicit checks match agent launch.
