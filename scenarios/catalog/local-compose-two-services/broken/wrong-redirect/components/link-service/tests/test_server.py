@@ -35,7 +35,9 @@ class LinkServiceTests(unittest.TestCase):
         self.destination = "https://example.test/" + uuid.uuid4().hex
 
     def test_health_reports_ok(self):
-        self.assertEqual((200, {"ok": True}), call(self.port, "GET", "/health")[::2])
+        status, headers, document = call(self.port, "GET", "/health")
+        self.assertEqual((200, {"ok": True}), (status, document))
+        self.assertEqual(str(len(b'{"ok": true}')), headers["Content-Length"])
 
     def test_creating_a_link_echoes_it_without_a_redirect_header(self):
         status, headers, document = call(

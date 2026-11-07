@@ -404,7 +404,8 @@ REGCLIENT_REASONS = {
         ),
         "merged = []": (
             "instrumentation_unavailable",
-            "No supported assignment mutation (a list display, not a literal). "
+            "No mutation site: _errors runs on import (DEFAULT and REGISTRIES call it), so binding None here "
+            "would stop the module loading before any test ran. "
             "test_retryable_errors_are_deduplicated_and_sorted asserts the exact merged tuples; any other start "
             "fails it.",
         ),
@@ -412,13 +413,15 @@ REGCLIENT_REASONS = {
         "for code in group:": _REGCLIENT_LOOP,
         'TRANSIENT = ("SERVER_BUSY", "RATE_LIMITED")': (
             "instrumentation_unavailable",
-            "No supported assignment mutation (a tuple, not a scalar literal). "
+            "No mutation site: DEFAULT and REGISTRIES read TRANSIENT on import, so binding None here would stop "
+            "the module loading before any test ran. "
             "test_retryable_errors_are_deduplicated_and_sorted asserts DEFAULT's and .com's exact codes, and "
             "test_server_busy_is_retried retries SERVER_BUSY; another tuple fails them.",
         ),
         'SESSION = ("SESSION_LIMIT_EXCEEDED",)': (
             "instrumentation_unavailable",
-            "No supported assignment mutation (a tuple, not a scalar literal). test_com_retries_session_limit "
+            "No mutation site: REGISTRIES reads SESSION on import, so binding None here would stop the module "
+            "loading before any test ran. test_com_retries_session_limit "
             "retries SESSION_LIMIT_EXCEEDED on .com and test_retryable_errors_are_deduplicated_and_sorted asserts "
             "it among .com's and .net's codes.",
         ),

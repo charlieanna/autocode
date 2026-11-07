@@ -67,6 +67,7 @@ class AnalyticsServiceTests(unittest.TestCase):
         status, headers, document = call(self.port, "GET", "/health")
         self.assertEqual((200, {"ok": True}), (status, document))
         self.assertEqual("application/json", headers["Content-Type"])
+        self.assertEqual(str(len(b'{"ok": true}')), headers["Content-Length"])
 
     def test_collect_counts_each_distinct_event_once(self):
         EventSource.events = [self.event("t1"), self.event("t2"), self.event("t1")]
