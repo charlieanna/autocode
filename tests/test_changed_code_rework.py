@@ -117,3 +117,68 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
         self.assertTrue(rows)
         self.assertIn("reassign", str(rows).lower())
         self.assertNotIn("Builder sent back for untested lines", str(rows))
+
+
+class BuilderEvidenceTests(unittest.TestCase):
+    def test_a_builder_gets_open_lines_whole_and_settled_lines_by_number(self):
+        def row(path, line, status):
+            return {
+                "gap_id": f"changed-code:{path}:{line}",
+                "path": path,
+                "line": line,
+                "status": status,
+                "evidence": ["/proof/mutant.log"],
+                "mutation_outcomes": ["survived"],
+                "reason": "r" * 400,
+            }
+
+        assessment = {
+            "schema": 1,
+            "source_revision": "rev",
+            "proof_context": "ctx",
+            "status": "UNVERIFIED",
+            "reason": "Changed product lines still need behavioral evidence: a.py:3",
+            "fallback": ["mutation_only"],
+            "obligations": [
+                row("a.py", 1, "tested"),
+                row("a.py", 2, "excepted"),
+                row("a.py", 3, "reason_required"),
+                row("b.py", 7, "tested"),
+                row("b.py", 9, "reason_required"),
+            ],
+        }
+        original = copy.deepcopy(assessment)
+        view = rework.builder_evidence(assessment)
+        self.assertEqual(original, assessment)
+        self.assertEqual([original["obligations"][2], original["obligations"][4]], view["obligations"])
+        self.assertEqual({"tested": {"a.py": [1], "b.py": [7]}, "excepted": {"a.py": [2]}}, view["settled_lines"])
+        self.assertEqual(
+            {key: value for key, value in original.items() if key != "obligations"},
+            {key: value for key, value in view.items() if key not in ("obligations", "settled_lines")},
+        )
+
+    def test_an_open_line_nothing_observed_is_listed_by_number(self):
+        # A proof that did not pass runs no mutant, so every changed line is open with nothing to read.
+        def row(line, **observed):
+            return {"path": "a.py", "line": line, "status": "reason_required", "mutation_outcomes": [], **observed}
+
+        rows = [
+            row(1),
+            row(2, mutation_outcomes=["survived"]),
+            row(3, evidence=["/proof/m.log"]),
+            row(4, executed=True),
+        ]
+        view = rework.builder_evidence({"status": "UNVERIFIED", "obligations": rows})
+        self.assertEqual(rows[1:], view["obligations"])
+        self.assertEqual({"a.py": [1]}, view["unmeasured_lines"])
+        self.assertNotIn("settled_lines", view)
+
+    def test_evidence_with_nothing_settled_or_no_rows_keeps_its_shape(self):
+        open_only = {
+            "status": "UNVERIFIED",
+            "obligations": [
+                {"path": "a.py", "line": 1, "status": "reason_required", "mutation_outcomes": ["survived"]}
+            ],
+        }
+        self.assertEqual(open_only, rework.builder_evidence(open_only))
+        self.assertEqual({"status": "UNVERIFIED"}, rework.builder_evidence({"status": "UNVERIFIED"}))

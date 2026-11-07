@@ -11,6 +11,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A run no longer ends on a failure it already fixed. When a repair made the regression proof pass
+  and the Tester then sent the Builder back for changed lines without evidence, that round was counted
+  as a retry of the fixed failure; with the one retry spent, a live run ended "kept failing for the same
+  reason". The changed-line repair now runs under its own two-round bound (#2815).
+- A Builder sent back to settle changed lines gets those lines' evidence, not the whole proof's.
+  Each tested or excepted line, and each open line nothing observed (no mutant ran or none could),
+  is listed by number under its file; an open line with a mutant outcome keeps its full row. Live
+  returned Builders' handoffs fell from 257 KB to 79 KB and from 179 KB to 75 KB; at 257 KB the
+  provider compacted the conversation and the run paused for a person (#2815).
 - When AutoCode gives a timed-out job such as the Investigator a longer deadline, only that job's
   retry gets it. The rest of the run keeps the stage time limit you set, instead of every later
   stage inheriting the longer one (#2823).

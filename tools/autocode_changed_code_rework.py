@@ -191,3 +191,67 @@ def queued(state: RunState, record):
         and row.get("source_revision") == record.get("source_revision")
         for row in state.get("regression_proofs") or []
     )
+
+
+# Lines the Builder has nothing to do for: a test already settles them, or the independent Tester
+# accepted their reason. Their rows stay in the regression proof.
+SETTLED = ("tested", "excepted")
+
+
+def _measured(row):
+    """An open line something observed: a mutant outcome, an evidence file or a recorded execution."""
+    return bool(row.get("mutation_outcomes") or row.get("evidence") or row.get("executed"))
+
+
+def builder_evidence(assessment):
+    """The changed-line evidence a Builder acts on: each observed open line whole, the rest by number.
+
+    A live Builder round got all 229 rows of its proof (205 KB, four fifths of its handoff) to repair
+    28 lines, and the provider compacted its conversation (#2815). An open row that carries an
+    observation keeps every field. Each tested or excepted line is listed under its file in
+    ``settled_lines``, and each open line nothing observed (a proof that did not pass ran no mutant,
+    or the line has no mutation site) under its file in ``unmeasured_lines``.
+    """
+    rows = assessment.get("obligations")
+    if not isinstance(rows, list):
+        return assessment
+    view = {key: value for key, value in assessment.items() if key != "obligations"}
+    view["obligations"], settled, unmeasured = [], {}, {}
+    for row in rows:
+        if not isinstance(row, dict):
+            view["obligations"].append(row)
+        elif row.get("status") in SETTLED:
+            settled.setdefault(row["status"], {}).setdefault(row.get("path"), []).append(row.get("line"))
+        elif _measured(row):
+            view["obligations"].append(row)
+        else:
+            unmeasured.setdefault(row.get("path"), []).append(row.get("line"))
+    if settled:
+        view["settled_lines"] = settled
+    if unmeasured:
+        view["unmeasured_lines"] = unmeasured
+    return view
+
+
+def owns_builder_round(state: RunState, revision):
+    """True when the next Builder round is this module's own changed-line repair of ``revision``.
+
+    The latest proof record is a Builder ``changed_code_rework`` of the current task and contract,
+    queued from an independent review of exactly this source, whose regression proof passed. A
+    recovery packet that the current task came from does not own that round: its incident was
+    fixed, and REPAIR_ROUNDS bounds this one (#2815).
+    """
+    rows = state.get("regression_proofs") or []
+    last = rows[-1] if rows else {}
+    task, contract = state.get("current_task") or {}, state.get("goal_contract") or {}
+    proof = state.get("regression_proof") or {}
+    return (
+        isinstance(last, dict)
+        and last.get("kind") == "changed_code_rework"
+        and last.get("action") == "builder"
+        and bool(revision)
+        and last.get("source_revision") == revision == proof.get("source_revision")
+        and proof.get("verdict") == "PASS"
+        and (last.get("task_id"), last.get("contract_hash"), last.get("contract_revision"))
+        == (task.get("id"), contract.get("hash"), contract.get("revision"))
+    )
