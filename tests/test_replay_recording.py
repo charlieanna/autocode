@@ -314,6 +314,146 @@ class ExportAndMaterializationTests(unittest.TestCase):
         self.projection = make_export_projection(self.root)
         self.destination = self.root / "export"
 
+    def test_native_capture_dependencies_refuse_export_before_writing_a_bundle(self):
+        receipt = {
+            "command": ["python3", "-m", "unittest"],
+            "exit_code": 0,
+            "full_output": "/old/scratch/check.log",
+            "full_output_sha256": "0" * 64,
+            "verification_copy": {"manifest_sha256": "0" * 64},
+        }
+        output = "check output\n" + json.dumps(receipt) + "\n"
+        for backend in ("codex", "opencode"):
+            for code in (0, None):
+                with self.subTest(backend=backend, exit_code=code):
+                    destination = self.root / f"export-{backend}-{code}"
+                    record = self.projection["records"][0]
+                    Path(record["output"]).write_text(
+                        json.dumps({"checks": [{"evidence_ref": "/old/scratch/check.json"}]})
+                    )
+                    if backend == "codex":
+                        event = {
+                            "type": "item.completed",
+                            "item": {
+                                "type": "command_execution" if code is not None else "tool_output",
+                                "command": "capture -- approved-check",
+                                "aggregated_output": output,
+                                "exit_code": code,
+                            },
+                        }
+                    else:
+                        event = {
+                            "type": "tool_use",
+                            "sessionID": "recorded-session",
+                            "part": {
+                                "id": "tool-1",
+                                "tool": "bash",
+                                "state": {
+                                    "status": "completed",
+                                    "input": {"command": "capture -- approved-check"},
+                                    "output": output,
+                                    "metadata": {"exit": code},
+                                },
+                            },
+                        }
+                    Path(record["events"]).write_text(json.dumps(event) + "\n")
+                    original = Path(record["events"]).read_bytes()
+                    with self.assertRaisesRegex(recording.RecordingError, "native capture.*unsupported in v1"):
+                        recording.export(self.projection, destination)
+                    self.assertFalse(destination.exists())
+                    self.assertEqual(original, Path(record["events"]).read_bytes())
+
+    def native_capture_example(self):
+        record = self.projection["records"][0]
+        receipt = Path(self.projection["workspace"]) / ".autocode/check.receipt"
+        value = {"verification_copy": {"manifest_sha256": "0" * 64}, "full_output": str(receipt.with_suffix(".log"))}
+        Path(record["events"]).write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "command_execution",
+                        "command": "cat docs/capture-example.json",
+                        "exit_code": 0,
+                        "aggregated_output": json.dumps(value),
+                    },
+                }
+            )
+            + "\n"
+        )
+        return record, receipt
+
+    def test_unreferenced_native_capture_documentation_output_remains_exportable(self):
+        record, _ = self.native_capture_example()
+        original = Path(record["events"]).read_bytes()
+        manifest = recording.export(self.projection, self.destination)
+        document = recording.load(manifest).document
+        events = document["artifacts"][document["dispatches"][0]["events"]]
+        self.assertEqual(json.loads(original), json.loads((self.destination / events["path"]).read_bytes()))
+        self.assertEqual(sha(original), events["original_sha256"])
+        self.assertEqual(original, Path(record["events"]).read_bytes())
+
+    def test_native_capture_dependency_uses_the_same_original_answer_as_export(self):
+        from unittest.mock import patch
+
+        record, receipt = self.native_capture_example()
+        original = Path(record["output"]).read_bytes()
+        read = recording._read
+        report_reads = []
+
+        def changing_answer(root, name, **options):
+            data, mode = read(root, name, **options)
+            if name == Path(record["output"]).name:
+                report_reads.append(name)
+                if len(report_reads) > 1:
+                    data = json.dumps({"checks": [{"evidence_ref": str(receipt)}]}).encode()
+            return data, mode
+
+        with patch.object(recording, "_read", side_effect=changing_answer):
+            manifest = recording.export(self.projection, self.destination)
+        document = recording.load(manifest).document
+        answer = document["artifacts"][document["dispatches"][0]["report"]]
+        self.assertEqual(json.loads(original), json.loads((self.destination / answer["path"]).read_bytes()))
+        self.assertEqual(sha(original), answer["original_sha256"])
+        self.assertEqual(1, len(report_reads), "dependency inspection re-read the retained answer")
+
+    def test_redacted_native_capture_reference_still_refuses_using_original_answer(self):
+        record, receipt = self.native_capture_example()
+        Path(record["output"]).write_text(json.dumps({"checks": [{"evidence_ref": str(receipt)}]}))
+        with self.assertRaisesRegex(recording.RecordingError, "native capture.*unsupported in v1"):
+            recording.export(self.projection, self.destination, secret_values=(str(receipt),))
+        self.assertFalse(self.destination.exists())
+
+    def test_later_retained_answer_referencing_native_capture_refuses_before_export(self):
+        first, receipt = self.native_capture_example()
+        for field in ("output", "response"):
+            with self.subTest(answer=field):
+                second = copy.deepcopy(first)
+                second.update(stage="sol", role="sol", route_role="sol", before_ref=first["after_ref"])
+                second["events"] = str(Path(self.projection["run_dir"]) / "validator.jsonl")
+                Path(second["events"]).write_text(json.dumps({"type": "turn.completed", "usage": {}}) + "\n")
+                second.pop("output")
+                second[field] = str(Path(self.projection["run_dir"]) / "validator.json")
+                Path(second[field]).write_text(
+                    json.dumps(
+                        {"checks": [{"evidence_ref": str(receipt.relative_to(Path(self.projection["workspace"])))}]}
+                    )
+                )
+                self.projection["records"] = [first, second]
+                with self.assertRaisesRegex(recording.RecordingError, "native capture.*unsupported in v1"):
+                    recording.export(self.projection, self.destination)
+                self.assertFalse(self.destination.exists())
+
+    def test_native_capture_mentioned_in_model_text_is_not_an_execution_dependency(self):
+        record = self.projection["records"][0]
+        receipt = {"verification_copy": {}, "full_output": "/do/not/read/this/path"}
+        Path(record["events"]).write_text(
+            json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": json.dumps(receipt)}})
+            + "\n"
+        )
+        manifest = recording.export(self.projection, self.destination)
+        self.assertEqual(1, len(recording.load(manifest).document["dispatches"]))
+
     def compacted_mutation_projection(self):
         import autocode_changed_code_evidence as evidence
         import autocode_context as context

@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Saved-run replay refuses referenced unsupported native capture dependencies at export,
+  before creating an unusable recording or starting a replay. Original completion
+  and evidence are preserved; old receipts do not gain fresh verification authority.
 - The first Planner can reuse small, successful Requirements observations from the same unchanged
   source. Requirements, independent reviews, plan approval and verification checks remain required.
 - A run no longer stops to ask you how to route a fix when the approved plan's test command cannot find
