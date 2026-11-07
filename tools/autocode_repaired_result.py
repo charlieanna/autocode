@@ -16,10 +16,12 @@ from pathlib import Path
 
 try:
     from . import autocode_draft_assignment as draft_assignment
+    from . import autocode_requirements_observations as requirements_observations
     from . import autocode_result_application as result_application
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_draft_assignment as draft_assignment
+    import autocode_requirements_observations as requirements_observations
     import autocode_result_application as result_application
     import autocode_source_scope as source_scope
 
@@ -108,6 +110,7 @@ def accept(runtime, owner, run_dir, workspace, value, repair_record):
                 "at": runtime.now(),
             }
         )
+        requirements_observations.seal_repaired(state, repair_record)
         if state.get("pending_report_repair") == pending:
             state.pop("pending_report_repair")
         if state["status"] == "RUNNING":
