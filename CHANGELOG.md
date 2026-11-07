@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A chat started in a folder that is not a Git repository no longer creates a visible project before
+  anything is built. It used to create `autocode-projects/<first words>-<id>` at the first message, so a
+  "hi" left a project named `hi-…` behind. The work now starts in a private project in the folder's own
+  `.autocode/projects/`; when a build or bug fix completes, AutoCode delivers it to a named project folder
+  there (a Git repository on `main`, named from the approved plan) and says where in the chat. A later
+  turn of the chat updates that folder when it has no changes of its own. Older `autocode-projects/`
+  projects keep working.
 - A retried bug investigation no longer copies the whole repository again. Each attempt took a fresh
   complete copy of the workspace, so four attempts on a 544 MB checkout held four copies (#2606). A retry
   of the same run now reuses its own copy when nothing was written into it and its bytes still match the
