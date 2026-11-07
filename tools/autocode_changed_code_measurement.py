@@ -367,9 +367,12 @@ def known_capture(receipt, root):
         terminal
         and terminal["phase"] == "stopped"
         and not terminal["cleanup_error"]
-        and terminal["cause"] == "stage_deadline"
+        # The caller's deadline also includes final bookkeeping after a normal
+        # child exit. Closed custody remains known; the timeout stays nonpositive.
+        and terminal["cause"] in command_receipt.NORMAL_CAUSES | {"stage_deadline"}
         and receipt.get("timed_out") is True
         and receipt.get("exit_code") is None
+        and not receipt.get("error")
         and not receipt.get("interrupted")
         and receipt.get("supervision_errors") == []
     )
