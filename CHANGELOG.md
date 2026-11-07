@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Saved-run replay refuses referenced unsupported native capture dependencies at export,
+  before creating an unusable recording or starting a replay. Original completion
+  and evidence are preserved; old receipts do not gain fresh verification authority.
 - A computed value that the module's own import uses is no longer replaced with `None` by the
   mutation check. That mutant stopped the module loading, so no test ran and the line stayed open
   with an unrun mutant; the scripted review-then-fix run stopped at the changed-line gate. Such a

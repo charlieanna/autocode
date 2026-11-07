@@ -9,6 +9,8 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 
+PATH_REFERENCE_FIELDS = frozenset(("evidence_refs", "evidence_ref", "source_refs", "output", "full_output", "receipt"))
+
 
 def semantic_task(task):
     """Preserve task authority while omitting only fresh assignment metadata."""
@@ -168,14 +170,7 @@ def bindings(
         elif isinstance(value, list):
             for index, child in enumerate(value):
                 visit(child, _pointer(pointer, index), field)
-        elif isinstance(value, str) and field in (
-            "evidence_refs",
-            "evidence_ref",
-            "source_refs",
-            "output",
-            "full_output",
-            "receipt",
-        ):
+        elif isinstance(value, str) and field in PATH_REFERENCE_FIELDS:
             path = Path(value)
             if field == "evidence_refs" and "/changed_code_exceptions/" in pointer:
                 exact = (
