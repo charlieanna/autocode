@@ -71,6 +71,118 @@ class ReadyCaptureBatchTests(unittest.TestCase):
                 )
         self.assertNotIn("ready_capture_batch", self.packet(["python3 -m unittest"]))
 
+    @unittest.skipUnless(sys.platform == "linux", "real bubblewrap requires supported Linux")
+    def test_native_shell_uses_current_writable_scratch_and_keeps_run_store_readonly(self):
+        import autocode_tool_containment as containment
+
+        if problem := containment.sandbox_problem():
+            self.skipTest(problem)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "source.py").write_text("VALUE = 42\n")
+            git = ["git", "-C", str(root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test"]
+            for args in (["init", "-q"], ["add", "source.py"], ["commit", "-qm", "fixture"]):
+                subprocess.run([*git, *args], check=True, capture_output=True)
+            run = root / ".autocode/runs/run"
+            (run / "evidence").mkdir(parents=True)
+            runtime = Path(support.__file__).resolve().parent
+            env = {**os.environ, "PATH": str(Path(sys.executable).parent) + ":/usr/bin:/bin"}
+            boundary = containment.prepare(
+                root,
+                read_roots=[runtime, Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()],
+                protected_paths=[run, runtime],
+                environment=env,
+                verification_copy=True,
+            )
+            commands = [shlex.join([sys.executable, "-c", f"print({i})"]) for i in range(4)]
+            capture = shlex.join([sys.executable, str(runtime / "autocode.py"), "capture"])
+            batch = ready.context(capture, commands, run / "evidence")
+            result = subprocess.run(
+                [boundary["shell"], "-c", batch["command"]], cwd=root, capture_output=True, text=True, timeout=30
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            checks = [json.loads(line) for line in result.stdout.splitlines() if '"evidence_ref"' in line]
+            self.assertEqual(4, len(checks))
+            self.assertEqual([shlex.split(command) for command in commands], [row["command"] for row in checks])
+            for check in checks:
+                path = Path(check["evidence_ref"])
+                self.assertEqual(Path(boundary["scratch"]), path.parent)
+                receipt = json.loads(path.read_text())
+                self.assertEqual(boundary["verification_copy_sha256"], receipt["verification_copy"]["manifest_sha256"])
+                check["command"] = shlex.join(check["command"])
+            events = root / "observed-events.jsonl"
+            events.write_text(
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "id": "real-native-batch",
+                            "command": batch["command"],
+                            "exit_code": result.returncode,
+                            "aggregated_output": result.stdout + result.stderr,
+                        },
+                    }
+                )
+                + "\n"
+            )
+            support.verify_checks(checks, root, events)
+            denied = subprocess.run(
+                [boundary["shell"], "-c", "touch " + shlex.quote(str(run / "evidence/forbidden"))],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertNotEqual(0, denied.returncode, "the fix must not grant writes in the private run store")
+            self.assertFalse((run / "evidence/forbidden").exists())
+            self.assertEqual("VALUE = 42\n", (root / "source.py").read_text())
+
+    def test_invalid_native_destination_fails_before_any_capture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            control = "tool-containment-" + "a" * 32
+            scratch = root / ".autocode" / control / "scratch"
+            scratch.mkdir(parents=True)
+            manifest = scratch.parent / "verification-copy.json"
+            manifest.write_text("{}")
+            spy = root / "capture-spy.py"
+            marker = root / "captured"
+            spy.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\n")
+            batch = ready.context(
+                shlex.join([sys.executable, str(spy)]), ["python3 -V", "python3 -V"], root / ".autocode/evidence"
+            )
+            base = {key: value for key, value in os.environ.items() if not key.startswith("AUTOCODE_")}
+            base.update(
+                AUTOCODE_TOOL_CONTAINMENT_ID=control,
+                TMPDIR=str(scratch),
+                AUTOCODE_VERIFICATION_COPY=str(manifest),
+                AUTOCODE_VERIFICATION_COPY_SHA256="0" * 64,
+            )
+            outside = root / "outside"
+            outside.mkdir()
+            alias = scratch.parent / "alias"
+            alias.symlink_to(scratch, target_is_directory=True)
+            variants = [
+                {"TMPDIR": None},
+                {"TMPDIR": "relative"},
+                {"TMPDIR": str(outside)},
+                {"TMPDIR": str(scratch / "missing")},
+                {"TMPDIR": str(alias)},
+                {"AUTOCODE_TOOL_CONTAINMENT_ID": "tool-containment-" + "b" * 32},
+                {"AUTOCODE_VERIFICATION_COPY": str(root / "unrelated.json")},
+            ]
+            for change in variants:
+                env = {**base, **change}
+                env = {key: value for key, value in env.items() if value is not None}
+                with self.subTest(change=change):
+                    result = subprocess.run(
+                        shlex.split(batch["command"]), cwd=root, env=env, capture_output=True, text=True, timeout=10
+                    )
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn("current native scratch directory", result.stderr)
+                    self.assertFalse(marker.exists(), "invalid destination reached capture")
+
     def test_batch_keeps_order_all_failures_fresh_receipts_and_existing_authentication(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -86,6 +198,7 @@ class ReadyCaptureBatchTests(unittest.TestCase):
             batch = ready.context(capture, commands, root / ".autocode/evidence")
             identity = {"attempt": "current", "nonce": "nonce", "source_revision": "source"}
             environment = {key: value for key, value in os.environ.items() if not key.startswith("AUTOCODE_")}
+            environment["TMPDIR"] = str(root / "outside")
             environment["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(identity)
             environment["AUTOCODE_OUTPUT_STORE"] = str(root / "store")
             ran = subprocess.run(
