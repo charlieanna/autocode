@@ -1114,3 +1114,81 @@ def _csvcheck_equivalent_mutant(data, root, proof, sources):
         and row.get("mutation_outcomes")
         and set(row["mutation_outcomes"]) <= {"killed", "survived"}
     ]
+
+
+PROGRESSIVE_SOURCE_PINS = {
+    "lessons.py": "129848968512dcc13d3ce6ab0fd390551b8d0939173c468ae236826e7172b1e9",
+    "progress.py": "dc0d4f690b6aa11e30b8c68e60d51daf76d937441e383b21acd7a08c16b850d1",
+}
+PROGRESSIVE_S1_PIN = "d8bfc46841de7ceddb30d67d74d207dcd29d79391fe3e0614b4f23c3882771b0"
+PROGRESSIVE_TEST_PIN = "7c6635275a9dc2ae27128e377543d64645aa71eea941acb3b7d078e1d6eb45ec"
+
+
+def progressive_sources(reference, slice_id, *, catalog=False, corrupt=False, note=False):
+    """Exact bytes authored by the progressive Builder, shared with its scripted Tester.
+
+    Refuse unknown producer inputs rather than deriving permissions from workspace bytes.
+    """
+    reference = Path(reference)
+    sources = {name: (reference / name).read_bytes() for name in PROGRESSIVE_SOURCE_PINS}
+    if any(hashlib.sha256(sources[name]).hexdigest() != pin for name, pin in PROGRESSIVE_SOURCE_PINS.items()):
+        raise ValueError("Unknown progressive reference bytes")
+    if slice_id == "S1":
+        scenario = next(parent for parent in reference.parents if (parent / "scenario.toml").is_file())
+        sources["lessons.py"] = (scenario / "slices/S1/lessons.py").read_bytes()
+        if hashlib.sha256(sources["lessons.py"]).hexdigest() != PROGRESSIVE_S1_PIN:
+            raise ValueError("Unknown progressive S1 bytes")
+    elif catalog:
+        sources["lessons.py"] += b"\n\ndef catalog():\n    return list(LESSONS)\n"
+    elif corrupt:
+        sources["lessons.py"] = sources["lessons.py"].replace(
+            b"if response != LESSONS[lesson][1]:", b"if lesson == 'addition' or response != LESSONS[lesson][1]:"
+        )
+    if note:
+        sources["lessons.py"] += b"\n# Scoped consent: lesson note\n"
+    return sources
+
+
+def progressive_judgments(data, reference, slice_id, *, root=None, **variant):
+    """Only unsupported imports in the exact Builder variant receive reasons."""
+    root = Path.cwd() if root is None else Path(root)
+    proof = data.get("regression_proof") or {}
+    try:
+        scripted = progressive_sources(reference, slice_id, **variant)
+        if (
+            not proof.get("path")
+            or hashlib.sha256((root / "test_journey.py").read_bytes()).hexdigest() != PROGRESSIVE_TEST_PIN
+        ):
+            return []
+        if any((root / name).read_bytes() != content for name, content in scripted.items()):
+            return []
+    except (OSError, ValueError, StopIteration):
+        return []
+    imports = {"lessons.py": {1: "progress"}, "progress.py": {1: "json", 2: "pathlib.Path"}}
+    accepted = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        name, line = row.get("path"), row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or name not in imports
+            or type(line) is not int
+            or line not in imports[name]
+            or row.get("sha256") != hashlib.sha256(scripted[name]).hexdigest()
+            or row.get("mutation_outcomes")
+            or not row.get("gap_id")
+        ):
+            continue
+        accepted.append(
+            {
+                "gap_id": row["gap_id"],
+                "decision": "accept",
+                "reason_kind": "instrumentation_unavailable",
+                "reason": (
+                    f"The scripted {imports[name][line]} import has no supported mutation site. "
+                    "Skeleton.test_answer_survives_reopen checks wrong-answer refusal, durable accepted answers "
+                    "and duplicate preservation through lessons and progress; removing this import breaks those assertions."
+                ),
+                "evidence_refs": [proof["path"], name],
+            }
+        )
+    return accepted

@@ -743,7 +743,10 @@ class ProgressiveCLI(unittest.TestCase):
             final = driver.drive(scenario.brief)
             self.assertTrue(final["done"], final)
             names = self.observed_stages(final)
-            self.assertIn("resolver", names)
+            self.assertTrue(
+                "resolver" in names or any(row["kind"] == "sent_back" for row in final["recoveries"]),
+                "The recorded Resolver or changed-line Builder feedback must own the correction",
+            )
             self.assertGreaterEqual(names.count("builder"), 3)
             self.assertGreaterEqual(names.count("validator"), 3)
             reports = [
