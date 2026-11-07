@@ -106,8 +106,14 @@ def request_sizes(rows) -> list[int]:
             continue  # a request without an input and cache-report is not measured
         reported = [tokens.get("input"), cache.get("read"), cache.get("write")]
         counted = [value for value in reported if value is not None]
-        if len(counted) == len(reported) and all(type(value) is int and value >= 0 for value in counted):
-            sizes.append(sum(counted))
+        # A zero counter is not a measured empty context. Kilo can emit all-zero
+        # usage on an unfinished request; its raw usage and terminal failure remain.
+        if (
+            len(counted) == len(reported)
+            and all(type(value) is int and value >= 0 for value in counted)
+            and (size := sum(counted)) > 0
+        ):
+            sizes.append(size)
     return sizes
 
 

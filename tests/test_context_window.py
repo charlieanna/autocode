@@ -160,6 +160,33 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual([40_000, 46_000], context_window.request_sizes(rows))
         self.assertIsNone(context_window.shrank(rows))
 
+    def test_zero_usage_nonterminal_finish_is_not_measured_context_compaction(self):
+        # Live GLM/Kilo Tester: 137655 input/cache tokens, then an all-zero "other"
+        # finish, no report and no overflow/compaction event. Unknown is not a shrink.
+        rows = step("ses_zero", 1, 137655, reason="tool-calls") + step("ses_zero", 2, 0, reason="other")
+        rows[-1]["part"]["tokens"]["output"] = 0
+        self.assertEqual([137655], context_window.request_sizes(rows))
+        self.assertIsNone(context_window.found(rows))
+        normalized = opencode.normalized_events(rows)
+        self.assertFalse(any(row["type"] == "turn.completed" for row in normalized))
+        self.assertEqual("usage.partial", normalized[-1]["type"])
+        self.assertEqual(137655, normalized[-1]["usage"]["input_tokens"])
+        with self.assertRaisesRegex(RuntimeError, "no successful terminal step"):
+            opencode.final_report(self.log(rows))
+
+        # An unmeasured finish must not hide a later real shrink, or the provider's
+        # own explicit compaction/overflow evidence.
+        measured = rows + step("ses_zero", 3, 20000) + [report("ses_zero", 3)]
+        self.assertEqual({"signal": "request_shrank", "from": 137655, "to": 20000}, context_window.shrank(measured))
+        for evidence in (
+            {"type": "autocode_compaction", "sessionID": "ses_zero", "compaction": {"auto": True}},
+            {"type": "error", "sessionID": "ses_zero", "error": {"code": "context_length_exceeded"}},
+        ):
+            with self.subTest(evidence=evidence):
+                path = self.log(rows + [evidence])
+                self.assertEqual("PAUSED_CONTEXT_WINDOW", support.failure_status(path))
+                self.assertFalse(any(row["type"] == "turn.completed" for row in support.events(path)))
+
     def test_typed_codes_and_provider_messages_classify_and_the_models_words_never_do(self):
         cases = (
             (
