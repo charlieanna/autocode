@@ -155,6 +155,57 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual([(2, "swap_bound", "<", "<=")], shown(made))
         self.assertEqual(b"ok = (a  # < not this one\n      <= b)\n", mutants.apply(source, made[0]))
 
+    def test_a_line_with_only_a_call_a_computed_value_or_a_loop_gets_a_statement_site(self):
+        # #2815: these lines had no site, so each changed one needed a written reason. A call made for its
+        # effect is dropped, a computed value becomes None and a loop runs over nothing.
+        source = (
+            b"def f(items, log):\n"
+            b"    log.write(items)\n"
+            b"    total = sum(items)\n"
+            b"    names: list = sorted(items)\n"
+            b"    for item in items:\n"
+            b"        log.write(item)\n"
+            b"    for nothing in ():\n"
+            b"        pass\n"
+            b"    count = 3\n"
+            b"    return total, names\n"
+        )
+        made, notes = mutants.python_mutants("effects.py", source, range(2, 10), limit=20)
+        self.assertEqual([], notes)
+        self.assertEqual(
+            [
+                (2, "drop_call", "log.write(items)", "None"),
+                (3, "none_assignment", "sum(items)", "None"),
+                (4, "none_assignment", "sorted(items)", "None"),
+                (5, "skip_loop", "items", "()"),
+                (6, "drop_call", "log.write(item)", "None"),
+                (9, "constant_assignment", "3", "0"),
+            ],
+            shown(made),
+        )
+        self.assertEqual(source.replace(b"for item in items", b"for item in ()"), mutants.apply(source, made[3]))
+
+    def test_a_statement_site_never_doubles_a_line_that_has_another_site(self):
+        source = b"ok = a < 2\nhits = [x for x in y if x > 1]\nf(a if a < 2 else b)\nfor x in g(a > 1):\n    pass\n"
+        made, _ = mutants.python_mutants("both.py", source, every_line(source), limit=50)
+        self.assertEqual(set(), {mutant.operator for mutant in made} & mutants.STATEMENT_OPERATORS)
+        self.assertEqual({1, 2, 3, 4}, {mutant.line for mutant in made})
+
+    def test_code_under_a_main_or_type_checking_guard_gets_no_statement_site(self):
+        source = (
+            b"from typing import TYPE_CHECKING\n"
+            b"if TYPE_CHECKING:\n"
+            b"    thing = load()\n"
+            b"if __name__ == '__main__':\n"
+            b"    main()\n"
+            b"run()\n"
+        )
+        made, _ = mutants.python_mutants("guarded.py", source, every_line(source), limit=50)
+        self.assertEqual([(6, "drop_call", "run()", "None")], shown(made))
+        self.assertEqual(
+            len(mutants.NEWLINE.findall(source)), len(mutants.NEWLINE.findall(mutants.apply(source, made[0])))
+        )
+
 
 class ValidityTests(unittest.TestCase):
     SOURCES = {
@@ -168,6 +219,10 @@ class ValidityTests(unittest.TestCase):
         "while": b"while i < n:\n    i += 1\n",
         "match guard": b"match p:\n    case [x] if x > 1:\n        y = x\n",
         "comprehension": b"z = [x for x in y if x >= 3]\n",
+        "multi-line call": b"log(\n    a,\n    b,\n)\n",
+        "multi-line value": b"z = dict(\n    a=1,\n)\n",
+        "multi-line loop": b"for x in g(\n    a,\n):\n    log(x)\n",
+        "awaited call": b"async def f():\n    await g()\n",
     }
 
     def test_every_mutant_parses_keeps_the_line_count_and_differs_from_the_original(self):
@@ -265,7 +320,7 @@ class LimitTests(unittest.TestCase):
         )
         made, notes = mutants.python_mutants("many.py", source, every_line(source), limit=6)
         self.assertEqual(6, len(made))
-        self.assertEqual(set(mutants.OPERATORS), {mutant.operator for mutant in made})
+        self.assertEqual(set(mutants.OPERATORS) - mutants.STATEMENT_OPERATORS, {mutant.operator for mutant in made})
         self.assertEqual(6, len({mutant.line for mutant in made}))
         self.assertEqual(sorted(made, key=lambda mutant: mutant.line), made)
         self.assertEqual(["many.py: 60 mutation sites on the changed lines; 6 were chosen"], notes)
