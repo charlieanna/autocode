@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A new Kilo task reaches the model sooner. The login, model-list and model-detail checks at the
+  start of a task ran one after another, the login check ran twice and the reasoning-level check read a
+  second model listing: six Kilo starts, about 12 s on 2026-11-07. They now run together and once each.
+  Before every stage, Kilo's config and the usual agent's permissions are read together instead of in
+  turn; both are still read fresh for each launch, and another default agent never gets the usual
+  agent's grants.
 - A chat started in a folder outside Git now shows the run's reply and question. AutoCode runs that
   task in a new project under `autocode-projects/`, and the chat refused the status of the moved run, so
   it said "AutoCode did not start the run" and printed the raw resume command with its resolver token
