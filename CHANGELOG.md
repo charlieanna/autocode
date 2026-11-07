@@ -20,6 +20,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - A failing master no longer expands every pull request to the full repository
   suite. PRs keep pinned change and consumer selection, all selected checks remain
   required, and master and manual runs keep complete coverage.
+- Accepted Requirements report repairs retain the original observations for the first Planner
+  without repeating the Requirements probes.
+- The first Planner can reuse small, successful Requirements observations from the same unchanged
+  source. Requirements, independent reviews, plan approval and verification checks remain required.
 - A new chat in a project reuses the tool checks an earlier chat there passed within the hour, and a chat
   picked up from another terminal window reuses its run's checks: the variables a terminal sets for its
   own session no longer count as a different environment. A new login or a changed tool setting still
