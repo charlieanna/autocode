@@ -945,7 +945,8 @@ def _greeting(data, root):
                     "evidence_refs": [
                         proof["path"],
                         "greet.py",
-                        *(capture if lines[line - 1].strip() == "print(greet(argv[0]))" else []),
+                        # Entrypoint guards stay unmutated as call and assignment coverage grows.
+                        *(capture if lines[line - 1].strip() == 'if __name__ == "__main__":' else []),
                     ],
                 }
             )
