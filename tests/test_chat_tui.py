@@ -1211,6 +1211,27 @@ class AskTests(unittest.TestCase):
         ui._command_menu(layout)
         self.assertTrue(any(menu[-1].name in text for text in drawn), "the window follows the choice")
 
+    def test_a_menu_longer_than_its_window_says_what_it_hides(self):
+        ui = screen_ui()
+        ui.bind(lambda name, argument: "ok")
+        ui._asking, ui._composer.text = True, "/"
+        menu = ui._menu(True)
+        self.assertGreater(len(menu), tui.MENU_ROWS)
+        drawn = []
+        ui._put = lambda row, col, text, attr=0: drawn.append(text)
+        layout = ui._layout(30, 120)
+        ui._command_menu(layout)
+        self.assertTrue(any(f"↓ {len(menu) - tui.MENU_ROWS} more" in text for text in drawn), "the hidden count")
+        drawn.clear()
+        ui._menu_index = len(menu) - 1  # the window has followed the choice to the end
+        ui._command_menu(layout)
+        self.assertTrue(any(f"↑ {len(menu) - tui.MENU_ROWS} above" in text for text in drawn))
+        self.assertNotIn("more", [text for text in drawn if "above" in text][0])
+        drawn.clear()
+        ui._composer.text = "/diff"  # one match: the whole menu is on screen
+        ui._command_menu(layout)
+        self.assertFalse([text for text in drawn if "more" in text or "above" in text])
+
     def test_a_question_after_work_rings_the_terminal_bell(self):
         ui = screen_ui(*"y\n", *"y\n")
         with mock.patch.object(tui.curses, "beep", create=True) as beep:
