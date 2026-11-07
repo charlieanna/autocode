@@ -498,6 +498,18 @@ class ChatScreenTests(unittest.TestCase):
         self.assertEqual("/Build something nice", composer_text(shown), "the text stays to edit")
         self.no_run_started()
 
+    def test_the_command_menu_says_how_many_commands_it_hides(self):
+        screen = self.chat()
+        screen.paste(BRIEF)
+        screen.keys("Enter")
+        screen.wait_for("Approve understanding", RUN_SECONDS)
+        screen.type("y")
+        screen.keys("Enter")
+        screen.wait_for("Approve this plan", RUN_SECONDS)
+        screen.type("/")
+        shown = screen.wait_for("/plan", what="the run's command menu")
+        self.assertRegex(shown, r"↓ \d+ more; ↑↓ chooses", "a cut menu names its hidden commands")
+
     def test_a_resize_redraws_the_whole_screen(self):
         screen = self.chat(cols=120, rows=34)
         screen.resize(70, 22)

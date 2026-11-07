@@ -2116,12 +2116,17 @@ class ChatTUI:
         menu = self._menu(self._asking)
         if not menu:
             return
-        rows = max(1, min(MENU_ROWS, len(menu), layout.box_top - layout.body_start))
+        available_rows = layout.box_top - layout.body_start
+        cut = len(menu) > min(MENU_ROWS, available_rows)
+        # A cut list keeps a row for its count: without it, the commands past the window are
+        # invisible, with nothing saying they exist.
+        rows = max(1, min(MENU_ROWS, len(menu), available_rows - 1 if cut and available_rows > 1 else available_rows))
         chosen = self._menu_index % len(menu)
         start = min(max(0, chosen - rows + 1), len(menu) - rows)  # every entry is reachable: the window follows
         shown = menu[start : start + rows]
+        below, above = len(menu) - (start + rows), start
         width = min(layout.width - 2, 64)
-        first = layout.box_top - len(shown)
+        first = layout.box_top - len(shown) - (1 if cut else 0)
         for row in range(first, layout.box_top):  # the rows under the menu, the status line among them
             self._put(row, 0, " " * layout.width)
         for offset, command in enumerate(shown):
@@ -2130,6 +2135,12 @@ class ChatTUI:
             line = truncate(line, width)
             line += " " * max(0, width - display_width(line))
             self._put(first + offset, 2, line, self._style("menu-selected" if selected else "menu"))
+        if cut:
+            parts = [f"↑ {above} above"] if above else []
+            if below:
+                parts.append(f"↓ {below} more")
+            more = " " + " · ".join(parts) + "; ↑↓ chooses"
+            self._put(first + len(shown), 2, truncate(more, width), self._style("dim"))
 
     def _welcome(self) -> bool:
         """Nothing said in this chat yet and nothing started: the welcome still has the screen."""
