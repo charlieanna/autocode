@@ -356,30 +356,40 @@ class RedBaseRecoveryTests(unittest.TestCase):
         step = re.split(r"\n(?:      - (?:name:|uses:)|  [a-z][\w-]*:)", step, maxsplit=1)[0]
         return textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n        env:", 1)[0])
 
-    def test_red_base_requests_full_head_proof_and_green_base_does_not(self):
+    def test_pr_scope_and_both_test_steps_keep_the_pinned_change_selection_on_a_red_base(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            gh = root / "gh"
-            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$BASE_CONCLUSION"\n')
-            gh.chmod(0o755)
-            for conclusion, full in (("failure", "true"), ("success", "false"), ("unknown", "false")):
-                output = root / "output"
-                output.write_text("")
-                env = dict(
-                    os.environ,
-                    PATH=str(root) + os.pathsep + os.environ["PATH"],
-                    BASE_CONCLUSION=conclusion,
-                    BASE="event-base",
-                    GITHUB_REPOSITORY="fixture/repo",
-                    GITHUB_OUTPUT=str(output),
-                )
-                result = subprocess.run(
-                    ["bash", "-e", "-c", self.step("Inspect base suite")], env=env, capture_output=True, text=True
-                )
-                self.assertEqual(0, result.returncode, result.stderr)
-                self.assertIn("full=" + full, output.read_text())
+            python = root / ".venv/bin/python"
+            python.parent.mkdir(parents=True)
+            python.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$COMMAND_LOG"\n')
+            python.chmod(0o755)
+            (root / "python").symlink_to(python)
+            for name in ("Select affected checks", "Run the suite gate", "Run the scenario harness"):
+                with self.subTest(step=name):
+                    log = root / "commands"
+                    log.write_text("")
+                    env = dict(
+                        os.environ,
+                        PATH=str(root) + os.pathsep + os.environ["PATH"],
+                        FULL_SUITE="true",  # The old red-base health step's output.
+                        EVENT="pull_request",
+                        BASE="pinned-base",
+                        HEAD="pinned-head",
+                        GITHUB_OUTPUT=str(root / "outputs"),
+                        COMMAND_LOG=str(log),
+                    )
+                    result = subprocess.run(
+                        ["bash", "-e", "-c", self.step(name)], cwd=root, env=env, capture_output=True, text=True
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    args = log.read_text().splitlines()
+                    flag = "--base" if name == "Select affected checks" else "--changed"
+                    self.assertIn(flag, args)
+                    self.assertEqual("pinned-base", args[args.index(flag) + 1])
+                    if name == "Select affected checks":
+                        self.assertEqual("pinned-head", args[args.index("--head") + 1])
 
-    def test_full_head_proof_runs_all_checks_without_changed_selection(self):
+    def test_push_and_manual_runs_keep_full_head_checks(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             python = root / ".venv/bin/python"
@@ -388,16 +398,15 @@ class RedBaseRecoveryTests(unittest.TestCase):
             python.chmod(0o755)
             alias = root / "python"
             alias.symlink_to(python)
-            for full in ("true", "false"):
+            for event in ("push", "workflow_dispatch"):
                 for name in ("Select affected checks", "Run the suite gate", "Run the scenario harness"):
-                    with self.subTest(full=full, step=name):
+                    with self.subTest(event=event, step=name):
                         log = root / "commands"
                         log.write_text("")
                         env = dict(
                             os.environ,
                             PATH=str(root) + os.pathsep + os.environ["PATH"],
-                            FULL_SUITE=full,
-                            EVENT="pull_request",
+                            EVENT=event,
                             BASE="event-base",
                             HEAD="event-head",
                             GITHUB_OUTPUT=str(root / "outputs"),
@@ -408,16 +417,19 @@ class RedBaseRecoveryTests(unittest.TestCase):
                         )
                         self.assertEqual(0, result.returncode, result.stderr)
                         args = log.read_text().splitlines()
-                        self.assertEqual(
-                            full == "false",
-                            "--base" in args if name == "Select affected checks" else "--changed" in args,
-                        )
+                        if name == "Select affected checks":
+                            self.assertIn("--full", args)
+                            self.assertNotIn("--base", args)
+                        else:
+                            self.assertNotIn("--changed", args)
+                            self.assertIn("tools/run_suite.py", args)
+                            self.assertEqual(name == "Run the scenario harness", "--scenario-harness" in args)
 
-    def test_workflow_wires_base_recovery_and_removes_historical_veto(self):
+    def test_scope_has_no_base_health_dependency_or_historical_veto(self):
         workflow = (ROOT / ".github/workflows/tests.yml").read_text()
-        self.assertIn("full_suite: ${{ steps.base-health.outputs.full }}", workflow)
-        self.assertEqual(2, workflow.count("FULL_SUITE: ${{ needs.scope.outputs.full_suite }}"))
-        self.assertIn("FULL_SUITE: ${{ steps.base-health.outputs.full }}", workflow)
+        self.assertNotIn("Inspect base suite", workflow)
+        self.assertNotIn("FULL_SUITE", workflow)
+        self.assertNotIn("full_suite", workflow)
         self.assertNotIn("Refuse a base whose suite is red", workflow)
         self.assertNotIn("BASE: 016029eb", workflow)
 

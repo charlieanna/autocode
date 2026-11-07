@@ -17,6 +17,9 @@ PR template asks for an entry here; a change without one is incomplete.
   line now counts as having no mutation site. The local two-service scenario's tests now check the
   `Content-Length` header, and its scripted Tester judges the two client-side calls no test can
   observe as equivalent mutants.
+- A failing master no longer expands every pull request to the full repository
+  suite. PRs keep pinned change and consumer selection, all selected checks remain
+  required, and master and manual runs keep complete coverage.
 - Accepted Requirements report repairs retain the original observations for the first Planner
   without repeating the Requirements probes.
 - The first Planner can reuse small, successful Requirements observations from the same unchanged
