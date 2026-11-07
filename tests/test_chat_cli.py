@@ -17,7 +17,7 @@ from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS, HERE
 
 class ChatCliTests(unittest.TestCase):
     def setUp(self):
-        root = Path(tempfile.mkdtemp(prefix="chat-cli-", dir=os.environ.get("BUILD_AUDIT_ARTIFACTS")))
+        root = Path(tempfile.mkdtemp(prefix="chat-cli-", dir=os.environ.get("BUILD_AUDIT_ARTIFACTS"))).resolve()
         if not os.environ.get("BUILD_AUDIT_ARTIFACTS"):
             self.addCleanup(shutil.rmtree, root)
         self.workspace = root / "project"
