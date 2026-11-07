@@ -75,6 +75,7 @@ try:
     from . import autocode_model_identity as model_identity
     from . import autocode_planning_advice as recovery_binding
     from . import autocode_progressive_state as progressive
+    from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
@@ -87,6 +88,7 @@ except ImportError:
     import autocode_model_identity as model_identity
     import autocode_planning_advice as recovery_binding
     import autocode_progressive_state as progressive
+    import autocode_recovery_accounting as recovery_accounting
     import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_stage_access as stage_access
@@ -105,6 +107,9 @@ RETRYABLE = frozenset(
         "PAUSED_PLANNING_BUDGET",
         "PAUSED_NO_PROGRESS",
         "PAUSED_COMPLETION_REVIEW",
+        # The automatic timeout recoveries ran out. Without this the run asked a person to grant more
+        # (--grant-recovery), a question about AutoCode's own retries (2026-11-06 live run).
+        "PAUSED_TIMEOUT_RECOVERY",
     }
 )
 # These have operator-only resume semantics; the Investigator explains them, the user decides.
@@ -112,6 +117,9 @@ DIAGNOSE_ONLY = frozenset(
     {"PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_BUILDER_RETRY_LIMIT", "PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_REPLAN"}
 )
 STATUSES = RETRYABLE | DIAGNOSE_ONLY
+# Pauses the runner publishes as an AutoResolver operational request when they reach it raised. An
+# investigation that ends in one of them raises it again, so it is published as before.
+PUBLISHED = frozenset({"PAUSED_TIMEOUT_RECOVERY"})
 # Run-wide holds checked at every stage boundary: the bounds, and a provider transport that changed
 # under the run. One reached before a queued Builder classification launched stops the run, not the
 # Investigator (#1949): the classification stays queued under that pause, whose own control (a raise,
@@ -714,6 +722,11 @@ def grant_one_attempt(state: RunState, request: dict) -> None:
     elif status == "PAUSED_NO_PROGRESS":
         limit = ((state.get("settings") or {}).get("limits") or {}).get("no_progress_batches") or 1
         state["no_progress_batches"] = max(0, limit - 1)
+    elif status == "PAUSED_TIMEOUT_RECOVERY":
+        # One more automatic recovery on each counter the exhaustion stop reads
+        # (autocode_recovery_limits.stop_reason); the recovery history stays intact.
+        state["automatic_recoveries_since_resume"] = max(0, recovery_accounting.spent(state) - 1)
+        state["consecutive_timeout_recoveries"] = max(0, recovery_accounting.consecutive_timeouts(state) - 1)
 
 
 def launched(state: RunState, request: dict) -> bool:
@@ -727,6 +740,27 @@ def launched(state: RunState, request: dict) -> bool:
         (row.get("original_stage") or str(row.get("stage", "")).removesuffix("_report_repair")) == STAGE
         and row.get("started_at", "") >= request["requested_at"]
         for row in state.get("stages") or []
+    )
+
+
+def timed_out(state: RunState) -> bool:
+    """The Investigator itself ran out of time, after AutoCode's own longer deadlines.
+
+    The job runner then pauses for an exact retry of the Investigator (autocode_job_failure), a
+    question about AutoCode's machinery; a live run (2026-11-06) stopped on "Continue?" that way.
+    The investigation is abandoned instead, so the stuck stage's own pause comes back with its own
+    action. A model stop (quota, refusal, output) keeps its model question, and a Builder failure
+    classification keeps its exact retry: that classification still needs an Investigator."""
+    current = state.get("stuck_investigation") or {}
+    failure = state.get("job_failure") or {}
+    return (
+        bool(current)
+        and not current.get("in_force")
+        and current.get("mode") != "builder_failure"
+        and state.get("status") == "PAUSED_JOB_FAILURE"
+        and state.get("next_stage") == STAGE
+        and failure.get("stage") == STAGE
+        and failure.get("kind") == "timeout"
     )
 
 
@@ -863,6 +897,7 @@ def drive(
     attempts = lambda: sum(1 for row in state.get("stages") or [] if not row.get("runner_owned"))
     attempted = attempts()
     fresh = lambda: attempts() > attempted
+    owed: set[str] = set()  # PUBLISHED pauses this invocation sent to the Investigator
     while True:
         try:
             while active(state):
@@ -911,11 +946,25 @@ def drive(
                 if getattr(error, "quota_worker", None):
                     reraised.quota_worker = error.quota_worker
                 raise reraised from error
+            if status in PUBLISHED:
+                owed.add(status)
             if persist:
                 persist(state)
             continue
         if not investigate:
             return state
+        if timed_out(state):
+            # The stop's own cause, without the job runner's offer of an exact retry.
+            context = state.get("recovery_context") or {}
+            cause = context.pop("reason", "") if context.get("stage") == STAGE else ""
+            if context.get("stage") == STAGE:
+                state.pop("recovery_context")
+            status, reason = abandon(state, cause or state["job_failure"]["reason"])
+            state.pop("job_failure", None)
+            state.pop("job_retry_authorization", None)
+            if persist:
+                persist(state)
+            raise paused(status, reason)
         retire(state, state.get("status"))
         if queue and fresh() and intercept(state, cast(str, state.get("status")), state.get("stop_reason") or ""):
             if persist:
@@ -923,6 +972,9 @@ def drive(
             continue
         if state.get("status") in STATUSES and state.get("stop_reason"):
             state["stop_reason"] = annotate(state, state["status"], state["stop_reason"])
+        if state.get("status") in owed and state.get("stop_reason"):
+            # The Investigator did not retry: publish the restored pause as the runner always has.
+            raise paused(state["status"], state["stop_reason"])
         return state
 
 

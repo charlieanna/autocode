@@ -196,7 +196,14 @@ read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of s
 | `PAUSED_PLANNING_BUDGET` | retry grants one more review round (two calls from the challenge, one from the final review) |
 | `PAUSED_NO_PROGRESS` | retry allows one more implementation batch |
 | `PAUSED_COMPLETION_REVIEW` | retry asks the Completion Reviewer once more |
+| `PAUSED_TIMEOUT_RECOVERY` | retry allows one more automatic recovery, as `--grant-recovery 1` would; the queued diagnosis itself is not held by the spent recovery budget |
+| `PAUSED_REPEATED_FAILURE` from a stage stall | a stage that stopped twice on unchanged source, with another stage's valid report between the stops, reaches this row instead of looping |
 | `PAUSED_REPORT_REPAIR_LIMIT`, `PAUSED_MILESTONE_STALLED`, `PAUSED_MILESTONE_REPLAN` | diagnosis only; these keep their operator resume flags |
+
+When the Investigator itself runs out of time, after AutoCode's own longer deadlines for it,
+the investigation is abandoned and the stuck stage's own pause comes back with its own action,
+instead of a pause for an exact Investigator retry. A model stop (quota, refusal, output limit)
+keeps the Investigator's model question, and a Builder failure classification keeps its retry.
 
 An exhausted Builder ladder no longer pauses: the retry policy ends the run with a recorded
 could-not-finish outcome ([Recovery](execution.md#budget-ownership-and-human-escalation)).
