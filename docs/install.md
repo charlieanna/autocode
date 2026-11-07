@@ -50,7 +50,8 @@ a virtual environment in every shell.
 checks Claude Code, Codex, OpenCode and Kilo. When neither OpenCode nor Kilo is
 installed it offers to install OpenCode with npm (`--install kilocode` installs Kilo
 instead), then offers the sign-in of each installed one that is not signed in, and
-says which backend your tasks will use. API keys (Z.ai, MiMo, OpenAI, Anthropic) go in OpenCode or
+says which backend your tasks will use. If a saved backend is unavailable, setup keeps that
+choice and reports the install or sign-in command needed before a task can start. API keys (Z.ai, MiMo, OpenAI, Anthropic) go in OpenCode or
 Kilo. It then asks which model and reasoning level each stage runs, with advice for each, and
 every task uses that choice; change it any time with `autocode stages choose`
 ([Choosing each stage's model](models.md#choosing-each-stages-model)). After that a task needs no flags.
