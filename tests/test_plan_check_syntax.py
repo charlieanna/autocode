@@ -211,6 +211,32 @@ class ContractTests(unittest.TestCase):
         self.assertTrue(goals.approved(state))
         self.assertEqual([LIVE], plan.approved_commands(state))
 
+    def test_a_broken_exact_output_quote_is_repaired_before_plan_review(self):
+        value = self.draft()
+        value["acceptance_criteria"][0]["criterion"] = (
+            "Given the sample rows, render still returns exactly '2025-W10     7.50h\\n"
+            "2025-W11    12.25h\\ntotal       19.75h\\' with the same format."
+        )
+        value["end_to_end_flow"] = ["The CLI prints 'week  3.00h\\ntotal  3.00h\\' with the existing format."]
+        state = self.state()
+        with self.assertRaisesRegex(ValueError, "Criterion C1 has an unterminated exact-output literal") as refused:
+            lifecycle.install_draft(state, value, origin="glm_draft")
+        self.assertIn("End-to-end step 1 has an unterminated exact-output literal", str(refused.exception))
+        self.assertNotIn("goal_contract", state)
+        value["acceptance_criteria"][0]["criterion"] = value["acceptance_criteria"][0]["criterion"].replace(
+            "19.75h\\'", "19.75h\\n'"
+        )
+        value["end_to_end_flow"][0] = value["end_to_end_flow"][0].replace("3.00h\\'", "3.00h\\n'")
+        lifecycle.install_draft(state, value, origin="glm_draft")
+        self.assertEqual(value["acceptance_criteria"], state["goal_contract"]["body"]["acceptance_criteria"])
+
+    def test_a_closed_literal_can_include_an_escaped_quote_or_backslash(self):
+        for literal in (r"'it\'s ready\n'", r"'path\n\\'", r'"a\"b\n"'):
+            with self.subTest(literal=literal):
+                value = self.draft()
+                value["acceptance_criteria"][0]["criterion"] = f"Render returns exactly {literal}."
+                lifecycle.install_draft(self.state(), value, origin="glm_draft")
+
 
 class TaskAuthorTests(unittest.TestCase):
     """The Completion Reviewer's next_task, through the runner's result application."""

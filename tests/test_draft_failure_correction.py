@@ -37,7 +37,7 @@ NEW_INTERPRETATION = (
 )
 
 
-def fixture(*, investigation=None, interpretation=False, named_proof=False):
+def fixture(*, investigation=None, interpretation=False, named_proof=False, compatibility=False):
     current = state()
     current["iteration"] = 0
     if investigation:
@@ -61,7 +61,11 @@ def fixture(*, investigation=None, interpretation=False, named_proof=False):
                 "answer_id": "feedback-1",
             }
         )
-    draft["important_failure_cases"].append(BEFORE)
+    field = "required_behaviors" if compatibility else "important_failure_cases"
+    draft[field].append(BEFORE)
+    if compatibility:
+        draft["task_kind"] = "bugfix"
+        current["requirements_handoff"] = {"report": {"required_behaviors": [BEFORE]}}
     if investigation or named_proof:
         draft["acceptance_criteria"][0]["verification_method"] = "test: test_c1_lookup"
     draft["acceptance_criteria"][0]["sources"] = [{"source_id": "task:0", "quote": current["task"]}]
@@ -77,7 +81,7 @@ def fixture(*, investigation=None, interpretation=False, named_proof=False):
     lifecycle.install_draft(current, draft, origin="glm_draft")
     receipt = {
         "snapshot": correction.snapshot(current),
-        "judgment": "unapproved_model_inference",
+        "judgment": "unapproved_bugfix_compatibility_inference" if compatibility else "unapproved_model_inference",
         "before": BEFORE,
         "after": AFTER,
         "rationale": RATIONALE,
@@ -97,7 +101,7 @@ def fixture(*, investigation=None, interpretation=False, named_proof=False):
         ],
     }
     changed = copy.deepcopy(current["goal_contract"]["body"])
-    changed["important_failure_cases"][-1] = AFTER
+    changed[field][-1] = AFTER
     if interpretation:
         changed["accepted_assumptions"][-1]["text"] = NEW_INTERPRETATION
     changes = [{"item": BEFORE, "change": "reworded", "basis": "agent_proposed", "answer_id": "", "replacement": AFTER}]
@@ -107,6 +111,69 @@ def fixture(*, investigation=None, interpretation=False, named_proof=False):
 class DraftFailureCorrectionTests(unittest.TestCase):
     def admit(self, current, review):
         autopilot.apply_planning(current, "astra_challenge", review, {"output": "review.json"})
+
+    def test_read_only_plan_reviewer_timeout_does_not_make_draft_compatibility_human_owned(self):
+        current, review, changed, changes = fixture(compatibility=True)
+        current["user_events"] = [
+            {
+                "kind": "automatic_timeout_recovery",
+                "actor": "runner",
+                "attempt_id": "001/plan-challenge-01",
+                "next_stage": "astra_challenge",
+                "changed_files": [],
+            }
+        ]
+        receipt = review["concerns"][0][correction.FIELD]
+        with self.assertRaisesRegex(ValueError, "fresh first-review inference receipt"):
+            correction.receipts(current, review)
+        receipt["snapshot"] = correction.snapshot(current)
+        self.admit(current, review)
+        lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+        self.assertEqual(AFTER, current["goal_contract"]["body"]["required_behaviors"][-1])
+        self.assertEqual("astra_finalize", current["next_stage"])
+
+    def test_a_user_event_or_other_recovery_still_blocks_the_compatibility_receipt(self):
+        for change in (
+            {"actor": "user_cli"},
+            {"kind": "brief_feedback"},
+            {"next_stage": "terra"},
+            {"changed_files": ["greet.py"]},
+        ):
+            current, review, _, _ = fixture(compatibility=True)
+            current["user_events"] = [
+                {
+                    "kind": "automatic_timeout_recovery",
+                    "actor": "runner",
+                    "attempt_id": "001/plan-challenge-01",
+                    "next_stage": "astra_challenge",
+                    "changed_files": [],
+                }
+                | change
+            ]
+            review["concerns"][0][correction.FIELD]["snapshot"] = correction.snapshot(current)
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "protected human or dual-owned text"):
+                self.admit(current, review)
+
+    def test_exact_receipt_revises_unapproved_bugfix_compatibility_without_a_user_question(self):
+        current, review, changed, changes = fixture(compatibility=True)
+        self.admit(current, review)
+        lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+        contract = current["goal_contract"]
+        self.assertIn(AFTER, contract["body"]["required_behaviors"])
+        self.assertEqual("draft", contract["approval_status"])
+        self.assertEqual(["C3"], contract["declared_changes"][0]["review_concerns"])
+        self.assertEqual([], contract["body"]["open_blocking_questions"])
+
+    def test_compatibility_receipt_refuses_approved_requirements_and_uncited_draft_rows(self):
+        for report in ({"required_behaviors": [BEFORE]}, {"required_behaviors": []}):
+            with self.subTest(report=report):
+                current, review, _, _ = fixture(compatibility=True)
+                current["requirements_handoff"] = {"report": report}
+                if report["required_behaviors"]:
+                    current.setdefault("workflow", {})["requirements_approved"] = True
+                review["concerns"][0][correction.FIELD]["snapshot"] = correction.snapshot(current)
+                with self.assertRaisesRegex(ValueError, "protected human or dual-owned text"):
+                    self.admit(current, review)
 
     def test_legacy_concern_still_refuses_the_original_unbacked_change(self):
         current, review, changed, changes = fixture()
@@ -164,7 +231,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             request = planner.prepare(current, "glm_revise", Path(temp) / "state.json", None)
         self.assertIn("independently permitted draft corrections", request.prompt)
-        self.assertIn("The failure receipt itself grants no authority over adjacent criteria", request.prompt)
+        self.assertIn("The receipt itself grants no authority over adjacent criteria", request.prompt)
 
     def test_saved_revision_composes_independent_assumption_update_and_exact_receipt(self):
         current, review, changed, changes = fixture(interpretation=True)

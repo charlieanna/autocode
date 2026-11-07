@@ -291,6 +291,18 @@ WEEKS_REASONS = {
 }
 
 
+def _killed_capture(proof, path, digest, line):
+    mutation = (proof.get("changed_code_inputs") or {}).get("mutation") or {}
+    return [
+        ref
+        for file in mutation.get("files", [])
+        if file.get("path") == path and file.get("sha256") == digest
+        for mutant in file.get("mutants", [])
+        if mutant.get("outcome") == "killed" and mutant.get("line") == line
+        for ref in mutant.get("evidence", [])
+    ][:1]
+
+
 def _weeks(data, root):
     """bugfix-iso-weeks: the reference fix's ISO lookup line has no mutation site; its tests observe it."""
     proof = data.get("regression_proof") or {}
@@ -307,6 +319,7 @@ def _weeks(data, root):
     if not proof.get("path"):
         return []
     lines, accepted = source.decode().splitlines(), []
+    capture = _killed_capture(proof, "timesheet/weeks.py", digest, lines.index("    return iso.year, iso.week") + 1)
     for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
         line = row.get("line")
         if (
@@ -325,7 +338,7 @@ def _weeks(data, root):
                     "decision": "accept",
                     "reason_kind": "instrumentation_unavailable",
                     "reason": reason,
-                    "evidence_refs": [proof["path"], "timesheet/weeks.py"],
+                    "evidence_refs": [proof["path"], "timesheet/weeks.py", *capture],
                 }
             )
     return accepted
@@ -821,6 +834,11 @@ def _greeting(data, root):
     if inputs == GREETING_ACCEPTS_EMPTY_NAME:
         reasons.update(GREETING_ACCEPTS_EMPTY_NAME_REASONS)
     lines, accepted = source.decode().splitlines(), []
+    capture = (
+        _killed_capture(proof, "greet.py", digest, lines.index('    return f"Hello, {name}"') + 1)
+        if inputs == GREETING_REFERENCE
+        else []
+    )
     for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
         line = row.get("line")
         if (
@@ -839,7 +857,11 @@ def _greeting(data, root):
                     "decision": "accept",
                     "reason_kind": "instrumentation_unavailable",
                     "reason": reason,
-                    "evidence_refs": [proof["path"], "greet.py"],
+                    "evidence_refs": [
+                        proof["path"],
+                        "greet.py",
+                        *(capture if lines[line - 1].strip() == "print(greet(argv[0]))" else []),
+                    ],
                 }
             )
     return accepted

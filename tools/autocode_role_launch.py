@@ -23,7 +23,9 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_agent_env as agent_env
+    from . import autocode_changed_code_evidence as changed_code_evidence
     from . import autocode_classification_recovery as classification_recovery
+    from . import autocode_draft_failure_correction as failure_correction
     from . import autocode_format_correction as format_correction
     from . import autocode_job_failure as job_failure
     from . import autocode_output_cap as output_cap
@@ -45,7 +47,9 @@ try:
     from . import autocode_visual_runtime as visual_runtime
 except ImportError:
     import autocode_agent_env as agent_env
+    import autocode_changed_code_evidence as changed_code_evidence
     import autocode_classification_recovery as classification_recovery
+    import autocode_draft_failure_correction as failure_correction
     import autocode_format_correction as format_correction
     import autocode_job_failure as job_failure
     import autocode_output_cap as output_cap
@@ -82,9 +86,14 @@ def native_environment(state: RunState, workspace, events, adapter, output, befo
     return environment, capture
 
 
+def changed_code_proof(state: RunState):
+    """The current changed-line proof's identity, for replay to rebind a recorded Tester's gap ids (#2500)."""
+    return changed_code_evidence.replay_identity(state.get("regression_proof"))
+
+
 def replay_context(state: RunState, *, stage, iteration, report_only, original_stage, changed_code_proof):
     """What replay needs to match this launch to its recorded answer (docs/replay.md)."""
-    return {
+    context = {
         "stage": stage,
         "iteration": iteration,
         "turn": len(state.get("turns") or []) + 1,
@@ -98,6 +107,11 @@ def replay_context(state: RunState, *, stage, iteration, report_only, original_s
         "changed_code_proof": changed_code_proof,
         "regression_proof_path": (state.get("regression_proof") or {}).get("path"),
     }
+    if (original_stage if report_only else stage) == "astra_challenge":
+        draft_snapshot = failure_correction.snapshot(state)
+        if draft_snapshot is not None:
+            context["draft_inference_snapshot"] = draft_snapshot
+    return context
 
 
 def prepare_visual(

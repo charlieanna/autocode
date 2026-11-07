@@ -372,13 +372,7 @@ def reject_completed_stage(state: RunState, run_dir, record, error):
     raise support.Paused(status, message)
 
 
-def _changed_code_proof(state: RunState):
-    """The current changed-line proof's identity, for replay to rebind a recorded Tester's gap ids (#2500)."""
-    assessment = (state.get("regression_proof") or {}).get("changed_code_evidence") or {}
-    revision, context = assessment.get("source_revision"), assessment.get("proof_context")
-    if isinstance(revision, str) and isinstance(context, str) and revision and context:
-        return {"source_revision": revision, "proof_context": context}
-    return None
+_changed_code_proof = role_launch.changed_code_proof
 
 
 def run_role(
@@ -1073,15 +1067,21 @@ def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
     original_source, rejected_source = report_repair_context.sources(pending, repair_report_source)
     for source in (original_source, rejected_source):
         pending["pins"].setdefault(source["path"], source["sha256"])
+    repair_schema = support.read(Path(original["schema"]))
     context_instruction, context_handoff = report_repair_context.prompt_parts(
-        state, pending, original_source, rejected_source, receipt_repair_context.prompt_parts(pending)
+        state,
+        pending,
+        original_source,
+        rejected_source,
+        receipt_repair_context.prompt_parts(pending),
+        schema=repair_schema,
     )
     prompt = (
         prompts.get("fragments/autocode/execute-report-repair-15.md")
         + repair_report_instruction(pending)
         + prompts.get("fragments/autocode/execute-report-repair-14.md")
         + report_repair_context.baseline_instruction(original["stage"])
-        + planning.repair_rules(original["stage"], (repair_schema := support.read(Path(original["schema"]))))
+        + planning.repair_rules(original["stage"], repair_schema)
         + prompts.get("fragments/autocode/execute-report-repair-13.md")
         + stuck_repair_context.evidence_instruction(original["stage"])
         + prompts.get("fragments/autocode/execute-report-repair-12.md")

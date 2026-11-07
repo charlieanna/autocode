@@ -1278,7 +1278,16 @@ class PromptTests(unittest.TestCase):
         state.pop("investigation")
         with patch.object(test_cases, "contract_cases", return_value=[{"id": "C2", "text": "x"}]):
             prompt = common.execution_request(state, "terra", state_path, schemas).prompt
-        self.assertIn("TESTS NAMED IN THE PLAN", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
+        instruction = " ".join(prompt.split("\nCURRENT HANDOFF DATA\n")[0].split())
+        self.assertIn("TESTS NAMED IN THE PLAN", instruction)
+        self.assertIn("The runner checks fail-first tests and base guards in a separate checkout", instruction)
+        self.assertIn(
+            "If the approved plan requires your own fail-first run, write and run the new tests first", instruction
+        )
+        self.assertIn("keep the fix applied after you make it", instruction)
+        self.assertIn("Use the existing fail-first receipt for guards it already ran", instruction)
+        self.assertIn("Reuse a passing candidate check when its command and inputs are unchanged", instruction)
+        self.assertIn("Rerun after a relevant change, failure, or required repetition", instruction)
 
 
 if __name__ == "__main__":

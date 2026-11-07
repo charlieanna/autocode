@@ -11,15 +11,18 @@ delta inside its contract reference (#1991).
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_contract_identity as identity
     from . import autocode_plan_revision_reference as revision_reference
     from . import autocode_util as util
 except ImportError:
+    import autocode_contract_identity as identity
     import autocode_plan_revision_reference as revision_reference
     import autocode_util as util
 
@@ -27,6 +30,17 @@ except ImportError:
 # artifact protocol; changing that protocol is outside this fix.
 AUTHORS = {"astra_discovery", "glm_revise", "astra_finalize"}
 FINAL = {"astra_finalize"}
+REVIEWED_EXAMPLES_RULE = """
+FINAL EXAMPLE CHECK. prior_review_examples supplies the accepted first Plan Reviewer's
+observations from unchanged source. For a listed criterion, compare its current
+example against the earlier exact result when the recorded inputs and rule match.
+Use that comparison to check the example without repeating the same computation.
+Recompute changed examples and any result the earlier report does not establish
+exactly. A blanket statement that examples passed is insufficient. Still audit
+every concern, revised failure case, test selector, changed implementation detail
+and obligation in the exact current plan. These observations grant no approval
+or execution evidence.
+"""
 RULE = """
 RETAIN VALIDATED TEXT. retained_criteria lists hash-bound references to the current
 contract's criteria. For an unchanged criterion, return that reference object in
@@ -131,13 +145,14 @@ def model_schema(schema, state: RunState, stage):
     body = result["properties"]["contract"]
     criteria = body["properties"]["acceptance_criteria"]
     full_row = copy.deepcopy(criteria["items"])
-    reference: dict = {
-        "type": "object",
-        "properties": {"retain_criterion": {"type": "string"}, "sha256": {"type": "string"}},
-        "required": ["retain_criterion", "sha256"],
-        "additionalProperties": False,
-    }
-    criteria["items"] = {"anyOf": [reference, criteria["items"]]}
+    if stage == "astra_discovery":
+        row_reference = {
+            "type": "object",
+            "properties": {"retain_criterion": {"type": "string"}, "sha256": {"type": "string"}},
+            "required": ["retain_criterion", "sha256"],
+            "additionalProperties": False,
+        }
+        criteria["items"] = {"anyOf": [row_reference, criteria["items"]]}
     delta = {
         "type": "object",
         "properties": {
@@ -162,7 +177,7 @@ def model_schema(schema, state: RunState, stage):
     if stage in FINAL:
         # The final reviewer corrects acceptance criteria only, and only as a delta on the
         # retained contract (#1991); the rest of the plan stays the Planner's to revise.
-        reference = {
+        reference: dict[str, Any] = {
             "type": "object",
             "properties": {"retain_contract": {"type": "string"}, "acceptance_criteria": delta},
             "required": ["retain_contract"],
@@ -194,6 +209,18 @@ def _delta_offers(schema):
 def allows_delta(schema):
     """A repair must obey its pinned generation schema, including older array-only reports."""
     return any("retain_from" in offer for offer in _delta_offers(schema))
+
+
+def allows_row_references(schema):
+    """Keep the instructions for an older attempt whose pinned schema offered row references."""
+    body = schema.get("properties", {}).get("contract", {})
+    for contract in body.get("anyOf", [body]):
+        criteria = contract.get("properties", {}).get("acceptance_criteria", {})
+        for branch in criteria.get("anyOf", [criteria]):
+            items = branch.get("items", {})
+            if any("retain_criterion" in row.get("properties", {}) for row in items.get("anyOf", [items])):
+                return True
+    return False
 
 
 def delta_rule(schema=None):
@@ -282,6 +309,95 @@ def validated_trace(state: RunState):
         return None
     trace = report.get("requirement_trace")
     return copy.deepcopy(trace) if isinstance(trace, list) else None
+
+
+def _example_scope_matches(before, after):
+    """A guard addition may extend both bindings and their implementation description."""
+    changed = {k for k in before.keys() | after.keys() if before.get(k) != after.get(k)}
+    changed -= {"acceptance_criteria", "important_failure_cases"}
+    if not changed:
+        return True
+    if not changed <= {"milestones", "initial_task", "technical_approach"} or len(before.get("milestones") or []) != 1:
+        return False
+
+    prior_ids = {row["id"] for row in before["acceptance_criteria"]}
+    current_ids = {row["id"] for row in after["acceptance_criteria"]}
+    added = [row for row in after["acceptance_criteria"] if row["id"] not in prior_ids]
+    if (
+        not added
+        or not prior_ids <= current_ids
+        or any(not row["verification_method"].startswith("guard: ") for row in added)
+    ):
+        return False
+
+    guard_ids = [row["id"] for row in added]
+    for old, new in (
+        (before["milestones"][0], after["milestones"][0]),
+        (before.get("initial_task") or {}, after.get("initial_task") or {}),
+    ):
+        if new != {
+            **old,
+            "objective": new.get("objective"),
+            "acceptance_criteria": [*(old.get("acceptance_criteria") or []), *guard_ids],
+        }:
+            return False
+    return True
+
+
+def prior_review_examples(state: RunState, route: str, snapshot_revision: Callable[[], str]) -> dict | None:
+    """Carry only accepted reviewer prose for unchanged examples in the first bugfix revision."""
+    current = state.get("goal_contract") or {}
+    history = state.get("contract_history") or []
+    if (
+        len(history) != 1
+        or current.get("origin") != "glm_revise"
+        or current.get("revision") != 2
+        or state.get("user_events")
+        or state.get("answers")
+        or state.get("brief_feedback")
+        or not current.get("task_id")
+    ):
+        return None
+    prior = history[0]
+    before, after = prior.get("body") or {}, current.get("body") or {}
+    if (
+        prior.get("revision") != 1
+        or prior.get("task_id") != current["task_id"]
+        or any(draft.get("approval_status") != "draft" or draft.get("approval_event") for draft in (prior, current))
+        or not all(identity.sealed(draft) for draft in (prior, current))
+        or after.get("task_kind") != "bugfix"
+        or len(after.get("milestones") or []) != 1
+        or not _example_scope_matches(before, after)
+    ):
+        return None
+    entry = ((state.get("planning") or {}).get("reports") or {}).get("astra_challenge") or {}
+    summary = (entry.get("report") or {}).get("summary")
+    if not entry.get("output") or not isinstance(summary, str) or not 0 < len(summary) <= 4096:
+        return None
+    old_rows = {row["id"]: row for row in before["acceptance_criteria"]}
+    unchanged = [
+        row["id"]
+        for row in after["acceptance_criteria"]
+        if (old := old_rows.get(row["id"])) and row == {**old, "verification_method": row["verification_method"]}
+    ]
+    if not unchanged:
+        return None
+    for record in reversed(state.get("stages") or []):
+        if (
+            record.get("stage") == "astra_challenge"
+            and record.get("output") == entry["output"]
+            and record.get("contract_hash") == prior["hash"]
+            and record.get("iteration") == state.get("iteration")
+            and record.get("route_role") == route
+            and record.get("exit_code") == 0
+            and record.get("finished_at")
+            and record.get("changed_files") == []
+            and not any(record.get(key) for key in ("abandoned", "rejected", "interrupted", "timed_out"))
+        ):
+            revision = record.get("source_revision")
+            if revision and revision == snapshot_revision():
+                return {"unchanged_example_ids": unchanged, "source_revision": revision, "summary": summary}
+    return None
 
 
 def expand(state: RunState, stage, value):

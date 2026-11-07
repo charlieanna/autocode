@@ -191,15 +191,14 @@ class SavedRunReplayCliTest(unittest.TestCase):
         self.assertFalse(marker.exists(), "offline replay invoked a live provider")
         self.assertEqual(original, evidence_bytes(task.run_dir))
 
-    def test_completed_fake_run_replays_with_real_checks_and_preserves_original_evidence(self):
-        root = self.root
+    def run_reference(self, scenario_id):
         args = SimpleNamespace(
             provider=None,
             hybrid=False,
             fake=True,
             fake_solution="reference",
             profile=None,
-            out=root / "original",
+            out=self.root / "original",
             autocode=[sys.executable, str(ROOT / "tools/autocode.py")],
             max_steps=None,
             timeout_minutes=None,
@@ -208,11 +207,36 @@ class SavedRunReplayCliTest(unittest.TestCase):
             max_iterations=None,
             i_authorize_live_model_spend=False,
         )
-        scenario = scenario_runner.catalog.load("greenfield-greeting-cli")
+        scenario = scenario_runner.catalog.load(scenario_id)
         initial = scenario_runner.run_one(scenario, args, extra_flags=("--max-parallel-builders", "1"))
         self.assertEqual(initial["verdict"], "PASS", initial.get("summary"))
         self.assertEqual(initial["runner_status"], "TASK_COMPLETE")
-        source = Path(initial["run_dir"])
+        return scenario, Path(initial["run_dir"])
+
+    def test_iso_week_fix_authenticates_the_testers_mutation_citation(self):
+        _, source = self.run_reference("bugfix-iso-weeks")
+        status = subprocess.run(
+            [sys.executable, str(ROOT / "tools/autocode.py"), "--run-dir", str(source), "--status"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, status.returncode, status.stderr)
+        view = json.loads(status.stdout)["view"]
+        evidence = view["verification"]["changed_code_evidence"]
+        self.assertTrue(
+            any(
+                "/mutation-check/" in ref
+                for obligation in evidence["obligations"]
+                for ref in (obligation.get("exception") or {}).get("evidence", [])
+            ),
+            "the fixture must actually cite a killed mutant capture",
+        )
+        self.assertFalse(any(row["report_only"] for row in view["usage"]["accounting"]["attempts"]))
+
+    def test_completed_fake_run_replays_with_real_checks_and_preserves_original_evidence(self):
+        root = self.root
+        scenario, source = self.run_reference("greenfield-greeting-cli")
         original = evidence_bytes(source)
         command = [sys.executable, str(ROOT / "tools/autocode.py"), "replay"]
         exported = subprocess.run(
@@ -224,7 +248,15 @@ class SavedRunReplayCliTest(unittest.TestCase):
         (root / "exported-stdout.json").write_text(exported.stdout)
         (root / "exported-stderr.log").write_text(exported.stderr)
         self.assertEqual(exported.returncode, 0, exported.stderr)
-        self.assertTrue(Path(json.loads(exported.stdout)["manifest"]).is_file())
+        document = json.loads(Path(json.loads(exported.stdout)["manifest"]).read_text())
+        self.assertTrue(
+            any(
+                binding["symbol"] == "mutation_capture"
+                for dispatch in document["dispatches"]
+                for binding in dispatch["bindings"]
+            ),
+            "the recording must include a mutation citation to exercise fresh-path rebinding",
+        )
         # A bug-report bundle of the run carries the same recording, and it is the one replayed below (#716).
         bundled = subprocess.run(
             [sys.executable, str(ROOT / "tools/autocode.py"), "bundle", str(source), "--out", str(root / "run.tar.gz")]

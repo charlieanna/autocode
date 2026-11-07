@@ -446,6 +446,10 @@ class HandoffTests(unittest.TestCase):
                 self.assertNotIn("MUTATION CHECK:", self.prompt(self.state({}), stage))
         self.assertEqual("", regression.mutation_note({"mutation_check": None}))
         self.assertEqual("", regression.mutation_note(None))
+        self.assertIn(
+            "Reserve mutation proof for the runner's authenticated mutation receipts",
+            regression.mutation_note({"changed_code_evidence": {}}),
+        )
 
     def test_the_status_view_shows_the_record_beside_diff_coverage(self):
         state = self.state({"C2": [SURVIVOR]})
@@ -516,6 +520,16 @@ class ProofTests(unittest.TestCase):
         self.assertEqual("PASS", proof["changed_code_evidence"]["status"], proof["changed_code_evidence"])
         self.assertEqual(source, (self.root / "calc.py").read_text())
         self.assertFalse((self.root / "suite-result.json").exists(), "checks stay in owned scratch trees")
+
+    def test_named_tests_kill_the_tuple_assignment_mutant_on_the_changed_line(self):
+        source = "def limit(n):\n    capped, original = min(n, 10), n\n    return capped\n"
+        (self.root / "calc.py").write_text(source)
+        proof = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual("PASS", proof["changed_code_evidence"]["status"], proof["changed_code_evidence"])
+        rows = [row for file in proof["mutation_check"]["files"] for row in file["mutants"]]
+        self.assertIn((2, "swap_tuple_assignment", "killed"), [(r["line"], r["operator"], r["outcome"]) for r in rows])
+        self.assertEqual(source, (self.root / "calc.py").read_text())
 
     def test_test_writes_cannot_change_a_delivered_input_and_keep_line_authority(self):
         self.state["investigation"]["test_cases"][0]["then"] = "returns 9"

@@ -70,6 +70,8 @@ class ReviewSourceTests(unittest.TestCase):
         self.assertEqual("# exact\r\nvalue = 'café'  \n", result["files"][0]["content"])
         self.assertEqual(current["revision"], result["source_revision"])
         self.assertEqual(current["head"], result["git_head"])
+        self.assertIn("Use the attached content and hashes for these exact files", result["instruction"])
+        self.assertIn("recompute hashes to resolve a specific discrepancy", result["instruction"])
         self.assertIn("not an inference from HEAD", result["instruction"])
         self.assertIn("independently execute all required checks", result["instruction"])
         self.assertEqual(before, (state, current))

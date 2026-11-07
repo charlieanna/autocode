@@ -236,6 +236,7 @@ def prepare(
     current = recording.verify_source(tape, row["before"], workspace)
     if tape.document["snapshots"][row["before"]] != tape.document["snapshots"][row["after"]] and not allow_write:
         raise recording.RecordingError("Recording has source writes in a read-only dispatch")
+    changed_code = context.get("changed_code_proof") or {}
     symbols = {
         "workspace": str(Path(workspace)),
         "run_dir": str(Path(run_dir)),
@@ -248,6 +249,11 @@ def prepare(
         "capture_nonce": None,
         "changed_code_gap": context.get("changed_code_proof"),
         "regression_proof": context.get("regression_proof_path"),
+        "draft_inference_snapshot": context.get("draft_inference_snapshot"),
+        "mutation_capture": {
+            "citations": changed_code.get("mutation_citations", {}),
+            "archive": changed_code.get("mutation_archive"),
+        },
     }
     if any(binding.get("symbol") == "retained_contract" for binding in row["bindings"]):
         symbols["retained_contract"] = retained_contract_symbol(schema, context.get("contract_hash"))

@@ -532,6 +532,9 @@ class CriterionSelfCheckRuleTests(EpisodeCase):
                 prompt = self.prompt(stage)
                 self.assertIn(self.SELF_CHECK, prompt)
                 self.assertIn("its examples must agree with each other and with its own rule", prompt)
+                self.assertIn("Keep a worked example's exact inputs and results in its acceptance criterion", prompt)
+                self.assertIn("refer to its criterion ID instead of retyping the values", prompt)
+                self.assertIn("Keep every distinct failure mode and every literal the person supplied", prompt)
                 self.assertIn("never state the boundary both ways", prompt)
                 # The Planner corrects its own draft wording when it keeps every request quote; the
                 # numeric stdout correction (DRAFT EXAMPLE CORRECTIONS) still needs no question either.

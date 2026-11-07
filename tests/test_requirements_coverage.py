@@ -157,6 +157,21 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(["- You must retain drafts."], packet["requirement_coverage_checklist"])
         self.assertIsNone(packet["goal_contract"])
 
+    def test_bugfix_requirements_separate_compatibility_from_observed_values(self):
+        state = {
+            "task": "Fix the weekly timesheet report: dates around New Year get the wrong week. "
+            "Keep the CLI and output format.",
+            "workspace": "/fixture",
+            "settings": {"engine": "codex", "joint_planning": True, "roles": {"requirements": {}}},
+        }
+        prompt, _ = autoplanner.context(state, "requirements_gather", Path("/fixture/state.json"))
+        instruction, raw = prompt.split("CURRENT HANDOFF DATA\n", 1)
+        self.assertIn("separate compatibility promises from values computed by the faulty code", instruction)
+        self.assertIn("Keep a passing example scoped to that example", instruction)
+        self.assertIn("Do not promote an unverified observation to required_behaviors", " ".join(instruction.split()))
+        self.assertIn("Retain explicit preservation requirements", instruction)
+        self.assertEqual(state["task"], json.loads(raw)["task"])
+
     def follow_up(self, workflow="design"):
         earlier = "Write only `docs/decisions/cache.json`; do not write code."
         old = {

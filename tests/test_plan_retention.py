@@ -3,10 +3,13 @@
 import copy
 import json
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import autocode_contract_revision as revision
 import autocode_plan_retention as retention
 import autocode_planning_cycle as cycle
+from autocode_util import digest
 from units import autoplanner as planner
 
 
@@ -19,6 +22,7 @@ class PlanRetentionTests(unittest.TestCase):
             "human_review": False,
             "sources": [{"source_id": "task:0", "quote": "Preserve bytes."}],
         }
+
         body = {
             "acceptance_criteria": [row],
             "permission_boundaries": ["No network"],
@@ -48,6 +52,148 @@ class PlanRetentionTests(unittest.TestCase):
                 }
             },
         }
+
+    def reviewed_state(self, *, added_guard=False):
+        state = self.state()
+        draft = state["goal_contract"]
+        draft.update(task_id="small-fix", revision=1, approval_status="draft", origin="glm_draft")
+        body = draft["body"]
+        body.update(
+            task_kind="bugfix",
+            milestones=[
+                {
+                    "id": "M1",
+                    "objective": "Fix the bug",
+                    "acceptance_criteria": ["AC8", "AC9"],
+                    "affected_paths": ["todos.py"],
+                    "depends_on": [],
+                }
+            ],
+            initial_task={
+                "milestone_id": "M1",
+                "objective": "Fix the bug",
+                "acceptance_criteria": ["AC8", "AC9"],
+                "affected_paths": ["todos.py"],
+                "validation_plan": ["python3 -m unittest"],
+            },
+            technical_approach=["Fix the bug and test it"],
+        )
+        body["acceptance_criteria"].append(
+            {**body["acceptance_criteria"][0], "id": "AC9", "current_behavior": "Old count: 3"}
+        )
+        draft["hash"] = digest({k: draft[k] for k in ("task_id", "revision", "body")})
+        revised = copy.deepcopy(draft)
+        revised.update(revision=2, origin="glm_revise")
+        revised["body"]["acceptance_criteria"][0]["verification_method"] = "guard: test_ac8_bad_usage"
+        if added_guard:
+            revised_body = revised["body"]
+            revised_body["acceptance_criteria"].append(
+                {
+                    **body["acceptance_criteria"][0],
+                    "id": "AC10",
+                    "criterion": "Given an empty list, print an empty report.",
+                    "verification_method": "guard: test_empty",
+                }
+            )
+            for binding in (revised_body["initial_task"], revised_body["milestones"][0]):
+                binding["acceptance_criteria"].append("AC10")
+                binding["objective"] += " and retain the empty report test"
+            revised_body["technical_approach"] = ["Fix the bug, test it, and retain the empty report test"]
+        else:
+            revised["body"]["acceptance_criteria"][1]["current_behavior"] = "Old count: 4"
+        revised["hash"] = digest({k: revised[k] for k in ("task_id", "revision", "body")})
+        state.update(goal_contract=revised, contract_history=[draft], iteration=1)
+        state["planning"]["reports"]["astra_challenge"] = {
+            "output": "accepted-review.json",
+            "report": {"summary": "AC8: run with ID 1, output bytes unchanged."},
+        }
+        state["stages"] = [
+            {
+                "stage": "astra_challenge",
+                "iteration": 1,
+                "contract_hash": draft["hash"],
+                "source_revision": "source-1",
+                "route_role": "plan_reviewer",
+                "changed_files": [],
+                "exit_code": 0,
+                "finished_at": "2026-11-06T00:00:00Z",
+                "output": "accepted-review.json",
+            }
+        ]
+        return state
+
+    def test_final_example_context_reuses_only_unchanged_examples_on_the_same_source(self):
+        state = self.reviewed_state()
+        before = copy.deepcopy(state)
+        result = retention.prior_review_examples(state, "plan_reviewer", lambda: "source-1")
+        self.assertEqual(["AC8"], result["unchanged_example_ids"])
+        self.assertEqual("AC8: run with ID 1, output bytes unchanged.", result["summary"])
+        self.assertEqual("source-1", result["source_revision"])
+        self.assertEqual(before, state)
+        self.assertIsNone(retention.prior_review_examples(state, "plan_reviewer", lambda: "source-2"))
+        self.assertIsNone(retention.prior_review_examples(state, "different_route", lambda: "source-1"))
+
+    def test_a_stale_or_rejected_review_cannot_supply_reusable_examples(self):
+        for field, value in (
+            ("contract_hash", "earlier-draft"),
+            ("output", "rejected-review.json"),
+            ("iteration", 2),
+            ("rejected", True),
+            ("changed_files", ["todos.py"]),
+        ):
+            with self.subTest(field=field):
+                state = self.reviewed_state()
+                state["stages"][0][field] = value
+                self.assertIsNone(retention.prior_review_examples(state, "plan_reviewer", lambda: "source-1"))
+        state = self.reviewed_state()
+        state["goal_contract"]["body"]["constraints"] = ["New rule"]
+        draft = state["goal_contract"]
+        draft["hash"] = digest({k: draft[k] for k in ("task_id", "revision", "body")})
+        self.assertIsNone(retention.prior_review_examples(state, "plan_reviewer", lambda: "source-1"))
+
+    def test_adding_a_guard_keeps_only_earlier_examples_eligible_for_reuse(self):
+        state = self.reviewed_state(added_guard=True)
+        result = retention.prior_review_examples(state, "plan_reviewer", lambda: "source-1")
+        self.assertEqual(["AC8", "AC9"], result["unchanged_example_ids"])
+
+    def test_guard_reuse_refuses_a_change_to_scope_binding_or_test_kind(self):
+        for kind in ("path", "command", "removed_binding", "fail_first"):
+            state = self.reviewed_state(added_guard=True)
+            draft = state["goal_contract"]
+            body = draft["body"]
+            if kind == "path":
+                body["milestones"][0]["affected_paths"].append("unrelated.py")
+            elif kind == "command":
+                body["initial_task"]["validation_plan"] = ["echo passed"]
+            elif kind == "removed_binding":
+                body["initial_task"]["acceptance_criteria"].remove("AC8")
+            else:
+                body["acceptance_criteria"][-1]["verification_method"] = "test: test_empty"
+            draft["hash"] = digest({k: draft[k] for k in ("task_id", "revision", "body")})
+            with self.subTest(kind=kind):
+                self.assertIsNone(retention.prior_review_examples(state, "plan_reviewer", lambda: "source-1"))
+
+    def test_final_prompt_carries_current_observations_and_keeps_the_full_review(self):
+        state = self.reviewed_state()
+        state.update(
+            task="Fix the week",
+            workspace="/tmp",
+            version=2,
+            settings={"joint_planning": True, "roles": {"plan_reviewer": {"model": "review-model", "engine": "codex"}}},
+            acceptance_criteria=[],
+        )
+        for source_revision in ("source-1", "stale"):
+            with patch.object(
+                planner.stage_context.source_scope, "snapshot", return_value={"revision": source_revision}
+            ):
+                prompt, _ = planner.context(state, "astra_finalize", Path("/tmp/run/state.json"))
+            packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            self.assertIn("CHECK EVERY WORKED EXAMPLE", prompt)
+            self.assertEqual(source_revision == "source-1", "prior_review_examples" in packet)
+            self.assertEqual(source_revision == "source-1", "Recompute changed examples" in prompt)
+            if source_revision == "source-1":
+                self.assertEqual(["AC8"], packet["prior_review_examples"]["unchanged_example_ids"])
+                self.assertNotIn("summary", packet["planning"]["reports"]["astra_challenge"]["report"])
 
     def test_inherited_row_is_exact_and_still_passes_protected_revision_guard(self):
         state = self.state()
@@ -208,7 +354,28 @@ class PlanRetentionTests(unittest.TestCase):
             self.assertEqual(criteria["items"], delta["properties"]["upsert"]["items"])
             self.assertEqual({"retain_from", "upsert", "remove"}, set(delta["required"]))
             self.assertEqual("array", options[0]["type"])
+            self.assertEqual(stage == "astra_discovery", retention.allows_row_references(schema))
+            if stage == "glm_revise":
+                self.assertEqual(criteria["items"], options[0]["items"])
+                self.assertNotIn("retain_criterion", json.dumps(schema))
+            else:
+                self.assertIn("retain_criterion", json.dumps(options[0]["items"]))
         self.assertEqual(planner.SCHEMAS["glm_revise"], source)
+
+    def test_planner_revision_prompt_copies_one_contract_reference_instead_of_row_hashes(self):
+        state = self.state()
+        state.update(
+            task="Fix the report",
+            workspace="/tmp",
+            version=2,
+            settings={"joint_planning": True, "roles": {"glm": {"model": "fixture", "engine": "codex"}}},
+        )
+        prompt, _ = planner.context(state, "glm_revise", Path("/tmp/run/state.json"))
+        packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(retention.token(state), packet["retained_contract"])
+        self.assertNotIn("retained_criteria", packet)
+        self.assertNotIn(retention.RULE, prompt)
+        self.assertIn(retention.DELTA_RULE, prompt)
 
     def test_final_review_retains_exact_plan_and_validated_trace_without_approval(self):
         state = self.state()

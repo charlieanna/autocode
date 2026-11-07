@@ -193,7 +193,7 @@ MAX_ASSIGNED_TESTS = 200
 MAX_ASSIGNED_BYTES = 32_000
 
 
-def context(settings, affected_paths=(), state: RunState | None = None):
+def context(settings, affected_paths=(), state: RunState | None = None, *, current=None):
     record = settings.get("protected_tests")
     if not record or not record["files"]:
         return None
@@ -219,6 +219,20 @@ def context(settings, affected_paths=(), state: RunState | None = None):
     if len(assigned) < len(matching):
         result |= {"assigned_total": len(matching), "assigned_omitted": len(matching) - len(assigned)}
         instruction += "\n\n" + prompts.get("fragments/protected-oracles/omitted.md")
+    if current and current.get("revision"):
+        matches = {}
+        for name, original in assigned.items():
+            digest = current["files"].get(name, "").removeprefix("executable:")
+            if "sha256" in original and len(digest) == 64 and all(c in "0123456789abcdef" for c in digest):
+                matches[name] = digest == original["sha256"]
+        if matches:
+            result["content_comparison"] = {"source_revision": current["revision"], "matches_original": matches}
+            instruction += (
+                "\nThe runner compared the retained test bytes with the current source snapshot for the listed files. "
+                "Use that comparison for file contents. Inspect changed assertions in the diff and consult the "
+                "retained original when the diff does not answer a question. This byte comparison does not check modes, "
+                "links or test results. Keep the independent checks and the runner's protected test gate."
+            )
     return result | {"instruction": instruction}
 
 

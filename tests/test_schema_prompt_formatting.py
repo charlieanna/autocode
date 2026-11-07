@@ -158,11 +158,18 @@ class CompactSchemaPromptTests(unittest.TestCase):
         self.assertIn("strict filesystem boundary", prompt)
         self.assertIn("without tools", prompt)
         self.assertIn("missing evidence as a concern", prompt)
+        instruction = " ".join(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0].split())
+        self.assertIn("Use in-memory inputs for file-shaped examples", instruction)
+        self.assertIn("leave the execution to the Tester", instruction)
+        self.assertIn("copy the literal from the current handoff", instruction)
+        self.assertIn("compare the complete strings in one read-only computation", instruction)
 
     def test_a_verdict_report_with_assistant_text_keeps_execution_evidence_rules(self):
         schema = {"properties": {"assistant_reply": {"type": "string"}, "checks": {"type": "array"}}}
         prompt = opencode.prompt_for_schema("Task\nCURRENT HANDOFF DATA\n{}", schema, Path("/run/events.jsonl"))
         self.assertIn("A PASS report", prompt)
+        self.assertIn("submit them together as separate capture tool calls", prompt)
+        self.assertIn("keep a unique receipt for each command", prompt)
 
     def test_schema_prompt_is_compact_and_round_trips_exactly(self):
         path = Path(__file__).resolve().parents[1] / "tools/autocode-schemas/v2/sol-report.schema.json"

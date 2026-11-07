@@ -114,7 +114,10 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         if write_scope:
             base["write_scope"] = write_scope
     protected = protected_oracles.context(
-        state["settings"], (state.get("current_task") or {}).get("affected_paths", []), state
+        state["settings"],
+        (state.get("current_task") or {}).get("affected_paths", []),
+        state,
+        current=current if stage in ("sol", "astra_review", "astra_checkpoint") else None,
     )
     if protected:
         base["protected_tests"] = protected

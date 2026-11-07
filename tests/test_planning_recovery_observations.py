@@ -77,6 +77,27 @@ class RecoveryObservationsTests(unittest.TestCase):
         self.assertIn("not a completed review", retained["instruction"])
         self.assertEqual(original, self.state)
 
+    def test_recovery_references_an_exact_draft_copy_and_keeps_distinct_history(self):
+        current = copy.deepcopy(self.state["goal_contract"]["body"])
+        previous = {**current, "required_behaviors": ["Keep the historical behavior visible to the reviewer."]}
+        reports = {
+            "astra_discovery": {"report": {"contract": current}, "output": "/run/discovery.json"},
+            "glm_revise": {"report": {"contract": previous}, "output": "/run/revision.json"},
+        }
+        self.state["planning"]["reports"] = reports
+        original = copy.deepcopy(self.state)
+        with patch.object(planning.stage_context.source_scope, "snapshot", return_value={"revision": "source-1"}):
+            prompt, _ = planning.context(self.state, "astra_challenge", self.run / "state.json")
+        packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        projected = packet["planning"]["reports"]
+        self.assertEqual({"contract_ref": "#/goal_contract/body"}, projected["astra_discovery"]["report"])
+        self.assertEqual(current, packet["goal_contract"]["body"])
+        self.assertEqual(reports["astra_discovery"]["output"], projected["astra_discovery"]["output"])
+        self.assertEqual(reports["glm_revise"], projected["glm_revise"])
+        self.assertIn("Resolve contract_ref within this handoff", prompt)
+        self.assertIn("retained_review_observations", packet)
+        self.assertEqual(original, self.state)
+
     def retained(self, stage="astra_challenge", revision="source-1"):
         return observations.context(self.state, stage, self.run, revision)
 

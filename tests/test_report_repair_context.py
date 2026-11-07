@@ -15,6 +15,12 @@ from . import test_report_repair as repair_fixtures
 
 
 class ClarificationContextTests(unittest.TestCase):
+    def test_author_repair_without_a_pinned_schema_keeps_legacy_references(self):
+        clarification = {"retained_contract": "r1:" + "a" * 64, "retained_criteria": [{"id": "C1"}]}
+        instruction, references = context.criterion_retention(clarification, "glm_revise")
+        self.assertEqual(retention.RULE, instruction)
+        self.assertEqual(clarification, references)
+
     def test_review_history_is_lossless_without_duplicating_large_evidence(self):
         original = {
             "checks": [{"command": r"python -c 'print(\"\\u00e9\")'", "exit_code": 0}],
@@ -593,6 +599,9 @@ class DecisionRepairContextTests(unittest.TestCase):
                     data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
                     self.assertEqual(retention.token(self.state), data["retained_contract"])
                     self.assertEqual(not legacy, retention.DELTA_RULE in request["prompt"])
+                    if stage == "glm_revise" and not legacy:
+                        self.assertNotIn("retained_criteria", data)
+                        self.assertNotIn(retention.RULE, request["prompt"])
                     self.assertEqual(original_bytes, path.read_bytes())
 
     def test_criterion_author_repairs_receive_exact_current_retention_references(self):

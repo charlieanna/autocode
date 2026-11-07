@@ -1197,8 +1197,13 @@ the finalization report does not propose remediations.
 PROGRESSIVE_POLICY = prompts.get("fragments/autoplanner/progressive-policy.md")
 
 
-def progressive_policy(stage):
+def progressive_policy(stage, state: RunState | None = None):
     """A concern-only review checks proposals; it cannot return one."""
+    if stage == "astra_challenge" and state is not None and progressive.ordinary_initial_draft(state):
+        return (
+            "\nThe saved draft has no progressive proposal. Raise a concern if the proposed milestone is too broad "
+            "to deliver and verify as planned.\n"
+        )
     instruction = (
         prompts.get("fragments/autoplanner/progressive-review-policy.md")
         if stage == "astra_challenge"
@@ -1310,26 +1315,39 @@ def context(state: RunState, stage, state_path):
         predecessor = artifacts.verify_predecessor(state, stage, Path(state_path).parent)
     report_recovery = planning_recovery_policy.active(state, stage)
     exchange: dict = copy.deepcopy(state.get("planning", {}))
+    current_body = (state.get("goal_contract") or {}).get("body")
+    has_contract_ref = False
     for entry in exchange.get("reports", {}).values():
+        report = entry.get("report") or {}
         # Current contract is included once. Older full drafts stay retrievable
         # via the artifact path; every concern, response and decision remains in
         # the handoff because later review stages must account for every ID.
         if not report_recovery:
-            entry["report"].pop("contract", None)
+            report.pop("contract", None)
+        elif (
+            stage == "astra_challenge"
+            and current_body
+            and report.get("contract") == current_body
+            and util.digest(report["contract"]) == util.digest(current_body)
+        ):
+            # A tool-free recovery still needs all distinct historical drafts.
+            del report["contract"]
+            report["contract_ref"] = "#/goal_contract/body"
+            has_contract_ref = True
         # Trim verbose fields from older reports to keep the prompt bounded.
-        report = entry.get("report") or {}
         for key in () if report_recovery else ("code_refs", "alternatives", "uncertainties", "summary"):
             if isinstance(report.get(key), list) and len(report[key]) > 5:
                 report[key] = report[key][:5]
             elif isinstance(report.get(key), str) and len(report[key]) > 500:
                 report[key] = report[key][:500] + "…"
+    route = route_for(state, stage)
     packet = {
         "task": state["task"],
         "workspace": state["workspace"],
         "state_file": str(state_path),
         "joint_planning": True,
         **({"spec_first": True} if stage == "requirements_gather" and state["settings"].get("spec_first") else {}),
-        "execution_engine": engine_for(state["settings"], route_for(state, stage)),
+        "execution_engine": engine_for(state["settings"], route),
         "stage": stage,
         "goal_contract": None if stage == "requirements_gather" else state.get("goal_contract"),
         "requirements_handoff": None if stage == "requirements_gather" else state.get("requirements_handoff"),
@@ -1424,6 +1442,13 @@ def context(state: RunState, stage, state_path):
         retained = recovery_observations.context(state, stage, Path(state_path).parent, current_source["revision"])
         if retained:
             packet["retained_review_observations"] = retained
+    elif stage == "astra_finalize":
+        prior_examples = retention.prior_review_examples(
+            state, route, lambda: stage_context.source_scope.snapshot(Path(state["workspace"]), state)["revision"]
+        )
+        if prior_examples:
+            packet["prior_review_examples"] = prior_examples
+            exchange["reports"]["astra_challenge"]["report"].pop("summary", None)
     if report_recovery:
         try:
             from ..autocode_resolver_runtime import OPERATIONAL_INSTRUCTION
@@ -1435,6 +1460,10 @@ def context(state: RunState, stage, state_path):
             "report_only": True,
         }
         recovery_instruction = "\n" + OPERATIONAL_INSTRUCTION + "\n"
+        if has_contract_ref:
+            recovery_instruction += (
+                "Resolve contract_ref within this handoff. It points to the identical saved draft.\n"
+            )
     if stage in ("astra_challenge", "astra_finalize") and (grants or packet["recovery_context"]):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"], limit=20)
     if stage == "requirements_gather":
@@ -1507,6 +1536,7 @@ def context(state: RunState, stage, state_path):
             "example_criteria": DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE,
             "milestone_handoff": s.MILESTONE_POLICY,
         },
+        contract=packet["goal_contract"],
     )
     packet.update(audit_context)
     compact_final = stage in retention.FINAL and bool(retention.token(state))
@@ -1528,7 +1558,7 @@ def context(state: RunState, stage, state_path):
     if stage != "requirements_gather":
         planning_policy += prompts.get("fragments/autoplanner/proof-reference-rule.md")
     progressive_rule = (
-        progressive_policy(stage)
+        progressive_policy(stage, state)
         if stage
         in (
             "astra_discovery",
@@ -1576,6 +1606,8 @@ def context(state: RunState, stage, state_path):
         design_rule += (
             EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize") else ""
         )
+        if packet.get("prior_review_examples"):
+            design_rule += retention.REVIEWED_EXAMPLES_RULE
         design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         if stage in ("astra_challenge", "astra_finalize"):
             design_rule += stage_context.coordination_context.proxy_rule(state, OUT_OF_CHECKOUT_PROXY_RULE)
@@ -1620,18 +1652,19 @@ def context(state: RunState, stage, state_path):
         rejection_rule = PRIOR_REJECTION_RULE
     retain_rule = ""
     if stage in retention.AUTHORS and retention.token(state):
-        packet["retained_criteria"] = retention.inventory(state)
+        if stage != "glm_revise":
+            packet["retained_criteria"] = retention.inventory(state)
         packet["retained_contract"] = retention.token(state)
         if stage in retention.FINAL:
             # The reference form takes no per-row references; its criteria delta is in the final rule.
             packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
             retention.compact_final_packet(packet)
             retain_rule = retention.final_rule()
+        elif stage == "glm_revise":
+            retain_rule = retention.revision_reference.RULE + retention.delta_rule()
+            packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
         else:
             retain_rule = retention.RULE + retention.delta_rule()
-            if stage == "glm_revise":
-                retain_rule += retention.revision_reference.RULE
-                packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
     progress_rule = (
         prompts.get("fragments/autoplanner/review-progress.md")
         if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")

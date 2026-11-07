@@ -20,6 +20,7 @@ from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_changed_code_evidence as line_evidence
+    from . import autocode_proof_detail as proof_detail
     from . import autocode_replay_bindings as identity_bindings
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_test_cases as test_cases
@@ -27,6 +28,7 @@ try:
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_changed_code_evidence as line_evidence
+    import autocode_proof_detail as proof_detail
     import autocode_replay_bindings as identity_bindings
     import autocode_source_snapshot as source_snapshot
     import autocode_test_cases as test_cases
@@ -102,6 +104,8 @@ SYMBOLS = frozenset(
         "capture_nonce",
         "changed_code_gap",
         "regression_proof",
+        "draft_inference_snapshot",
+        "mutation_capture",
         "retained_contract",
         "gate_message_id",
         "gate_token",
@@ -429,7 +433,7 @@ def validate_bindings(bindings):
         raise RecordingError("Recording bindings must be explicit")
     seen = set()
     for binding in bindings:
-        _object(binding, {"pointer", "symbol", "original_valid"}, {"suffix", "gap"})
+        _object(binding, {"pointer", "symbol", "original_valid"}, {"suffix", "gap", "mutation"})
         pointer = binding["pointer"]
         if (
             not isinstance(pointer, str)
@@ -438,11 +442,16 @@ def validate_bindings(bindings):
             or binding["symbol"] not in SYMBOLS
             or type(binding["original_valid"]) is not bool
             or ("gap" in binding) != (binding["symbol"] == "changed_code_gap")
+            or ("mutation" in binding) != (binding["symbol"] == "mutation_capture")
         ):
             raise RecordingError("Recording binding is invalid")
         seen.add(pointer)
         if binding.get("suffix"):
             relative_path(binding["suffix"])
+        if "mutation" in binding:
+            if "suffix" in binding:
+                raise RecordingError("Recording mutation binding cannot name a path suffix")
+            _hash(binding["mutation"])
         if "gap" in binding:
             gap = binding["gap"]
             _object(gap, {"path", "sha256", "line"})
@@ -489,19 +498,31 @@ def rebind(value, bindings, symbols):
                 raise RecordingError("Recording array pointer is not canonical")
             return int(part)
 
+        replacement = symbols[binding["symbol"]]
+        if "mutation" in binding:
+            available = replacement.get("citations", {}) if isinstance(replacement, dict) else {}
+            matches = [path for path, identity in available.items() if identity == binding["mutation"]]
+            if len(matches) != 1:
+                raise RecordingError("Replay has no unique current capture for the recorded mutation")
+            # Recorded-check simulation has only the owned archived summary.
+            # Its identity still has to match the recorded mutation exactly.
+            replacement = replacement.get("archive") or matches[0]
         owner = result
         try:
             for part in parts[:-1]:
                 owner = owner[index(part)] if isinstance(owner, list) else owner[part]
             key = index(parts[-1]) if isinstance(owner, list) else parts[-1]
             _ = owner[key]
-            replacement = symbols[binding["symbol"]]
             if binding.get("suffix"):
                 replacement = str(Path(replacement) / binding["suffix"])
             if "gap" in binding:
                 replacement = _current_gap(replacement, binding["gap"])
             elif binding["symbol"] == "regression_proof" and not (isinstance(replacement, str) and replacement):
                 raise RecordingError("Replay has no current regression proof for a recorded citation of one")
+            elif binding["symbol"] == "draft_inference_snapshot" and not (
+                isinstance(replacement, str) and re.fullmatch(r"draft-failure-v1:[0-9a-f]{64}", replacement)
+            ):
+                raise RecordingError("Replay has no current draft eligible for the recorded correction")
             owner[key] = replacement
         except (KeyError, IndexError, TypeError, ValueError):
             raise RecordingError("Recording binding does not name an existing field") from None
@@ -873,6 +894,37 @@ def _legacy_summary(run_root, stem, pin):
     return matches[0]
 
 
+def _identity_packet(packet, run_root):
+    """Recover only replay identity inputs from the prompt's pinned, run-owned context."""
+    archive = packet.get("context_artifact") or {}
+    fields = archive.get("fields") if isinstance(archive, dict) else None
+    wanted = {proof_detail.INPUTS, proof_detail.OBLIGATIONS}.intersection(fields if isinstance(fields, dict) else ())
+    if not wanted:
+        return packet
+    try:
+        _hash(archive["sha256"])
+        relative = Path(archive["path"]).relative_to(run_root).as_posix()
+        data = _read(run_root, relative)[0]
+        if hashlib.sha256(data).hexdigest() != archive["sha256"]:
+            raise RecordingError("Recording context artifact changed")
+        saved = _json(data)
+        if not isinstance(saved, dict) or any(field not in saved for field in wanted):
+            raise RecordingError("Recording context artifact lacks replay identity inputs")
+        result = copy.deepcopy(packet)
+        proof = result["regression_proof"]
+        if proof_detail.INPUTS in wanted:
+            if not isinstance(saved[proof_detail.INPUTS], dict):
+                raise RecordingError("Recording context mutation inputs are malformed")
+            proof["changed_code_inputs"] = saved[proof_detail.INPUTS]
+        if proof_detail.OBLIGATIONS in wanted:
+            if not isinstance(saved[proof_detail.OBLIGATIONS], list):
+                raise RecordingError("Recording context changed-line obligations are malformed")
+            proof["changed_code_evidence"]["obligations"] = saved[proof_detail.OBLIGATIONS]
+        return result
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        raise RecordingError("Recording cannot recover pinned context identity inputs") from error
+
+
 def export(projection, destination, secret_values=()):
     """Export a public replay_source projection, recovering every intermediate leaf.
 
@@ -1063,6 +1115,7 @@ def export(projection, destination, secret_values=()):
             source_contexts = [
                 {"revision": util.digest({"head": snap["head"], "files": snap["files"]})} for snap in (before, after)
             ]
+            identities = _identity_packet(packet, run_root)
             row["bindings"] = identity_bindings.bindings(
                 payload,
                 record,
@@ -1070,9 +1123,11 @@ def export(projection, destination, secret_values=()):
                 workspace,
                 run_root,
                 source_contexts,
-                gaps=identity_bindings.changed_line_gaps(packet),
+                gaps=identity_bindings.changed_line_gaps(identities),
                 proof=identity_bindings.proof_path(packet),
                 gate=gate,
+                draft_snapshot=packet.get("draft_failure_correction_snapshot"),
+                mutations=line_evidence.mutation_citations(identities.get("regression_proof")),
             )
         document["dispatches"].append(row)
     revisions = list(dict.fromkeys([*projection["revisions"], *[row["head"] for row in snapshots]]))

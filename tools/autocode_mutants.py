@@ -21,6 +21,8 @@ Operators, each only on a span that touches a changed line:
 * ``constant_assignment``: a bool, number or string literal assigned to a name (``TEXT = "hello"``,
   ``LIMIT: int = 3``) becomes another constant, as ``constant_return`` chooses it. A line whose whole
   behavior is the value it binds has no other site, and a test that reads the value sees the change.
+* ``swap_tuple_assignment``: exchange the first two distinct names of a simple tuple assignment
+  when they share a changed line. Keep the assigned expression and the other targets intact.
 * ``drop_call``: a call made as a statement (``write_plan(...)``, ``sys.exit(2)``, ``await save()``)
   becomes ``None``, so it is never made.
 * ``none_assignment``: any other value assigned to a target (``args = parser.parse_args()``,
@@ -60,6 +62,7 @@ OPERATORS = (
     "constant_return",
     "shift_bound",
     "constant_assignment",
+    "swap_tuple_assignment",
     "drop_call",
     "none_assignment",
     "skip_loop",
@@ -397,6 +400,19 @@ def _sites(tree, body, starts, lines, notes, path):
         ):
             start, end = span(node.iter)
             yield _Site("skip_loop", start, end, _pad(b"()", body[start:end], expression=True), node.iter, None)
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(target := node.targets[0], ast.Tuple)
+            and len(target.elts) >= 2
+            and all(isinstance(element, ast.Name) for element in target.elts)
+        ):
+            first, second = target.elts[:2]
+            if first.id != second.id and first.lineno == second.lineno and _touches(lines, first.lineno, second.lineno):
+                start, first_end = span(first)
+                second_start, end = span(second)
+                replacement = body[second_start:end] + body[first_end:second_start] + body[start:first_end]
+                yield _Site("swap_tuple_assignment", start, end, replacement, target, None)
 
     for node in ast.walk(tree):
         try:
@@ -474,6 +490,8 @@ def _intended(holder, site) -> str:
         setattr(twin, site.detail, [ast.Pass()])
     elif site.operator == "skip_loop":
         _replace(clone, twin, ast.Tuple(elts=[], ctx=ast.Load()))
+    elif site.operator == "swap_tuple_assignment":
+        twin.elts[0], twin.elts[1] = twin.elts[1], twin.elts[0]
     else:
         _replace(clone, twin, ast.Constant(value=site.detail))
     return ast.dump(clone)

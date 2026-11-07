@@ -38,7 +38,17 @@ AFTER_INTERPRETATION = (
 
 
 class DraftFailureCorrectionCliTests(unittest.TestCase):
-    def start(self, *, stale=False, adaptive=False, compose=False, wording=False, adjacent=False, obligations=False):
+    def start(
+        self,
+        *,
+        stale=False,
+        adaptive=False,
+        compose=False,
+        wording=False,
+        adjacent=False,
+        obligations=False,
+        compatibility=False,
+    ):
         workspace, env = fixture_workspace(self)
         (workspace / "pager.py").write_text(
             "def page(items, number, size):\n"
@@ -65,11 +75,22 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
         trace = provider.parent / "draft-failure-trace.jsonl"
         env["DRAFT_FAILURE_TRACE"] = str(trace)
+        field = "required_behaviors" if compatibility else "important_failure_cases"
+        judgment = "unapproved_bugfix_compatibility_inference" if compatibility else "unapproved_model_inference"
+        if compatibility:
+            env["AUTOCODE_FIXTURE_TASK_KIND"] = "bugfix"
         amendment = textwrap.dedent(f"""
             with Path(os.environ["DRAFT_FAILURE_TRACE"]).open("a") as witness:
                 witness.write(json.dumps({{"stage": stage, "repair": repairing, "error": repair_error}}) + "\\n")
-            if stage == "astra_discovery":
-                report["contract"]["important_failure_cases"].append({WRONG!r})
+            if stage == "requirements_gather" and {compatibility!r}:
+                report["required_behaviors"].append({WRONG!r})
+                report["job"] = "bugfix"
+                report["task_kind"] = "bugfix"
+            elif stage == "astra_discovery":
+                if {compatibility!r}:
+                    report["contract"]["task_kind"] = "bugfix"
+                if {WRONG!r} not in report["contract"][{field!r}]:
+                    report["contract"][{field!r}].append({WRONG!r})
                 if {obligations!r}:
                     report["contract"]["accepted_assumptions"].append({{
                         "text": "The unrelated helper retains its existing argument validation",
@@ -78,10 +99,10 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                     feedback = next(row for row in data["brief_feedback"] if row["text"] == {FEEDBACK!r})
                     report["contract"]["accepted_assumptions"].append({{
                         "text": {BEFORE_INTERPRETATION!r}, "basis": "user_feedback", "answer_id": feedback["id"]}})
-            elif stage == "astra_challenge" and ({stale!r} or {WRONG!r} in data.get("goal_contract", {{}}).get("body", {{}}).get("important_failure_cases", [])):
+            elif stage == "astra_challenge" and ({stale!r} or {WRONG!r} in data.get("goal_contract", {{}}).get("body", {{}}).get({field!r}, [])):
                 receipt = {{
                     "snapshot": data.get("draft_failure_correction_snapshot", "missing snapshot"),
-                    "judgment": "unapproved_model_inference",
+                    "judgment": {judgment!r},
                     "before": {WRONG!r}, "after": {CORRECT!r}, "rationale": {RATIONALE!r}}}
                 if {stale!r}:
                     receipt["snapshot"] = "draft-failure-v1:" + "0" * 64
@@ -101,9 +122,9 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                         data.get("draft_failure_adjacent_obligations", {{}}).get("accepted_assumptions", []))
             elif stage == "glm_revise":
                 report["contract"] = copy.deepcopy(data["goal_contract"]["body"])
-                report["contract"]["important_failure_cases"] = [
+                report["contract"][{field!r}] = [
                     {CORRECT!r} if line == {WRONG!r} else line
-                    for line in report["contract"]["important_failure_cases"]]
+                    for line in report["contract"][{field!r}]]
                 report["contract_changes"] = [{{
                     "item": {WRONG!r}, "change": "reworded", "basis": "agent_proposed",
                     "answer_id": "", "replacement": {CORRECT!r}, "example_correction": None}}]
@@ -169,6 +190,21 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
 
     def diagnostic(self, view, trace):
         return json.dumps({"stop_reason": view.get("stop_reason"), "attempts": self.attempts(trace)}, indent=2)
+
+    def test_reviewed_compatibility_correction_reaches_approval_without_redrafting(self):
+        run, view, trace, _ = self.start(compatibility=True)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"], self.diagnostic(view, trace))
+        self.assertEqual("approve_plan", view["needs"]["kind"])
+        shown = run.show_goal()
+        self.assertIn(WRONG + " -> " + CORRECT, shown)
+        self.assertIn("Plan Reviewer concern C3", shown)
+        attempts = self.attempts(trace)
+        planning = {"requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"}
+        self.assertEqual(
+            ["requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"],
+            [row["stage"] for row in attempts if row["stage"] in planning],
+        )
+        self.assertFalse(any(row["repair"] or row["stage"] == "terra" for row in attempts), attempts)
 
     def test_reviewed_correction_requires_final_review_and_exact_public_approval(self):
         run, view, trace, workspace = self.start()
