@@ -13,7 +13,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Testers can run plain approved verification commands as one prepared batch, preserving their order,
   separate fresh capture receipts and existing verification gates. Unsupported shell commands keep
-  individual execution.
+  individual execution. Contained Testers keep receipts in their current writable scratch directory.
 - A run no longer stops to ask you how to route a fix when the approved plan's test command cannot find
   a test it names. A Tester's report cannot change that result, so the run paused and the Investigator
   asked whether the Builder or the Resolver should take it. AutoCode now returns the task to the Builder
