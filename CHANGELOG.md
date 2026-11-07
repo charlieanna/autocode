@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A chat started in a folder outside Git now shows the run's reply and question. AutoCode runs that
+  task in a new project under `autocode-projects/`, and the chat refused the status of the moved run, so
+  it said "AutoCode did not start the run" and printed the raw resume command with its resolver token
+  (#2838).
 - A run no longer stops to ask you how to route a fix when the approved plan's test command cannot find
   a test it names. A Tester's report cannot change that result, so the run paused and the Investigator
   asked whether the Builder or the Resolver should take it. AutoCode now returns the task to the Builder
