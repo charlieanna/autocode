@@ -251,9 +251,9 @@ class RecoveryActionTests(unittest.TestCase):
         public = self.bound_pause(held=True)
         token = public["recovery"]["token"]
         for fields, message in (
-            ({"value": "2"}, "whole number from 3"),
-            ({"value": "3.5"}, "whole number from 3"),
-            ({"value": ""}, "whole number from 3"),
+            ({"value": "2"}, "whole number of 3 or more"),
+            ({"value": "3.5"}, "whole number of 3 or more"),
+            ({"value": ""}, "whole number of 3 or more"),
             ({"value": 5}, "whole number"),
             ({"input_id": "max_seconds"}, "limit this pause offers changed"),
             ({"recovery_token": "old"}, "pause changed"),

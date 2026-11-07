@@ -102,6 +102,10 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
     }
     if scope_reason:
         event["scope_reason"] = scope_reason
+    else:
+        # Which Builder round this is and how many the gate allows, so the status view can say
+        # "round 1 of 2" from the record (the Investigator takes the round after the last one).
+        event["round"], event["round_limit"] = builder_rounds + 1, REPAIR_ROUNDS
     history.append(event)
     if scope_reason:
         run_status.running(state, "EXECUTING", next_stage="astra_review", next_action=scope_reason)

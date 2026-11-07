@@ -20,6 +20,12 @@ class DynamicDependenciesTests(unittest.TestCase):
             kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
             self.assertIn(consumer, kept, path)
 
+    def test_scripted_changed_code_reasons_keep_the_protected_oracle_cli_regression(self):
+        consumer = "tests.test_protected_oracles_cli"
+        selected = run_suite.select_tests(["tools/goal_fixtures.py"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_legacy_guard_keeps_json_status_cli_regression(self):
         consumer = "tests.test_json_status_observer_cli"
         selected = run_suite.select_tests(
