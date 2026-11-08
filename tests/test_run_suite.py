@@ -415,6 +415,31 @@ class ScenarioModulesTests(unittest.TestCase):
                 with self.subTest(path=path):
                     self.assertEqual(targets[:3], run_suite.harness_tests([path]))
 
+    def test_progressive_fixture_resources_keep_delegated_completion_without_the_lying_matrix(self):
+        targets = [
+            "scenarios.test_harness.AdaptiveCompletionTests.test_progressive_delegations_retain_the_review_that_authorizes_execution",
+            "scenarios.test_harness.AdaptiveCompletionTests.test_unrelated_vague_request",
+            "scenarios.test_harness.DriverFlagTests.test_flags",
+            "scenarios.test_harness.CatalogTests.test_catalog",
+            "scenarios.test_harness.UnrelatedSlowTests.test_other",
+        ]
+        paths = [
+            f"scenarios/catalog/{scenario}/{resource}"
+            for scenario in ("progressive-cumulative-regression", "progressive-split-learning-journey")
+            for resource in ("seed/test_journey.py", "slices/S1/lessons.py", "oracle.py", "scenario.toml")
+        ]
+        modules = ["scenarios.test_lying_matrix", "scenarios.test_adversarial_evidence"]
+        with (
+            mock.patch.object(run_suite, "split_module", return_value=targets),
+            mock.patch.object(run_suite, "scenario_modules", return_value=modules),
+        ):
+            for path in paths:
+                with self.subTest(path=path):
+                    self.assertEqual([targets[i] for i in (0, 2, 3)], run_suite.harness_tests([path]))
+                    selected, skipped = run_suite.scenario_selection([path], {})
+                    self.assertEqual([], selected)
+                    self.assertEqual(modules, skipped)
+
     def test_runtime_consumer_paths_and_test_targets_still_exist(self):
         for path, targets in run_suite.SCENARIO_RUNTIME_CONSUMERS.items():
             with self.subTest(path=path):

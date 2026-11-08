@@ -298,6 +298,7 @@ class WorkflowGateTests(unittest.TestCase):
         flags = {flag: str(flag in enabled).lower() for flag in ci_scope.JOBS}
         jobs = {
             "suite": bool(enabled & {"suite", "scenarios", "dashboard"}),
+            "scenario-harness": "scenarios" in enabled,
             "extension": "extension" in enabled,
             "macos-tool-containment": "macos" in enabled,
             "linux-tool-containment": "linux" in enabled,
@@ -327,6 +328,40 @@ class WorkflowGateTests(unittest.TestCase):
                 results["linux-tool-containment"]["result"] = outcome
                 with self.assertRaises(SystemExit):
                     self.run_gate(results)
+
+    def test_scenario_gate_is_required_independently_of_unit_success(self):
+        for outcome in ("failure", "cancelled", "skipped"):
+            with self.subTest(outcome=outcome):
+                results = self.results({"suite", "scenarios"})
+                results["scenario-harness"]["result"] = outcome
+                with self.assertRaises(SystemExit):
+                    self.run_gate(results)
+        results = self.results({"suite"})
+        results["scenario-harness"]["result"] = "success"
+        with self.assertRaises(SystemExit):
+            self.run_gate(results)
+
+    def test_harness_and_unit_jobs_have_separate_hosted_runner_budgets(self):
+        workflow = (ROOT / ".github/workflows/tests.yml").read_text()
+        jobs = dict(re.findall(r"(?ms)^  ([a-z][\w-]*):\n(.*?)(?=^  [a-z][\w-]*:|\Z)", workflow))
+        suite, harness = jobs["suite"], jobs["scenario-harness"]
+        self.assertIn("Run the suite gate", suite)
+        self.assertNotIn("Run the scenario harness", suite)
+        self.assertIn("Run the scenario harness", harness)
+        self.assertEqual(["scope"], re.findall(r"^    needs: (.+)$", harness, re.M))
+        self.assertEqual(["needs.scope.outputs.scenarios == 'true'"], re.findall(r"^    if: (.+)$", harness, re.M))
+        self.assertIn("timeout-minutes: 360", harness)
+        self.assertNotIn("outputs.suite", harness)
+        self.assertIn("bubblewrap libseccomp2 tmux", harness)
+        self.assertIn("/usr/bin/bwrap --unshare-all", harness)
+        self.assertIn("tests.test_capability_startup.LinuxCapabilityStartupTests", harness)
+        for tool in ("actions/setup-node@v4", "actions/setup-go@v5", "python tools/ci_java.py", "java_toolchain.py"):
+            with self.subTest(tool=tool):
+                self.assertIn(tool, harness)
+        required = jobs["ci-required"]
+        needs = re.search(r"^    needs: \[(.+)\]$", required, re.M)
+        self.assertIsNotNone(needs)
+        self.assertIn("scenario-harness", needs.group(1).split(", "))
 
     def test_failed_or_incomplete_scope_cannot_turn_all_jobs_into_safe_skips(self):
         results = self.results(set())

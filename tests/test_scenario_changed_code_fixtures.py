@@ -10,10 +10,127 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_context as context
+
 from scenarios.harness import fake_changed_code as fixture
 from tests import test_follow_up_acceptance_cli as follow_up
 
 REFERENCE = Path(__file__).resolve().parents[1] / "scenarios/catalog/feature-stock-refusals/reference"
+
+
+class ByProjectFixtureReviewTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        base = Path(temporary.name)
+        self.root, self.reference = base / "project", base / "reference"
+        scenario = REFERENCE.parents[1] / "feature-timesheet-by-project"
+        shutil.copytree(scenario / "seed", self.root)
+        shutil.copytree(scenario / "reference", self.reference)
+        shutil.copytree(self.reference, self.root, dirs_exist_ok=True)
+        self.producer = {
+            "reference": str(self.reference),
+            "paths": list(fixture.BY_PROJECT_PINS),
+            "check": "python3 -m unittest discover -s tests -t .",
+        }
+        identity = ["a" * 64, "b" * 64, "timesheet/report.py", fixture.BY_PROJECT_PINS["timesheet/report.py"], 21]
+        self.gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+        self.proof = {
+            "verdict": "PASS",
+            "path": "current-proof.json",
+            "source_revision": identity[0],
+            "mutation_check": {
+                "selected_tests": [
+                    "tests.test_by_project.ByProjectTests." + name
+                    for name in (
+                        "test_combines_with_project_filter",
+                        "test_rows_per_week_and_project",
+                        "test_cli_preserves_default_and_filters_project_rows",
+                    )
+                ]
+            },
+            "changed_code_evidence": {
+                "source_revision": identity[0],
+                "proof_context": identity[1],
+                "obligations": [
+                    {
+                        "gap_id": self.gap,
+                        "path": identity[2],
+                        "sha256": identity[3],
+                        "line": 21,
+                        "status": "reason_required",
+                        "mutation_outcomes": [],
+                    }
+                ],
+            },
+        }
+
+    def judge(self, proof=None, producer=None):
+        return fixture.judgments(
+            {"regression_proof": self.proof if proof is None else proof},
+            self.root,
+            producer=self.producer if producer is None else producer,
+        )
+
+    def test_only_the_exact_producer_and_executed_tests_authorize_the_signature(self):
+        (reason,) = self.judge()
+        self.assertEqual(self.gap, reason["gap_id"])
+        self.assertIn("test_cli_preserves_default", reason["reason"])
+        for tree in (self.root, self.reference):
+            for name in fixture.BY_PROJECT_PINS:
+                path = tree / name
+                old = path.read_bytes()
+                path.write_bytes(old + b"\n# changed\n")
+                with self.subTest(tree=tree.name, path=name):
+                    self.assertEqual([], self.judge())
+                path.write_bytes(old)
+        self.assertEqual([], fixture.judgments({"regression_proof": self.proof}, self.root))
+        for change in (
+            {"reference": str(self.root)},
+            {"paths": []},
+            {"check": "echo PASS"},
+            {"turn_paths": [["timesheet/"]]},
+        ):
+            with self.subTest(change=change):
+                self.assertEqual([], self.judge(producer={**self.producer, **change}))
+
+    def test_stale_gap_failed_proof_survivors_and_missing_cli_test_are_refused(self):
+        for change in (
+            {"verdict": "FAIL"},
+            {"source_revision": "old"},
+            {"path": ""},
+            {"mutation_check": {"selected_tests": []}},
+        ):
+            with self.subTest(change=change):
+                self.assertEqual([], self.judge({**self.proof, **change}))
+        for change in (
+            {"gap_id": "old"},
+            {"path": "timesheet/__main__.py"},
+            {"line": 22},
+            {"sha256": "wrong"},
+            {"status": "tested"},
+            {"mutation_outcomes": ["survived"]},
+            {"mutation_outcomes": ["not_run"]},
+            {"mutation_outcomes": ["killed"]},
+        ):
+            proof = copy.deepcopy(self.proof)
+            proof["changed_code_evidence"]["obligations"][0].update(change)
+            with self.subTest(change=change):
+                self.assertEqual([], self.judge(proof))
+        proof = copy.deepcopy(self.proof)
+        proof["changed_code_evidence"]["obligations"] *= 2
+        self.assertEqual([], self.judge(proof))
+
+    def test_symlinked_producer_or_workspace_cannot_borrow_known_bytes(self):
+        for tree in (self.root, self.reference):
+            path = tree / "timesheet"
+            held = tree / "held"
+            path.rename(held)
+            path.symlink_to(held, target_is_directory=True)
+            with self.subTest(tree=tree.name):
+                self.assertEqual([], self.judge())
+            path.unlink()
+            held.rename(path)
 
 
 class PackageGreetingFixtureReviewTests(unittest.TestCase):
@@ -871,6 +988,50 @@ class LifecycleFixtureReviewTests(unittest.TestCase):
 
 
 class ProgressiveFixtureReviewTests(unittest.TestCase):
+    def test_each_catalog_s1_uses_only_known_scripted_bytes_after_relocation(self):
+        catalog = REFERENCE.parents[1]
+        names = (
+            "progressive-learning-journey",
+            "progressive-cumulative-regression",
+            "progressive-split-learning-journey",
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            for name in names:
+                with self.subTest(scenario=name):
+                    scenario = catalog / name
+                    expected = (scenario / "slices/S1/lessons.py").read_bytes()
+                    sources = fixture.progressive_sources(scenario / "reference", "S1")
+                    self.assertEqual(expected, sources["lessons.py"])
+                    root = Path(folder) / ("review-" + name)
+                    shutil.copytree(scenario / "seed", root)
+                    for path, content in sources.items():
+                        (root / path).write_bytes(content)
+                    gaps = [
+                        {
+                            "gap_id": f"gap:{path}:{line}",
+                            "path": path,
+                            "line": line,
+                            "sha256": hashlib.sha256(sources[path]).hexdigest(),
+                            "status": "reason_required",
+                            "mutation_outcomes": [],
+                        }
+                        for path, line in [("lessons.py", 1), ("progress.py", 1), ("progress.py", 2)]
+                    ]
+                    data = {"regression_proof": {"path": "proof.json", "changed_code_evidence": {"obligations": gaps}}}
+                    self.assertEqual(
+                        {row["gap_id"] for row in gaps},
+                        {
+                            row["gap_id"]
+                            for row in fixture.progressive_judgments(data, scenario / "reference", "S1", root=root)
+                        },
+                    )
+                    copied = Path(folder) / ("relocated-" + name)
+                    shutil.copytree(scenario, copied)
+                    self.assertEqual(expected, fixture.progressive_sources(copied / "reference", "S1")["lessons.py"])
+                    (copied / "slices/S1/lessons.py").write_bytes(expected + b"\n# Unknown source\n")
+                    with self.assertRaisesRegex(ValueError, "Unknown progressive S1 bytes"):
+                        fixture.progressive_sources(copied / "reference", "S1")
+
     def test_only_scripted_variants_exact_import_gaps_receive_reasons(self):
         scenario = Path(__file__).resolve().parents[1] / "scenarios/catalog/progressive-learning-journey"
         reference = scenario / "reference"
@@ -933,6 +1094,157 @@ class ProgressiveFixtureReviewTests(unittest.TestCase):
             shutil.copytree(reference, unknown)
             (unknown / "progress.py").write_text("import json\n")
             self.assertEqual([], fixture.progressive_judgments(data, unknown, "S2", root=root))
+
+
+class CompactFixtureReviewTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        reference = REFERENCE.parents[1] / "ladder-03-csv-validation-cli/reference"
+        shutil.copytree(reference, self.root, dirs_exist_ok=True)
+        self.data = {
+            "stage": "sol",
+            "regression_proof": {
+                "path": "proof.json",
+                "mutation_check": {
+                    "files": [
+                        {
+                            "path": "csvcheck/__init__.py",
+                            "mutants": [
+                                {"line": 13, "outcome": "killed", "evidence": ["runner.log"] * 6000},
+                                {
+                                    "line": 60,
+                                    "operator": "shift_bound",
+                                    "before": "3",
+                                    "after": "4",
+                                    "outcome": "survived",
+                                },
+                            ],
+                        }
+                    ],
+                },
+                "changed_code_evidence": {
+                    "obligations": [
+                        {
+                            "gap_id": "current-csv-gap",
+                            "handle": "L60",
+                            "line": 60,
+                            "path": "csvcheck/__init__.py",
+                            "sha256": fixture.CSVCHECK_SOURCES["csvcheck/__init__.py"],
+                            "status": "reason_required",
+                            "mutation_outcomes": ["killed", "survived"],
+                            "evidence": ["runner.log"] * 6000,
+                        }
+                    ],
+                },
+            },
+        }
+
+    def compact(self, data=None):
+        packet, _ = context.compact(self.data if data is None else data, self.root / "run/state.json")
+        return packet
+
+    def test_actual_compacted_proof_reads_full_mutants_and_exact_gap_without_rewriting_the_packet(self):
+        expected = fixture.judgments(self.data, self.root)
+        self.assertEqual(["current-csv-gap"], [row["gap_id"] for row in expected])
+        packet = self.compact()
+        self.assertIsInstance(packet["regression_proof"]["mutation_check"]["files"][0]["mutants"], int)
+        self.assertIn("gaps", packet["regression_proof"]["changed_code_evidence"]["obligations"][0])
+        before = copy.deepcopy(packet)
+        self.assertEqual(expected, fixture.judgments(packet, self.root))
+        self.assertEqual(before, packet)
+
+    def test_unreadable_unpinned_or_incomplete_detail_never_grants_a_reason(self):
+        for mutation in (
+            "hash",
+            "missing",
+            "artifact",
+            "fields",
+            "total",
+            "unindexed",
+            "grouped",
+            "invalid_json",
+            "absent_field",
+        ):
+            with self.subTest(mutation=mutation):
+                packet = self.compact()
+                artifact = packet["context_artifact"]
+                if mutation == "hash":
+                    artifact["sha256"] = "0" * 64
+                elif mutation == "missing":
+                    artifact["path"] += ".missing"
+                elif mutation == "artifact":
+                    packet["context_artifact"] = ["not an artifact index"]
+                elif mutation == "fields":
+                    artifact["fields"] = ["regression_proof_mutation_files"]
+                elif mutation == "total":
+                    artifact["fields"]["regression_proof_mutation_files"]["total"] += 1
+                elif mutation == "unindexed":
+                    packet.pop("context_artifact")
+                elif mutation == "grouped":
+                    packet.pop("context_artifact")
+                    packet["regression_proof"]["mutation_check"] = copy.deepcopy(
+                        self.data["regression_proof"]["mutation_check"]
+                    )
+                else:
+                    path = Path(artifact["path"])
+                    saved = json.loads(path.read_text())
+                    saved.pop("regression_proof_mutation_files")
+                    raw = b"not json" if mutation == "invalid_json" else json.dumps(saved).encode()
+                    path.write_bytes(raw)
+                    artifact["sha256"] = hashlib.sha256(raw).hexdigest()
+                self.assertEqual([], fixture.judgments(packet, self.root))
+                # Each probe starts with the compactor's original content-addressed bytes.
+                Path(self.compact_path()).unlink(missing_ok=True)
+
+    def compact_path(self):
+        artifacts = list((self.root / "run/context").glob("*.json"))
+        self.assertEqual(1, len(artifacts))
+        return artifacts[0]
+
+    def test_full_detail_still_refuses_a_non_equivalent_survivor(self):
+        changed = copy.deepcopy(self.data)
+        changed["regression_proof"]["mutation_check"]["files"][0]["mutants"][1]["after"] = "2"
+        self.assertEqual([], fixture.judgments(self.compact(changed), self.root))
+
+    def test_grouped_progressive_gap_reads_the_current_exact_import_identity(self):
+        scenario = REFERENCE.parents[1] / "progressive-learning-journey"
+        shutil.copy2(scenario / "seed/test_journey.py", self.root / "test_journey.py")
+        sources = fixture.progressive_sources(scenario / "reference", "S2")
+        for name, content in sources.items():
+            (self.root / name).write_bytes(content)
+        data = {
+            "stage": "sol",
+            "regression_proof": {
+                "path": "proof.json",
+                "changed_code_evidence": {
+                    "obligations": [
+                        {
+                            "gap_id": "current-progressive-gap",
+                            "handle": "L1",
+                            "line": 1,
+                            "path": "lessons.py",
+                            "sha256": hashlib.sha256(sources["lessons.py"]).hexdigest(),
+                            "status": "reason_required",
+                            "mutation_outcomes": [],
+                            "evidence": ["runner.log"] * 6000,
+                        }
+                    ]
+                },
+            },
+        }
+        packet, _ = context.compact(data, self.root / "run/state.json")
+        self.assertIn("gaps", packet["regression_proof"]["changed_code_evidence"]["obligations"][0])
+        self.assertEqual(
+            ["current-progressive-gap"],
+            [
+                row["gap_id"]
+                for row in fixture.progressive_judgments(packet, scenario / "reference", "S2", root=self.root)
+            ],
+        )
+        packet["context_artifact"]["sha256"] = "0" * 64
+        self.assertEqual([], fixture.progressive_judgments(packet, scenario / "reference", "S2", root=self.root))
 
 
 if __name__ == "__main__":

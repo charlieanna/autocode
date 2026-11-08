@@ -33,6 +33,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - The run-state typing check no longer mistakes an OpenCode tool-event payload for untyped
   AutoCode run state.
+- Scenario CI validates the Ubuntu runner's installed Java 17 runtime and compiler, avoiding repeated
+  release-download HTTP 504 failures before the tests can start.
+
 - A fresh Requirements call replaces its own redundant model-access ping for the exact same
   connection, model and reasoning level. Other routes keep their probes; billing, stop and budget
   checks still run, and only the real call can earn successful access evidence.
