@@ -24,6 +24,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Saved runs that exhausted unchanged validation rounds before an upgrade now settle
+  through ordinary continuation with a recorded failed outcome, preserving findings
+  and usage instead of asking the person to manage validation machinery.
+
 - Unchanged validation rounds that exhaust their progress limit record an automatic failed outcome
   with the open findings and evidence, instead of asking a person to manage validation or close a
   finding. The run retains its work and cannot resume or claim successful completion.

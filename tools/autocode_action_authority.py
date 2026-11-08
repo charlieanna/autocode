@@ -43,8 +43,10 @@ try:
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_result_application as result_application
     from . import autocode_scope_pause as scope_pause
+    from . import autocode_source_scope as source_scope
     from . import autocode_stop as stop
     from . import autocode_support as support
+    from . import autocode_validation_exhaustion_recovery as validation_recovery
     from . import autocode_verify as verify
 except ImportError:
     import autocode_acceptance_recovery as acceptance_recovery
@@ -65,8 +67,10 @@ except ImportError:
     import autocode_resolver_runtime as resolver_runtime
     import autocode_result_application as result_application
     import autocode_scope_pause as scope_pause
+    import autocode_source_scope as source_scope
     import autocode_stop as stop
     import autocode_support as support
+    import autocode_validation_exhaustion_recovery as validation_recovery
     import autocode_verify as verify
 
 
@@ -197,6 +201,20 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         and (hold := resolver_human.permission_hold(state))
     ):
         print(f"{state['status']}: {hold['reason']}")
+        return 2
+    if (
+        args.resume_paused
+        and not decision_action
+        and not explicit_recovery_requested(args, state)
+        and validation_recovery.pending(state)
+        and validation_recovery.settle(
+            state,
+            source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"],
+            at=runner.now(),
+        )
+    ):
+        runner.write_json(state_path, state)
+        print(state["stop_reason"])
         return 2
     if (
         args.resume_paused
