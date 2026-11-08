@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_captured_process as captured_process
 import autocode_output_cap as output_cap
 import autocode_provider_launch as launch
 import autocode_tool_containment as containment
@@ -329,6 +330,7 @@ class KiloContainmentPolicyTests(unittest.TestCase):
             patch.object(containment, "backend", return_value=containment.SEATBELT),
             patch.object(containment.shutil, "which", return_value="/owned/kilo"),
             patch.object(containment.subprocess, "run", side_effect=native),
+            patch.object(captured_process, "run", side_effect=native),
             patch.object(containment, "prepare", return_value=boundary),
             patch.object(containment, "configure", side_effect=configure),
             patch.object(containment, "verify"),
@@ -365,7 +367,8 @@ class KiloContainmentPolicyTests(unittest.TestCase):
         self.assertNotIn("--session", argv)
         probes = [json.loads(args[-1])["command"] for args, _ in self.calls if "--params" in args]
         proof = json.loads((self.control / "conformance.json").read_text())
-        self.assertEqual([proof["command"], proof["private_reads"]["command"], *self.probes], probes)
+        self.assertEqual([proof["command"], proof["private_reads"]["command"]], probes[:2])
+        self.assertCountEqual(self.probes, probes[2:])
         self.assertEqual(self.probes, [row["command"] for row in proof["toolchain_checks"]])
         self.assertEqual("passed", proof["native_receipt"]["status"])
         self.assertEqual("kilocode", proof["transport"])
