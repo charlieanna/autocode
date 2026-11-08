@@ -39,11 +39,13 @@ try:
     from . import autocode_request_usage as request_usage
     from . import autocode_roles as roles
     from . import autocode_route_evidence as route_evidence
+    from . import autocode_tool_activity as tool_activity
     from . import autocode_util as util
 except ImportError:
     import autocode_request_usage as request_usage
     import autocode_roles as roles
     import autocode_route_evidence as route_evidence
+    import autocode_tool_activity as tool_activity
     import autocode_util as util
 
 # Historical comparison rates, USD per 1M inclusive input/output tokens.
@@ -357,6 +359,7 @@ def accounting(state: RunState):
                     and saved.get("sha256")
                     and saved.get("size") == stat.st_size
                     and saved.get("mtime_ns") == stat.st_mtime_ns
+                    and isinstance(native.get("tool_activity"), dict)
                 )
             except (OSError, ValueError):
                 current = False
@@ -452,6 +455,7 @@ def accounting(state: RunState):
                 "planning": bool(record.get("planning")),
                 "tokens": tokens,
                 "requests": requests,
+                "tool_activity": tool_activity.projection(native.get("tool_activity"), active=is_active),
                 "reported_cost_usd": 0.0 if runner else reported,
                 "event_file": deepcopy(native.get("event_file")),
                 "historical_estimated_cost_usd": guessed,
@@ -487,6 +491,7 @@ def combine_accounting(attempts):
     unique, issues = {}, []
     for index, row in enumerate(attempts):
         row = deepcopy(row)
+        row["tool_activity"] = tool_activity.projection(row.get("tool_activity"), active=bool(row.get("active")))
         key = row["identity"] if row.get("identity_complete") else f"unidentified:{index}"
         previous = unique.get(key)
         if previous:
@@ -507,6 +512,8 @@ def combine_accounting(attempts):
                     unobserved_usage_possible=True,
                 )
                 issues.append(f"Conflicting attempt snapshots: {key}")
+            if previous.get("active") == row.get("active") and previous["tool_activity"] != row["tool_activity"]:
+                previous["tool_activity"] = tool_activity.unavailable("conflicting_snapshots")
             continue
         unique[key] = row
     rows, requests, owners, sources = list(unique.values()), {}, {}, []

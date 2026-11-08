@@ -13,6 +13,11 @@ import math
 import os
 from pathlib import Path
 
+try:
+    from . import autocode_tool_activity as tool_activity
+except ImportError:
+    import autocode_tool_activity as tool_activity
+
 TOKEN_KEYS = (
     "input_tokens",
     "cached_input_tokens",
@@ -162,6 +167,7 @@ def accounting(rows, *, issues=()):
         problems.append("unfinished request has no final usage")
     return {
         "requests": list(requests.values()),
+        "tool_activity": tool_activity.summarize(rows, incomplete=bool(problems)),
         "observed_requests": len(requests),
         "complete": bool(requests)
         and not problems

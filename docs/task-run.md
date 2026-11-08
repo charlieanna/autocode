@@ -261,6 +261,30 @@ or contradictory identity records project as unknown; old attempts are not
 backfilled from the viewer's current settings/runtime. These are additive
 measurement fields, not action authority, route qualification or a new client.
 
+Each `usage.accounting.attempts` row also includes `tool_activity`, a bounded,
+count-only diagnostic projection of native tool events for that stage attempt.
+`families` counts only the fixed `command`, `read`, `search`, `edit`, `agent` and
+`other` buckets; `outcomes` counts `succeeded`, `failed` and `unknown` calls, and
+`error_classes` counts `nonzero_exit` and `tool_error` outcomes. Lifecycle updates
+with the same call identity count once. The core compares full arguments only
+in memory and exposes `comparable_calls` and `exact_argument_repeats`; repeats
+can be useful, including tests run again after edits, and are not a waste verdict.
+No commands, paths, raw tool names, arguments, results or argument digests are
+included in this projection. Tool calls are not correlated with provider requests.
+
+`basis` is `native_events` or `unavailable`, and `complete` requires a supported,
+fully observed stream with usable identities, outcomes and arguments. Partial,
+unsupported, active or historical observations retain explicit fixed `issues`;
+their counts describe what was observed, not zero unobserved calls. These
+diagnostics grant no verification, completion or gate authority.
+
+The supported shapes are OpenCode/Kilo `tool_use` parts and Codex-style item
+events. A rendered command alone cannot establish its complete original
+arguments, so those items retain incomplete comparison coverage. Completeness
+describes the supported observed stream, not a guarantee about tools a provider
+did not emit. Normal read-only status refreshes older saved receipts when their
+recorded event file is still available; it does not rewrite the saved run.
+
 ## Remote team service proposal (#2023)
 
 The [single-host team-service contract](team-service-contract.md) proposes an

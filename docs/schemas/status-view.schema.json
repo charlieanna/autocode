@@ -161,9 +161,76 @@
                   "items": {
                     "type": "object",
                     "required": [
-                      "execution_identity"
+                      "execution_identity",
+                      "tool_activity"
                     ],
                     "properties": {
+                      "tool_activity": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "description": "Count-only diagnostic projection for one stage attempt. Counts describe observed calls; unavailable or incomplete coverage is never a claim of zero calls. Repeated arguments do not imply wasted work. No per-request correlation is inferred.",
+                        "required": [
+                          "basis", "observed_calls", "families", "outcomes", "error_classes",
+                          "exact_argument_repeats", "comparable_calls", "complete", "issues", "scope"
+                        ],
+                        "properties": {
+                          "basis": {"type": "string", "enum": ["native_events", "unavailable"]},
+                          "observed_calls": {"type": "integer", "minimum": 0},
+                          "families": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["command", "read", "search", "edit", "agent", "other"],
+                            "properties": {
+                              "command": {"type": "integer", "minimum": 0},
+                              "read": {"type": "integer", "minimum": 0},
+                              "search": {"type": "integer", "minimum": 0},
+                              "edit": {"type": "integer", "minimum": 0},
+                              "agent": {"type": "integer", "minimum": 0},
+                              "other": {"type": "integer", "minimum": 0}
+                            }
+                          },
+                          "outcomes": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["succeeded", "failed", "unknown"],
+                            "properties": {
+                              "succeeded": {"type": "integer", "minimum": 0},
+                              "failed": {"type": "integer", "minimum": 0},
+                              "unknown": {"type": "integer", "minimum": 0}
+                            }
+                          },
+                          "error_classes": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["nonzero_exit", "tool_error"],
+                            "properties": {
+                              "nonzero_exit": {"type": "integer", "minimum": 0},
+                              "tool_error": {"type": "integer", "minimum": 0}
+                            }
+                          },
+                          "exact_argument_repeats": {"type": "integer", "minimum": 0},
+                          "comparable_calls": {"type": "integer", "minimum": 0},
+                          "complete": {"type": "boolean"},
+                          "issues": {
+                            "type": "array",
+                            "uniqueItems": true,
+                            "maxItems": 10,
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "event_stream_incomplete", "unsupported_stream", "missing_call_identity",
+                                "conflicting_call", "unknown_outcome", "arguments_unavailable",
+                                "observation_limit", "active_attempt", "saved_projection_unavailable",
+                                "conflicting_snapshots"
+                              ]
+                            }
+                          },
+                          "scope": {
+                            "type": "string",
+                            "enum": ["Observed tool calls in one stage attempt; repeats compare exact tool arguments and do not imply wasted work; no request correlation"]
+                          }
+                        }
+                      },
                       "execution_identity": {
                         "type": "object",
                         "description": "Frozen launch identity, validated against the attempt. Empty object for legacy, unknown or contradictory facts. Known records have schema 1 and all identity fields; billing is a saved selected-route classification, not an invoice. Endpoints identify configured targets, not redirects or compatibility.",

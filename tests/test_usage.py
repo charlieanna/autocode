@@ -100,6 +100,45 @@ class TotalsTests(unittest.TestCase):
         view = run_view.view({"status": "RUNNING", "stages": [stage("terra", "terra", "m", cost=0.3)]})
         self.assertEqual(0.3, view["usage"]["cost_usd"]["reported"])
 
+    def test_public_status_counts_native_tools_without_exposing_payloads(self):
+        import autocode_request_usage as request_usage
+
+        with tempfile.TemporaryDirectory() as root:
+            events = Path(root) / "native.jsonl"
+            private = "PRIVATE-command-path-input-output-error"
+            rows = [{"type": "step_start", "sessionID": "session", "part": {"id": "start"}}]
+            for identity, code in (("one", 0), ("one", 0), ("two", 7)):
+                rows.append(
+                    {
+                        "type": "tool_use",
+                        "sessionID": "session",
+                        "part": {
+                            "id": identity,
+                            "tool": "bash",
+                            "state": {
+                                "status": "completed",
+                                "input": {"command": private},
+                                "output": private,
+                                "metadata": {"exit": code},
+                            },
+                        },
+                    }
+                )
+            rows.append({"type": "step_finish", "sessionID": "session", "part": {"id": "end", "reason": "stop"}})
+            events.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            legacy = request_usage.read(events)
+            legacy["accounting"].pop("tool_activity", None)
+            record = {"stage": "terra", "events": str(events), "metrics": {"request_context": legacy}}
+            shown = run_view.view({"status": "RUNNING", "stages": [record]})
+            result = shown["usage"]["accounting"]["attempts"][0]["tool_activity"]
+            self.assertEqual(2, result["observed_calls"])
+            self.assertEqual(1, result["exact_argument_repeats"])
+            self.assertEqual({"nonzero_exit": 1, "tool_error": 0}, result["error_classes"])
+            self.assertTrue(result["complete"])
+            self.assertNotIn(private, json.dumps(result))
+            self.assertNotIn("tool_activity", legacy["accounting"])
+            self.assertEqual("RUNNING", shown["status"], "Diagnostics grant no task authority")
+
     def test_actual_models_keep_stage_jobs_and_launch_variants_after_a_route_change(self):
         state = {
             "status": "RUNNING",
