@@ -299,12 +299,47 @@ raise SystemExit(runner.cli())
         self.assertTrue(prior.issubset({row["identity"] for row in after["attempts"]}))
 
     def test_non_atomic_claims_cannot_complete_when_the_brief_promises_contention(self):
-        # #451: the claim mutant passes its own tests and every sequential lifecycle phase; only
-        # racing interpreters lease one job twice. The finding stays open while the Builder repeats it.
+        # #451: sequential tests pass, but racing interpreters lease one job twice.
+        # Observe two real Builder/Tester rounds at public saved boundaries. One
+        # CLI call must not enclose every repeated proof and recovery until exhaustion.
         scenario, run, view = self.start(
-            "ladder-18-durable-lease-queue", solution="broken/non-atomic-claim", planning=("--no-adaptive-planning",)
+            "ladder-18-durable-lease-queue",
+            solution="broken/non-atomic-claim",
+            planning=("--no-adaptive-planning", "--pause-after-stage"),
+            drive=False,
         )
-        self.assert_mutant(scenario, run, view, "Concurrent claims leased one job twice", 2)
+        first_revision = None
+        for _ in range(32):
+            attempts = view["usage"]["accounting"]["attempts"]
+            self.assertFalse(
+                any(
+                    (row.get("original_stage") or row.get("stage")) == "sol"
+                    and (row.get("report_only") or row.get("rejected"))
+                    for row in attempts
+                ),
+                "The race finding must drive rework, not an unrelated Tester evidence repair",
+            )
+            testers = [row for row in attempts if row.get("stage") == "sol"]
+            if testers and first_revision is None:
+                first_revision = view["evidence"]["validator_source_revision"]
+            if len(testers) >= 2:
+                break
+            need = view.get("needs") or {}
+            if need.get("kind") == "approve_plan":
+                view = run.approve_plan(need["token"])
+            elif need.get("kind") == "resume":
+                self.assertEqual("PAUSED_REQUESTED", view["status"], self.details(view))
+                view = run.resume_paused()
+            else:
+                self.assertEqual("continue", need.get("kind"), self.details(view))
+                view = run.advance()
+        else:
+            self.fail("Two scripted Builder/Tester rounds did not reach their public boundaries")
+        builders = [row for row in attempts if row.get("stage") == "terra" and not row.get("rejected")]
+        self.assertGreaterEqual(len(builders), 2)
+        self.assertTrue(first_revision)
+        self.assertEqual(first_revision, view["evidence"]["validator_source_revision"])
+        self.assert_mutant(scenario, run, view, "Concurrent claims leased one job twice", 7)
         runner = [row for row in view["evidence"]["findings"] if row["source"] == "runner"]
         self.assertEqual(["open"], [row["status"] for row in runner], view["evidence"]["findings"])
         self.assertIn("Concurrent claims leased one job twice", runner[0]["finding"])

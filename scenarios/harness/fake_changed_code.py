@@ -805,13 +805,40 @@ def _lifecycle(data, root, source_path, sources, tests_digest):
     return accepted
 
 
+# The deliberate non-atomic producer has complete sequential tests, but the
+# runner must still detect its split-transaction race. These five syntax lines
+# have no mutation site; all supported mutants need their actual observations.
+LEASE_NON_ATOMIC_SOURCE = "a7067c3c67d30194cf473870d350072529de7af46d2fe0097aa9efd56183cd02"
+LEASE_NON_ATOMIC_TESTS = "321e48026834c43a636d0bdb3208ae855a58c02737c14e804702e232f02b23b7"
+LEASE_NON_ATOMIC_REASONS = {
+    6: LEASE_REASONS[5],
+    14: LEASE_REASONS[13],
+    17: LEASE_REASONS[16],
+    22: LEASE_REASONS[21],
+    30: LEASE_REASONS[29],
+}
+
+
 LEASE_TRANSACTION_CASE = "tests.test_behavior.QueueTests.test_claim_locks_before_reading_jobs_and_closes_its_connection"
 
 
 def _lease_cleanup(data, root, producer):
-    """The configured scripted producer and current proof own these exact two reasons."""
+    """The configured scripted producer and current proof own each exact line judgment."""
     path = "leasequeue/__init__.py"
-    pins = {path: LEASE_SOURCE, "tests/test_behavior.py": LEASE_TESTS}
+    variants = (
+        (LEASE_SOURCE, LEASE_TESTS, 23, {}),
+        (LEASE_NON_ATOMIC_SOURCE, LEASE_NON_ATOMIC_TESTS, 24, LEASE_NON_ATOMIC_REASONS),
+    )
+    try:
+        for variant in variants:
+            digest, test_digest, handler_line, reasons = variant
+            pins = {path: digest, "tests/test_behavior.py": test_digest}
+            if _fixture_pins(root, pins):
+                break
+        else:
+            return []
+    except (OSError, RuntimeError):
+        return []
     if (
         not isinstance(producer, dict)
         or producer.get("check") != "python3 -m unittest discover -s tests -t ."
@@ -841,19 +868,34 @@ def _lease_cleanup(data, root, producer):
     ):
         return []
     accepted = []
-    signatures = {23: ("never_catch", "BaseException", "()"), 24: ("drop_call", "db.rollback()", "None")}
+    signatures = {
+        handler_line: ("never_catch", "BaseException", "()"),
+        handler_line + 1: ("drop_call", "db.rollback()", "None"),
+    }
     for row in assessment.get("obligations") or []:
         line = row.get("line")
-        identity = [revision, context, path, LEASE_SOURCE, line]
+        identity = [revision, context, path, digest, line]
         gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
         if (
             type(line) is not int
             or row.get("status") != "reason_required"
             or row.get("path") != path
-            or row.get("sha256") != LEASE_SOURCE
+            or row.get("sha256") != digest
             or row.get("gap_id") != gap
-            or not _cleanup_equivalent(proof, row, LEASE_SOURCE, path, signatures)
         ):
+            continue
+        if line in reasons and not row.get("mutation_outcomes"):
+            accepted.append(
+                {
+                    "gap_id": gap,
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reasons[line],
+                    "evidence_refs": [proof["path"], path],
+                }
+            )
+            continue
+        if not _cleanup_equivalent(proof, row, digest, path, signatures):
             continue
         mutants = next(file["mutants"] for file in proof["mutation_check"]["files"] if file["path"] == path)
         mutant = next(mutant for mutant in mutants if mutant.get("line") == line)
