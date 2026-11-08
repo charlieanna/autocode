@@ -218,26 +218,6 @@ jobs:
           cat .attribution.md >> "$GITHUB_STEP_SUMMARY"
           gh pr comment "$PR" --body-file .attribution.md || echo "could not post the attribution comment"
 
-      - name: Run the scenario harness
-        if: needs.scope.outputs.scenarios == 'true'
-        # scenarios/ is outside tests/: its catalog checks and scripted end-to-end runs
-        # (scenarios/README.md) would otherwise never run in CI. Each test runs in its own
-        # interpreter, one per CPU at a time; run serially the harness alone took about
-        # 3.5 minutes. The other scenarios/test_*.py modules (adversarial attacks, native
-        # runs) run here too: until #1088 nothing ran them, and they drifted. A pull request
-        # leaves out the slow ones in tests/suite_slow.json unless it changes scenarios/ or
-        # the suite machinery; master runs them all.
-        run: |
-          if [ "$EVENT" = pull_request ]; then
-            .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2 --changed "$BASE"
-          else
-            .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2
-          fi
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          PYTHONDONTWRITEBYTECODE: "1"
-
       - name: Run the dashboard suite
         if: needs.scope.outputs.dashboard == 'true'
         # tools/dashboard/tests is outside tests/, so run_suite.py never
@@ -298,6 +278,100 @@ jobs:
             echo "node $test_file"
             node "$test_file" || exit 1
           done
+
+  scenario-harness:
+    needs: scope
+    if: needs.scope.outputs.scenarios == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history, not the default shallow (depth-1) clone:
+          # tests.test_catalogue_t14.SystematicCase.test_sys07_saved_failing_trace_replays
+          # reads a specific historical commit (`git show <sha>:tools/autocode_support.py`)
+          # to replay a saved regression, and a shallow clone doesn't have it.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        if: needs.scope.outputs.dashboard == 'true' || needs.scope.outputs.scenarios == 'true'
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-go@v5
+        if: needs.scope.outputs.scenarios == 'true'
+        with:
+          go-version: "1.25.5"
+          cache: false
+
+      - name: Select installed Java 17 for scenario tests
+        if: needs.scope.outputs.scenarios == 'true'
+        # Ubuntu runners provide this JDK. Validate both tools and log their actual versions;
+        # downloading an older release asset here has repeatedly failed with HTTP 504.
+        run: python tools/ci_java.py
+
+      - name: Install dashboard browser test dependencies
+        if: needs.scope.outputs.dashboard == 'true'
+        # AC15 runs a real browser from the Python suite, before the Node gate.
+        # Pin the version used for the local feature acceptance checks.
+        run: |
+          # The Azure mirror can stall on the 61 MB CJK font archive before any tests run.
+          # Keep signed Ubuntu packages and use the official archive over HTTPS.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
+          fi
+          npm install --global agent-browser@0.25.3
+          agent-browser install --with-deps
+
+      - name: Prepare native Linux verification boundary
+        if: runner.os == 'Linux'
+        # Supervised fake providers use the same supported Linux verification boundary
+        # as real providers and the unit gate on this disposable VM.
+        run: |
+          sudo apt-get update -q
+          # tmux: tests.test_chat_screens drives the full-screen chat in a real terminal (#1646).
+          sudo apt-get install -y -q bubblewrap libseccomp2 tmux
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          /usr/bin/bwrap --unshare-all --ro-bind / / --dev /dev --proc /proc -- /bin/true
+
+      - name: Install package and runtime dependencies
+        # Evidence-bound reuse requires an isolated, source-bound editable install.
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -e '.[visual,test]'
+
+      - name: Verify privileged Linux CLI startup
+        if: runner.os == 'Linux'
+        run: |
+          sudo env AUTOCODE_TEST_PRIVILEGED_STARTUP=1 .venv/bin/python -m unittest tests.test_capability_startup.LinuxCapabilityStartupTests tests.test_demo
+
+      - name: Prepare pinned Java scenario dependencies
+        if: needs.scope.outputs.scenarios == 'true'
+        run: |
+          .venv/bin/python scenarios/harness/java_toolchain.py --root .scenario-runs/issue-696-java-toolchain
+          echo "$PWD/.scenario-runs/issue-696-java-toolchain/bin" >> "$GITHUB_PATH"
+
+      - name: Run the scenario harness
+        if: needs.scope.outputs.scenarios == 'true'
+        # Keep the same pinned PR selection and full master/manual coverage. This
+        # independent job lets long unit and harness gates each use their own
+        # hosted-runner budget, and runs even when the unit gate finds a failure.
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2 --changed "$BASE"
+          else
+            .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2
+          fi
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PYTHONDONTWRITEBYTECODE: "1"
 
   diff-coverage:
     needs: scope
@@ -636,7 +710,7 @@ jobs:
   ci-required:
     # One stable required check: a skipped unrelated job is expected, while a
     # failed scope selection or a selected job that fails/cancels cannot pass.
-    needs: [scope, suite, extension, macos-tool-containment, linux-tool-containment, windows-fast-suite, wheel-smoke, visual-comparison, lint]
+    needs: [scope, suite, scenario-harness, extension, macos-tool-containment, linux-tool-containment, windows-fast-suite, wheel-smoke, visual-comparison, lint]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -659,6 +733,7 @@ jobs:
               sys.exit("CI scope selection returned incomplete outputs")
           selected = {
               "suite": any(scope[flag] == "true" for flag in ("suite", "scenarios", "dashboard")),
+              "scenario-harness": scope["scenarios"] == "true",
               "extension": scope["extension"] == "true",
               "macos-tool-containment": scope["macos"] == "true",
               "linux-tool-containment": scope["linux"] == "true",

@@ -202,6 +202,12 @@ fake providers never bypass unsupported-host admission. The always-reporting
 `ci-required` job fails when scope selection fails or a selected job fails,
 cancels or skips. Master and manual runs retain their existing complete coverage.
 
+The unit/browser gate and the `scenario-harness` gate start independently after
+scope selection. Both are required when selected. Keeping the long full gates in
+separate hosted jobs avoids sharing one six-hour execution limit; their commands,
+assertions and provider limits are unchanged. Each prepares its own supported
+Linux verification boundary and scenario toolchains.
+
 PR selection also applies when the pinned base has failures. A corrective PR
 proves its reported behavior and affected consumers through the same mappings;
 required mapped slow tests still run. A green PR describes that selected scope,
@@ -330,7 +336,7 @@ planted outside the project with `AUTOCODE_FIXTURE_SHELL_ESCAPE` is blocked; and
 `--status --json` says `tool_containment: "contained"` and that its
 `tool_containment_backend` names the same backend. It asks `autocode doctor --json` whether
 the boundary is available. Without a working bubblewrap, the test skips, except in CI on
-Linux, where it fails: the suite job installs bubblewrap before the scenario harness runs.
+Linux, where it fails: both test jobs install bubblewrap before launching supervised providers.
 Any other problem doctor reports where bubblewrap works, such as the fake no longer
 reporting the qualified OpenCode version, fails the test everywhere.
 
