@@ -165,6 +165,125 @@ class PreflightCheckTests(unittest.TestCase):
     def run_identity(self):
         return preflight._receipt_identity(self.adapter, self.state["settings"]["transport_identities"]["opencode"])
 
+    def fresh_requirements(self):
+        self.state["next_stage"] = "requirements_gather"
+        settings = self.state["settings"]
+        settings["roles"]["requirements"] = {"model": "plan/glm"}
+        for role, route in settings["roles"].items():
+            route["reasoning_effort"] = "high"
+            settings.setdefault("effort_origins", {})[role] = "user_explicit"
+
+    def test_fresh_requirements_defers_only_its_pair_without_creating_access_evidence(self):
+        self.fresh_requirements()
+        self.assertTrue(self.check({"plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/mimo"], self.calls)
+        self.assertNotIn("plan/glm", probed(self.run_dir))
+        self.assertNotIn("plan/glm", self.state["settings"].get(route_fit.CERTIFIED, {}))
+        self.assertEqual(["plan/mimo"], [record["model"] for record in self.state["stages"]])
+
+    def test_singleton_requirements_keeps_local_billing_admission_without_publishing_a_receipt(self):
+        self.fresh_requirements()
+        self.state["settings"]["roles"] = {"requirements": self.state["settings"]["roles"]["requirements"]}
+        checked = []
+        self.adapter.check_subscription_routes = lambda routes, workspace: checked.append(routes)
+        self.assertFalse(self.check({}))
+        self.assertEqual([self.state["settings"]["roles"]], checked)
+        self.assertFalse((self.run_dir / "model-preflight.json").exists())
+        self.assertEqual([], self.state.get("stages", []))
+
+        def refuse(routes, workspace):
+            raise RuntimeError("fixture local login refused")
+
+        self.adapter.check_subscription_routes = refuse
+        with self.assertRaises(support.Paused) as caught:
+            self.check({})
+        self.assertEqual("PAUSED_BILLING_ROUTE", caught.exception.status)
+        self.assertEqual([], self.calls)
+
+    def test_requirements_deferral_is_conservative_after_work_repair_or_uncertain_ownership(self):
+        self.fresh_requirements()
+        initial = copy.deepcopy(self.state)
+        for changes in (
+            {"pending_report_repair": {"stage": "requirements_gather"}},
+            {"active_stage": {"stage": "requirements_gather"}},
+            {"active_stage_workers": [{"stage": "requirements_gather"}]},
+            {"active_runner_check": {"stage": "check"}},
+            {"stages": [{"stage": "requirements_gather", "exit_code": 1}]},
+            {"stages": [{"stage": "requirements_gather", "timed_out": True}]},
+            {"stages": [{"stage": "requirements_gather", "exit_code": 0}]},
+            {"next_stage": "recognize_workflow"},
+        ):
+            with self.subTest(changes=changes):
+                self.state = copy.deepcopy(initial)
+                self.state.update(changes)
+                (self.run_dir / "model-preflight.json").unlink(missing_ok=True)
+                self.calls.clear()
+                self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+                self.assertEqual(["plan/glm", "plan/mimo"], sorted(self.calls))
+
+    def test_missing_or_mismatched_imminent_binding_keeps_requirements_probe(self):
+        self.fresh_requirements()
+        identity = {**self.run_identity(), "reasoning_effort": "high"}
+        valid = {"schema": 1, "identity": identity, "model": "plan/glm"}
+        for binding in (
+            None,
+            {**valid, "model": "plan/other"},
+            {**valid, "identity": {**identity, "reasoning_effort": "low"}},
+            {**valid, "identity": {**identity, "transport_sha256": "b" * 64}},
+        ):
+            with self.subTest(binding=binding):
+                self.state.pop("stages", None)
+                (self.run_dir / "model-preflight.json").unlink(missing_ok=True)
+                self.calls.clear()
+                with patch.object(preflight.access_evidence, "launch_binding", return_value=binding):
+                    self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+                self.assertEqual(["plan/glm", "plan/mimo"], sorted(self.calls))
+
+    def test_explicit_failed_or_uncertain_probe_is_never_replaced_by_imminent_requirements(self):
+        self.fresh_requirements()
+        identity = {**self.run_identity(), "reasoning_effort": "high"}
+        for status in ("PAUSED_AUTH", "PAUSED_BUDGET", "PAUSED_PROVIDER_UNCERTAIN"):
+            with self.subTest(status=status):
+                self.state.pop("stages", None)
+                util.atomic_json(
+                    self.run_dir / "model-preflight.json",
+                    {"version": 3, "receipts": [{"identity": identity, "probed": {"plan/glm": {"status": status}}}]},
+                )
+                self.calls.clear()
+                self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+                self.assertEqual(["plan/glm", "plan/mimo"], sorted(self.calls))
+
+    def test_same_requirements_model_at_another_effort_still_has_its_own_probe(self):
+        self.fresh_requirements()
+        self.state["settings"]["roles"]["sol"]["reasoning_effort"] = "low"
+        efforts = []
+        execute = self.fake_execute({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
+
+        def record(**kwargs):
+            efforts.append((kwargs["model"], kwargs["effort"]))
+            return execute(**kwargs)
+
+        with patch.object(preflight.transport, "execute", side_effect=record):
+            self.assertTrue(
+                preflight.check(types.SimpleNamespace(opencode=self.adapter), self.state, self.run_dir, self.root)
+            )
+        self.assertEqual([("plan/mimo", "high"), ("plan/glm", "low")], efforts)
+
+    def test_imminent_requirements_uses_the_same_fitted_effort_as_its_launch(self):
+        self.fresh_requirements()
+        settings = self.state["settings"]
+        settings["roles"]["requirements"]["reasoning_effort"] = "medium"
+        settings["effort_origins"]["requirements"] = "runner_default"
+        settings[route_fit.DECLARED] = {"plan/glm": ["low", "high", "max"]}
+        self.assertTrue(self.check({"plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/mimo"], self.calls)
+
+    def test_native_requirements_does_not_defer_another_tools_probe_for_the_same_model(self):
+        self.fresh_requirements()
+        self.state["settings"]["roles"]["requirements"]["engine"] = "codex"
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/glm", "plan/mimo"], sorted(self.calls))
+
     def test_standalone_review_uses_its_real_request_instead_of_a_paid_access_ping(self):
         self.state["next_stage"] = "review_change"
         self.assertFalse(self.check({}))
@@ -792,6 +911,24 @@ class MixedProviderPreflightTests(unittest.TestCase):
 
     def receipts(self):
         return {entry["identity"]["provider"]: entry["probed"] for entry in receipt_sets(self.run_dir)}
+
+    def test_imminent_requirements_defers_its_bound_tool_but_probes_same_model_on_other_tool(self):
+        self.state["next_stage"] = "requirements_gather"
+        settings = self.state["settings"]
+        settings["roles"]["requirements"] = {"engine": "opencode", "provider": "kilocode", "model": "plan/glm"}
+        settings["roles"]["sol"] = {"model": "plan/glm"}
+        settings["transport_identities"].pop("role:sol")
+        settings["transport_identities"]["role:requirements"] = {
+            "provider": "kilocode",
+            "identity": dict(self.kilo_identity),
+        }
+        for route in settings["roles"].values():
+            route["reasoning_effort"] = "high"
+        self.assertTrue(self.check())
+        self.assertEqual([(self.primary, "plan/glm")], self.calls)
+        self.assertEqual([self.kilo, self.primary], [adapter for adapter, _routes in self.logins])
+        self.assertEqual({}, self.receipts()["kilocode"], "No deferred access receipt may be fabricated")
+        self.assertEqual("ok", self.receipts()["fixture"]["plan/glm"]["status"])
 
     def test_non_billing_primary_still_probes_the_bound_role_on_its_own_tool(self):
         # Phase 1 role transport requires the built-in OpenCode primary, which declares no [auth].

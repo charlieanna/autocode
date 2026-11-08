@@ -239,6 +239,43 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
         self.assertEqual("PAUSED_COST_LIMIT", view["needs"].get("pause_origin") or view["status"])
         self.assert_one_charged_probe(view)
 
+    def fresh_joint_start(self, *limits):
+        identity = {
+            "engine": "budgetfixture",
+            "identity_version": 1,
+            "executable": sys.executable,
+            "config_sha256": "a" * 64,
+        }
+        with patch.object(self.adapter, "local_settings", return_value=identity):
+            return self.start(
+                "--joint-planning",
+                "--no-adaptive-planning",
+                "--no-auto-select",
+                "--requirements-model",
+                "fixture/reviewer",
+                *limits,
+            )
+
+    def test_remaining_probe_cost_prevents_the_deferred_real_requirements_request(self):
+        code, stdout, stderr = self.fresh_joint_start("--max-cost-usd", "0.01")
+        self.assertEqual(2, code, stdout + stderr)
+        self.assertEqual(["fixture/builder"], self.probes)
+        self.assertEqual([], self.stages)
+        view = self.status()
+        self.assertEqual("PAUSED_COST_LIMIT", view["needs"].get("pause_origin") or view["status"])
+        self.assert_one_charged_probe(view)
+
+    def test_stop_after_remaining_probe_prevents_the_deferred_real_requirements_request(self):
+        self.on_probe = self.submit_stop
+        code, stdout, stderr = self.fresh_joint_start("--max-cost-usd", "0")
+        self.assertEqual(2, code, stdout + stderr)
+        self.assertEqual(["fixture/builder"], self.probes)
+        self.assertEqual([], self.stages)
+        view = self.status()
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertIsNone(view["next_command"])
+        self.assert_one_charged_probe(view)
+
     def test_elapsed_probe_time_stops_before_another_request_and_is_public(self):
         code, stdout, stderr = self.start("--max-seconds", "1")
         self.assertEqual(2, code, stdout + stderr)
