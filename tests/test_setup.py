@@ -196,6 +196,55 @@ class SetupTests(unittest.TestCase):
                 self.assertEqual("claude", offer.call_args.args[0]["id"])
             self.assertEqual(routes, listed)
 
+    def test_after_installing_kilo_setup_signs_in_on_enter_and_says_when_another_backend_runs(self):
+        """It installed Kilo, offered its sign-in as "[y/N]" so Enter skipped it, and then said
+        "New runs use Claude Code" without saying why Kilo, the hub just chosen, was passed over."""
+        kilo_out = {**row("kilocode", "Kilo", "sign_in_required"), "actions": [{"id": "login"}]}
+        kilo_in = row("kilocode", "Kilo", "credentials_present")
+        before = [CLAUDE_IN, CODEX_OUT, OPENCODE_MISSING, KILO_MISSING]
+        installed = [CLAUDE_IN, CODEX_OUT, OPENCODE_MISSING, kilo_out]
+        signed_in = [CLAUDE_IN, CODEX_OUT, OPENCODE_MISSING, kilo_in]
+        output, prompts = io.StringIO(), []
+        with (
+            mock.patch.object(setup, "_interactive", return_value=True),
+            mock.patch.object(setup, "rows", side_effect=[before, installed, signed_in]),
+            mock.patch.object(setup, "_install", return_value="kilocode"),
+            mock.patch("builtins.input", side_effect=lambda prompt: prompts.append(prompt) or ""),
+            mock.patch.object(setup.connections, "cli", return_value=0) as login,
+            mock.patch.object(setup.connected_engine, "choose", return_value=CLAUDE_CHOSEN),
+            mock.patch.object(setup, "offer_stages", return_value=True),
+            contextlib.redirect_stdout(output),
+        ):
+            self.assertEqual(0, setup.cli([]))
+        self.assertEqual(["Sign in to Codex now? [y/N] ", "Sign in to Kilo now? [Y/n] "], prompts)
+        login.assert_called_once_with(["login", "--provider", "kilocode"])
+        shown = output.getvalue()
+        self.assertIn(
+            "New runs use Claude Code, not Kilo: Claude Code comes first when several backends are connected. "
+            'To run on Kilo, pass `--provider kilocode` for one task, or add `default_provider = "kilocode"` '
+            "to ~/.config/autocode/config.toml for every task.",
+            shown,
+        )
+
+    def test_the_hub_note_says_nothing_when_new_runs_use_the_hub_or_nothing_was_installed(self):
+        kilo_in = row("kilocode", "Kilo", "credentials_present")
+        kilo_out = row("kilocode", "Kilo", "sign_in_required")
+        kilo_use = {"id": "kilocode", "label": "Kilo", "reason": "Kilo is connected"}
+        claude_use = {"id": "claude", "label": "Claude Code", "reason": "Claude Code is connected"}
+        self.assertIsNone(setup.hub_note(None, [CLAUDE_IN, kilo_in], claude_use))
+        self.assertIsNone(setup.hub_note("kilocode", [kilo_in], kilo_use))
+        self.assertIsNone(setup.hub_note("kilocode", [kilo_out], None))
+        self.assertEqual(
+            "Kilo is installed but not signed in, so new runs cannot use it yet. "
+            "Sign in with: autocode connections login --provider kilocode",
+            setup.hub_note("kilocode", [CLAUDE_IN, kilo_out], claude_use),
+        )
+        named = {"id": "claude", "label": "Claude Code", "reason": "named by AUTOCODE_PROVIDER"}
+        self.assertIn(
+            "New runs use Claude Code, not Kilo: Claude Code is named by AUTOCODE_PROVIDER.",
+            setup.hub_note("kilocode", [CLAUDE_IN, kilo_in], named),
+        )
+
     def test_saved_stage_choices_are_what_setup_lists_instead_of_the_selected_routes(self):
         shown = io.StringIO()
         current = {"label": "OpenCode", "file": "/x/stages.toml", "options_stop": None, "stages": []}

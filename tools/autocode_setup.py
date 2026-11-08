@@ -151,16 +151,21 @@ def text(found, use) -> str:
     return "\n".join(lines)
 
 
-def _sign_in(found, *, ask=input, login=None, out=print) -> bool:
-    """Offer each installed, signed-out backend's own sign-in; True when one was attempted."""
+def _sign_in(found, *, ask=input, login=None, out=print, installed=None) -> bool:
+    """Offer each installed, signed-out backend's own sign-in; True when one was attempted.
+
+    The hub setup has just ``installed`` was chosen to be signed in to, so its offer takes Enter as
+    yes; every other backend's offer takes Enter as no.
+    """
     tried = False
     for row in found:
         if row.get("connection_status") != "sign_in_required":
             continue
         if not any(action.get("id") == "login" for action in row.get("actions") or []):
             continue
-        answer = ask(f"Sign in to {row['label']} now? [y/N] ").strip().lower()
-        if answer not in ("y", "yes"):
+        fresh = row["id"] == installed
+        answer = ask(f"Sign in to {row['label']} now? {'[Y/n]' if fresh else '[y/N]'} ").strip().lower()
+        if answer not in (("", "y", "yes") if fresh else ("y", "yes")):
             continue
         tried = True
         code = (login or connections.cli)(["login", "--provider", row["id"]])
@@ -169,8 +174,8 @@ def _sign_in(found, *, ask=input, login=None, out=print) -> bool:
     return tried
 
 
-def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=print, npm_bin=None) -> bool:
-    """Install a missing hub with npm; True when an install finished and the hub is on PATH.
+def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=print, npm_bin=None) -> str | None:
+    """Install a missing hub with npm; the hub's id when an install finished and it is on PATH, else None.
 
     ``wanted`` (``--install``) installs that hub without asking. Otherwise, only when ``ask`` is given
     (an interactive terminal) and neither hub is installed, the person chooses OpenCode, Kilo or
@@ -182,27 +187,27 @@ def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=
     missing = {row["id"] for row in found if row.get("install_command")}
     if wanted is not None:
         if wanted not in missing:
-            return False
+            return None
         name = wanted
     else:
         if ask is None or not HUBS.keys() <= missing:
-            return False
+            return None
         if not which("npm"):
             out(
                 f"OpenCode and Kilo install with npm, which is not on PATH. {_get_node()}, then run `autocode setup` again."
             )
-            return False
+            return None
         name = _choose_hub(ask, out)
         if name is None:
-            return False
+            return None
     if not which("npm"):
         out(f"npm is not on PATH. {_get_node()}, then run: {INSTALL[name]}")
-        return False
+        return None
     # npm's own output goes to stderr, so --json stays one JSON document.
     code = (run or _run)(INSTALL[name].split())
     if code != 0:
         out(f"npm could not install {HUBS[name]} (exit {code}). Run it yourself: {INSTALL[name]}")
-        return False
+        return None
     if not which(EXECUTABLES[name]):
         folder = (npm_bin or _npm_bin)()
         where = f"in {folder}, " if folder else ""
@@ -211,9 +216,9 @@ def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=
             f"Installed {HUBS[name]} {where}which is not on your PATH, so AutoCode cannot run it yet. "
             f"Add it to PATH ({add}, and the same line in your shell profile), then run `autocode setup` again."
         )
-        return False
+        return None
     out(f"Installed {HUBS[name]}.")
-    return True
+    return name
 
 
 # The hub choice setup offers when neither is installed, in its order; Enter takes the first.
@@ -316,6 +321,32 @@ def say_routes(use, *, stream=None, load=None, view=None):
     print(f"Each role runs {use['label']}'s default model for it (docs/models.md#default-models).", file=stream)
 
 
+def hub_note(installed, found, use) -> str | None:
+    """What to say when new runs will not use the hub the person just chose to install, or None.
+
+    The engine order is the runner's (``new_runs_use``), not setup's to change, so this only says why
+    another backend comes first and the one step that runs on the new hub instead.
+    """
+    if not installed or use is None or use.get("id") == installed:
+        return None
+    label = next((row["label"] for row in found if row["id"] == installed), installed)
+    status = next((row.get("connection_status") for row in found if row["id"] == installed), None)
+    if status not in CONNECTED:
+        return (
+            f"{label} is installed but not signed in, so new runs cannot use it yet. "
+            f"Sign in with: autocode connections login --provider {installed}"
+        )
+    why = (
+        f"{use['label']} is {use['reason']}"
+        if use.get("reason", "").startswith("named by")
+        else f"{use['label']} comes first when several backends are connected"
+    )
+    return (
+        f"New runs use {use['label']}, not {label}: {why}. To run on {label}, pass `--provider {installed}` "
+        f'for one task, or add `default_provider = "{installed}"` to ~/.config/autocode/config.toml for every task.'
+    )
+
+
 def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
@@ -336,9 +367,10 @@ def cli(argv=None) -> int:
         print(text(found, new_runs_use(found)))
         try:
             changed = False
-            if _install(found, wanted=args.install, ask=input):
+            installed = _install(found, wanted=args.install, ask=input)
+            if installed:
                 found, changed = rows(), True
-            if _sign_in(found):
+            if _sign_in(found, ask=input, installed=installed):
                 found, changed = rows(), True
         except (KeyboardInterrupt, EOFError):
             print("\nAutoCode setup stopped; nothing else was changed.")
@@ -347,6 +379,9 @@ def cli(argv=None) -> int:
         if changed:
             print()
             print(text(found, use))
+        note = hub_note(installed, found, use)
+        if note:
+            print(note)
         try:
             chosen = use is not None and use.get("id") is not None and offer_stages(use)
         except (KeyboardInterrupt, EOFError):
