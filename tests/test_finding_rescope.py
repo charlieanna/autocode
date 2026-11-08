@@ -631,7 +631,7 @@ class PlanTests(unittest.TestCase):
         pending = rows[0]["pending_resolution"]
         self.assertEqual(([], ["AC15"]), (pending["unverified_criteria"], pending["moved_unverified_criteria"]))
         self.assertEqual(
-            "F (Validator): its resolution was not accepted (Finding scope lacked fully passing "
+            "F (Tester): its resolution was not accepted (Finding scope lacked fully passing "
             "verification only on AC15, which an approved revision then moved to another milestone; "
             "a fresh report must resolve it)",
             validation_rounds._why(rows[0]),
