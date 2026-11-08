@@ -612,7 +612,7 @@ def next_milestone(done: set) -> dict | None:
     return None
 
 
-def lazy_citations(report):
+def lazy_citations(report, *, producer=None):
     """fault=lazy_validator: the Validator certifies every criterion with its own say-so — plausible
     prose naming nothing the runner verified — the false-completion shape #1070's gate must refuse
     even when every listed check exits 0.
@@ -631,7 +631,7 @@ def lazy_citations(report):
             # The configured reference/paths are the Builder's copy source,
             # never a producer identity asserted by model handoff data.
             report["changed_code_exceptions"] = judgments(
-                DATA, producer={**CONFIG, "reference": builder_copy_source(DATA)}
+                DATA, producer={**CONFIG, "reference": builder_copy_source(DATA)} if producer is None else producer
             )
     if CONFIG.get("fault") not in ("lazy_validator", "extra_file_citation") or not isinstance(report, dict):
         return report
@@ -2046,8 +2046,9 @@ def report_for(stage: str, data: dict) -> dict:
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
     if CONFIG.get("fault") in FAULT_PROVIDERS and stage in ("terra", "sol", "astra_review", "astra_resolve"):
         provider = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])
-        # The Tester's changed-line reasons (fake_changed_code) are attached like every other report's.
-        return lazy_citations(provider["report_for"](stage, data, common, CONFIG, run_check, requirements))
+        report = provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
+        producer = provider["tester_producer"](CONFIG) if CONFIG["fault"] == "refund_store_clock" else None
+        return lazy_citations(report, producer=producer)
     if CONFIG.get("fault") == "refund_planted_window" and stage in ("terra", "sol", "astra_review", "astra_resolve"):
         provider = scripted_fault("refund_window_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)

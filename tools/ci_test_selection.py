@@ -54,6 +54,13 @@ SUITE_CONSUMERS = (
 # Black-box consumers cannot import their runtime producers. Job scope and the scenario runner share this
 # map; its producer and top-level scenario files also select the map-discovery guard.
 SCENARIO_RUNTIME_CONSUMERS = {
+    **{
+        f"scenarios/catalog/{scenario}/{resource}": (
+            "scenarios.test_harness.AdaptiveCompletionTests.test_progressive_delegations_retain_the_review_that_authorizes_execution",
+        )
+        for scenario in ("progressive-cumulative-regression", "progressive-split-learning-journey")
+        for resource in ("seed/test_journey.py", "slices/S1/lessons.py", "oracle.py", "scenario.toml")
+    },
     "tools/autocode_report_identity.py": ("scenarios.test_adversarial_evidence",),
     "tools/autocode_planning_advice.py": ("scenarios.test_adversarial_planning",),
     "tools/autocode_stuck_job.py": ("scenarios.test_adversarial_planning",),

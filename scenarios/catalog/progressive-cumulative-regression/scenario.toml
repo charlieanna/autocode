@@ -5,4 +5,4 @@ check = "python3 -m unittest test_journey"
 fault = "progressive_regression"
 [run]
 max_steps = 60
-requires_stages = ["astra_resolve"]
+requires_stages = ["terra", "sol"]

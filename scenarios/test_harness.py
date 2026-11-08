@@ -4382,9 +4382,15 @@ class FakeRunTests(unittest.TestCase):
         (row,) = stats.summarize([result])
         self.assertEqual((0, 0, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
 
-    def test_wrong_solution_that_autocode_accepts_is_judged_false_complete(self):
+    def test_special_case_with_real_surviving_mutants_is_refused_before_completion(self):
         result = self.run_fake("broken/special-case")
-        self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
+        self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
+        self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", result["runner_status"])
+        self.assertEqual("", result["harness_error"])
+        checks = {row["name"]: row["ok"] for row in result["checks"]}
+        self.assertTrue(checks["project_tests_pass"])
+        self.assertFalse(checks["hidden_tests_pass"])
+        self.assertNotIn(result["runner_status"], verdict.COMPLETE_STATUSES)
 
     def test_parallel_diamond_builds_b_and_c_as_one_parallel_batch(self):
         with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
@@ -4539,14 +4545,17 @@ class FakeRunTests(unittest.TestCase):
             state["goal_contract"]["body"]["permission_boundaries"],
         )
 
-    def test_a_design_turn_that_also_writes_code_is_judged_false_complete(self):
-        # Nothing in the product limits a new design's Builder to documents; the per-turn check does.
+    def test_design_code_without_delivered_behavior_tests_cannot_reach_the_build_turn(self):
+        # The injected design writes application code but not its new tests. The runner's named-test
+        # proof now refuses it before the conversation can claim that turn complete.
         widened = lambda text: text.replace('["docs/design/"], ["app/"', '["docs/design/", "app/"], ["app/"')
         result = self.run_copy("discuss-then-design-then-build", widened)
-        self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
-        failing = [check["name"] for check in result["checks"] if not check["ok"]]
-        # The code came in the design turn, so the build turn changed nothing under app/ either.
-        self.assertEqual(["build_follows_design", "design_turn_changed_only_its_report"], failing)
+        self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
+        self.assertNotIn(result["runner_status"], verdict.COMPLETE_STATUSES)
+        self.assertEqual("", result["harness_error"])
+        self.assertIn("stopped before turn 3", result["turn_not_reached"])
+        self.assertEqual(["discuss", "design"], [turn["workflow"] for turn in result["turns"]])
+        self.assertEqual(["three_turns_in_one_run"], [check["name"] for check in result["checks"] if not check["ok"]])
 
     def test_a_design_review_is_revised_in_the_same_run_as_the_user_answers_it(self):
         result = self.run_fake("reference", "design-review-with-answers")

@@ -1,12 +1,43 @@
+import contextlib
+import csv
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class CsvCheckTests(unittest.TestCase):
+    def test_field_limit_retries_a_smaller_platform_supported_value(self):
+        from csvcheck import main
+
+        real_limit = csv.field_size_limit
+        self.addCleanup(real_limit, real_limit())
+        attempts = []
+
+        def platform_limit(value):
+            attempts.append(value)
+            if len(attempts) > 2:
+                raise AssertionError("The field limit did not converge after reducing the platform maximum")
+            if value >= sys.maxsize:
+                raise OverflowError("The platform C long cannot hold this field limit")
+            return real_limit(value)
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "rows.csv"
+            path.write_text("name,age,email\nAlice,20,a@example.test\n")
+            output = io.StringIO()
+            with patch("csvcheck.csv.field_size_limit", side_effect=platform_limit), contextlib.redirect_stdout(output):
+                self.assertEqual(0, main([str(path)]))
+            self.assertEqual({"rows": 1, "errors": []}, json.loads(output.getvalue()))
+        self.assertEqual(2, len(attempts))
+        self.assertEqual(sys.maxsize, attempts[0])
+        self.assertGreater(attempts[1], 0)
+        self.assertLess(attempts[1], attempts[0])
+
     def invoke(self, text):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "rows.csv"
