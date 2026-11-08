@@ -1088,6 +1088,11 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tools/autocode_access_evidence", "tools/autocode_model_preflight", "tools/autocode_provider_launch"),
         ("tests.test_access_evidence_cli",),
     ),
+    # ENTRYPOINT_FIXTURE dynamically imports these modules in fresh source/package CLI children.
+    (
+        ("tools/autocode_tool_admission.py", "tools/autocode_model_preflight.py", "tools/autocode_provider_launch.py"),
+        ("tests.test_tool_admission_cli",),
+    ),
     (("tools/autocode_model_preflight",), ("tests.test_provider_credentials",)),
     (
         ("tools/autocode_access_identity", "tools/autocode_access_evidence", "tools/autocode_model_preflight"),
