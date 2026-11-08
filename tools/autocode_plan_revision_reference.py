@@ -53,16 +53,28 @@ def expand(value, stage, current_token, saved_body, trace):
     """Copy only from the exact current contract; never infer missing model intent."""
     body = value["contract"]
     changes = body.get("changes")
-    if (
-        stage != "glm_revise"
-        or not current_token
-        or body.get("revise_contract") != current_token
-        or not isinstance(saved_body, dict)
-        or set(body) - {"revise_contract", "changes", "acceptance_criteria", "retain_requirement_trace"}
-        or not isinstance(changes, dict)
-        or set(changes) - FIELDS
-    ):
-        raise ValueError("Plan revision reference is stale, malformed or not a Planner revision")
+    # Keep the admission order and short-circuiting: diagnostics identify the
+    # first refusal, never a reported token, field name, value or saved body.
+    if stage != "glm_revise":
+        reason = "wrong_stage"
+    elif not current_token:
+        reason = "current_reference_unavailable"
+    elif body.get("revise_contract") != current_token:
+        reason = "reference_mismatch"
+    elif not isinstance(saved_body, dict):
+        reason = "saved_contract_unavailable"
+    elif set(body) - {"revise_contract", "changes", "acceptance_criteria", "retain_requirement_trace"}:
+        reason = "unexpected_reference_fields"
+    elif not isinstance(changes, dict):
+        reason = "changes_not_object"
+    elif set(changes) - FIELDS:
+        reason = "unexpected_change_fields"
+    else:
+        reason = None
+    if reason:
+        raise ValueError(
+            f"Plan revision reference is stale, malformed or not a Planner revision [plan_revision_reference:{reason}]"
+        )
     result = copy.deepcopy(value)
     result["contract"] = {**copy.deepcopy(saved_body), **copy.deepcopy(changes)}
     if "acceptance_criteria" in body:

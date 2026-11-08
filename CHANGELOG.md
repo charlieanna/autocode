@@ -18,6 +18,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Planner revision rejections now identify the failed reference check in recovery history,
+  without exposing rejected values or changing admission and plan-approval checks.
 - A new run's first moment no longer reads `Next: Planner` in the chat's log ahead of Requirements. The
   run's first save holds the default next stage until it chooses its first one; the status view now says
   `Starting the run` and names no stage until then.
