@@ -189,11 +189,15 @@ class ConfigToolFlow(unittest.TestCase):
         project = next(path for path in (selected / ".autocode" / "projects").iterdir())
         state = json.loads((next((project / ".autocode/runs").iterdir()) / "state.json").read_text())
         self.assertEqual({"selected": str(selected), "project": str(project)}, state["workspace_bootstrap"])
-        # A client reads the conversation, so the disclosure is a message, not only view.workspace.
+        # A client reads the conversation, so the disclosure is a message, not only view.workspace. It
+        # follows the approved plan, the first point AutoCode writes files; the private project's path
+        # stays in view.workspace.
         messages = run_view.view(state)["chat"]["messages"]
-        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, messages[1]["id"])
-        self.assertIn(str(selected), messages[1]["text"])
-        self.assertIn(str(project), messages[1]["text"])
+        ids = [row["id"] for row in messages]
+        notice = messages[ids.index(chat_history.BOOTSTRAP_NOTICE)]
+        self.assertEqual(chat_history.APPROVED_PLAN, messages[ids.index(chat_history.BOOTSTRAP_NOTICE) - 1]["text"])
+        self.assertIn(str(selected), notice["text"])
+        self.assertNotIn(str(project), notice["text"])
         # The project lived in the folder's own store until the build completed; then the build
         # was delivered to a named project beside the person's files, and the chat says where.
         self.assertEqual(selected / ".autocode" / "projects", project.parent)

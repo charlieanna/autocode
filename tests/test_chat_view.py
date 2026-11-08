@@ -784,7 +784,48 @@ class ChatViewTests(unittest.TestCase):
             "The requested task is complete.", self.project(in_place, "done", True)["messages"][-1]["text"]
         )
 
-    def test_a_bootstrapped_project_is_named_in_the_conversation_once(self):
+    def test_a_hi_in_a_folder_outside_git_hears_nothing_about_folders(self):
+        """Typing "hi" in a folder outside Git was answered with a paragraph about a private project and
+        its path: nothing is written until a plan is approved, so nothing about folders is said before."""
+        for project in ("/tmp/notes/.autocode/projects/0123456789ab", "/tmp/notes"):
+            with self.subTest(project=project):
+                state = {
+                    "status": "WAITING_FOR_USER",
+                    "task": "hi",
+                    "workspace_bootstrap": {"selected": "/tmp/notes", "project": project},
+                    "user_events": [{"kind": "answer", "id": "a1", "text": "Nothing yet, just saying hello."}],
+                }
+                rows = self.project(state, "continue")["messages"]
+                self.assertNotIn(chat_history.BOOTSTRAP_NOTICE, [row["id"] for row in rows])
+                self.assertNotIn("Git", "\n".join(row["text"] for row in rows))
+
+    def test_a_private_project_is_explained_once_after_the_plan_is_approved(self):
+        state = {
+            "status": "RUNNING",
+            "task": "Build wordcount.py",
+            "workspace_bootstrap": {"selected": "/tmp/notes", "project": "/tmp/notes/.autocode/projects/0123456789ab"},
+            "user_events": [{"kind": "goal_approval", "token": "t1"}],
+        }
+        rows = self.project(state, "continue")["messages"]
+        ids = [row["id"] for row in rows]
+        self.assertEqual(ids.index("approval-0") + 1, ids.index(chat_history.BOOTSTRAP_NOTICE))
+        notice = rows[ids.index(chat_history.BOOTSTRAP_NOTICE)]["text"]
+        self.assertEqual(
+            "/tmp/notes is not in Git, so I build in a private project of my own and leave your files as they "
+            "are. When the build is done, I put it in a new folder in /tmp/notes.",
+            notice,
+        )
+        self.assertNotIn("0123456789ab", notice, "the private project's id is machinery")
+        # One disclosure for the whole run: a second approval and a later turn do not repeat it.
+        state["user_events"] += [
+            {"kind": "goal_approval", "token": "t2"},
+            {"kind": "brief_feedback", "id": "f1", "text": "Add a test"},
+        ]
+        later = self.project(state, "continue")["messages"]
+        self.assertEqual(1, sum(row["id"] == chat_history.BOOTSTRAP_NOTICE for row in later))
+        self.assertIn("Add a test", [row["text"] for row in later][-1])
+
+    def test_a_legacy_project_is_named_after_approval_and_a_repository_says_nothing(self):
         state = {
             "status": "RUNNING",
             "task": "Build wordcount.py",
@@ -792,31 +833,29 @@ class ChatViewTests(unittest.TestCase):
                 "selected": "/tmp/notes",
                 "project": "/tmp/notes/autocode-projects/build-wordcount-py-47003121",
             },
+            "user_events": [{"kind": "goal_approval", "token": "t1"}],
         }
         rows = self.project(state, "continue")["messages"]
-        self.assertEqual(["user", "assistant"], [row["role"] for row in rows])
-        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, rows[1]["id"])
-        self.assertIn("/tmp/notes is not a Git repository", rows[1]["text"])
-        self.assertIn("autocode-projects/build-wordcount-py-47003121", rows[1]["text"])
-        # One disclosure for the whole run: a later turn does not repeat it.
-        state["user_events"] = [{"kind": "brief_feedback", "id": "f1", "text": "Add a test"}]
-        later = self.project(state, "continue")["messages"]
-        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, later[1]["id"])
-        self.assertEqual(1, sum(row["id"] == chat_history.BOOTSTRAP_NOTICE for row in later))
-        self.assertIn("Add a test", [row["text"] for row in later][-1])
+        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, rows[-1]["id"])
+        self.assertIn("autocode-projects/build-wordcount-py-47003121", rows[-1]["text"])
+        del state["workspace_bootstrap"]
+        self.assertEqual(
+            ["Build wordcount.py", chat_history.APPROVED_PLAN],
+            [row["text"] for row in self.project(state, "continue")["messages"]],
+        )
 
-    def test_an_empty_folder_that_became_the_project_says_so_and_a_repository_says_nothing(self):
+    def test_an_empty_folder_that_became_the_project_says_so_after_approval(self):
         state = {
             "status": "RUNNING",
             "task": "Build it",
             "workspace_bootstrap": {"selected": "/tmp/empty", "project": "/tmp/empty"},
+            "user_events": [{"kind": "goal_approval", "token": "t1"}],
         }
         rows = self.project(state, "continue")["messages"]
-        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, rows[1]["id"])
-        self.assertIn("was not a Git repository", rows[1]["text"])
-        self.assertIn("/tmp/empty", rows[1]["text"])
-        del state["workspace_bootstrap"]
-        self.assertEqual(["Build it"], [row["text"] for row in self.project(state, "continue")["messages"]])
+        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, rows[-1]["id"])
+        self.assertEqual(
+            "/tmp/empty was not a Git repository, so I made it one; what I build is written there.", rows[-1]["text"]
+        )
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_chat_client as chat
+import autocode_chat_recoveries as recoveries
 import autocode_client_actions as actions
 import autocode_run_view as run_view
 
@@ -1833,10 +1834,10 @@ class TabTests(unittest.TestCase):
         self.assertEqual(40, len(chat.title_of({"task": "x" * 99})))
 
 
-def recovery(headline, at):
+def recovery(headline, at, kind="sent_back"):
     return {
         "id": headline,
-        "kind": "rejected",
+        "kind": kind,
         "at": at,
         "job": "Builder",
         "headline": headline,
@@ -1870,7 +1871,7 @@ class RecoveryNoticeTests(unittest.TestCase):
         client = ScriptedChat({})
         self.addCleanup(client.close)
         client.show({"status": "RUNNING", "recoveries": [self.EARLIER, self.LATER]})
-        newer = recovery("Tester rewrote its report", "2026-11-02T05:50:00+00:00")
+        newer = recovery("Tester stuck", "2026-11-02T05:50:00+00:00", "investigated")
         client.show({"status": "RUNNING", "recoveries": [self.EARLIER, self.LATER, newer]})
         said = [line for line in client.out if "Recovery" in line]
         self.assertEqual(
@@ -1878,7 +1879,28 @@ class RecoveryNoticeTests(unittest.TestCase):
             said[0],
         )
         self.assertEqual(2, len(said))
-        self.assertTrue(said[1].startswith("\nRecovery · Tester rewrote its report\n"))
+        self.assertTrue(said[1].startswith("\nRecovery · Tester stuck\n"))
+
+    def test_a_rejected_and_rewritten_report_is_not_said_in_the_conversation(self):
+        """Typing "hi" showed "Requirements answer rejected / $: missing required_behaviors" and "Requirements
+        rewrote its report" around the greeting: a report AutoCode fixed by itself, which the person can do
+        nothing about. They stay in /why and the side panel; the rest is still said."""
+        rejected = recovery("Requirements answer rejected", "2026-11-08T02:00:13+00:00", "rejected")
+        rewritten = recovery("Requirements rewrote its report", "2026-11-08T02:00:30+00:00", "report_repaired")
+        for started in (True, False):
+            with self.subTest(started=started):
+                client = ScriptedChat({})
+                self.addCleanup(client.close)
+                client.started = started
+                client.show({"status": "RUNNING", "recoveries": [rejected]})
+                client.show({"status": "RUNNING", "recoveries": [rejected, rewritten]})
+                self.assertNotIn("Recovery", client.text())
+                client.show({"status": "RUNNING", "recoveries": [rejected, rewritten, self.LATER]})
+                self.assertEqual(1, client.text().count("Recovery · "))
+                self.assertIn("Recovery · Builder answer rejected", client.text())
+        view = {"recoveries": [rejected, rewritten]}
+        self.assertIn("Requirements rewrote its report", recoveries.why(view))
+        self.assertEqual("2 so far · /why", recoveries.compact(view)[0])
 
     def test_switching_runs_neither_repeats_nor_hides_a_runs_recoveries(self):
         other = RUN.with_name("other-run")

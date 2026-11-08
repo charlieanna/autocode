@@ -297,9 +297,11 @@ created under the bootstrapped project instead, and commands may keep using the
 selected folder and that name as the run's handle. The status view names the
 effective `workspace` and `run_dir`. When the launch does this bootstrapping, the
 run also says so once in its chat history (`view.chat.messages`, message id
-`workspace-bootstrap`), naming the folder that was selected and the project the
-work happens in, so a client shows the move instead of leaving the person to infer
-it from `view.workspace`.
+`workspace-bootstrap`), so a client shows it instead of leaving the person to infer
+it from `view.workspace`. The message follows the first approved plan, the first
+point the run writes files: a chat that only talks (a greeting, a question, a
+review) says nothing about folders. It names the selected folder; a private scratch
+project's own path stays in `view.workspace`.
 
 This example accepts the displayed plan and chooses question defaults or the first
 listed option. An interactive client should collect the person’s answer instead,
