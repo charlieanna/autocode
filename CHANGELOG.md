@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A regression proof whose original project suite times out records unverified evidence and retains
+  that baseline receipt without starting candidate checks. Completed failing baseline tests still run
+  the comparison, and a later diagnosed retry can refresh the baseline through the existing path.
 - Fresh Linux Requirements launches check their selected kernel-shell tools before paid access probes.
   Actual launch still rediscovers the toolchain and performs every native policy and startup check.
 - Requirements instructions call for acceptance examples on both sides of a requested transition, preserving

@@ -2763,8 +2763,14 @@ def verify(
         existing_failures=existing_failures,
     )
     trees, hidden = {}, []
+    baseline_timed_out = bool(base_suite and (base_suite.get("receipt") or {}).get("timed_out") is True)
+    if baseline_timed_out:
+        # A settled timeout cannot anchor preservation. Retain its receipt, but
+        # do not spend another command budget on an already unprovable attempt.
+        checks["suite_on_base"] = base_suite["receipt"]
+        unverified.append("The original project suite timed out; candidate checks were not started")
     try:
-        if (changes or existing_guards) and (commands["regression"] or commands["suite"]):
+        if not baseline_timed_out and (changes or existing_guards) and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(
                 workspace,
                 base,
@@ -2843,13 +2849,13 @@ def verify(
                 review_reasons.append("the regression proof rests on the whole suite's exit code")
                 if on_base["exit_code"] == 0 and not preserve:
                     fail.append("The new tests pass on the unfixed base code, so they do not reproduce the bug")
-        elif tests and sources:
+        elif tests and sources and not baseline_timed_out:
             unverified.append("No command to run the regression tests; pass --regression-command")
 
         # No regressions: the suite on the candidate, compared with base.
         if "candidate" in trees and (sources or preserve) and commands["suite"]:
             hidden = _preserve_suite(run, trees, no_go_project=no_go_project, no_junit_project=no_junit_project)
-        elif sources or preserve:
+        elif (sources or preserve) and not baseline_timed_out:
             unverified.append(
                 "No project test command was found; existing behavior was not checked (pass --test-command)"
             )
