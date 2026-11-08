@@ -51,6 +51,8 @@ results. Keep a passing example scoped to that example unless the brief or repos
 establishes a broader guarantee. Do not promote an unverified observation to
 required_behaviors. Retain explicit preservation requirements and flag a genuine
 conflict with the requested correction.
+When requested behavior spans a transition, choose acceptance examples on both sides within its stated domain,
+using supported expected outcomes and retaining the general rule; do not invent new requirements.
 Do not create a technical approach, milestone, dependency graph, or implementation plan.
 Do not treat a proposed default as a user answer. Do not implement.
 In a spec_first run, when the conversation so far states no concrete software outcome

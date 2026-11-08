@@ -21,6 +21,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Requirements instructions call for acceptance examples on both sides of a requested transition, preserving
+  the stated domain and general rule; independent planning and verification checks still apply.
 - The run-state typing check no longer mistakes an OpenCode tool-event payload for untyped
   AutoCode run state.
 - A fresh Requirements call replaces its own redundant model-access ping for the exact same
