@@ -106,6 +106,14 @@ class CompletionGateProperties(unittest.TestCase):
         self.assertFalse(self.ready())
         self.assertIn("Git delivery", completion_gate.rejection(self.state))
 
+    def test_complete_with_passing_validation_still_requires_a_fresh_bugfix_proof(self):
+        self.state["goal_contract"] = {"body": {"task_kind": "bugfix"}}
+        self.assertTrue(completion_gate.logical_completion_ready(self.state, self.decision, self.current))
+        for proof in ({}, {"verdict": "PASS", "source_revision": "earlier"}):
+            with self.subTest(proof=proof):
+                self.state["regression_proof"] = proof
+                self.assertFalse(self.ready())
+
     def test_every_required_rule_mutation_refuses_completion(self):
         mutations = []
         for status in ("FAIL", "NOT_VERIFIED", "UNVERIFIED", "", "verified"):
