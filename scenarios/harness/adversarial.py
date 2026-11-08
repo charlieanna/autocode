@@ -35,6 +35,7 @@ class AdversarialCase(unittest.TestCase):
     """Tests deliberately remain red when a product invariant is violated."""
 
     scenario_id = "greenfield-greeting-cli"
+    timeout_seconds = 150
 
     def setUp(self):
         output = Path(os.environ.get("AUTOCODE_ADVERSARIAL_OUT", REPO / ".scenario-runs/adversarial"))
@@ -45,7 +46,13 @@ class AdversarialCase(unittest.TestCase):
         self.flags, env = fake_setup(self.scenario, self.root, self.scenario.reference)
         self.flags += ["--max-iterations", "2", "--max-seconds", "300", "--max-stage-seconds", "30"]
         self.driver = Driver(
-            self.project, self.root, self.flags, env, autocode=default_autocode(), max_steps=80, timeout_seconds=150
+            self.project,
+            self.root,
+            self.flags,
+            env,
+            autocode=default_autocode(),
+            max_steps=80,
+            timeout_seconds=self.timeout_seconds,
         )
         self.env = self.driver.env
         self.config_path = self.root / "fake-config.json"

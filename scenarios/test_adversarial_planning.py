@@ -129,6 +129,9 @@ class DraftProofPlanning(AdversarialCase):
 
 class DraftExamplePlanning(AdversarialCase):
     scenario_id = "ladder-03-csv-validation-cli"
+    # Full CSV mutation proof outlives the greeting fixture's 150s driver under parallel load.
+    # Keep an outer bound matching this fixture's existing 300s task budget.
+    timeout_seconds = 300
 
     def test_wrong_model_written_count_is_corrected_before_approval_and_finishes_without_questions(self):
         self.set_fault("planning", "repair_draft_example")
