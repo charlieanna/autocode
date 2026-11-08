@@ -5,12 +5,24 @@ switch always reads current status before offering or taking a core decision.
 """
 
 from collections import OrderedDict
+from pathlib import Path
+
+try:
+    from . import autocode_scratch_projects as scratch_projects
+except ImportError:
+    import autocode_scratch_projects as scratch_projects
 
 LIMIT = 32
 
 
 def identity(workspace, run_dir):
     return str(workspace), str(run_dir) if run_dir is not None else None
+
+
+def label(workspace, run_dir=None) -> str:
+    """The chat's place as the header names it: the person's folder, never a private project's random id."""
+    text = (scratch_projects.chosen(workspace) or Path(workspace)).name
+    return f"{text} · {Path(run_dir).name}" if run_dir is not None else text
 
 
 def draft_identity(view):

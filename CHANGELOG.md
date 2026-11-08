@@ -23,6 +23,12 @@ PR template asks for an entry here; a change without one is incomplete.
   Code's own login check (`claude auth status`) touched it, so the kernel stopped the whole run and
   Ctrl-C could not reach it. The run and the chat's status reads now take their input from `/dev/null`.
 
+- Saying "hi" in a folder outside Git no longer gets a paragraph about folders: the chat says where
+  the work happens only once a plan is approved, the first point AutoCode writes files, and in one
+  sentence that names your folder rather than the private project's path. A report AutoCode rejected
+  for its format and then rewrote is no longer announced in the conversation; the side panel and
+  `/why` still list it. The full-screen chat's header names your folder, not the private project's id.
+
 - `autocode replay --export` or `--into` on a run with native capture receipts again refuses with exit
   code 3 when a later attempt's retained events are malformed, instead of crashing with a traceback while
   building the refusal's `native_capture_dependencies` diagnostics. The refusal is then returned without

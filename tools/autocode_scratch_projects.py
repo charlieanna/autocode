@@ -39,3 +39,15 @@ def holds(selected, project) -> bool:
 def is_scratch(selected, project) -> bool:
     """Whether ``project`` is a private scratch project of ``selected`` (not a legacy visible one)."""
     return Path(project).parent == root(selected)
+
+
+def chosen(project) -> Path | None:
+    """The folder the person chose, when ``project`` is one of its private scratch projects; else None.
+
+    A client shows that folder's name, not the scratch project's random id.
+    """
+    project = Path(project)
+    if len(project.parents) < len(SCRATCH) + 1:
+        return None
+    folder = project.parents[len(SCRATCH)]
+    return folder if is_scratch(folder, project) else None
