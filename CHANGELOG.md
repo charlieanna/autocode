@@ -295,6 +295,9 @@ PR template asks for an entry here; a change without one is incomplete.
   After the install, Enter signs in to the hub just installed (it used to skip it), and when
   another connected backend still comes first for new runs, setup says why and names
   `--provider kilocode` or `default_provider` to run on Kilo instead.
+  The OpenCode and Kilo sign-in offers now read "Connect an account in Kilo now (ChatGPT, Z.ai,
+  an API key or Kilo Gateway)?", since the hub's own picker connects any of those, not only the
+  Kilo Gateway.
 
 - A plan whose criteria write the request's dollar amounts in the code's cents is no longer refused
   as having changed them, when the request itself spells one amount that way, such as

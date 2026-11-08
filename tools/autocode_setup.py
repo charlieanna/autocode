@@ -151,6 +151,14 @@ def text(found, use) -> str:
     return "\n".join(lines)
 
 
+# A hub's sign-in connects one of many accounts, in the hub's own picker; the offer says which, so
+# "sign in to Kilo" is not read as the Kilo Gateway alone.
+HUB_ACCOUNTS = {
+    "opencode": "ChatGPT, Z.ai, MiMo or an API key",
+    "kilocode": "ChatGPT, Z.ai, an API key or Kilo Gateway",
+}
+
+
 def _sign_in(found, *, ask=input, login=None, out=print, installed=None) -> bool:
     """Offer each installed, signed-out backend's own sign-in; True when one was attempted.
 
@@ -164,7 +172,12 @@ def _sign_in(found, *, ask=input, login=None, out=print, installed=None) -> bool
         if not any(action.get("id") == "login" for action in row.get("actions") or []):
             continue
         fresh = row["id"] == installed
-        answer = ask(f"Sign in to {row['label']} now? {'[Y/n]' if fresh else '[y/N]'} ").strip().lower()
+        offer = (
+            f"Connect an account in {row['label']} now ({HUB_ACCOUNTS[row['id']]})?"
+            if row["id"] in HUB_ACCOUNTS
+            else f"Sign in to {row['label']} now?"
+        )
+        answer = ask(f"{offer} {'[Y/n]' if fresh else '[y/N]'} ").strip().lower()
         if answer not in (("", "y", "yes") if fresh else ("y", "yes")):
             continue
         tried = True
@@ -333,8 +346,8 @@ def hub_note(installed, found, use) -> str | None:
     status = next((row.get("connection_status") for row in found if row["id"] == installed), None)
     if status not in CONNECTED:
         return (
-            f"{label} is installed but not signed in, so new runs cannot use it yet. "
-            f"Sign in with: autocode connections login --provider {installed}"
+            f"{label} is installed but has no account connected, so new runs cannot use it yet. "
+            f"Connect one with: autocode connections login --provider {installed}"
         )
     why = (
         f"{use['label']} is {use['reason']}"

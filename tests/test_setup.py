@@ -125,6 +125,9 @@ class SetupTests(unittest.TestCase):
         self.assertEqual([["login", "--provider", "codex"]], logins)
         self.assertFalse(setup._sign_in([CODEX_OUT], ask=lambda _prompt: "", login=login))
         self.assertEqual(1, len(logins))
+        asked.clear()
+        setup._sign_in([row("opencode", "OpenCode", "sign_in_required")], ask=ask, login=login)
+        self.assertEqual(["Connect an account in OpenCode now (ChatGPT, Z.ai, MiMo or an API key)? [y/N] "], asked)
 
     def test_json_reports_without_asking_and_exits_by_whether_a_run_could_start(self):
         for found, chosen, code in (
@@ -197,7 +200,8 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(routes, listed)
 
     def test_after_installing_kilo_setup_signs_in_on_enter_and_says_when_another_backend_runs(self):
-        """It installed Kilo, offered its sign-in as "[y/N]" so Enter skipped it, and then said
+        """It installed Kilo, offered "Sign in to Kilo now? [y/N]", which read as the Kilo Gateway
+        alone and took Enter as no, and then said
         "New runs use Claude Code" without saying why Kilo, the hub just chosen, was passed over."""
         kilo_out = {**row("kilocode", "Kilo", "sign_in_required"), "actions": [{"id": "login"}]}
         kilo_in = row("kilocode", "Kilo", "credentials_present")
@@ -216,7 +220,13 @@ class SetupTests(unittest.TestCase):
             contextlib.redirect_stdout(output),
         ):
             self.assertEqual(0, setup.cli([]))
-        self.assertEqual(["Sign in to Codex now? [y/N] ", "Sign in to Kilo now? [Y/n] "], prompts)
+        self.assertEqual(
+            [
+                "Sign in to Codex now? [y/N] ",
+                "Connect an account in Kilo now (ChatGPT, Z.ai, an API key or Kilo Gateway)? [Y/n] ",
+            ],
+            prompts,
+        )
         login.assert_called_once_with(["login", "--provider", "kilocode"])
         shown = output.getvalue()
         self.assertIn(
@@ -235,8 +245,8 @@ class SetupTests(unittest.TestCase):
         self.assertIsNone(setup.hub_note("kilocode", [kilo_in], kilo_use))
         self.assertIsNone(setup.hub_note("kilocode", [kilo_out], None))
         self.assertEqual(
-            "Kilo is installed but not signed in, so new runs cannot use it yet. "
-            "Sign in with: autocode connections login --provider kilocode",
+            "Kilo is installed but has no account connected, so new runs cannot use it yet. "
+            "Connect one with: autocode connections login --provider kilocode",
             setup.hub_note("kilocode", [CLAUDE_IN, kilo_out], claude_use),
         )
         named = {"id": "claude", "label": "Claude Code", "reason": "named by AUTOCODE_PROVIDER"}
