@@ -451,6 +451,74 @@ class GoalTests(unittest.TestCase):
                     self.assertEqual(before["settings"][key], after["settings"][key])
                 self.assertEqual(2, self.invoke("--approve-goal", old_token))
 
+    def test_requested_pause_offers_correction_without_dispatch_or_releasing_the_pause(self):
+        initial = copy.deepcopy(self.state)
+        for spec_first in (False, True):
+            for status in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION"):
+                with self.subTest(spec_first=spec_first, status=status):
+                    self.state = copy.deepcopy(initial)
+                    self.approve()
+                    self.state["settings"]["spec_first"] = spec_first
+                    self.state["settings"]["roles"]["completion"] = {"model": "sol", "reasoning_effort": "high"}
+                    self.state["next_stage"] = "sol"
+                    # Historical recovery remains evidence after an accepted review;
+                    # it is not a currently held operational pause.
+                    self.state["resolver"] = {"human_response_frontier": {"pause_status": "PAUSED_TIMEOUT_RECOVERY"}}
+                    if status == "PAUSED_INTERVENTION":
+                        s.atomic_json(self.run / "state.json", self.state)
+                        interventions.submit(
+                            self.root, self.run, request_id=f"pause-{spec_first}", kind="pause", text=""
+                        )
+                        self.assertTrue(runner.consume_interventions(self.state, self.run, self.root))
+                    else:
+                        self.state.update(status=status, stop_reason="Requested checkpoint")
+                    old_token = g.token(self.state["goal_contract"])
+                    product = (self.root / "greet.py").read_bytes()
+                    self.assertEqual(0, self.invoke("--status", "--json"))
+                    before = copy.deepcopy(self.state)
+                    view = json.loads(self.stdout)["view"]
+                    self.assertEqual("resume", view["needs"]["kind"])
+                    with self.subTest(check="named offer"):
+                        self.assertIsNotNone(view["chat"]["input"])
+                        self.assertEqual(
+                            ["--feedback", "MESSAGE"], shlex.split(view["chat"]["input"]["next_command"])[-2:]
+                        )
+                    message = "Correct the candidate before Tester; retain every existing acceptance criterion."
+                    self.assertEqual(0, self.invoke("--feedback", message), self.stdout + self.stderr)
+                    self.assertEqual(status, self.state["status"])
+                    self.assertEqual("astra_discovery", self.state["next_stage"])
+                    self.assertFalse(g.approved(self.state))
+                    self.assertEqual(message, self.state["brief_feedback"][-1]["text"])
+                    self.assertEqual(product, (self.root / "greet.py").read_bytes())
+                    self.assertEqual(before["settings"]["roles"], self.state["settings"]["roles"])
+                    for key, value in before["settings"]["limits"].items():
+                        self.assertEqual(value, self.state["settings"]["limits"][key], key)
+                    for key in ("stages", "resolver", "pause_intent"):
+                        self.assertEqual(before.get(key), self.state.get(key), key)
+                    self.assertEqual(before.get("applied_interventions", []), self.state["applied_interventions"])
+                    self.assertEqual(2, self.invoke("--approve-goal", old_token))
+                    self.assertEqual(status, self.state["status"])
+                    self.assertEqual(2, self.invoke(), "An ordinary continue cannot release the requested pause")
+
+    def test_requested_pause_correction_refuses_questions_independent_holds_and_stop(self):
+        self.approve()
+        self.state.update(status="PAUSED_INTERVENTION", next_stage="sol")
+        initial = copy.deepcopy(self.state)
+        for change in (
+            {"pending_questions": [{"id": "Q1", "question": "Choose the scope"}]},
+            {"user_request": {"kind": "human_review"}},
+            {"pause_intent": {"held_pause": {"status": "PAUSED_TIME_LIMIT"}}},
+            {"applied_interventions": [{"id": "stop", "kind": "stop"}]},
+        ):
+            with self.subTest(change=change):
+                self.state = {**copy.deepcopy(initial), **change}
+                self.assertEqual(2, self.invoke("--feedback", "Correct the candidate"), self.stdout + self.stderr)
+                self.assertEqual([], self.state.get("brief_feedback", []))
+                self.assertTrue(g.approved(self.state))
+        self.state = copy.deepcopy(initial)
+        self.assertEqual(2, self.invoke("--feedback", "  "))
+        self.assertTrue(g.approved(self.state))
+
     def test_invalid_planning_feedback_cannot_release_an_operational_hold(self):
         self.approve()
         self.state["settings"]["limits"]["max_seconds"] = 1

@@ -24,6 +24,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Corrective feedback is available at a clean requested pause, including after review. It keeps
+  the run paused, preserves work and receipts, and requires a refreshed plan and exact approval;
+  active or uncertain work, interrupted operational holds and terminal stops remain protected.
+
 - Unchanged validation rounds that exhaust their progress limit record an automatic failed outcome
   with the open findings and evidence, instead of asking a person to manage validation or close a
   finding. The run retains its work and cannot resume or claim successful completion.

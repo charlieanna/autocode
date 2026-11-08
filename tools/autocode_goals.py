@@ -691,13 +691,14 @@ def initial_decision(body):
     }
 
 
-def feedback(state: RunState, text, *, interpret=True, semantic_hold=False):
+def feedback(state: RunState, text, *, interpret=True, semantic_hold=False, requested_hold=False):
     """A free-form brief correction is input to the Plan Reviewer, never authorization to build.
 
     ``semantic_hold`` is the shared pause-authority predicate for an answered semantic blocker
     (autocode_pause_authority.answered_blocker_decision), passed by the action layer because this
     module importing the authority would join an import cycle; it admits the correction the
-    checkpoint catalog alone does not know (#2434).
+    checkpoint catalog alone does not know (#2434). ``requested_hold`` similarly
+    admits a clean requested checkpoint, whose pause remains until explicit resume.
     """
     if state.get("status") == "PAUSED_COMPONENT_PLAN":
         need = component_plan.recovery(
@@ -706,7 +707,12 @@ def feedback(state: RunState, text, *, interpret=True, semantic_hold=False):
         if need.get("new_run_required"):
             raise ValueError(need["recovery_hint"])
     if (
-        not (semantic_hold or planning_feedback.admitted(state) or run_messages.correction_admitted(state, text))
+        not (
+            semantic_hold
+            or requested_hold
+            or planning_feedback.admitted(state)
+            or run_messages.correction_admitted(state, text)
+        )
         or not text.strip()
     ):
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")
@@ -714,6 +720,7 @@ def feedback(state: RunState, text, *, interpret=True, semantic_hold=False):
         raise ValueError("Record the artifact review with --approve-review or --reject-review, not brief feedback")
     if interpret and plan_chat.begin(state, text):
         return
+    requested_status = state.get("status") if requested_hold else None
     run_messages.archive_completion(state)
     contract = state.get("goal_contract")
     event = {
@@ -739,21 +746,16 @@ def feedback(state: RunState, text, *, interpret=True, semantic_hold=False):
     if contract:
         contract.update(approval_status="draft", approval_event=None)
         invalidate(state, "Brief feedback requires a refreshed draft and explicit approval")
-    default = (
-        "requirements"
-        if roles.planning_flow(state) == "v2"
-        else "requirements_gather"
-        if "requirements" in state.get("settings", {}).get("roles", {})
-        else "astra_discovery"
-    )
     state.update(
         {
             "status": "RUNNING",
             "phase": "DISCOVERING",
-            "next_stage": adaptive.feedback_stage(event, default),
+            "next_stage": adaptive.feedback_start_stage(state, event),
             "pending_questions": [],
         }
     )
+    if requested_status:
+        run_status.pause(state, requested_status, adaptive.feedback_pause_reason(event))
 
 
 def apply_intervention_feedback(state: RunState, receipt, applied_receipt):
@@ -794,18 +796,11 @@ def apply_intervention_feedback(state: RunState, receipt, applied_receipt):
     if contract:
         contract.update(approval_status="draft", approval_event=None)
     invalidate(state, "Queued feedback requires Plan Reviewer review, refreshed approval and validation")
-    first_stage = (
-        "requirements"
-        if roles.planning_flow(state) == "v2"
-        else "requirements_gather"
-        if "requirements" in state.get("settings", {}).get("roles", {})
-        else "astra_discovery"
-    )
     run_status.pause(
         state,
         "PAUSED_INTERVENTION",
         adaptive.feedback_pause_reason(event),
-        next_stage=adaptive.feedback_stage(event, first_stage),
+        next_stage=adaptive.feedback_start_stage(state, event),
         pending_questions=[],
     )
 
