@@ -25,6 +25,9 @@ from unittest import mock
 
 import autocode_verify as verify
 import run_suite
+from autocode_python_tests import unittest_results
+from autocode_suite_health import suite_health
+from autocode_verification_schedule import complete_results
 
 # The modules, in the order they finish.
 MODULES = {
@@ -216,6 +219,88 @@ class ParallelOutputAsTheVerifierReadsItTests(unittest.TestCase):
                 # Per-test result lines are not repeated.
                 self.assertEqual(int(verbosity > 1), output.count("test_x (tests.test_a_fail.A.test_x) ... FAIL"))
                 self.assertEqual(int(verbosity > 1), output.count("test_x_ok (tests.test_a_fail.A.test_x_ok) ... ok"))
+
+
+class ParallelUnreportedModuleResultsTests(unittest.TestCase):
+    PASS = "test_kept (tests.test_kept.Case.test_kept) ... ok\n\nRan 1 test in 0.1s\n\nOK\n"
+    FAILURE = (
+        "test_wrong (tests.test_wrong.Case.test_wrong) ... FAIL\n"
+        + "=" * 70
+        + "\nFAIL: test_wrong (tests.test_wrong.Case.test_wrong)\n"
+        + "-" * 70
+        + "\nAssertionError: wrong value\n\nRan 1 test in 0.1s\n\nFAILED (failures=1)\n"
+    )
+
+    def render(self, missing, *, ordinary_failure=False):
+        rows = [{"module": "tests.test_kept", "ok": True, "tests": 1, "seconds": 0.1, "output": self.PASS}]
+        if ordinary_failure:
+            rows.append({"module": "tests.test_wrong", "ok": False, "tests": 1, "seconds": 0.1, "output": self.FAILURE})
+        rows.append({"module": "tests.test_missing", "ok": False, "seconds": 0.1, **missing})
+        output = io.StringIO()
+        with (
+            contextlib.redirect_stdout(output),
+            mock.patch.object(run_suite, "unprivileged_prefix"),
+            mock.patch.object(
+                run_suite,
+                "run_module",
+                side_effect=lambda module, verbosity: next(row for row in rows if row["module"] == module),
+            ),
+        ):
+            self.assertFalse(run_suite.run_parallel([row["module"] for row in rows], 2, 2))
+        return output.getvalue()
+
+    def receipt(self, text):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "suite.log"
+            output.write_text(text)
+            receipt = {"output": str(output), "exit_code": 1, "timed_out": False, "results_expected": True}
+            receipt["results"] = verify.per_test_results(
+                verify.Framework("unittest", "python project_suite.py --verbose"),
+                receipt,
+                root / "unused.xml",
+                tree=root,
+            )
+            self.assertEqual(unittest_results(text), receipt["results"])
+        return receipt
+
+    def test_failed_module_without_summary_keeps_observed_results_but_is_incomplete(self):
+        for timed_out in (False, True):
+            for ordinary_failure in (False, True):
+                with self.subTest(timed_out=timed_out, ordinary_failure=ordinary_failure):
+                    text = self.render(
+                        {"tests": 0, "timed_out": timed_out, "output": "test_missing began but never reported\n"},
+                        ordinary_failure=ordinary_failure,
+                    )
+                    receipt = self.receipt(text)
+                    result = receipt["results"]
+                    self.assertEqual(["tests.test_kept.Case.test_kept"], result["passed"])
+                    self.assertEqual(["tests.test_wrong.Case.test_wrong"] if ordinary_failure else [], result["failed"])
+                    self.assertEqual(2 if ordinary_failure else 1, result["total"])
+                    self.assertFalse(result["complete"], text)
+                    self.assertFalse(complete_results(receipt))
+                    self.assertEqual("broken", suite_health(receipt))
+
+    def test_timed_out_module_cannot_establish_completeness_after_printing_its_summary(self):
+        text = self.render({"tests": 1, "timed_out": True, "output": self.PASS.replace("test_kept", "test_missing")})
+        receipt = self.receipt(text)
+        result = receipt["results"]
+        self.assertEqual(["tests.test_kept.Case.test_kept", "tests.test_missing.Case.test_missing"], result["passed"])
+        self.assertEqual(2, result["total"])
+        self.assertFalse(result["complete"], text)
+        self.assertFalse(complete_results(receipt))
+        self.assertEqual("broken", suite_health(receipt))
+
+    def test_fully_reported_failing_modules_retain_complete_named_results(self):
+        text = self.render({"tests": 1, "timed_out": False, "output": self.FAILURE})
+        receipt = self.receipt(text)
+        result = receipt["results"]
+        self.assertEqual(["tests.test_kept.Case.test_kept"], result["passed"])
+        self.assertEqual(["tests.test_wrong.Case.test_wrong"], result["failed"])
+        self.assertEqual(2, result["total"])
+        self.assertTrue(result["complete"], text)
+        self.assertTrue(complete_results(receipt))
+        self.assertEqual("failing_tests", suite_health(receipt))
 
 
 if __name__ == "__main__":
