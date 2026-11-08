@@ -260,8 +260,12 @@ def _choose_hub(ask, out=print) -> str | None:
     names = {"opencode": "opencode", "kilo": "kilocode", "kilocode": "kilocode"}
     if answer in ("", "y", "yes"):
         return HUB_CHOICES[0][0]
-    if answer.isdigit() and 1 <= int(answer) <= len(HUB_CHOICES):
-        return HUB_CHOICES[int(answer) - 1][0]
+    try:
+        number = int(answer) if answer.isdigit() else 0
+    except ValueError:
+        number = 0
+    if 1 <= number <= len(HUB_CHOICES):
+        return HUB_CHOICES[number - 1][0]
     if answer in names:
         return names[answer]
     if answer not in (str(len(HUB_CHOICES) + 1), "n", "no", "neither"):

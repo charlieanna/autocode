@@ -290,6 +290,8 @@ class SetupTests(unittest.TestCase):
             ("1", "opencode"),
             ("OpenCode", "opencode"),
             ("2", "kilocode"),
+            ("02", "kilocode"),
+            ("٢", "kilocode"),
             (" kilo ", "kilocode"),
         ]:
             with self.subTest(answer=answer):
@@ -332,6 +334,36 @@ class SetupTests(unittest.TestCase):
         ran = []
         self.assertFalse(setup._install(found, which=lambda _name: "/bin/npm", run=lambda argv: ran.append(argv) or 0))
         self.assertEqual([], ran)
+
+    def test_invalid_numeric_hub_choices_return_without_installing(self):
+        found = [
+            CLAUDE_IN,
+            {**OPENCODE_MISSING, "install_command": setup.INSTALL["opencode"]},
+            {**KILO_MISSING, "install_command": setup.INSTALL["kilocode"]},
+        ]
+        install = setup._install
+        for name, answer in (("superscript digit", "²"), ("oversized number", "9" * 6000)):
+            with self.subTest(choice=name):
+                output = io.StringIO()
+                npm = mock.Mock(return_value=0)
+                with (
+                    mock.patch.object(setup, "_interactive", return_value=True),
+                    mock.patch.object(setup, "rows", return_value=found),
+                    mock.patch.object(setup, "new_runs_use", return_value=CLAUDE_CHOSEN),
+                    mock.patch.object(setup, "offer_stages", return_value=True),
+                    mock.patch("builtins.input", return_value=answer),
+                    mock.patch.object(
+                        setup,
+                        "_install",
+                        side_effect=lambda found, **options: install(
+                            found, **options, which=lambda name: "/bin/npm" if name == "npm" else None, run=npm
+                        ),
+                    ),
+                    contextlib.redirect_stdout(output),
+                ):
+                    self.assertEqual(0, setup.cli([]))
+                npm.assert_not_called()
+                self.assertIn("is not one of the choices; nothing was installed", output.getvalue())
 
     def test_an_installed_hub_is_never_reinstalled_and_install_names_kilo_explicitly(self):
         opencode_in = row("opencode", "OpenCode", "credentials_present")
