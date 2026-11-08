@@ -233,6 +233,12 @@ class CliTests(unittest.TestCase):
             self.assertNotIn("--variant", argv)
             self.assertTrue(argv[argv.index("--model") + 1].endswith("#high"))
             self.assertEqual("2.0.20", result["identity"]["version"])
+            for phase in result["phases"]:
+                activity = phase["metrics"]["request_context"]["accounting"]["tool_activity"]
+                self.assertEqual(2, activity["observed_calls"])
+                self.assertEqual({"succeeded": 1, "failed": 1, "unknown": 0}, activity["outcomes"])
+                self.assertEqual({"nonzero_exit": 1, "tool_error": 0}, activity["error_classes"])
+                self.assertTrue(activity["complete"], activity)
 
     def test_claude_fixture_runs_print_mode_and_resumes_its_own_session(self):
         """#717: the built-in claude provider's translator wraps `claude -p`; only the resume phase resumes."""

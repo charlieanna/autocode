@@ -13,6 +13,11 @@ import math
 import os
 from pathlib import Path
 
+try:
+    from . import autocode_tool_activity as tool_activity
+except ImportError:
+    import autocode_tool_activity as tool_activity
+
 TOKEN_KEYS = (
     "input_tokens",
     "cached_input_tokens",
@@ -162,6 +167,7 @@ def accounting(rows, *, issues=()):
         problems.append("unfinished request has no final usage")
     return {
         "requests": list(requests.values()),
+        "tool_activity": tool_activity.summarize(rows, incomplete=bool(problems)),
         "observed_requests": len(requests),
         "complete": bool(requests)
         and not problems
@@ -314,8 +320,18 @@ def stage_peaks(state: RunState):
 def view(state: RunState):
     rows = saved_metrics(state, "request_context")
     known = [row for row in rows if row and type(row.get("peak_input_tokens")) is int and row["peak_input_tokens"] >= 0]
+    last = rows[-1] if rows else None
+    if isinstance(last, dict):
+        native = last.get("accounting")
+        if isinstance(native, dict) and "tool_activity" in native:
+            # Preserve legacy receipt behavior; sanitize only the new diagnostic
+            # projection, without modifying the saved context or other receipts.
+            last = {
+                **last,
+                "accounting": {**native, "tool_activity": tool_activity.projection(native["tool_activity"])},
+            }
     return {
-        "last_completed_stage": rows[-1] if rows else None,
+        "last_completed_stage": last,
         "peak_input_tokens": max(row["peak_input_tokens"] for row in known) if known else None,
         "unavailable_stages": sum(not row or not row.get("complete") for row in rows),
         # Per stage, in run order: stage, iteration, that stage's peak request and whether it was fully measured.

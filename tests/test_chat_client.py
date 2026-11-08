@@ -1593,6 +1593,46 @@ class NewChatSetupTests(unittest.TestCase):
             self.assertNotIn("(current)", history.slash("/engine", ""))
             self.assertIn("  kilocode  Kilo: unavailable  (new chats use it)", history.slash("/connect", ""))
 
+    def test_the_chat_names_the_backend_a_new_run_actually_takes(self):
+        """Only Claude Code signed in, OpenCode not installed: setup and doctor said Claude Code, while the
+        banner said OpenCode, warned it could not start, and /connect marked OpenCode for new chats. The
+        listing's named `new_runs_next_command` marks the backend the runner takes; the chat takes it."""
+        from tests.test_chat_setup import CONNECTIONS
+
+        with tempfile.TemporaryDirectory() as folder:
+            history = self.history(folder)
+            modes = history.read(["modes"])
+            rows = [
+                {**row, "connection_status": "unavailable" if row["id"] == "opencode" else row["connection_status"]}
+                for row in CONNECTIONS["connections"]
+            ]
+            claude = {"id": "claude", "label": "Claude Code", "connection_status": "not_checked"}
+            plain = {**CONNECTIONS, "connections": [*rows, claude], "new_runs": None}
+            plain["new_runs_next_command"] = ["connections", "list", "--new-runs", "--json"]
+            checked = {
+                **CONNECTIONS,
+                "connections": [
+                    *({k: v for k, v in row.items() if k != "default"} for row in rows),
+                    {**claude, "default": True},
+                ],
+                "new_runs": {"id": "claude", "label": "Claude Code", "reason": "Claude Code is connected"},
+            }
+            taken = []
+
+            def read(argv):
+                taken.append(argv)
+                if argv[0] == "modes":
+                    return modes
+                return checked if argv == plain["new_runs_next_command"] else plain
+
+            history.read = read
+            self.assertEqual("New chats: Full · Claude Code. /mode and /engine change them.", history.summary())
+            self.assertIsNone(history.notice())
+            self.assertIn("  claude  Claude Code  (current)", history.slash("/engine", ""))
+            self.assertIn("  claude  Claude Code: not checked  (new chats use it)", history.slash("/connect", ""))
+            self.assertNotIn("OpenCode: unavailable  (new chats use it)", history.slash("/connect", ""))
+            self.assertIn(["connections", "list", "--new-runs", "--json"], taken, "only the named action is taken")
+
     def test_an_unusable_default_backend_is_named_in_the_banner_and_before_the_plain_chat_question(self):
         """Only Claude Code installed: the chat said nothing until the first request failed."""
         from tests.test_chat_setup import CONNECTIONS

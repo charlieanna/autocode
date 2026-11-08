@@ -51,7 +51,11 @@ BACKENDS = (
 INSTALL = dict(BACKENDS)
 # The hubs a person connects every other account and API key in; setup installs one when neither is present.
 HUBS = {"opencode": "OpenCode 1.18.33", "kilocode": "Kilo 7.8.3"}
+# The command a hub installs; npm puts it in its own global bin, which may not be on PATH.
+EXECUTABLES = {"opencode": "opencode", "kilocode": "kilo"}
 NODE = "https://nodejs.org"
+# How to get npm, by platform; any other platform gets the Node.js download page alone.
+GET_NODE = {"darwin": "with `brew install node`", "linux": "with `sudo apt install nodejs npm` on Debian or Ubuntu"}
 CONNECTED = frozenset({"credentials_present"})
 MARKS = {"credentials_present": "✔", "sign_in_required": "•", "not_checked": "•"}
 
@@ -165,11 +169,14 @@ def _sign_in(found, *, ask=input, login=None, out=print) -> bool:
     return tried
 
 
-def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=print) -> bool:
-    """Install a missing hub with npm; True when an install finished.
+def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=print, npm_bin=None) -> bool:
+    """Install a missing hub with npm; True when an install finished and the hub is on PATH.
 
     ``wanted`` (``--install``) installs that hub without asking. Otherwise, only when ``ask`` is given
-    (an interactive terminal) and neither hub is installed, OpenCode is offered once.
+    (an interactive terminal) and neither hub is installed, OpenCode is offered once; without npm it
+    is not offered, and the person is told how to get Node.js instead. An install that lands in an
+    npm global bin outside PATH says the line that puts it there, instead of "installed" followed by
+    "not installed".
     """
     missing = {row["id"] for row in found if row.get("install_command")}
     if wanted is not None:
@@ -180,19 +187,50 @@ def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=
         if ask is None or not HUBS.keys() <= missing:
             return False
         name = "opencode"
+        if not which("npm"):
+            out(
+                f"{HUBS[name]} installs with npm, which is not on PATH. {_get_node()}, then run `autocode setup` again."
+            )
+            return False
         answer = ask(f"Install {HUBS[name]} now, to connect your accounts in it ({INSTALL[name]})? [Y/n] ")
         if answer.strip().lower() not in ("", "y", "yes"):
             return False
     if not which("npm"):
-        out(f"npm is not on PATH. Install Node.js ({NODE}), then run: {INSTALL[name]}")
+        out(f"npm is not on PATH. {_get_node()}, then run: {INSTALL[name]}")
         return False
     # npm's own output goes to stderr, so --json stays one JSON document.
     code = (run or _run)(INSTALL[name].split())
     if code != 0:
         out(f"npm could not install {HUBS[name]} (exit {code}). Run it yourself: {INSTALL[name]}")
         return False
+    if not which(EXECUTABLES[name]):
+        folder = (npm_bin or _npm_bin)()
+        where = f"in {folder}, " if folder else ""
+        add = f'export PATH="{folder}:$PATH"' if folder else "add npm's global bin folder (`npm prefix -g`, then /bin)"
+        out(
+            f"Installed {HUBS[name]} {where}which is not on your PATH, so AutoCode cannot run it yet. "
+            f"Add it to PATH ({add}, and the same line in your shell profile), then run `autocode setup` again."
+        )
+        return False
     out(f"Installed {HUBS[name]}.")
     return True
+
+
+def _get_node() -> str:
+    """How to install Node.js and npm on this platform."""
+    how = GET_NODE.get(sys.platform)
+    return f"Install Node.js {how} or from {NODE}" if how else f"Install Node.js ({NODE})"
+
+
+def _npm_bin() -> str | None:
+    """npm's global bin folder (``npm prefix -g`` + /bin), or None when npm cannot say."""
+    try:
+        prefix = subprocess.run(
+            ["npm", "prefix", "-g"], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30
+        ).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return f"{prefix}/bin" if prefix else None
 
 
 def _run(argv) -> int:

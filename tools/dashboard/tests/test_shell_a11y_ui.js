@@ -128,7 +128,7 @@ function data(body) {
 }
 
 function dashboardReadiness() {
-  return data(dashboardReadinessExpression());
+  return data(dashboardReadinessExpression({requireInventory: true}));
 }
 
 function browserFailureDiagnostics() {
