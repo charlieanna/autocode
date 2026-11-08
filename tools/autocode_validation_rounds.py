@@ -5,9 +5,9 @@ VALIDATE. Only the reviewer that raised a finding closes it, through a fresh, in
 evidenced report (autocode_findings); a rejected or repaired report cannot. A live run kept
 dispatching such rounds for one Validator-owned finding whose closing reports were never
 accepted. When a blocking finding stays open through ``LIMIT`` rounds in a row that made no
-progress on it, the runner launches no further Validator and asks the user one question naming
-those findings and why each remains open. Nothing here closes, merges or retracts a finding, and
-the answer authorizes no retry.
+progress on it, the runner launches no further Tester and records a finished, failed outcome
+naming those findings and why each remains open. Nothing here closes, merges or retracts a
+finding, and exhaustion never asks a person to manage the validation machinery.
 
 A round is validation-only when the source is the one the latest accepted validation already
 reviewed. Another attempt at the same round (a recovered timeout, an explicit fresh retry) is
@@ -20,13 +20,14 @@ rounds going.
 
 Imports nothing from the runner: the caller (autopilot.admit_validation, before every Validator
 dispatch) passes the open blocking ledger rows and the current source revision, and publishes the
-returned request through the existing AutoResolver operational request. State key written:
+returned evidence through the existing automatic terminal-stop receipt. State key written:
 ``validation_only_rounds`` (one entry per admitted round, written only by ``admit``; read only
 here).
 """
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
@@ -34,21 +35,21 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_finding_cause as finding_cause
+    from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
     import autocode_finding_cause as finding_cause
+    import autocode_roles as roles
     import autocode_util as util
 
 KEY: Final = "validation_only_rounds"
 LIMIT = 2
-STATUS = "PAUSED_RESOLVER"
-OWNERS = {"sol": "Validator", "astra": "Completion Owner"}
 
 
 def admit(state: RunState, blocking, revision):
     """Record this Validator dispatch as a validation-only round, or return the stop it needs.
 
-    Returns None to dispatch, or {"reason", "request"} when the run must pause instead.
+    Returns None to dispatch, or {"reason", "evidence"} when the run must end instead.
     """
     contract = state.get("goal_contract") or {}
     validation = state.get("validation") or {}
@@ -131,7 +132,8 @@ def _stalled(frontiers):
 
 
 def _why(row):
-    owner = OWNERS.get(row.get("source"), "raising reviewer")
+    stage = "astra_review" if row.get("source") == "astra" else row.get("source")
+    owner = roles.screen_name(stage) if stage in ("sol", "astra_review") else "raising reviewer"
     pending = row.get("pending_resolution") or {}
     if pending:
         unverified = ", ".join(pending.get("unverified_criteria") or [])
@@ -163,30 +165,22 @@ def _stop(state: RunState, stalled, revision, window, count):
     if settled:
         why += ". " + "; ".join(settled)
     if rejected:
-        why += ". Rejected Validator reports in these rounds: " + "; ".join(rejected)
+        why += ". Rejected Tester reports in these rounds: " + "; ".join(rejected)
     reason = (
         f"{count} validation-only rounds at source {revision[:12]} made no progress on blocking "
-        f"finding(s) {ids}; no further Validator was launched for them. {why}"
+        f"finding(s) {ids}; no further Tester was launched for them. {why}"
     )
-    request = {
-        "kind": "blocker",
-        "discovered": reason,
-        "impact": why + ". Only the reviewer that raised a finding can close it, with a fresh independently "
-        "evidenced report; work, evidence and findings are retained.",
-        "decision_needed": (
-            f"Blocking finding(s) {ids} stayed open through {count} validation-only "
-            "rounds at this source. What must change before they are rechecked? Answering "
-            "keeps the run paused and launches no Validator; to continue instead, revise "
-            "the goal with --feedback, or, if a finding no longer applies (for example a "
-            "duplicate of one already settled), close it with --close-finding ID "
-            "--close-reason TEXT."
-        ),
-        "options": ["Provide corrective information", "Leave paused"],
+    evidence = {
         "finding_ids": sorted(row["id"] for row in stalled),
-        "proposed_delta": "Answering closes no finding and does not authorize a retry, approval, "
-        "permission or budget change.",
+        "source_revision": revision,
+        "contract_hash": (state.get("goal_contract") or {}).get("hash"),
+        "task_id": (state.get("current_task") or {}).get("id"),
+        "validation_output": (state.get("validation") or {}).get("output"),
+        "rounds_without_progress": count,
+        "rounds": deepcopy(window),
+        "rejected_reports": rejected,
     }
-    return {"reason": reason, "request": request}
+    return {"reason": reason, "evidence": evidence}
 
 
 def _settled_matches(state: RunState, stalled):
@@ -194,7 +188,7 @@ def _settled_matches(state: RunState, stalled):
 
     Another part of the same split finding is not offered: it covers other criteria
     (autocode_finding_cause.split_family), so closing this part would drop the defect for its own.
-    The user is told it was resolved for those criteria, which does not settle this part."""
+    The outcome records that it was resolved for those criteria, which does not settle this part."""
     resolved = [row for row in state.get("findings_ledger", []) if row.get("status") == "resolved"]
     hints = []
     for row in sorted(stalled, key=lambda row: row["id"]):
@@ -217,7 +211,7 @@ def _settled_matches(state: RunState, stalled):
             )
         if same:
             hints.append(
-                f"{row['id']} has the same finding or evidence as resolved {', '.join(same)}; if it is the "
-                f"same problem, close it with --close-finding {row['id']} --close-reason TEXT"
+                f"{row['id']} has the same finding or evidence as resolved {', '.join(same)}; "
+                f"that match does not settle {row['id']}"
             )
     return hints

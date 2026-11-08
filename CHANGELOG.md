@@ -24,6 +24,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Unchanged validation rounds that exhaust their progress limit record an automatic failed outcome
+  with the open findings and evidence, instead of asking a person to manage validation or close a
+  finding. The run retains its work and cannot resume or claim successful completion.
+
 - A regression proof whose original project suite times out records unverified evidence and retains
   that baseline receipt without starting candidate checks. Completed failing baseline tests still run
   the comparison, and a later diagnosed retry can refresh the baseline through the existing path.

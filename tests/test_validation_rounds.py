@@ -56,17 +56,28 @@ class ValidationRounds(unittest.TestCase):
             state, ("task-1", "v0"), ("task-2", "v1"), ("task-3", "v2"), blocking=blocking
         )
         self.assertEqual((None, None), (first, second))
-        self.assertIn("F-1, F-2", third["request"]["decision_needed"])
-        why = third["request"]["impact"]
-        self.assertIn("F-1 (Validator): the Validator's latest accepted report did not recheck it", why)
+        self.assertIn("F-1, F-2", third["reason"])
+        why = third["reason"]
+        self.assertIn("F-1 (Tester): the Tester's latest accepted report did not recheck it", why)
         self.assertIn(
-            "F-2 (Completion Owner): its resolution was not accepted "
+            "F-2 (Completion Reviewer): its resolution was not accepted "
             "(Finding scope lacks fully passing verification; unverified C2)",
             why,
         )
         self.assertIn("No independently executed Validator tool event matches receipt", why)
-        self.assertEqual(third["reason"], third["request"]["discovered"])
-        self.assertTrue(third["request"]["proposed_delta"].startswith("Answering closes no finding"))
+        self.assertNotIn("request", third)
+        self.assertEqual(["F-1", "F-2"], third["evidence"]["finding_ids"])
+        self.assertEqual("rev", third["evidence"]["source_revision"])
+        self.assertEqual("contract", third["evidence"]["contract_hash"])
+        self.assertEqual(2, third["evidence"]["rounds_without_progress"])
+        self.assertEqual(2, len(third["evidence"]["rounds"]))
+        self.assertEqual("v2", third["evidence"]["validation_output"])
+        self.assertEqual("task-3", third["evidence"]["task_id"])
+        self.assertEqual(state[rounds.KEY], third["evidence"]["rounds"])
+        state[rounds.KEY][0]["frontier"]["findings"]["F-1"][0] = "later state"
+        self.assertEqual("not_rechecked", third["evidence"]["rounds"][0]["frontier"]["findings"]["F-1"][0])
+        for machinery in ("--close-finding", "--feedback", "What must change"):
+            self.assertNotIn(machinery, str(third))
 
     def test_another_attempt_at_an_admitted_round_is_not_a_new_round(self):
         state = self.state()
@@ -115,7 +126,7 @@ class ValidationRounds(unittest.TestCase):
                 results = [self.round(state, number, blocking, passed) for number, passed in enumerate(sequence)]
                 self.assertEqual([None] * stops_at, results[:stops_at])
                 self.assertIsNotNone(results[stops_at])
-                self.assertIn("F-1", results[stops_at]["request"]["decision_needed"])
+                self.assertIn("F-1", results[stops_at]["reason"])
 
     def test_findings_opened_meanwhile_do_not_restart_another_findings_count(self):
         # #300 review: the count was keyed on the whole open set, so a new finding each round reset it.
@@ -125,8 +136,8 @@ class ValidationRounds(unittest.TestCase):
         ]
         self.assertEqual([None, None], results[:2])
         # F-1 went two rounds without progress; F-2 and F-3 have not, so they are not named.
-        self.assertIn("finding(s) F-1 stayed open", results[2]["request"]["decision_needed"])
-        self.assertNotIn("F-2", results[2]["request"]["decision_needed"])
+        self.assertIn("finding(s) F-1;", results[2]["reason"])
+        self.assertNotIn("F-2", results[2]["reason"])
 
     def test_a_finding_that_only_switches_between_states_it_had_still_stops(self):
         not_rechecked = self.blocking("F-1", not_rechecked_in="validator.json")
@@ -180,13 +191,12 @@ class ValidationRounds(unittest.TestCase):
             "F-1", not_rechecked_in="v.json", finding="Regression proof has no fail-to-pass test", evidence="proof-01"
         )
         stop = self.rounds(state, ("task-1", "v0"), ("task-2", "v1"), ("task-3", "v2"), blocking=blocking)[2]
-        self.assertEqual(["F-1"], stop["request"]["finding_ids"])
+        self.assertEqual(["F-1"], stop["evidence"]["finding_ids"])
         self.assertIn(
-            "F-1 has the same finding or evidence as resolved F-0; if it is the same problem, close it with "
-            "--close-finding F-1 --close-reason TEXT",
-            stop["request"]["impact"],
+            "F-1 has the same finding or evidence as resolved F-0; that match does not settle F-1",
+            stop["reason"],
         )
-        self.assertIn("close it with --close-finding ID --close-reason TEXT", stop["request"]["decision_needed"])
+        self.assertNotIn("--close-finding", stop["reason"])
         self.assertEqual("open", blocking[0]["status"])
 
     def test_the_stop_says_a_resolved_part_of_the_same_split_finding_does_not_settle_it(self):
@@ -209,12 +219,12 @@ class ValidationRounds(unittest.TestCase):
             split_from="F-0",
         )
         stop = self.rounds(state, ("task-1", "v0"), ("task-2", "v1"), ("task-3", "v2"), blocking=blocking)[2]
-        self.assertEqual(["F-1"], stop["request"]["finding_ids"])
-        self.assertNotIn("as resolved F-0", stop["request"]["impact"])
+        self.assertEqual(["F-1"], stop["evidence"]["finding_ids"])
+        self.assertNotIn("as resolved F-0", stop["reason"])
         self.assertIn(
             "F-1 and F-0 are parts of finding F-0, split across milestones by an approved revision; "
             "resolving F-0 covered other criteria and does not settle F-1",
-            stop["request"]["impact"],
+            stop["reason"],
         )
 
     def test_first_validation_of_new_source_or_without_blockers_is_not_validation_only(self):

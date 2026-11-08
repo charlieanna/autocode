@@ -61,7 +61,6 @@ try:
     from . import autocode_risk_findings as risk_findings
     from . import autocode_risk_obligations as risk_obligations
     from . import autocode_route_ladder as route_ladder
-    from . import autocode_run_status as run_status
     from . import autocode_stuck_job as stuck
     from . import autocode_support as support
     from . import autocode_unit_request as unit_request
@@ -114,7 +113,6 @@ except ImportError:
     import autocode_risk_findings as risk_findings
     import autocode_risk_obligations as risk_obligations
     import autocode_route_ladder as route_ladder
-    import autocode_run_status as run_status
     import autocode_stuck_job as stuck
     import autocode_support as support
     import autocode_unit_request as unit_request
@@ -271,18 +269,16 @@ def publish_handoffs(state: RunState, run_dir):
 
 
 def admit_validation(runtime, state: RunState, stage, workspace, run_dir):
-    """Ask the user instead of launching another validation-only round that cannot close its blockers."""
+    """End exhausted validation with its evidence; a person is never asked to manage these rounds."""
     blocking = findings_ledger.blocking_entries(state) if stage == "sol" else []
     stop = blocking and validation_rounds.admit(
         state, blocking, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
     )
     if not stop:
         return
-    error = support.Paused(validation_rounds.STATUS, stop["reason"])
-    run_status.pause(state, error.status, stop["reason"], paused_at=support.now())
-    runtime.resolver_runtime.record_operational_exhaustion(runtime, state, run_dir, error, request=stop["request"])
+    runtime.stop_policy.end(state, stop["reason"], stop["evidence"], at=support.now())
     runtime.write_json(Path(run_dir) / "state.json", state)
-    print(f"{error.status}: {stop['reason']}\n{lifecycle.render(state)}", flush=True)
+    print(f"{state['status']}: {state['stop_reason']}\n{lifecycle.render(state)}", flush=True)
     raise LoopExit(2)
 
 

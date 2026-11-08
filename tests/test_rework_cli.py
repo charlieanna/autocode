@@ -274,56 +274,37 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertEqual(1, len(blocking), state["findings_ledger"])
         self.assertEqual("validate", state["current_task"]["kind"])
         self.assertNotIn("investigate_stuck", [row.get("stage") for row in state["stages"]])
-        need = view["needs"]
-        self.assertEqual(("answer", "operational_exhaustion"), (need["kind"], need.get("resolver_scope")), view)
-        [question] = need["questions"]
-        self.assertIn(blocking[0], question["question"])
+        self.assertEqual("PAUSED_INTERVENTION", view["status"], view)
+        self.assertFalse(view["done"])
+        self.assertNotEqual("answer", view["needs"]["kind"])
+        self.assertIsNone(view["next_command"])
+        outcome = view["recovery"]["outcome"]
+        self.assertEqual("could_not_finish", outcome["result"])
+        self.assertEqual(blocking, outcome["evidence"]["finding_ids"])
+        self.assertEqual(2, outcome["evidence"]["rounds_without_progress"])
+        self.assertEqual(view["evidence"]["validator_source_revision"], outcome["evidence"]["source_revision"])
         self.assertIn(
-            f"{blocking[0]} (Validator): the Validator's latest accepted report did not recheck it", question["why"]
+            f"{blocking[0]} (Tester): the Tester's latest accepted report did not recheck it", outcome["reason"]
         )
-        self.assertIn(blocking[0], view["stop_reason"])
-        # Resuming launches no further round and closes nothing.
-        driver.call("resume", "--resume-paused")
-        self.assertEqual(stages, [row["stage"] for row in self.trace()])
-        self.assertFalse(driver.view()["done"])
-        self.assertEqual(
-            ["open"], [row["status"] for row in driver.state()["findings_ledger"] if row["id"] == blocking[0]]
-        )
-        # The way on the question names: goal feedback is accepted while it is asked, and the run continues.
-        self.assertIn(
-            "Answering keeps the run paused and launches no Validator; to continue instead, revise the "
-            "goal with --feedback",
-            question["question"],
-        )
-        driver.call("feedback", "--feedback", "Recheck the open finding against the approved goal", action=True)
-        self.assertEqual("RUNNING", driver.view()["status"])
-        self.assertEqual(
-            ["open"], [row["status"] for row in driver.state()["findings_ledger"] if row["id"] == blocking[0]]
-        )
-
-    def test_closing_the_stalled_finding_as_a_user_decision_lets_the_run_complete(self):
-        # Issue #300: the finding no reviewer report can close is closed by the user, by name and with a reason.
-        driver = self.driver("bookkeeping")
-        view = driver.drive(self.scenario.brief)
-        self.assertEqual("operational_exhaustion", view["needs"].get("resolver_scope"), view)
-        [finding] = [
-            row["id"] for row in driver.state()["findings_ledger"] if row["status"] == "open" and row["blocking"]
-        ]
-        driver.call(
-            "close",
-            "--close-finding",
-            finding,
-            "--close-reason",
-            "Duplicate of the regression-gate finding the user already settled",
-            action=True,
-        )
-        self.assertEqual("RUNNING", driver.view()["status"])
-        view = driver.until_stopped(None)
-        self.assertTrue(view["done"], view)
-        [row] = [row for row in driver.state()["findings_ledger"] if row["id"] == finding]
-        self.assertEqual(("resolved", "user"), (row["status"], row["resolved_by"]))
-        [event] = [event for event in driver.state()["user_events"] if event.get("kind") == "findings_closed"]
-        self.assertEqual([finding], event["ids"])
+        for machinery in ("--close-finding", "--feedback", "What must change", "Answering"):
+            self.assertNotIn(machinery, json.dumps(outcome))
+        # The terminal result cannot become a successful delivery or another retry by
+        # resume, feedback, or a manual finding closure. No person is asked to repair it.
+        for label, flags in (
+            ("resume", ("--resume-paused",)),
+            ("feedback", ("--feedback", "Recheck against the approved goal")),
+            ("close", ("--close-finding", blocking[0], "--close-reason", "Claimed duplicate")),
+        ):
+            with self.subTest(action=label):
+                driver.call(label, *flags)
+                after = driver.view()
+                self.assertEqual(stages, [row["stage"] for row in self.trace()])
+                self.assertEqual(outcome, after["recovery"]["outcome"])
+                self.assertFalse(after["done"])
+                self.assertEqual(
+                    ["open"],
+                    [row["status"] for row in after["evidence"]["findings"] if row["id"] == blocking[0]],
+                )
 
     def test_validator_closing_its_own_finding_on_the_one_revalidation_completes(self):
         driver = self.driver("bookkeeping_late")
