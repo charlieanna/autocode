@@ -41,10 +41,16 @@ TOOL_FAMILIES = {
     **dict.fromkeys(("edit", "write", "patch", "multiedit", "apply_patch", "applypatch"), "edit"),
     **dict.fromkeys(("task",), "agent"),
 }
+# Codex items that are not tool calls: messages, the model's plan and non-fatal notices.
+NON_TOOL_ITEMS = ("agent_message", "reasoning", "plan", "todo_list", "error")
+# AutoCode's own rows in a native stream; they describe no tool call.
+NON_TOOL_ROWS = ("text", "reasoning", "autocode_progress", "autocode_compaction")
+GENERIC_ITEMS = ("mcp_tool_call", "tool_call", "function_call", "collab_tool_call", "collab_agent_tool_call")
 ITEM_FAMILIES = {
     "command_execution": "command",
     "file_change": "edit",
     "web_search": "search",
+    "collab_tool_call": "agent",  # Codex exec's current name
     "collab_agent_tool_call": "agent",
     "mcp_tool_call": "other",
     "tool_call": "other",
@@ -270,7 +276,7 @@ def summarize(rows, *, incomplete=False):
             item = row.get("item")
             item = item if isinstance(item, dict) else {}
             item_kind = item.get("type")
-            if item_kind in ("agent_message", "reasoning", "plan"):
+            if item_kind in NON_TOOL_ITEMS:
                 continue
             if not isinstance(item_kind, str) or item_kind not in ITEM_FAMILIES:
                 issues.add("unsupported_stream")
@@ -278,7 +284,8 @@ def summarize(rows, *, incomplete=False):
             supported, terminal = True, False
             session, identity = thread, _identity(item.get("id"))
             name = (item_kind, None, None)
-            if item_kind in ("mcp_tool_call", "tool_call", "function_call", "collab_agent_tool_call"):
+            family = ITEM_FAMILIES[item_kind]
+            if item_kind in GENERIC_ITEMS:
                 tool_name = _identity(item.get("tool") if "tool" in item else item.get("name"))
                 server = _identity(item.get("server"))
                 server_required = item_kind == "mcp_tool_call" or "server" in item
@@ -288,16 +295,27 @@ def summarize(rows, *, incomplete=False):
                     name = None
                 else:
                     name = (item_kind, server, tool_name)
-            family, raw = ITEM_FAMILIES[item_kind], item.get("arguments")
+                mapped = TOOL_FAMILIES.get(tool_name.lower()) if tool_name else None
+                if item_kind in ("tool_call", "function_call") and mapped not in (None, "command"):
+                    # Claude Code reports its built-in tools by their own names (Read, Grep, Task).
+                    # An MCP server's tool of the same name is not the built-in, so it stays other,
+                    # and a generic call has no exit code to make it a command.
+                    family = mapped
+            raw = item.get("arguments")
             status = item.get("status")
             if kind == "item.started":
                 status = "running"
             if status is None and kind == "item.completed" and type(item.get("exit_code")) is int:
                 status = "completed"
+            if status is None and kind == "item.completed" and item_kind == "web_search":
+                status = "completed"  # Codex completes a web search item when its results return.
+            if family == "command" and type(item.get("exit_code")) is not int and item.get("exit_code_unknown"):
+                # The Claude translator says it cannot vouch for this exit (backgrounded, interrupted).
+                status = "unknown"
             outcome, error = _outcome(status, item.get("exit_code"), command=family == "command")
             key = ("item", session, identity)
         else:
-            if kind not in ("text", "reasoning", "autocode_progress"):
+            if kind not in NON_TOOL_ROWS:
                 issues.add("unsupported_stream")
             continue
         if not session or not identity:

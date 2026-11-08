@@ -11,6 +11,7 @@ import autocode_request_usage as request_usage
 import autocode_run_view as run_view
 import autocode_tool_activity as activity
 import autocode_usage as usage
+from providers import claude_stream
 
 
 def boundary(kind="step_start", reason="stop"):
@@ -372,3 +373,93 @@ class ToolActivityTests(unittest.TestCase):
             missing = run_view.view(state)["usage"]["accounting"]["attempts"][0]["tool_activity"]
             self.assertEqual("unavailable", missing["basis"])
             self.assertFalse(missing["complete"])
+
+
+def claude_rows(*calls):
+    """Claude Code stream-json through the real translator: (name, input, result content, tool_use_result)."""
+    translator = claude_stream.Translator(clock=lambda: 0.0)
+    rows = translator.feed({"type": "system", "subtype": "init", "session_id": "claude-session"})
+    for index, (name, given, content, meta) in enumerate(calls):
+        tool_id = f"toolu_{index}"
+        block = {"type": "tool_use", "id": tool_id, "name": name, "input": given}
+        rows += translator.feed({"type": "assistant", "message": {"id": f"msg_{index}", "content": [block]}})
+        result = {"type": "tool_result", "tool_use_id": tool_id, "content": content, "is_error": False}
+        rows += translator.feed(
+            {"type": "user", "message": {"role": "user", "content": [result]}, "tool_use_result": meta}
+        )
+    end = {"type": "result", "subtype": "success", "is_error": False, "session_id": "claude-session"}
+    rows += translator.feed(end)
+    return rows + translator.finish(0)[0]
+
+
+def codex_item(kind, identity, **item):
+    return {"type": kind, "item": {"id": identity, **item}}
+
+
+class BackendShapeTests(unittest.TestCase):
+    def test_claude_code_builtin_tools_keep_their_families(self):
+        result = activity.summarize(
+            claude_rows(
+                ("Read", {"file_path": "a.py"}, "x", {}),
+                ("Grep", {"pattern": "a"}, "x", {}),
+                ("Glob", {"pattern": "*.py"}, "x", {}),
+                ("WebFetch", {"url": "u"}, "x", {}),
+                ("Task", {"prompt": "p"}, "x", {}),
+                ("TodoWrite", {"todos": []}, "x", {}),
+                ("Bash", {"command": "true"}, "x", {"stdout": "x", "stderr": ""}),
+            )
+        )
+        self.assertEqual({"command": 1, "read": 1, "search": 3, "edit": 0, "agent": 1, "other": 1}, result["families"])
+        self.assertEqual({"succeeded": 7, "failed": 0, "unknown": 0}, result["outcomes"])
+        mcp = activity.summarize(
+            [
+                {"type": "thread.started", "thread_id": "t"},
+                codex_item("item.completed", "m", type="mcp_tool_call", server="s", tool="read", status="completed"),
+                codex_item("item.completed", "f", type="function_call", name="shell", status="completed"),
+                {"type": "turn.completed"},
+            ]
+        )
+        self.assertEqual({"command": 0, "read": 0, "search": 0, "edit": 0, "agent": 0, "other": 2}, mcp["families"])
+
+    def test_claude_code_commands_without_a_vouched_exit_are_unknown_not_failed(self):
+        result = activity.summarize(
+            claude_rows(
+                ("Bash", {"command": "sleep 9"}, "running", {"stdout": "", "stderr": "", "backgroundTaskId": "b"}),
+                ("Bash", {"command": "make"}, "partial", {"stdout": "partial", "stderr": "", "interrupted": True}),
+                ("Bash", {"command": "false"}, "x", {"stdout": "", "stderr": "", "returnCodeInterpretation": "x"}),
+            )
+        )
+        self.assertEqual({"succeeded": 0, "failed": 0, "unknown": 3}, result["outcomes"])
+        self.assertEqual({"nonzero_exit": 0, "tool_error": 0}, result["error_classes"])
+        self.assertIn("unknown_outcome", result["issues"])
+        clean = activity.summarize(claude_rows(("Bash", {"command": "true"}, "x", {"stdout": "", "stderr": ""})))
+        self.assertEqual({"succeeded": 1, "failed": 0, "unknown": 0}, clean["outcomes"])
+
+    def test_codex_plan_notice_search_and_collaboration_items(self):
+        rows = [
+            {"type": "thread.started", "thread_id": "t"},
+            {"type": "turn.started"},
+            codex_item("item.completed", "plan", type="todo_list", items=[{"text": "fix", "completed": False}]),
+            codex_item("item.completed", "notice", type="error", message="non-fatal"),
+            codex_item("item.started", "search", type="web_search", query="q", action={"type": "search"}),
+            codex_item("item.completed", "search", type="web_search", query="q", action={"type": "search"}),
+            codex_item("item.started", "agent", type="collab_tool_call", tool="spawn_agent", status="in_progress"),
+            codex_item("item.completed", "agent", type="collab_tool_call", tool="spawn_agent", status="completed"),
+            codex_item(
+                "item.completed", "mcp", type="mcp_tool_call", server="s", tool="t", arguments={}, status="failed"
+            ),
+            {"type": "turn.completed"},
+        ]
+        result = activity.summarize(rows)
+        self.assertEqual(3, result["observed_calls"])
+        self.assertEqual({"command": 0, "read": 0, "search": 1, "edit": 0, "agent": 1, "other": 1}, result["families"])
+        self.assertEqual({"succeeded": 2, "failed": 1, "unknown": 0}, result["outcomes"])
+        self.assertNotIn("unsupported_stream", result["issues"])
+        self.assertNotIn("unknown_outcome", result["issues"])
+        running = activity.summarize(rows[:5] + rows[-1:])
+        self.assertEqual(1, running["outcomes"]["unknown"], "A started search is not a finished one")
+
+    def test_autocode_compaction_row_is_not_an_unsupported_stream(self):
+        compaction = {"type": "autocode_compaction", "version": 1, "sessionID": "s", "compaction": {"auto": True}}
+        result = activity.summarize(stream(tool(), compaction))
+        self.assertTrue(result["complete"], result)
