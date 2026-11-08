@@ -117,7 +117,9 @@ matching digest may be a forged claim. Missing, stale, malformed and cross-run
 claims cannot enable export. Inspection stops after 128 dependencies or 16,384
 tool-output lines and sets `truncated: true`; that limit also cannot enable
 export. This diagnostic is not an import format or a portable native replay
-capability. Existing non-JSON refusal text and exit code 3 are unchanged.
+capability. If the retained events cannot be inventoried, the refusal is
+returned without this field. Existing non-JSON refusal text and exit code 3
+are unchanged.
 
 Fresh checks also require the evidence their current verifier expects. Some older
 report-file provider archives lack retained tool-command receipts; replay refuses
