@@ -503,6 +503,14 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
                 self.assertEqual(consumers, set(kept))
 
+    def test_builder_source_guidance_keeps_its_rendered_behavior_consumer(self):
+        consumer = "tests.test_review_source"
+        selected = run_suite.select_tests(
+            ["tools/prompts/fragments/stage-context/builder-source.md"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_planning_provenance_helpers_keep_the_importless_run_state_scan(self):
         consumer = "tests.test_run_state"
         for path in ("tools/autocode_planning_review_usage.py", "tools/autocode_assumption_provenance.py"):

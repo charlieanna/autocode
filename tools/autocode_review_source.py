@@ -1,4 +1,4 @@
-"""Small exact source attachments for independent review, without granting evidence authority.
+"""Small exact source attachments for stage inspection, without granting evidence authority.
 
 Only the sealed approved source scope and the supplied current inventory select
 files. Large or uncertain inventories keep the ordinary filesystem inspection
@@ -18,10 +18,12 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_review_effort as review_effort
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source
     from .autocode_source_privacy import secret_path
 except ImportError:
+    import autocode_review_effort as review_effort
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source
     from autocode_source_privacy import secret_path
@@ -116,4 +118,15 @@ def context(state: RunState, current):
             "instruction": INSTRUCTION,
         }
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
+def builder_context(state: RunState, current):
+    """Fresh optional inspection text for a small, clear approved bug fix only."""
+    try:
+        body = (state.get("goal_contract") or {}).get("body") or {}
+        if body.get("task_kind") != "bugfix" or not review_effort.small_clear(state):
+            return None
+        return context(state, current)
+    except (TypeError, AttributeError):
         return None
