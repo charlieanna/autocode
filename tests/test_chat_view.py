@@ -51,6 +51,26 @@ class ChatViewTests(unittest.TestCase):
                 )
                 self.assertEqual(before, state)
 
+    def test_requested_pause_feedback_requires_a_clean_resume_checkpoint(self):
+        for status in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION"):
+            state = {"status": status}
+            before = copy.deepcopy(state)
+            self.assertEqual("feedback", self.project(state, "resume")["input"]["kind"])
+            self.assertEqual(before, state)
+            self.assertIsNone(self.project(state, "continue")["input"])
+            for change in (
+                {"active_runner_check": {"kind": "regression_proof"}},
+                {"active_stage": {"stage": "sol"}},
+                {"uncertain_artifacts": ["attempt"]},
+                {"pending_questions": [{"id": "Q1"}]},
+                {"resolver_human_proposal": {"scope": "blocker"}},
+                {"user_request": {"kind": "human_review"}},
+                {"pause_intent": {"held_pause": {"status": "PAUSED_COST_LIMIT"}}},
+                {"applied_interventions": [{"kind": "stop"}]},
+            ):
+                with self.subTest(status=status, change=change):
+                    self.assertIsNone(self.project({**state, **change}, "resume")["input"])
+
     def test_semantic_feedback_does_not_bypass_operational_or_human_gates(self):
         import autocode_goals as goals
 

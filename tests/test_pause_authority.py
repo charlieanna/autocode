@@ -12,6 +12,50 @@ import autocode_pause_authority as pause_authority
 import autocode_stop as stop
 
 
+class RequestedFeedbackTests(unittest.TestCase):
+    def test_clean_requested_checkpoints_ignore_historical_recovery(self):
+        for status in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION"):
+            state = {
+                "status": status,
+                "resolver_human_request": {"scope": "goal_approval", "request_id": "old"},
+                "resolver": {
+                    "human_escalations": {"old": {"status": "consumed"}},
+                    "human_response_frontier": {"pause_status": "PAUSED_TIME_LIMIT", "request_id": "old"},
+                },
+                "pause_intent": {"acknowledged_at": "earlier", "held_pause": {"status": "PAUSED_TIME_LIMIT"}},
+            }
+            before = copy.deepcopy(state)
+            self.assertTrue(pause_authority.requested_feedback(state))
+            self.assertEqual(before, state)
+        self.assertFalse(pause_authority.requested_feedback({"status": "RUNNING"}))
+
+    def test_pending_work_and_independent_holds_refuse(self):
+        blocked = (
+            {"active_stage": {"stage": "sol"}},
+            {"active_runner_check": {"kind": "regression_proof"}},
+            {"uncertain_artifacts": ["attempt"]},
+            {"pending_report_repair": {"stage": "astra_review"}},
+            {"job_failure": {"stage": "sol"}},
+            {"stop_intent": {"request_ids": ["stop"]}},
+            {"applied_interventions": [{"kind": "stop"}]},
+            {"pending_questions": [{"id": "Q1"}]},
+            {"user_request": {"kind": "human_review"}},
+            {"user_request": {"kind": "blocker"}},
+            {"resolver_human_proposal": {"scope": "blocker"}},
+            {
+                "resolver_human_proposal": {
+                    "scope": "operational_exhaustion",
+                    "origin": {"pause_status": "PAUSED_TIME_LIMIT"},
+                }
+            },
+            {"pause_intent": {"held_pause": {"status": "PAUSED_TIME_LIMIT"}}},
+        )
+        for status in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION"):
+            for change in blocked:
+                with self.subTest(status=status, change=change):
+                    self.assertFalse(pause_authority.requested_feedback({"status": status, **change}))
+
+
 class ChangesHeldBoundTests(unittest.TestCase):
     def test_only_the_flag_for_the_exhausted_bound_changes_it(self):
         cases = (
