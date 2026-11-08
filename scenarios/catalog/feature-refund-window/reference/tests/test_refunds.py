@@ -37,6 +37,19 @@ class RefundTests(unittest.TestCase):
                     refund(order, amount, at(2026, 5, 1))
                 self.assertEqual([], order.refunds)
 
+    def test_one_cent_is_a_valid_amount(self):
+        order = Order("o", 1000)
+        self.assertEqual(999, refund(order, 1, at(2026, 5, 1)))
+        self.assertEqual([1], order.refunds)
+
+    def test_non_integer_amounts_are_refused_before_any_mutation(self):
+        for amount in (True, False, None, "100", 1.5):
+            with self.subTest(amount=amount):
+                order = Order("o", 1000, refunds=[100])
+                with self.assertRaisesRegex(RefundRefused, "positive integer"):
+                    refund(order, amount, at(2026, 5, 1))
+                self.assertEqual([100], order.refunds)
+
 
 if __name__ == "__main__":
     unittest.main()
