@@ -5,6 +5,7 @@ import datetime as dt
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -17,7 +18,10 @@ from unittest.mock import patch
 import autocode as runner
 import autocode_model_preflight as preflight
 import autocode_support as support
+import autocode_tool_containment as containment
+import autocode_toolchain as toolchain
 from providers.command import CommandProvider
+from providers.kilocode import KiloProvider
 
 
 class ModelPreflightBudgetCliTests(unittest.TestCase):
@@ -57,6 +61,7 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
         }
         self.adapter = CommandProvider(config, self.root / "provider.toml")
         self.probes = []
+        self.probe_efforts = []
         self.stages = []
         self.clock = 100.0
         self.duration = 2.0
@@ -93,6 +98,7 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
 
     def probe(self, **kwargs):
         self.probes.append(kwargs["model"])
+        self.probe_efforts.append(kwargs["effort"])
         directory = kwargs["directory"]
         directory.mkdir(parents=True, exist_ok=True)
         session = f"probe-{len(self.probes)}"
@@ -255,6 +261,207 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
                 "fixture/reviewer",
                 *limits,
             )
+
+    def use_kilo_selected_python(self):
+        """Use the concrete readonly Kilo launch policy, with all native/model traffic fake."""
+        self.adapter = KiloProvider(self.adapter._config, self.adapter._path)
+        runner.autocode_providers.resolve.return_value = self.adapter
+        for name, value in (
+            (
+                "local_settings",
+                {
+                    "engine": "budgetfixture",
+                    "identity_version": 1,
+                    "executable": sys.executable,
+                    "config_sha256": "a" * 64,
+                },
+            ),
+            ("available_models", {"fixture/reviewer", "fixture/builder"}),
+            ("check_models", None),
+            ("check_subscription_routes", None),
+        ):
+            self.stack.enter_context(patch.object(self.adapter, name, return_value=value))
+        binary = self.workspace / ".venv/bin"
+        binary.mkdir(parents=True)
+        self.selected_python = binary / "python"
+        self.wrapper_marker = self.root / "wrapper-executed"
+        self.selected_python.write_text("#!/bin/sh\ntouch " + shlex.quote(str(self.wrapper_marker)) + "\n")
+        self.selected_python.chmod(0o755)
+        self.stack.enter_context(patch.dict(os.environ, {"PATH": str(binary) + os.pathsep + os.environ["PATH"]}))
+        self.native_observations = []
+
+        class SelectedToolsReady(Exception):
+            pass
+
+        def version(command, **_kwargs):
+            self.native_observations.append("version")
+            return subprocess.CompletedProcess(command, 0, "7.8.3", "")
+
+        def policy():
+            self.native_observations.append("policy")
+            return {"permission": [{"permission": "bash", "pattern": "*", "action": "allow"}]}
+
+        def startup(*_args, **_kwargs):
+            self.native_observations.append("startup")
+            raise SelectedToolsReady
+
+        def launch(_role, workspace, _run_dir, _session, _model, _effort, _write, **kwargs):
+            # Keep actual late discovery and the public failure translator. The
+            # deterministic native observations stop before any startup process.
+            command = [sys.executable, "run", "--agent", "fixture", "--model", _model]
+            child = {**kwargs["env"], "KILO_CONFIG_CONTENT": json.dumps({"agent": {"fixture": {}}})}
+            with (
+                patch.object(containment, "backend", return_value=containment.BUBBLEWRAP),
+                patch.object(containment.subprocess, "run", side_effect=version),
+                patch.object(containment, "_native_debug", return_value=policy),
+                patch.object(containment, "prepare", side_effect=startup),
+            ):
+                try:
+                    containment.configure(
+                        command,
+                        child,
+                        workspace,
+                        allow_write=False,
+                        request=kwargs["containment"],
+                        transport="kilocode",
+                    )
+                except SelectedToolsReady:
+                    return command, child, {}
+            raise AssertionError("The native startup stub was not reached")
+
+        self.stack.enter_context(patch.object(self.adapter, "launch", side_effect=launch))
+
+        def stage(**kwargs):
+            self.stages.append(kwargs)
+            runner.provider_launch.prepare(
+                engine="opencode",
+                adapter=self.adapter,
+                role="requirements",
+                route_role="requirements",
+                workspace=self.workspace,
+                run_dir=self.run_dir,
+                session=None,
+                model=kwargs["model"],
+                effort="high",
+                allow_write=False,
+                planning=True,
+                report=None,
+                schema=None,
+                prompt_file=None,
+                sandbox="read-only",
+                transport_args=[],
+                chatgpt=True,
+                provider="budgetfixture",
+                settings=kwargs["state"]["settings"],
+            )
+            raise support.Paused("PAUSED_FIXTURE_STAGE", "Requirements tool discovery reached")
+
+        runner.run_role.side_effect = stage
+
+    def selected_python_start(self, *arguments):
+        exact = tuple(
+            argument
+            for role in ("astra", "terra", "sol", "glm", "plan_reviewer", "requirements", "completion", "resolver")
+            for argument in (f"--{role.replace('_', '-')}-reasoning-effort", "high")
+        )
+        return self.fresh_joint_start("--max-cost-usd", "0", *exact, *arguments)
+
+    @unittest.skipUnless(sys.platform == "linux", "selected ELF admission requires supported Linux")
+    def test_selected_python_wrapper_pauses_before_probe_and_same_run_repairs(self):
+        self.use_kilo_selected_python()
+        with patch.object(toolchain, "discover", wraps=toolchain.discover) as discover:
+            code, stdout, stderr = self.selected_python_start()
+            self.assertEqual([], self.probes, stdout + stderr)
+            self.assertEqual([], self.stages)
+            view = self.status()
+            self.assertEqual("PAUSED_TOOL_CONTAINMENT", view["needs"].get("pause_origin") or view["status"])
+            self.assertIn("not a native ELF executable", view["stop_reason"])
+            self.assertEqual([], view["usage"]["accounting"]["attempts"])
+            self.assertEqual(1, discover.call_count)
+            self.assertEqual([], self.native_observations)
+            self.assertFalse(self.wrapper_marker.exists())
+            self.assertFalse((self.run_dir / "model-preflight.json").exists())
+            self.selected_python.unlink()
+            self.selected_python.symlink_to(Path(sys.executable).resolve())
+            code, stdout, stderr = self.invoke("--run-dir", str(self.run_dir), "--resume-paused", "--no-chat")
+            self.assertEqual(2, code, stdout + stderr)
+            self.assertEqual(["fixture/builder"], self.probes)
+            self.assertEqual(1, len(self.stages))
+            self.assertEqual(3, discover.call_count, "Resume checks early and again at the actual launch")
+            self.assertEqual(["version", "policy", "startup"], self.native_observations)
+            repaired = self.status()
+            self.assertEqual("PAUSED_FIXTURE_STAGE", repaired["needs"].get("pause_origin") or repaired["status"])
+            self.assertEqual(["high"], self.probe_efforts)
+            self.assertFalse(self.wrapper_marker.exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "selected ELF admission requires supported Linux")
+    def test_late_discovery_rejects_python_replaced_after_early_check(self):
+        self.use_kilo_selected_python()
+        wrapper = self.selected_python.read_text()
+        self.selected_python.unlink()
+        self.selected_python.symlink_to(Path(sys.executable).resolve())
+
+        def replace():
+            self.selected_python.unlink()
+            self.selected_python.write_text(wrapper)
+            self.selected_python.chmod(0o755)
+
+        self.on_probe = replace
+        with patch.object(toolchain, "discover", wraps=toolchain.discover) as discover:
+            code, stdout, stderr = self.selected_python_start()
+        self.assertEqual(2, code, stdout + stderr)
+        self.assertEqual(["fixture/builder"], self.probes)
+        self.assertEqual(1, len(self.stages))
+        view = self.status()
+        self.assertEqual("PAUSED_TOOL_CONTAINMENT", view["needs"].get("pause_origin") or view["status"])
+        self.assertIn("not a native ELF executable", view["stop_reason"])
+        self.assertEqual(2, discover.call_count, "The real launch must rediscover changed tool bytes")
+        self.assert_one_charged_probe(view)
+        self.assertFalse(self.wrapper_marker.exists())
+
+    @unittest.skipUnless(sys.platform == "linux", "selected ELF admission requires supported Linux")
+    def test_local_billing_refusal_precedes_selected_tool_discovery(self):
+        self.use_kilo_selected_python()
+
+        def auth(*_args, **_kwargs):
+            if (self.run_dir / "state.json").is_file():
+                raise RuntimeError("fixture login unavailable")
+
+        self.adapter.check_subscription_routes.side_effect = auth
+        with patch.object(toolchain, "discover", wraps=toolchain.discover) as discover:
+            code, stdout, stderr = self.selected_python_start()
+        self.assertEqual(2, code, stdout + stderr)
+        discover.assert_not_called()
+        self.assertEqual([], self.probes)
+        view = self.status()
+        self.assertEqual("PAUSED_BILLING_ROUTE", view["needs"].get("pause_origin") or view["status"])
+        self.assertIn("fixture login unavailable", view["stop_reason"])
+
+    @unittest.skipUnless(sys.platform == "linux", "selected ELF admission requires supported Linux")
+    def test_budget_refusal_precedes_selected_tool_discovery(self):
+        self.use_kilo_selected_python()
+        with (
+            patch.object(preflight, "_allowance", side_effect=support.Paused("PAUSED_COST_LIMIT", "fixture saved cap")),
+            patch.object(toolchain, "discover", wraps=toolchain.discover) as discover,
+        ):
+            code, stdout, stderr = self.selected_python_start()
+        self.assertEqual(2, code, stdout + stderr)
+        discover.assert_not_called()
+        self.assertEqual([], self.probes)
+        view = self.status()
+        self.assertEqual("PAUSED_COST_LIMIT", view["needs"].get("pause_origin") or view["status"])
+
+    @unittest.skipUnless(sys.platform == "linux", "selected ELF admission requires supported Linux")
+    def test_stop_at_selected_tool_pause_precedes_resume_discovery(self):
+        self.use_kilo_selected_python()
+        self.selected_python_start()
+        self.submit_stop()
+        with patch.object(toolchain, "discover", wraps=toolchain.discover) as discover:
+            code, stdout, stderr = self.invoke("--run-dir", str(self.run_dir), "--resume-paused", "--no-chat")
+        self.assertEqual(2, code, stdout + stderr)
+        discover.assert_not_called()
+        self.assertEqual([], self.probes)
+        self.assertEqual("PAUSED_INTERVENTION", self.status()["status"])
 
     def test_remaining_probe_cost_prevents_the_deferred_real_requirements_request(self):
         code, stdout, stderr = self.fresh_joint_start("--max-cost-usd", "0.01")
