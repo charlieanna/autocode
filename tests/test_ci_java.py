@@ -40,11 +40,20 @@ class JavaAdmissionTests(unittest.TestCase):
         )
 
     def test_installed_java_and_compiler_are_validated_and_recorded_without_downloads(self):
+        Path(self.environment["GITHUB_ENV"]).write_text("EXISTING=kept\n")
+        Path(self.environment["GITHUB_PATH"]).write_text("/existing/bin\n")
         with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(self.home.resolve(), ci_java.configure(self.environment, run=self.run))
-        self.assertEqual(f"JAVA_HOME={self.home.resolve()}\n", Path(self.environment["GITHUB_ENV"]).read_text())
-        self.assertEqual(f"{self.home.resolve() / 'bin'}\n", Path(self.environment["GITHUB_PATH"]).read_text())
-        self.assertIn("17.0.16", output.getvalue())
+        self.assertEqual(
+            f"EXISTING=kept\nJAVA_HOME={self.home.resolve()}\n", Path(self.environment["GITHUB_ENV"]).read_text()
+        )
+        self.assertEqual(
+            f"/existing/bin\n{self.home.resolve() / 'bin'}\n", Path(self.environment["GITHUB_PATH"]).read_text()
+        )
+        self.assertIn(f"Using installed JDK: {self.home.resolve()}", output.getvalue())
+        self.assertIn("java.specification.version = 17", output.getvalue())
+        self.assertIn("openjdk version 17.0.16", output.getvalue())
+        self.assertIn("javac 17.0.16", output.getvalue())
         self.assertEqual(["java", "javac"], [Path(call.args[0][0]).name for call in self.run.call_args_list])
         self.assertTrue(
             all(Path(call.args[0][0]).parent == self.home.resolve() / "bin" for call in self.run.call_args_list)
@@ -130,6 +139,47 @@ class WorkflowAdmissionTests(unittest.TestCase):
                 timeout=10,
             )
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertIn("java.specification.version = 17", result.stdout)
             self.assertIn("javac 17.0.16", result.stdout)
             self.assertEqual("JAVA_HOME=" + str(home.resolve()) + "\n", env_file.read_text())
             self.assertEqual(str(home.resolve() / "bin") + "\n", path_file.read_text())
+
+    @unittest.skipIf(os.name == "nt", "The Ubuntu Java admission step runs POSIX tools")
+    def test_valid_version_output_with_unsuccessful_tool_exit_is_refused(self):
+        root = Path(__file__).resolve().parents[1]
+        for failed_tool in ("java", "javac"):
+            with self.subTest(tool=failed_tool), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory) / "jdk"
+                (home / "bin").mkdir(parents=True)
+                for name in ("java", "javac"):
+                    path = home / "bin" / name
+                    version = "java.specification.version = 17" if name == "java" else "javac 17.0.16"
+                    path.write_text(
+                        "#!"
+                        + sys.executable
+                        + "\nprint("
+                        + repr(version)
+                        + ")\nraise SystemExit("
+                        + str(int(name == failed_tool))
+                        + ")\n"
+                    )
+                    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+                env_file, path_file = Path(directory) / "env", Path(directory) / "path"
+                environment = {
+                    **os.environ,
+                    "JAVA_HOME_17_X64": str(home),
+                    "GITHUB_ENV": str(env_file),
+                    "GITHUB_PATH": str(path_file),
+                }
+                result = subprocess.run(
+                    [sys.executable, str(root / "tools/ci_java.py")],
+                    cwd=root,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+                self.assertIn("CalledProcessError", result.stderr)
+                self.assertFalse(env_file.exists())
+                self.assertFalse(path_file.exists())
