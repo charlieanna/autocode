@@ -1521,6 +1521,203 @@ def _cache_fixture(data, root, producer):
     return accepted
 
 
+REFUND_FIRST_PINS = {
+    "shop/refunds.py": "54439eaa62acb4b63b11e6ec566df475494b1b08587ebc374244ab788f259fd2",
+    "tests/test_refunds.py": "c6c979de956ef5357d4bd48248454f0d4575809fdd4dd339d40dd21e06279da7",
+}
+REFUND_FINAL_PINS = {
+    "shop/clock.py": "1b1a5900adcd01624aed6be08e2854141c6451c7953d9c9423b791b1ceaf2c22",
+    "shop/refunds.py": "54439eaa62acb4b63b11e6ec566df475494b1b08587ebc374244ab788f259fd2",
+    "tests/test_refunds.py": "7a79d7a8fcb03e37ce06bde526bcde48cbd2af3d5e2a9989bf3a1b757d55e288",
+}
+REFUND_SEED_CLOCK = "f71c6afb9a9c266ebad93ecfbaf20d0bfe337b8ea179a07b9d4e9245210c7f19"
+REFUND_FIRST_REASONS = {
+    3: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "timedelta import is exercised by the isolated inclusive-day and next-day refund tests; omitting it "
+    "makes their named calls fail.",
+    5: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "store_date import is exercised by the isolated window tests, which assert both delivery and current "
+    "timestamp calls in order.",
+    7: "The named-test proof cannot collect mutations while its two planned integration tests are absent. "
+    "WINDOW_DAYS=30 is checked at exactly the thirtieth supplied store day and the following day; either "
+    "adjacent value breaks one assertion.",
+    10: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "exception declaration is observed by tests requiring RefundRefused for invalid amounts, disputed "
+    "orders, excess totals and expired windows.",
+    14: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "refund declaration has no supported mutation site; named tests call the public function, assert its "
+    "returned remaining cents, and exercise the omitted versus supplied delivery timestamp. The return "
+    "annotation has no separate runtime behavior.",
+    15: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "amount guard is checked with booleans, None, a string, a float, zero, negative values and the valid "
+    "one-cent boundary; every invalid amount leaves existing refunds unchanged.",
+    16: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "isolated non-integer tests require RefundRefused with the positive-integer message and unchanged prior "
+    "refund history.",
+    17: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "disputed-order branch is observed by the existing refusal test with a positive amount, which must "
+    "raise and preserve the order.",
+    18: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "disputed-order refusal is checked with a valid positive amount; continuing would append a refund and "
+    "fail the no-change assertion.",
+    19: "The named-test proof cannot collect mutations while its two planned integration tests are absent. "
+    "Orders without a delivery timestamp still allow valid partial refunds, while delivered orders execute "
+    "the supplied-date window checks.",
+    20: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "isolated window tests assert both supplied store-date calls and distinguish the inclusive thirtieth "
+    "day from the following day.",
+    21: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "exact thirtieth store day succeeds and the following day is refused, detecting either adjacent window "
+    "boundary.",
+    22: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "expired-window test requires RefundRefused naming the final store day 2026-07-01 and preserves the "
+    "prior refund list.",
+    23: "The named-test proof cannot collect mutations while its two planned integration tests are absent. Two "
+    "partial refunds are capped by their running total; tests assert 400 cents remaining after 600 and zero "
+    "after the last 400.",
+    24: "The named-test proof cannot collect mutations while its two planned integration tests are absent. A "
+    "second 500-cent refund after 600 of a 1000-cent order must be refused; the exact remaining 400-cent "
+    "refund succeeds.",
+    25: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "cap test requires RefundRefused on the excess partial refund and checks that only the first 600 cents "
+    "remain recorded.",
+    26: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "successful isolated window and one-cent tests assert the appended refund, and the cap test observes "
+    "earlier refunds on the next call.",
+    27: "The named-test proof cannot collect mutations while its two planned integration tests are absent. The "
+    "tests assert exact remaining balances of 800, 999, 400 and zero after valid refunds.",
+}
+REFUND_FINAL_REASONS = {
+    "shop/clock.py": {
+        3: "The datetime/date/timezone/timedelta import is consumed when the module loads and in store_date; no supported import mutation exists. The delivered real store-day tests call the clock through refund and assert the UTC-8 day boundary, including late evening and the exact last day."
+    },
+    "shop/refunds.py": {
+        10: "The exception declaration has no supported mutation site. The delivered refusal and expired-window tests require RefundRefused and unchanged refund history.",
+        14: "The refund signature has no supported mutation site. Delivered tests call it with partial and one-cent amounts, disputed and invalid inputs, plus delivered_at absent or supplied, and assert exact balances and store-day acceptance/refusal. Its return annotation has no separate runtime behavior.",
+    },
+}
+
+
+def _refund_fixture(data, root, producer):
+    if (
+        not isinstance(producer, dict)
+        or producer.get("fault") != "refund_store_clock"
+        or producer.get("check") != "python3 -m unittest discover -s tests -t ."
+        or not isinstance(producer.get("reference"), str)
+        or producer.get("turn_paths")
+        or not isinstance(producer.get("paths"), list)
+        or not all(isinstance(name, str) for name in producer["paths"])
+    ):
+        return []
+    try:
+        reference = Path(producer["reference"])
+        if reference.resolve(strict=True).is_relative_to(root.resolve(strict=True)) or root.resolve(
+            strict=True
+        ).is_relative_to(reference.resolve(strict=True)):
+            return []
+        first = _fixture_pins(reference, REFUND_FIRST_PINS) and _fixture_pins(
+            root, {**REFUND_FIRST_PINS, "shop/clock.py": REFUND_SEED_CLOCK}
+        )
+        pins = REFUND_FIRST_PINS if first else REFUND_FINAL_PINS
+        if (
+            not set(pins) <= set(producer["paths"])
+            or not _fixture_pins(reference, pins)
+            or not _fixture_pins(root, pins)
+        ):
+            return []
+    except (OSError, RuntimeError):
+        return []
+    proof = data.get("regression_proof") or {}
+    assessment = proof.get("changed_code_evidence") or {}
+    revision, context = assessment.get("source_revision"), assessment.get("proof_context")
+    mutation = proof.get("mutation_check") or {}
+    required = {
+        "tests.test_refunds.RefundTests." + name
+        for name in (
+            "test_partial_refunds_are_capped_by_their_total",
+            "test_refused_refunds_leave_the_order_unchanged",
+            "test_one_cent_is_a_valid_amount",
+            "test_non_integer_amounts_are_refused_before_any_mutation",
+            *(
+                [
+                    "test_refund_policy_uses_supplied_dates_and_includes_the_last_day",
+                    "test_refund_policy_refuses_the_following_day_without_mutating_the_order",
+                ]
+                if first
+                else ["test_window_ends_after_the_30th_store_day", "test_window_counts_store_days_not_utc_days"]
+            ),
+        )
+    }
+    selected = (
+        [*(proof.get("fail_to_pass") or []), *(proof.get("pass_to_pass") or [])]
+        if first
+        else mutation.get("selected_tests") or []
+    )
+    if (
+        not isinstance(proof.get("path"), str)
+        or not proof["path"].strip()
+        or proof.get("source_revision") != revision
+        or not all(
+            isinstance(value, str) and len(value) == 64 and set(value) <= set("0123456789abcdef")
+            for value in (revision, context)
+        )
+        or not isinstance(selected, list)
+        or not all(isinstance(name, str) for name in selected)
+        or not required <= set(selected)
+        or any(proof.get(key) for key in ("unverified", "failed_on_candidate", "unstable"))
+        or not isinstance(proof.get("not_run_on_base", []), list)
+        or not all(isinstance(name, str) for name in proof.get("not_run_on_base", []))
+        or not set(proof.get("not_run_on_base", [])) <= set(selected)
+    ):
+        return []
+    if first:
+        failures = proof.get("failures") or []
+        missing = ("test_window_ends_after_the_30th_store_day", "test_window_counts_store_days_not_utc_days")
+        if (
+            proof.get("verdict") != "FAIL"
+            or len(failures) != 2
+            or not all(isinstance(f, str) and "has no test named " in f for f in failures)
+            or not all(any("has no test named " + name + " " in failure for failure in failures) for name in missing)
+            or mutation.get("collected") is not False
+            or mutation.get("files") != []
+        ):
+            return []
+        reasons = {"shop/refunds.py": REFUND_FIRST_REASONS}
+    else:
+        if proof.get("verdict") != "PASS" or proof.get("failures") or mutation.get("collected") is not True:
+            return []
+        reasons = REFUND_FINAL_REASONS
+    accepted = []
+    for path, lines in reasons.items():
+        for line, reason in lines.items():
+            identity = [revision, context, path, pins[path], line]
+            gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+            rows = [
+                row for row in assessment.get("obligations") or [] if isinstance(row, dict) and row.get("gap_id") == gap
+            ]
+            if len(rows) != 1 or any(
+                (
+                    rows[0].get("path") != path,
+                    rows[0].get("sha256") != pins[path],
+                    type(rows[0].get("line")) is not int,
+                    rows[0].get("line") != line,
+                    rows[0].get("status") != "reason_required",
+                    rows[0].get("mutation_outcomes") != [],
+                )
+            ):
+                continue
+            accepted.append(
+                {
+                    "gap_id": gap,
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reason,
+                    "evidence_refs": [proof["path"], path],
+                }
+            )
+    return accepted
+
+
 def judgments(data, root=None, *, producer=None):
     data = _review_data(data)
     if data is None:
@@ -1542,6 +1739,7 @@ def judgments(data, root=None, *, producer=None):
         + _native_fixture(data, root, producer)
         + _by_project(data, root, producer)
         + _cache_fixture(data, root, producer)
+        + _refund_fixture(data, root, producer)
     )
 
 

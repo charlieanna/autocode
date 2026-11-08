@@ -126,14 +126,28 @@ assert store_date(1772409600) == date(2026, 3, 2)
     }
 
 
+def source_for_attempt(config, attempt):
+    """The exact recipe the scripted Builder copies, independent of model handoff text."""
+    reference = Path(config["reference"])
+    scenario = next(parent for parent in reference.parents if (parent / "scenario.toml").is_file())
+    return scenario / "broken" / "trusts-store-date" if attempt == 1 else reference
+
+
+def tester_producer(config):
+    trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).parent / "refund-trace.jsonl"
+    previous = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
+    attempt = sum(row["stage"] == "terra" for row in previous)
+    if not attempt:
+        return {}  # No Builder has authored files for this Tester.
+    return {**config, "reference": str(source_for_attempt(config, attempt))}
+
+
 def report_for(stage, data, common, config, run_check, requirements):
     trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).parent / "refund-trace.jsonl"
     previous = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
     task = data["current_task"]
     body = data["goal_contract"]["body"]
     proof = data.get("regression_proof") or {}
-    reference = Path(config["reference"])
-    scenario = next(parent for parent in reference.parents if (parent / "scenario.toml").is_file())
     # A reviewer closes its own open findings once the runner's proof passes.
     dispositions = [
         {"id": ident, "disposition": "resolved", "evidence": "event:check"}
@@ -141,7 +155,7 @@ def report_for(stage, data, common, config, run_check, requirements):
     ]
     if stage == "terra":
         attempt = 1 + sum(row["stage"] == "terra" for row in previous)
-        _apply(scenario / "broken" / "trusts-store-date" if attempt == 1 else reference, config["paths"])
+        _apply(source_for_attempt(config, attempt), config["paths"])
         code = run_check()
         result = {
             **common,
