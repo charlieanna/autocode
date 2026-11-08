@@ -123,6 +123,10 @@ def progress(
             if _mapping(state.get("active_stage")).get("stage") == "recognize_workflow"
             else f"{stage} working"
         )
+    elif _unchosen(state):
+        # A new run's first save holds the default next stage until the run chooses its first one,
+        # a moment later; naming it put "Next: Planner" ahead of Requirements in the chat's log.
+        headline, stage = "Starting the run", None
     elif stage:
         # Preflight can leave recognition queued for a while. Explain the next
         # activity here too, without claiming a model has already started.
@@ -146,6 +150,19 @@ def progress(
         "requirements": requirements,
         "problems": problems,
     }
+
+
+def _unchosen(state: RunState) -> bool:
+    """A new run saved before it chose its first stage: no phase, no stage run, no contract, and the
+    creation default (``autocode_run_setup``) still in ``next_stage``."""
+    return (
+        state.get("status") == "RUNNING"
+        and not state.get("phase")
+        and not state.get("stages")
+        and not state.get("goal_contract")
+        and not state.get("active_stage")
+        and state.get("next_stage") == "astra_plan"
+    )
 
 
 def _earlier_request(state: RunState, contract):

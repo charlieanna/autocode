@@ -18,6 +18,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A new run's first moment no longer reads `Next: Planner` in the chat's log ahead of Requirements. The
+  run's first save holds the default next stage until it chooses its first one; the status view now says
+  `Starting the run` and names no stage until then.
+- The Requirements summary keeps each listed row on one line. An acceptance example that quotes a line
+  break (a name file `'  Ana \n'`) shows it as `\n` instead of splitting the item across screen lines,
+  and a break inside a behavior or constraint becomes a space.
 - The full-screen terminal chat no longer hangs at `Starting the run…` on a first task that runs on Claude
   Code. The chat ran AutoCode in a background process group with the terminal as its input, and Claude
   Code's own login check (`claude auth status`) touched it, so the kernel stopped the whole run and
