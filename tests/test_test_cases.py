@@ -1289,6 +1289,38 @@ class PromptTests(unittest.TestCase):
         self.assertIn("Reuse a passing candidate check when its command and inputs are unchanged", instruction)
         self.assertIn("Rerun after a relevant change, failure, or required repetition", instruction)
 
+    def test_both_builder_prompt_paths_assign_base_and_candidate_proof_to_the_runner(self):
+        from units import common
+
+        from tests.test_bug_job import approved_small_fix
+
+        state = approved_small_fix()
+        schemas = Path(test_cases.__file__).with_name("autocode-schemas")
+        state_path = Path(state["workspace"]) / "state.json"
+        diagnosis_prompt = common.execution_request(state, "terra", state_path, schemas).prompt
+        state.pop("investigation")
+        with patch.object(test_cases, "contract_cases", return_value=[{"id": "C2", "text": "x"}]):
+            contract_prompt = common.execution_request(state, "terra", state_path, schemas).prompt
+        for heading, prompt in (
+            ("TESTS NAMED IN THE DIAGNOSIS", diagnosis_prompt),
+            ("TESTS NAMED IN THE PLAN", contract_prompt),
+        ):
+            with self.subTest(path=heading):
+                instruction = " ".join(prompt.split("\nCURRENT HANDOFF DATA\n")[0].split())
+                self.assertIn(heading, instruction)
+                for obligation in (
+                    "The runner independently proves named regression tests fail on base and pass on the candidate",
+                    "existing-behavior guards must pass on both",
+                    "Do not run a separate Builder pre-fix capture solely to duplicate that proof",
+                    "Honor applicable project instructions, explicit person-requested test-first work "
+                    "and the approved plan's phase sequence",
+                    "Reproduce or probe when needed to diagnose the behavior",
+                    "Run required candidate checks",
+                    "Preserve every named regression and guard, the independent Tester and Completion Reviewer",
+                    "Builder captures never replace the runner's current passing proof",
+                ):
+                    self.assertIn(obligation, instruction)
+
 
 if __name__ == "__main__":
     unittest.main()

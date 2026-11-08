@@ -583,6 +583,8 @@ class RenderedPromptTests(unittest.TestCase):
         self.assertEqual(set(expected), set(actual))
         for name, text in actual.items():
             with self.subTest(case=name):
+                if name.startswith("planning/"):
+                    self.assertNotIn("Do not run a separate Builder pre-fix capture solely to", text)
                 self.assertEqual(
                     expected[name],
                     {"bytes": len(text.encode("utf-8")), "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()},
