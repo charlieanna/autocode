@@ -489,7 +489,10 @@ entries beyond the newest and update a growing one in place. `kind` is
 `thinking` (model reasoning), `message` (model prose), or one of `activity`'s
 `command`, `edit` and `tool` with the same `status` and `paths`. Unlike
 `activity`, reasoning and message prose are copied: collapsed to one line,
-credential-shaped text redacted, and cut to the newest 400 characters. Tool
+credential-shaped text redacted, and bounded to 400 characters: a finished
+thought or message keeps its first words and ends with `…` where it was cut, and
+one still streaming keeps its newest words behind a leading `…` and ends with
+`[partial]`. Tool
 output is never copied. The Orchestrator runs no model, so its newest dispatch since the person's
 last turn appears as one `message` entry from agent `Orchestrator` with the
 runner's own summary, such as which tasks it builds in parallel or that one

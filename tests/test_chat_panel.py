@@ -404,7 +404,7 @@ class LiveEventTests(unittest.TestCase):
             {
                 "agent": "Plan Reviewer",
                 "kind": "thinking",
-                "text": "[earlier text omitted] Checking AC4 against   the upload flow. [partial]",
+                "text": "…Checking AC4 against   the upload flow. [partial]",
             },
             {
                 "agent": "Plan Reviewer",
@@ -569,7 +569,7 @@ class LiveLogTests(unittest.TestCase):
         self.assertEqual("I'm checking; I'll report back.", panel.live_text("I’m checking; I’ll report back."))
         self.assertEqual("[thinking]", panel.LIVE_MARKS["thinking"])
         self.assertEqual("[message]", panel.LIVE_MARKS["message"])
-        self.assertEqual("", panel.live_text("[earlier text omitted] tokens; thinking ~600 tokens"))
+        self.assertEqual("", panel.live_text("…tokens; thinking ~600 tokens"))
 
     def test_the_models_own_words_are_shown_as_they_are(self):
         for words in ("Read greet.py first; then run the tests.", "thinking about ~3 options", ""):

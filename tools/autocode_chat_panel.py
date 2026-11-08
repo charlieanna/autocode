@@ -324,7 +324,7 @@ def planning_step(view: dict | None) -> str | None:
             continue
         if not isinstance(text, str) or not text.strip() or any(mark in text for mark in OPAQUE_STEPS):
             continue
-        text = " ".join(text.removesuffix(" [partial]").removeprefix("[earlier text omitted]").split())
+        text = " ".join(text.removesuffix(" [partial]").removeprefix("…").split())
         return {"command": "Running ", "edit": "Editing: "}.get(str(row.get("kind")), "") + text
     return None
 
@@ -746,7 +746,7 @@ def live_text(text: str) -> str:
     for number, part in enumerate(parts):
         if not part or _THOUGHT.fullmatch(part) or _WRITING.fullmatch(part):
             continue
-        if not (number == 0 and part.startswith(("…", "[earlier text omitted]"))):
+        if not (number == 0 and part.startswith("…")):
             shown.append(part)
     return "; ".join(shown) + (" [partial]" if partial and shown else "")
 

@@ -18,6 +18,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A thought or message longer than the status view's 400-character bound no longer appears in the chat
+  behind `[earlier text omitted]`, which read as part of the thought on nearly every thought. A finished
+  entry now keeps its first words and ends with `…` where it was cut; one still streaming keeps its
+  newest words behind a leading `…` and ends with `[partial]`, as before (`chat.log`, `/live` and the
+  live thinking line).
 - In a full-screen chat started with a brief, `/live`, `/log`, `/plan`, `/panel` and `/pause` no longer
   answer "is not available right now" for the whole first stage (#2879). The first step ran inside the
   chat's start, and the screen was handed the run's commands only after it returned, so they worked

@@ -299,12 +299,11 @@ with ChatTUI() as ui:
                 for text in (
                     "Checking that [partial]",
                     "I'm checking; I'll report back.",
-                    "[earlier text omitted]",
-                    "Which codes should history show?",
+                    "older context older context",  # the finished message's first words, not its tail
                 )
             ),
             timeout=10,
-            what="readable labels, apostrophes, streaming notice and complete newest words",
+            what="readable labels, apostrophes, streaming notice and a finished message's first words",
         )
         screen.type("/live thinking")
         screen.keys("Enter")
