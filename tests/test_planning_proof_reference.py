@@ -19,6 +19,26 @@ class ProofReferenceTests(unittest.TestCase):
             "turns": [{"say": "Add start", "previous": {"status": "TASK_COMPLETE", "workflow": "bugfix"}}],
         }
 
+    def test_planning_roles_assign_independent_fail_first_proof_to_runner_without_duplicate_builder_phase(self):
+        for stage in ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+            with self.subTest(stage=stage):
+                prompt, _ = autoplanner.context(self.state(), stage, Path("/fixture/state.json"))
+                for policy in (
+                    "runner independently proves",
+                    "fail on base and pass on current source",
+                    "Do not require a separate Builder pre-fix capture solely to duplicate",
+                    "explicit person-requested test-first",
+                    "already approved phase sequence",
+                    "independent Tester and Completion Reviewer",
+                    "never treat a Builder capture as the runner proof",
+                    "Existing-behavior guards must pass on both",
+                    "Completion requires the current passing runner proof",
+                ):
+                    self.assertTrue(policy in prompt, policy)
+                self.assertNotIn("A fail-first criterion is met in the\nworkspace itself", prompt)
+                self.assertIn("Do not plan scratch copies outside the workspace", prompt)
+                self.assertIn("ask the user to authorize it", prompt)
+
     def test_review_and_revision_name_the_saved_original_repository_reference(self):
         state = self.state()
         before = copy.deepcopy(state)

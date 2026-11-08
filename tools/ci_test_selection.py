@@ -434,6 +434,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/fragments/milestones/", ("tests.test_milestone_policy",)),
     ("tools/prompts/fragments/milestone-replan/", ("tests.test_milestone_policy", "tests.test_milestone_replan")),
     (
+        "tools/prompts/fragments/autoplanner/evidence-facts-02.md",
+        ("tests.test_planning_proof_reference", "tests.test_bugfix_workflow"),
+    ),
+    (
         "tools/prompts/fragments/autoplanner/proof-reference-rule.md",
         (
             "tests.test_planning_proof_reference",

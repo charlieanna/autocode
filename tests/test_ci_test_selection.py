@@ -76,6 +76,12 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
                 self.assertEqual([consumer], list(kept))
 
+    def test_planning_proof_policy_keeps_independent_bugfix_proof_when_slow(self):
+        consumer = "tests.test_bugfix_workflow"
+        selected = run_suite.select_tests(["tools/prompts/fragments/autoplanner/evidence-facts-02.md"], {consumer: ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_replay_export_keeps_native_capture_refusal_cli_consumer(self):
         consumer = "tests.test_replay_native_capture_export_cli"
         selected = run_suite.select_tests(
