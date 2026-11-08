@@ -8,6 +8,25 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_requirements_prompt_resources_keep_the_render_and_existing_public_consumers_when_slow(self):
+        consumers = {
+            "tests.test_schema_prompt_formatting",
+            "tests.test_requirements_chat",
+            "tests.test_prompt_rendering",
+            "tests.test_chat_cli",
+            "tests.test_requirements_review",
+            "tests.test_requirements_job_cli",
+        }
+        for source in (
+            "tools/autocode_requirements_prompt.py",
+            "tools/prompts/requirements-gather.md",
+            "tools/prompts/fragments/autoplanner/requirements-conversation.md",
+        ):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], {name: "" for name in consumers})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_leaf_timing_keeps_the_public_cli_consumer_when_slow(self):
         consumer = "tests.test_phase_timing_cli"
         for source in (

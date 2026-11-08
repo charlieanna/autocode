@@ -20,6 +20,13 @@ SCHEMA_CONSUMERS = (
     "tests.test_report_schema",
     "tests.test_schema_diagnostics",
 )
+REQUIREMENTS_PROMPT_CONSUMERS = (
+    *PROMPT_CONSUMERS,
+    "tests.test_requirements_chat",
+    "tests.test_chat_cli",
+    "tests.test_requirements_review",
+    "tests.test_requirements_job_cli",
+)
 CORE_CONSUMERS = (
     "tests.test_cli_surface",
     "tests.test_taskrun_seam",
@@ -361,10 +368,9 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("tools/providers/requirements_stream.mjs", ("tests.test_requirements_stream", "tests.test_requirements_chat")),
     ("tools/providers/opencode_activity.mjs", ("tests.test_opencode_activity", "tests.test_kilo_progress")),
-    (
-        "tools/prompts/requirements-gather.md",
-        ("tests.test_chat_cli", "tests.test_requirements_review", "tests.test_requirements_job_cli"),
-    ),
+    ("tools/autocode_requirements_prompt.py", REQUIREMENTS_PROMPT_CONSUMERS),
+    ("tools/prompts/requirements-gather.md", REQUIREMENTS_PROMPT_CONSUMERS),
+    ("tools/prompts/fragments/autoplanner/requirements-conversation.md", REQUIREMENTS_PROMPT_CONSUMERS),
     (
         "tools/prompts/fragments/provider-opencode/conversation-output.md",
         ("tests.test_schema_prompt_formatting", "tests.test_requirements_chat", "tests.test_plan_chat"),

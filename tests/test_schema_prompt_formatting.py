@@ -7,7 +7,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_goals as goals
+from autocode_util import validate_schema
 from providers import command, opencode
+from units import autoplanner
 
 
 class CompactSchemaPromptTests(unittest.TestCase):
@@ -241,6 +244,122 @@ class AttemptSpecificSchemaLastTests(unittest.TestCase):
         import providers.claude as claude
 
         self.check_prompt_order(claude.prompt_for_schema)
+
+
+class RequirementsPromptModeTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.workspace = Path(temporary.name)
+        (self.workspace / "reports.py").write_text("def export():\n    return []\n")
+        self.task = 'Add teh CSV export; keep literal "MiXeD" and do not remove the approval step.'
+
+    def request(self, *, conversational=False, joint=True):
+        state = {
+            "version": 3,
+            "task_id": "requirements-mode-fixture",
+            "task": self.task,
+            "workspace": str(self.workspace),
+            "status": "RUNNING",
+            "stages": [],
+            "answers": {},
+            "user_events": [],
+            "settings": {
+                "joint_planning": joint,
+                "spec_first": conversational,
+                "roles": {
+                    name: {"engine": "opencode", "model": "fixture"}
+                    for name in ("astra", "glm", "terra", "sol", "requirements", "plan_reviewer", "resolver")
+                },
+            },
+        }
+        with patch.object(
+            autoplanner.stage_context.source_scope,
+            "snapshot",
+            return_value={"head": "fixture-head", "revision": "fixture-source", "files": {}},
+        ):
+            request = autoplanner.prepare(
+                state,
+                "requirements_gather",
+                self.workspace / "state.json",
+                Path(autoplanner.__file__).parents[1] / "autocode-schemas",
+            )
+        rendered = opencode.prompt_for_schema(request.prompt, request.schema, self.workspace / "events.jsonl")
+        return state, request, rendered
+
+    def assert_complete_render(self, request, rendered):
+        self.assertEqual(1, request.prompt.count("You are the Requirements Gatherer"))
+        self.assertEqual(1, rendered.count("You are the Requirements Gatherer"))
+        for slot in ("{conversation_intro}", "{reply_prefix}", "{confirmation_target}"):
+            self.assertNotIn(slot, rendered)
+        self.assertIn(json.dumps(request.schema, separators=(",", ":")), rendered)
+        packet = json.loads(rendered.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(self.task, packet["task"])
+        instruction = rendered.split("\nCURRENT HANDOFF DATA\n", 1)[0]
+        self.assertEqual(1, instruction.count("clear, correctly spelled English"))
+        self.assertIn("instead of quoting their typos or shorthand", instruction)
+        self.assertIn("literal values, scope, negation", instruction)
+        self.assertIn("source_quote evidence verbatim", instruction)
+        self.assertIn("Do not imply that this approves an execution plan.", instruction)
+
+    def test_batch_requirements_prompt_obeys_the_final_model_schema(self):
+        state, request, rendered = self.request()
+        self.assertIn("assistant_reply", autoplanner.schema_for(state, "requirements_gather")["properties"])
+        self.assertNotIn("assistant_reply", request.schema["properties"])
+        self.assertFalse(request.schema["additionalProperties"])
+        self.assertFalse(
+            "assistant_reply" in rendered.split("\nCURRENT HANDOFF DATA\n", 1)[0],
+            "batch instructions request a field excluded by the final model schema",
+        )
+        self.assertIn("summarize what you understand in summary", rendered)
+        self.assert_complete_render(request, rendered)
+
+    def test_conversational_requirements_keeps_first_reply_and_original_user_evidence(self):
+        _, request, rendered = self.request(conversational=True)
+        self.assertIn("assistant_reply", request.schema["properties"])
+        self.assertEqual(1, rendered.count("Write assistant_reply FIRST in your JSON"))
+        self.assertIn("Write assistant_reply and natural-language summaries", rendered)
+        self.assertIn("summarize what you understand in assistant_reply", rendered)
+        self.assert_complete_render(request, rendered)
+
+    def test_final_model_schema_controls_the_prompt_even_when_the_mode_allows_chat(self):
+        finalize = autoplanner.retention.model_schema
+
+        def without_reply(schema, state, stage):
+            result = copy.deepcopy(finalize(schema, state, stage))
+            result["properties"].pop("assistant_reply", None)
+            if "assistant_reply" in result.get("required", []):
+                result["required"].remove("assistant_reply")
+            return result
+
+        with patch.object(autoplanner.retention, "model_schema", side_effect=without_reply):
+            _, request, rendered = self.request(conversational=True)
+        self.assertNotIn("assistant_reply", request.schema["properties"])
+        self.assertFalse(
+            "assistant_reply" in rendered.split("\nCURRENT HANDOFF DATA\n", 1)[0],
+            "the rendered instructions must follow the attached final schema rather than the run mode",
+        )
+        self.assert_complete_render(request, rendered)
+
+    def test_nonjoint_discovery_keeps_its_legacy_prompt_and_schema(self):
+        state, request, rendered = self.request(joint=False)
+        self.assertEqual("DISCOVERING", state["phase"])
+        self.assertNotIn("You are the Requirements Gatherer", rendered)
+        self.assertNotIn("assistant_reply", request.schema["properties"])
+        self.assertNotIn("assistant_reply FIRST", rendered)
+        self.assertEqual(set(goals.DISCOVERY_SCHEMA["required"]), set(request.schema["required"]))
+        packet = json.loads(rendered.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertNotIn("joint_planning", packet)
+        self.assertEqual("requirements_gather", packet["stage"])
+
+    def test_batch_response_with_an_assistant_reply_is_still_rejected(self):
+        from .test_autoplanner_step2 import requirements
+
+        _, request, _ = self.request()
+        report = requirements([])
+        validate_schema(report, request.schema)
+        with self.assertRaisesRegex(ValueError, r"^\$: unexpected fields: assistant_reply$"):
+            validate_schema({**report, "assistant_reply": "I understood the request."}, request.schema)
 
 
 if __name__ == "__main__":
