@@ -2372,7 +2372,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/64805cdbd908f231059e756fe78f186dad38fd13/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/df9fdd3f56e7321e0c066b5b084c892eafd99d49/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2626,11 +2626,26 @@ fully observed stream with usable identities, outcomes and arguments. Partial,
 unsupported, active or historical observations retain explicit fixed <code>issues</code>;
 their counts describe what was observed, not zero unobserved calls. These
 diagnostics grant no verification, completion or gate authority.</p>
-<p><code>tool_activity.version</code> identifies the diagnostic algorithm (currently <code>1</code>). A
-saved projection with a missing or different version cannot be reused, even when
-the event-file fingerprint is unchanged. The core refreshes it from the attempt's
-declared event file when available, otherwise reports it unavailable. This
-read-only refresh does not rewrite saved metrics.</p>
+<p><code>search_arguments</code> partitions the observed <code>search</code> family into <code>with_instruction_name</code>,
+<code>without_instruction_name</code> and <code>unknown</code> calls. The core inspects only string values
+in complete structured arguments that already passed the comparison bounds. A mention
+is a case-sensitive literal <code>AGENTS.md</code> or <code>CLAUDE.md</code> token, with neither an adjacent
+Unicode word character, dot nor hyphen. Keys, output and rendered queries are excluded.
+JSON escapes have already been decoded; regex or shell syntax is never interpreted
+(for example, <code>AGENTS\.md</code> has no literal known-name mention). A mention in unrelated
+prose still counts. No individual name counts are exposed. <code>unknown</code> includes unavailable,
+unsupported or over-limit arguments; nested <code>complete</code> also requires complete native
+observation. Zero mentions establishes neither absence of instruction searches nor
+file absence, necessity or waste. This covers the whole search family, including web tools.</p>
+<p><code>tool_activity.version</code> identifies the diagnostic algorithm (currently <code>2</code>). A
+saved projection with a missing or different version cannot bypass a refresh, even
+when the event-file fingerprint is unchanged. The core refreshes it from the attempt's
+declared event file when available. Valid version <code>1</code> counts retain their original
+meaning when that evidence is unavailable (or no source is declared): the public
+projection migrates to version <code>2</code>, preserving prior counts, outcomes and issues,
+with every prior search call's classification <code>unknown</code> and nested <code>complete: false</code>.
+Unsupported or invalid saved diagnostics remain unavailable. This read-only refresh
+or migration does not rewrite saved metrics.</p>
 <p>The supported shapes are OpenCode/Kilo <code>tool_use</code> parts and Codex-style item
 events. A rendered command alone cannot establish its complete original
 arguments, so those items retain incomplete comparison coverage. Completeness
@@ -3539,7 +3554,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/64805cdbd908f231059e756fe78f186dad38fd13/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/df9fdd3f56e7321e0c066b5b084c892eafd99d49/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4227,7 +4242,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/64805cdbd908f231059e756fe78f186dad38fd13/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/df9fdd3f56e7321e0c066b5b084c892eafd99d49/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
