@@ -1425,6 +1425,102 @@ def _by_project(data, root, producer):
     ]
 
 
+CACHE_FIXTURE_PINS = {
+    "app/metadata.py": "db7721cc1cfc93849a61cb9fc284e5f0dc0e8aa1699f4762622491b97302f75d",
+    "app/shared_cache.py": "df2552a0f0801f4260131285136450a6434026231f25d83cb592c79f5fc44141",
+    "tests/test_shared_cache.py": "c52afa211aaa1d0c8ffba02b364c5c2bd3bc6d97142ced3ca7785f456fa91882",
+    "tests/test_metadata.py": "0c82a7d1e7be1d9a0be00ee8681504002bcc7c57ba84d54ad707bd6ecbeebe6f",
+}
+CACHE_FIXTURE_REASONS = {
+    "app/metadata.py": {
+        10: "The os import initializes CACHE at module load and has no supported import mutation. The configured-directory public metadata test reloads the module under METADATA_CACHE_DIR and observes reuse of the cached response; removing the import fails that named test.",
+        11: "The time import initializes the public CACHE clock at module load and has no supported import mutation. The public metadata test controls time.time before module reload and asserts warm reuse and refreshed metadata at exactly 3600 seconds; removing the import fails the named test.",
+        14: "The SharedFileCache import is consumed at module load and has no supported import mutation. The named public metadata test reloads the module, fetches once, reuses a fresh entry and refreshes at expiry; removing this import fails that test.",
+    },
+    "app/shared_cache.py": {
+        20: "The bare None return has no supported mutation site. test_missing_nested_directory_and_corrupt_entry_are_replaced_and_reused observes successful fetching both without a cache file and after invalid JSON, then reuses the persisted replacement; omitting this return raises from the unbound entry and fails the test.",
+    },
+}
+
+
+def _cache_fixture(data, root, producer):
+    """The scripted Python fixture owns only its unsupported function declaration."""
+    if (
+        not isinstance(producer, dict)
+        or producer.get("check") != "python3 -m unittest discover -s tests -t ."
+        or not isinstance(producer.get("reference"), str)
+        or producer.get("turn_paths") != [["docs/decisions/"], ["docs/design/"], ["app/", "tests/"]]
+        or not isinstance(producer.get("paths"), list)
+        or not all(isinstance(name, str) for name in producer["paths"])
+        or not set(CACHE_FIXTURE_PINS) <= set(producer["paths"])
+    ):
+        return []
+    try:
+        reference = Path(producer["reference"])
+        if (
+            reference.resolve(strict=True).is_relative_to(root.resolve(strict=True))
+            or root.resolve(strict=True).is_relative_to(reference.resolve(strict=True))
+            or not _fixture_pins(reference, CACHE_FIXTURE_PINS)
+            or not _fixture_pins(root, CACHE_FIXTURE_PINS)
+        ):
+            return []
+    except (OSError, RuntimeError):
+        return []
+    proof = data.get("regression_proof") or {}
+    assessment = proof.get("changed_code_evidence") or {}
+    revision, context = assessment.get("source_revision"), assessment.get("proof_context")
+    selected = (proof.get("mutation_check") or {}).get("selected_tests") or []
+    required = {
+        "tests.test_metadata.ParseTests.test_metadata_uses_configured_shared_cache_and_refreshes_at_one_hour",
+        "tests.test_shared_cache.SharedFileCacheTests.test_missing_nested_directory_and_corrupt_entry_are_replaced_and_reused",
+        "tests.test_shared_cache.SharedFileCacheTests.test_fresh_hit_returns_without_waiting_for_a_writer_lock",
+        "tests.test_shared_cache.SharedFileCacheTests.test_miss_rechecks_after_lock_when_another_worker_has_published",
+    }
+    if (
+        proof.get("verdict") != "PASS"
+        or not isinstance(proof.get("path"), str)
+        or not proof["path"].strip()
+        or proof.get("source_revision") != revision
+        or not all(
+            isinstance(value, str) and len(value) == 64 and set(value) <= set("0123456789abcdef")
+            for value in (revision, context)
+        )
+        or not isinstance(selected, list)
+        or not all(isinstance(name, str) for name in selected)
+        or not required <= set(selected)
+    ):
+        return []
+    accepted = []
+    for path, lines in CACHE_FIXTURE_REASONS.items():
+        for line, reason in lines.items():
+            identity = [revision, context, path, CACHE_FIXTURE_PINS[path], line]
+            gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+            rows = [
+                row for row in assessment.get("obligations") or [] if isinstance(row, dict) and row.get("gap_id") == gap
+            ]
+            if len(rows) != 1 or any(
+                (
+                    rows[0].get("path") != path,
+                    rows[0].get("sha256") != CACHE_FIXTURE_PINS[path],
+                    type(rows[0].get("line")) is not int,
+                    rows[0].get("line") != line,
+                    rows[0].get("status") != "reason_required",
+                    rows[0].get("mutation_outcomes") != [],
+                )
+            ):
+                continue
+            accepted.append(
+                {
+                    "gap_id": gap,
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reason,
+                    "evidence_refs": [proof["path"], path],
+                }
+            )
+    return accepted
+
+
 def judgments(data, root=None, *, producer=None):
     data = _review_data(data)
     if data is None:
@@ -1445,6 +1541,7 @@ def judgments(data, root=None, *, producer=None):
         + _package_greeting(data, root, producer)
         + _native_fixture(data, root, producer)
         + _by_project(data, root, producer)
+        + _cache_fixture(data, root, producer)
     )
 
 
