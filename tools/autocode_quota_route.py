@@ -482,6 +482,7 @@ def question(
                 job=job,
                 current=current,
                 rule=rule,
+                provider_refusal=False,
             )
             asked["candidates"] = passing
             asked["recommendation"] = (
@@ -489,9 +490,9 @@ def question(
                 f"{', '.join(passing)}."
                 if passing
                 else f"No other configured model passes the launch rules for the {job} (refused: {', '.join(refused)}); "
-                "name one from another provider."
+                "name another model with more output headroom."
                 if refused
-                else f"No model from another provider is configured; name one for the {job}."
+                else f"No other model is configured for the {job}; name one with more output headroom."
             )
             asked["why"] += " " + asked["recommendation"]
         return asked
@@ -602,12 +603,15 @@ def candidates(
     job: str | None = None,
     current: str | None = None,
     rule=None,
+    provider_refusal: bool = True,
 ) -> tuple[list[str], list[str]]:
     """(models that pass, models refused): the run's other configured models for ``role`` after a refusal.
 
-    The refusing provider's models are left out: the content filter is the provider's. ``current`` is
-    as for ``validate``, and ``rule`` one more check the answer must pass (raising ValueError), so the
-    list never names a model the answer path refuses (#288/#301).
+    On a provider refusal the refusing provider's models are left out: the content filter is the
+    provider's. An output-limit stop passes ``provider_refusal=False`` — the cap is the model's, so
+    same-account models are candidates too. ``current`` is as for ``validate``, and ``rule`` one more
+    check the answer must pass (raising ValueError), so the list never names a model the answer path
+    refuses (#288/#301).
     """
     settings = state.get("settings") or {}
     role_engine = engine(settings, role)
@@ -618,7 +622,9 @@ def candidates(
     )
     passing, refused = [], []
     for model in configured:
-        if model == refused_model or (_provider(model) and _provider(model) == _provider(refused_model)):
+        if model == refused_model or (
+            provider_refusal and _provider(model) and _provider(model) == _provider(refused_model)
+        ):
             continue
         try:
             validate(
