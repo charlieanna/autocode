@@ -75,8 +75,9 @@ class RetainedValidationCLI(unittest.TestCase):
         self.assertIn("automatically", before["explanation"]["what_it_means"])
         self.assertNotIn("--answer", before["explanation"]["explanation"])
         self.assertIn("--resume-paused", before["next_command"])
-        self.launch(shlex.split(before["next_command"])[1:], 2)
+        resumed = self.launch(shlex.split(before["next_command"])[1:], 2)
         after = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
+        self.assertIn(after["stop_reason"], resumed.stdout)
         outcome = after["recovery"]["outcome"]
         self.assertEqual("could_not_finish", outcome["result"])
         self.assertEqual(revision, outcome["evidence"]["source_revision"])
