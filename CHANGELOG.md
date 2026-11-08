@@ -21,6 +21,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode setup` no longer reports "Installed OpenCode" and then lists it as not installed when npm
+  puts it in a global bin folder outside PATH: it names the folder and the `export PATH=…` line instead.
+  Without npm it no longer offers an install it cannot make, and says how to get Node.js on this
+  platform. On Linux without bubblewrap, `autocode doctor`'s containment fix now starts with the
+  package to install.
+
 - The terminal chat now names the engine a new chat will actually run on. With OpenCode missing and
   Claude Code signed in, `autocode setup` and `doctor` said Claude Code while the chat's banner said
   OpenCode, warned that it could not start, and `/connect` marked OpenCode for new chats.

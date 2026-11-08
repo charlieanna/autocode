@@ -687,6 +687,17 @@ class ContainmentTests(unittest.TestCase):
         check = doctor.containment_check(status)
         self.assertEqual(doctor.WARN, check.status)
         self.assertTrue(check.detail.startswith("no kernel boundary: " + problem), check.detail)
+        self.assertNotIn("apt install", check.fix, "bwrap is not named missing here")
+
+    def test_linux_without_bwrap_names_the_package_to_install_first(self):
+        """A new Linux user's first OpenCode task was refused; the fix line never said bubblewrap is a package."""
+        problem = (
+            "strict tool containment requires macOS sandbox-exec or Linux bubblewrap at /usr/bin/bwrap; "
+            "this machine is linux without /usr/bin/bwrap"
+        )
+        check = doctor.containment_check({"backend": None, "backend_version": None, "problem": problem})
+        self.assertTrue(check.fix.startswith("install bubblewrap (`sudo apt install bubblewrap`"), check.fix)
+        self.assertIn("--allow-uncontained-tools", check.fix)
 
     def test_opencode_answers_once_in_the_workspace_and_both_checks_read_it(self):
         # One probe for the engine and containment lines, in the workspace, as run setup runs it.

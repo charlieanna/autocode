@@ -398,13 +398,20 @@ def containment_check(status: dict) -> Check:
             f"{sandbox} works; no opencode is on PATH to run inside it",
             f"see engine:opencode above; strict tool containment needs OpenCode {tool_containment.SUPPORTED_VERSION}",
         )
+    # Linux without bwrap installed: the package to install comes first (it is one command).
+    missing_bwrap = not name and f"without {tool_containment.BWRAP}" in problem
     return Check(
         "containment",
         WARN,
         (f"{sandbox} works, but " if sandbox else "no kernel boundary: ")
         + problem
         + "; a new built-in OpenCode run is refused at setup without --allow-uncontained-tools",
-        f"for built-in OpenCode runs: macOS sandbox-exec or Linux bubblewrap ({tool_containment.BWRAP}) with "
+        (
+            "install bubblewrap (`sudo apt install bubblewrap` or `sudo dnf install bubblewrap`); "
+            if missing_bwrap
+            else ""
+        )
+        + f"for built-in OpenCode runs: macOS sandbox-exec or Linux bubblewrap ({tool_containment.BWRAP}) with "
         f"OpenCode {tool_containment.SUPPORTED_VERSION} (docs/execution.md#native-tool-containment); or start "
         "the run with --allow-uncontained-tools for OpenCode's own permission checks only",
     )

@@ -223,7 +223,7 @@ class SetupTests(unittest.TestCase):
             for item in found
         ]
         asked, ran, said = [], [], []
-        npm = lambda name: "/bin/npm" if name == "npm" else None  # noqa: E731
+        npm = lambda name: {"npm": "/bin/npm", "opencode": "/bin/opencode" if ran else None}.get(name)  # noqa: E731
         installed = setup._install(
             found,
             ask=lambda prompt: asked.append(prompt) or "",
@@ -249,7 +249,7 @@ class SetupTests(unittest.TestCase):
         opencode_in = row("opencode", "OpenCode", "credentials_present")
         kilo_missing = {**KILO_MISSING, "install_command": setup.INSTALL["kilocode"]}
         ran = []
-        npm = lambda name: "/bin/npm" if name == "npm" else None  # noqa: E731
+        npm = lambda name: {"npm": "/bin/npm", "kilo": "/bin/kilo" if ran else None}.get(name)  # noqa: E731
         ask = lambda _prompt: self.fail("setup asked although OpenCode is installed")  # noqa: E731
         self.assertFalse(setup._install([opencode_in, kilo_missing], ask=ask, which=npm, run=ran.append))
         self.assertTrue(
@@ -270,15 +270,68 @@ class SetupTests(unittest.TestCase):
             {**KILO_MISSING, "install_command": setup.INSTALL["kilocode"]},
         ]
         said = []
-        self.assertFalse(
-            setup._install(missing, wanted="opencode", which=lambda _name: None, run=self.fail, out=said.append)
-        )
+        with mock.patch.object(setup.sys, "platform", "freebsd"):
+            self.assertFalse(
+                setup._install(missing, wanted="opencode", which=lambda _name: None, run=self.fail, out=said.append)
+            )
         self.assertIn("Install Node.js (https://nodejs.org), then run: npm install -g opencode-ai@1.18.33", said[0])
+        said.clear()
+        with mock.patch.object(setup.sys, "platform", "linux"):
+            setup._install(missing, wanted="opencode", which=lambda _name: None, run=self.fail, out=said.append)
+        self.assertIn("Install Node.js with `sudo apt install nodejs npm` on Debian or Ubuntu or from", said[0])
         said.clear()
         npm = lambda name: "/bin/npm" if name == "npm" else None  # noqa: E731
         self.assertFalse(setup._install(missing, wanted="opencode", which=npm, run=lambda _argv: 243, out=said.append))
         self.assertIn("exit 243", said[0])
         self.assertIn("Run it yourself: npm install -g opencode-ai@1.18.33", said[0])
+
+    def test_without_npm_setup_does_not_offer_an_install_it_cannot_make(self):
+        """It asked "Install OpenCode now? [Y/n]" and only then said npm was missing."""
+        missing = [
+            {**OPENCODE_MISSING, "install_command": setup.INSTALL["opencode"]},
+            {**KILO_MISSING, "install_command": setup.INSTALL["kilocode"]},
+        ]
+        said = []
+        with mock.patch.object(setup.sys, "platform", "darwin"):
+            installed = setup._install(
+                missing, ask=lambda _prompt: self.fail("offered without npm"), which=lambda _name: None, out=said.append
+            )
+        self.assertFalse(installed)
+        self.assertEqual(
+            [
+                "OpenCode 1.18.33 installs with npm, which is not on PATH. Install Node.js with `brew install node` "
+                "or from https://nodejs.org, then run `autocode setup` again."
+            ],
+            said,
+        )
+
+    def test_an_install_outside_path_names_the_folder_instead_of_saying_installed(self):
+        """npm installed OpenCode into its global bin, which was not on PATH: setup said "Installed
+        OpenCode 1.18.33." and then listed it as not installed."""
+        missing = [
+            {**OPENCODE_MISSING, "install_command": setup.INSTALL["opencode"]},
+            {**KILO_MISSING, "install_command": setup.INSTALL["kilocode"]},
+        ]
+        said, ran = [], []
+        npm = lambda name: "/bin/npm" if name == "npm" else None  # noqa: E731
+        installed = setup._install(
+            missing,
+            ask=lambda _prompt: "y",
+            which=npm,
+            run=lambda argv: ran.append(argv) or 0,
+            out=said.append,
+            npm_bin=lambda: "/opt/node22/bin",
+        )
+        self.assertFalse(installed, "a hub AutoCode cannot run is not reported installed")
+        self.assertEqual([["npm", "install", "-g", "opencode-ai@1.18.33"]], ran)
+        self.assertEqual(1, len(said))
+        self.assertIn("Installed OpenCode 1.18.33 in /opt/node22/bin, which is not on your PATH", said[0])
+        self.assertIn('export PATH="/opt/node22/bin:$PATH"', said[0])
+        said.clear()
+        setup._install(
+            missing, wanted="opencode", which=npm, run=lambda _argv: 0, out=said.append, npm_bin=lambda: None
+        )
+        self.assertIn("npm prefix -g", said[0])
 
 
 class OpenCodeWithoutAccountTests(unittest.TestCase):
