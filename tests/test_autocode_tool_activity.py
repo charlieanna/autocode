@@ -36,6 +36,55 @@ def stream(*calls):
 
 
 class ToolActivityTests(unittest.TestCase):
+    def test_generic_calls_require_tool_and_mcp_server_identity_for_argument_comparison(self):
+        def measure(kind, **identifiers):
+            calls = [
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": identity,
+                        "type": kind,
+                        "status": "completed",
+                        "arguments": {"value": 7},
+                        **identifiers,
+                    },
+                }
+                for identity in ("one", "two")
+            ]
+            return activity.summarize(
+                [{"type": "thread.started", "thread_id": "thread"}, *calls, {"type": "turn.completed"}]
+            )
+
+        for kind in ("mcp_tool_call", "tool_call", "function_call", "collab_agent_tool_call"):
+            for identifiers in ({}, {"tool": None}, {"tool": {}}, {"name": ""}, {"name": " \t"}, {"name": "x" * 1025}):
+                with self.subTest(kind=kind, identifiers=identifiers):
+                    result = measure(kind, server="PRIVATE_SERVER", **identifiers)
+                    self.assertEqual(2, result["observed_calls"])
+                    self.assertEqual(2, result["outcomes"]["succeeded"])
+                    self.assertEqual(2, result["families"]["agent" if kind == "collab_agent_tool_call" else "other"])
+                    self.assertEqual(0, result["comparable_calls"])
+                    self.assertEqual(0, result["exact_argument_repeats"])
+                    self.assertFalse(result["complete"])
+                    self.assertIn("arguments_unavailable", result["issues"])
+            for field in ("name", "tool"):
+                with self.subTest(kind=kind, valid_field=field):
+                    result = measure(kind, server="PRIVATE_SERVER", **{field: "PRIVATE_TOOL"})
+                    self.assertEqual(2, result["comparable_calls"])
+                    self.assertEqual(1, result["exact_argument_repeats"])
+                    self.assertTrue(result["complete"])
+                    self.assertNotIn("PRIVATE", json.dumps(result))
+        for server in (None, {}, "", " \t", "x" * 1025):
+            with self.subTest(server=server):
+                result = measure("mcp_tool_call", tool="PRIVATE_TOOL", server=server)
+                self.assertEqual(0, result["comparable_calls"])
+                self.assertFalse(result["complete"])
+        self.assertFalse(measure("mcp_tool_call", tool="PRIVATE_TOOL")["complete"])
+        self.assertTrue(measure("function_call", name="PRIVATE_TOOL")["complete"])
+        fixed = measure("command_execution", exit_code=0)
+        self.assertEqual(2, fixed["comparable_calls"])
+        self.assertEqual(1, fixed["exact_argument_repeats"])
+        self.assertTrue(fixed["complete"], "A concrete item kind determines its tool without a separate name")
+
     def test_large_numeric_arguments_are_bounded_before_serialization(self):
         given = {"values": [10**999] * 1000}
         with mock.patch.object(activity.json, "dumps", side_effect=AssertionError("serializer must not run")):

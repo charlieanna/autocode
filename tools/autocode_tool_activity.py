@@ -270,7 +270,17 @@ def summarize(rows, *, incomplete=False):
                 continue
             supported, terminal = True, False
             session, identity = thread, _identity(item.get("id"))
-            name = (item_kind, item.get("server"), item.get("tool") or item.get("name"))
+            name = (item_kind, None, None)
+            if item_kind in ("mcp_tool_call", "tool_call", "function_call", "collab_agent_tool_call"):
+                tool_name = _identity(item.get("tool") if "tool" in item else item.get("name"))
+                server = _identity(item.get("server"))
+                server_required = item_kind == "mcp_tool_call" or "server" in item
+                if not tool_name or not tool_name.strip() or server_required and (not server or not server.strip()):
+                    # A generic family cannot identify the operation or MCP
+                    # server. Keep its counts, but never compare anonymous tools.
+                    name = None
+                else:
+                    name = (item_kind, server, tool_name)
             family, raw = ITEM_FAMILIES[item_kind], item.get("arguments")
             status = item.get("status")
             if kind == "item.started":
