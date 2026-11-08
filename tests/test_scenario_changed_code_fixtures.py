@@ -18,6 +18,121 @@ from tests import test_follow_up_acceptance_cli as follow_up
 REFERENCE = Path(__file__).resolve().parents[1] / "scenarios/catalog/feature-stock-refusals/reference"
 
 
+class ByProjectFixtureReviewTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        base = Path(temporary.name)
+        self.root, self.reference = base / "project", base / "reference"
+        scenario = REFERENCE.parents[1] / "feature-timesheet-by-project"
+        shutil.copytree(scenario / "seed", self.root)
+        shutil.copytree(scenario / "reference", self.reference)
+        shutil.copytree(self.reference, self.root, dirs_exist_ok=True)
+        self.producer = {
+            "reference": str(self.reference),
+            "paths": list(fixture.BY_PROJECT_PINS),
+            "check": "python3 -m unittest discover -s tests -t .",
+        }
+        identity = ["a" * 64, "b" * 64, "timesheet/report.py", fixture.BY_PROJECT_PINS["timesheet/report.py"], 21]
+        self.gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+        self.proof = {
+            "verdict": "PASS",
+            "path": "current-proof.json",
+            "source_revision": identity[0],
+            "mutation_check": {
+                "selected_tests": [
+                    "tests.test_by_project.ByProjectTests." + name
+                    for name in (
+                        "test_combines_with_project_filter",
+                        "test_rows_per_week_and_project",
+                        "test_cli_preserves_default_and_filters_project_rows",
+                    )
+                ]
+            },
+            "changed_code_evidence": {
+                "source_revision": identity[0],
+                "proof_context": identity[1],
+                "obligations": [
+                    {
+                        "gap_id": self.gap,
+                        "path": identity[2],
+                        "sha256": identity[3],
+                        "line": 21,
+                        "status": "reason_required",
+                        "mutation_outcomes": [],
+                    }
+                ],
+            },
+        }
+
+    def judge(self, proof=None, producer=None):
+        return fixture.judgments(
+            {"regression_proof": self.proof if proof is None else proof},
+            self.root,
+            producer=self.producer if producer is None else producer,
+        )
+
+    def test_only_the_exact_producer_and_executed_tests_authorize_the_signature(self):
+        (reason,) = self.judge()
+        self.assertEqual(self.gap, reason["gap_id"])
+        self.assertIn("test_cli_preserves_default", reason["reason"])
+        for tree in (self.root, self.reference):
+            for name in fixture.BY_PROJECT_PINS:
+                path = tree / name
+                old = path.read_bytes()
+                path.write_bytes(old + b"\n# changed\n")
+                with self.subTest(tree=tree.name, path=name):
+                    self.assertEqual([], self.judge())
+                path.write_bytes(old)
+        self.assertEqual([], fixture.judgments({"regression_proof": self.proof}, self.root))
+        for change in (
+            {"reference": str(self.root)},
+            {"paths": []},
+            {"check": "echo PASS"},
+            {"turn_paths": [["timesheet/"]]},
+        ):
+            with self.subTest(change=change):
+                self.assertEqual([], self.judge(producer={**self.producer, **change}))
+
+    def test_stale_gap_failed_proof_survivors_and_missing_cli_test_are_refused(self):
+        for change in (
+            {"verdict": "FAIL"},
+            {"source_revision": "old"},
+            {"path": ""},
+            {"mutation_check": {"selected_tests": []}},
+        ):
+            with self.subTest(change=change):
+                self.assertEqual([], self.judge({**self.proof, **change}))
+        for change in (
+            {"gap_id": "old"},
+            {"path": "timesheet/__main__.py"},
+            {"line": 22},
+            {"sha256": "wrong"},
+            {"status": "tested"},
+            {"mutation_outcomes": ["survived"]},
+            {"mutation_outcomes": ["not_run"]},
+            {"mutation_outcomes": ["killed"]},
+        ):
+            proof = copy.deepcopy(self.proof)
+            proof["changed_code_evidence"]["obligations"][0].update(change)
+            with self.subTest(change=change):
+                self.assertEqual([], self.judge(proof))
+        proof = copy.deepcopy(self.proof)
+        proof["changed_code_evidence"]["obligations"] *= 2
+        self.assertEqual([], self.judge(proof))
+
+    def test_symlinked_producer_or_workspace_cannot_borrow_known_bytes(self):
+        for tree in (self.root, self.reference):
+            path = tree / "timesheet"
+            held = tree / "held"
+            path.rename(held)
+            path.symlink_to(held, target_is_directory=True)
+            with self.subTest(tree=tree.name):
+                self.assertEqual([], self.judge())
+            path.unlink()
+            held.rename(path)
+
+
 class PackageGreetingFixtureReviewTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
