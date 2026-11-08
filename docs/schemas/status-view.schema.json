@@ -308,7 +308,30 @@
         "dependency": {"type": ["object", "null"]},
         "prompts_hash": {"type": ["string", "null"]},
         "interaction_timing": {"type": ["object", "null"]},
-        "replay_source": {"type": ["object", "null"]},
+        "replay_source": {
+          "type": ["object", "null"],
+          "properties": {
+            "records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "verification_copy": {
+                    "type": "object",
+                    "description": "Optional bounded selector from the core's original direct copy record. Null members preserve malformed metadata for refusal diagnostics. Inspection grants no execution or replay authority; legacy records omit this field.",
+                    "required": ["version", "manifest", "sha256", "source_revision"],
+                    "properties": {
+                      "version": {"type": "integer", "enum": [1]},
+                      "manifest": {"type": ["string", "null"]},
+                      "sha256": {"type": ["string", "null"]},
+                      "source_revision": {"type": ["string", "null"]}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "replay_progress": {"type": ["object", "null"]},
         "replay_result": {"type": ["object", "null"]},
         "escalation_outcomes": {"type": ["object", "null"]},

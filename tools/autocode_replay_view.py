@@ -11,8 +11,10 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_replay_dependency_evidence as copy_evidence
     from . import autocode_util as util
 except ImportError:
+    import autocode_replay_dependency_evidence as copy_evidence
     import autocode_util as util
 
 
@@ -291,7 +293,7 @@ def _project(state: RunState, *, run_dir=None):
     """Export names only from this run; caller owns immutable payload inspection."""
     run_dir = str(run_dir) if run_dir is not None else state.get("run_dir")
     records = [
-        {key: deepcopy(row[key]) for key in RECORD_FIELDS if key in row}
+        {**{key: deepcopy(row[key]) for key in RECORD_FIELDS if key in row}, **copy_evidence.selector(row)}
         for row in state.get("stages", [])
         if row.get("role") != "runner" and row.get("events")
     ]

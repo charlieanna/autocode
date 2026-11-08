@@ -24,6 +24,7 @@ try:
     from . import autocode_proof_detail as proof_detail
     from . import autocode_replay_bindings as identity_bindings
     from . import autocode_replay_dependencies as dependencies
+    from . import autocode_replay_dependency_evidence as copy_evidence
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
@@ -33,6 +34,7 @@ except ImportError:
     import autocode_proof_detail as proof_detail
     import autocode_replay_bindings as identity_bindings
     import autocode_replay_dependencies as dependencies
+    import autocode_replay_dependency_evidence as copy_evidence
     import autocode_source_snapshot as source_snapshot
     import autocode_test_cases as test_cases
     import autocode_util as util
@@ -1215,6 +1217,14 @@ def export(projection, destination, secret_values=()):
                 workspace=workspace,
                 run_dir=run_root,
                 contexts=contexts,
+            )
+            error.native_capture_dependencies = copy_evidence.inspect_inventory(
+                error.native_capture_dependencies,
+                document=document,
+                records=projection["records"],
+                workspace=workspace,
+                run_dir=run_root,
+                read=_read,
             )
         raise
     revisions = list(dict.fromkeys([*projection["revisions"], *[row["head"] for row in snapshots]]))
