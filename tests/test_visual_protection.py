@@ -17,6 +17,68 @@ from unittest.mock import Mock, patch
 import autocode_util as util
 import autocode_visual_factory as factory
 import autocode_visual_protection as protection
+from autocode_verified_json_cache import VerifiedJSONCache
+
+
+class VerifiedJSONCacheTests(unittest.TestCase):
+    def test_identical_bytes_validate_once_but_both_returned_values_are_isolated(self):
+        validate = Mock(side_effect=json.loads)
+        cache = VerifiedJSONCache(validate)
+        first = cache.validated(b'{"nested":[{"value":1}]}')
+        first["nested"][0]["value"] = 9
+        second = cache.validated(b'{"nested":[{"value":1}]}')
+        self.assertEqual({"nested": [{"value": 1}]}, second)
+        second["nested"].clear()
+        self.assertEqual({"nested": [{"value": 1}]}, cache.validated(b'{"nested":[{"value":1}]}'))
+        self.assertEqual(1, validate.call_count)
+
+    def test_changed_bytes_are_validated_and_failures_are_never_retained(self):
+        validate = Mock(side_effect=json.loads)
+        cache = VerifiedJSONCache(validate)
+        self.assertEqual({"value": 1}, cache.validated(b'{"value":1}'))
+        self.assertEqual({"value": 2}, cache.validated(b'{"value":2}'))
+        for _ in range(2):
+            with self.assertRaises(ValueError):
+                cache.validated(b'{"value":')
+        self.assertEqual(4, validate.call_count)
+
+    def test_a_full_byte_budget_preserves_its_prefix_without_retaining_new_values(self):
+        validate = Mock(side_effect=json.loads)
+        cache = VerifiedJSONCache(validate, max_bytes=2)
+        self.assertEqual({}, cache.validated(b"{}"))
+        for _ in range(2):
+            self.assertEqual([], cache.validated(b"[]"))
+        self.assertEqual({}, cache.validated(b"{}"))
+        self.assertEqual(3, validate.call_count)
+
+    def test_a_zero_budget_disables_reuse(self):
+        validate = Mock(side_effect=json.loads)
+        cache = VerifiedJSONCache(validate, max_bytes=0)
+        for _ in range(2):
+            self.assertEqual({}, cache.validated(b"{}"))
+        self.assertEqual(2, validate.call_count)
+
+    def test_instances_cannot_share_another_validators_success(self):
+        accepted = VerifiedJSONCache(json.loads)
+        rejected = VerifiedJSONCache(Mock(side_effect=ValueError("different policy")))
+        self.assertEqual({}, accepted.validated(b"{}"))
+        with self.assertRaisesRegex(ValueError, "different policy"):
+            rejected.validated(b"{}")
+
+    def test_strict_canonical_row_validation_is_preserved_on_cache_misses(self):
+        row = {"version": 1, "sequence": 0, "previous": None, "kind": "origin", "body": {}}
+        row["id"] = util.digest(row)
+        raw = protection._bytes(row)
+        cache = VerifiedJSONCache(protection.NativeProtection._validated_row)
+        self.assertEqual(row, cache.validated(raw))
+        for invalid in (
+            raw + b" ",
+            raw.replace(b'"version":1', b'"version":2'),
+            raw.replace(b'"body":{}', b'"body":{},"body":{}'),
+            raw.replace(b'"body":{}', b'"body":{"value":NaN}'),
+        ):
+            with self.subTest(raw=invalid), self.assertRaises(util.Paused):
+                cache.validated(invalid)
 
 
 class PossibleWriteBoundTests(unittest.TestCase):
@@ -93,6 +155,27 @@ class OwnedGuardFixture(unittest.TestCase):
         self.owner._commits[intent.nonce] = intent
         sink = {"path": str(self.run / "state.json"), "device": 1, "inode": 2, "bytes": len(raw), "mode": 0o600}
         return intent, raw, sink
+
+    def test_warm_validation_does_not_adopt_modified_file_bytes(self):
+        self.assertEqual([], self.owner.committed_selectors("reviews"))
+        original = next(self.owner.root.iterdir())
+        original.chmod(0o600)
+        original.write_bytes(original.read_bytes() + b" ")
+        with self.assertRaises(util.Paused):
+            self.owner.committed_selectors("reviews")
+
+    def test_warm_validation_still_checks_sequence_filenames(self):
+        self.assertEqual([], self.owner.committed_selectors("reviews"))
+        original = next(self.owner.root.iterdir())
+        original.rename(original.with_name("00000003-" + original.name.split("-", 1)[1]))
+        with self.assertRaises(util.Paused):
+            self.owner.committed_selectors("reviews")
+
+    def test_warm_validation_still_requires_the_original_open_lock(self):
+        self.assertEqual([], self.owner.committed_selectors("reviews"))
+        self.checkout_handle.close()
+        with self.assertRaises(util.Paused):
+            self.owner.committed_selectors("reviews")
 
     def test_same_locked_owner_can_reopen_original_namespace(self):
         restarted = self.make_owner()

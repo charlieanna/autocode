@@ -61,7 +61,9 @@ async function main() {
     if (Object.keys(viewport).some(key => viewport[key] !== result.viewport[key]))
       throw new Error('Actual browser viewport differs from the capture case');
     const dom = await page.content();
-    const png = await page.screenshot({type: 'png', fullPage: false, animations: 'disabled'});
+    // Playwright's default caret hiding leaves style attributes on form controls.
+    // Preserve the page so our stability guard detects application changes only.
+    const png = await page.screenshot({type: 'png', fullPage: false, animations: 'disabled', caret: 'initial'});
     if (await page.content() !== dom) throw new Error('Rendered DOM changed during capture');
     result.dom_sha256 = hash(dom);
     result.screenshot_sha256 = hash(png);
