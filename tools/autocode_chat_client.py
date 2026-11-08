@@ -1947,14 +1947,24 @@ def guard_workspace(workspace: Path, ask, say) -> bool:
     return ask("Start a new chat here anyway? [y/N]: ").strip().lower() in YES
 
 
-def start(workspace: Path, brief: str, start_args, options, *, command=AUTOCODE, env=None, **kwargs) -> ChatClient:
-    """A client for a fresh run directory it names, so it watches the run it created."""
+def start(
+    workspace: Path, brief: str, start_args, options, *, command=AUTOCODE, env=None, created=None, **kwargs
+) -> ChatClient:
+    """A client for a fresh run directory it names, so it watches the run it created.
+
+    ``created(client)`` runs before the first step is launched, so the full-screen chat can bind
+    the client's commands to it: the first stage runs inside this call, and without that binding
+    ``/live``, ``/log``, ``/plan``, ``/panel`` and ``/pause`` answered "is not available right now"
+    until it returned (#2879).
+    """
     workspace = workspace.resolve()
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir = workspace / ".autocode" / "runs" / f"{stamp}-chat-{secrets.token_hex(3)}"
     client = ChatClient(workspace, run_dir, command=command, env=env, **kwargs)
     client.say(f"\nYou: {brief}")
     client.started = True
+    if created is not None:
+        created(client)
     try:
         client.advance(
             [
@@ -1973,6 +1983,21 @@ def start(workspace: Path, brief: str, start_args, options, *, command=AUTOCODE,
         client.close()
         raise
     return client
+
+
+def handover(ui, history):
+    """What a fresh chat's client gets before its first step runs (#2879): the project's chat list and,
+    in the full-screen chat, the screen's commands. The first stage runs inside ``start()``, and a
+    screen bound to the client only afterwards answered ``/live``, ``/log``, ``/plan``, ``/panel`` and
+    ``/pause`` with "is not available right now" until the first question."""
+
+    def created(client: ChatClient) -> None:
+        client.history = history
+        if ui is not None:
+            ui.set_context(client.workspace, client.run_dir)
+            ui.bind(client.slash)
+
+    return created
 
 
 # What each pause cause category (autocode_pause_category.LABELS) means, said as the reason for a stop:
@@ -2336,7 +2361,14 @@ def cli(argv: list[str] | None = None) -> int:
                 say("Nothing started.")
                 return 2
             client = start(
-                workspace, args.brief, list(chosen.get("start_args") or []), options, ask=ask, say=say, **seen
+                workspace,
+                args.brief,
+                list(chosen.get("start_args") or []),
+                options,
+                ask=ask,
+                say=say,
+                created=handover(ui, history),
+                **seen,
             )
         elif args.run_dir is not None:
             run_dir, workspace = events.resolve(args.workspace, args.run_dir)

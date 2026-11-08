@@ -18,6 +18,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- In a full-screen chat started with a brief, `/live`, `/log`, `/plan`, `/panel` and `/pause` no longer
+  answer "is not available right now" for the whole first stage (#2879). The first step ran inside the
+  chat's start, and the screen was handed the run's commands only after it returned, so they worked
+  from the first question on. The handover now happens before the first step is launched.
 - A chat started in a folder that is not a Git repository no longer creates a visible project before
   anything is built. It used to create `autocode-projects/<first words>-<id>` at the first message, so a
   "hi" left a project named `hi-…` behind. The work now starts in a private project in the folder's own
