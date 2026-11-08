@@ -1,5 +1,6 @@
 // Approval is two ordered, revision-bound requests; uncertain outcomes never start work.
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('./dashboard_vm'),path=require('node:path');
+let assertionsFinished=false;process.once('beforeExit',()=>{if(!process.exitCode)assert.ok(assertionsFinished,'Approval checks must finish every asynchronous assertion');});
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 const cleanup=vm.createContext({});vm.runInContext(source.slice(source.indexOf('function expiredTemporaryEntry('),source.indexOf('function dashboardProjects(')),cleanup);
 assert.equal(cleanup.expiredTemporaryEntry({workspace:'/tmp/old',error:'workspace_missing'}),false,'Error strings do not prove absence or stopped workers');
@@ -8,9 +9,9 @@ assert.equal(cleanup.expiredTemporaryEntry({workspace:'/tmp/old',workspace_clean
 const approvalSource=source.slice(source.indexOf('function approvalReceiptState('),source.indexOf('function currentConversationDraft('))+source.slice(source.indexOf('async function approveAndBuild('),source.indexOf('function renderInlineTaskAction('));
 function harness({receipt={status:'finished',id:'approve-1'},fresh={},started={status:'queued'},rejectRead=false}={}){
  const calls=[],notices=[],run={workspace:'/fixture',run:'/fixture/run',goal_token:'r7:abc',goal:{revision:7,hash:'abc',approval_status:'draft'}},state=new Map();
- const ctx=vm.createContext({approveBuildState:state,approvalReceiptWaiters:new Map(),taskActionBusy:()=>false,taskReadError:'',statusInfo:()=>({label:'Approve plan'}),latestRun:run,renderBrief(){},renderInlineTaskAction(){},dashboardNotice:m=>notices.push(m),refresh:async()=>{},encodeURIComponent,
+ const ctx=vm.createContext({approveBuildState:state,approvalReceiptWaiters:new Map(),taskActionBusy:()=>false,taskReadError:'',statusInfo:()=>({label:'Approve plan'}),latestRun:run,currentView:'task-detail',chosen:{run:run.run},renderBrief(){},renderInlineTaskAction(){},dashboardNotice:m=>notices.push(m),refresh:async()=>{try{ctx.latestRun=await ctx.api()}catch{ctx.latestRun=null}},encodeURIComponent,
    submitTaskAction:async(r,action,extra)=>{calls.push({action,extra});return action==='approve_goal'?receipt:started;},
-   api:async()=>{if(rejectRead)throw Error('Read unavailable');return {run:'/fixture/run',goal_token:'r7:abc',goal:{revision:7,hash:'abc',approval_status:'approved',approval_event:{token:'r7:abc',at:'2026-09-30T00:00:00Z'}},...fresh};}});
+   api:async()=>{if(rejectRead)throw Error('Read unavailable');return {workspace:'/fixture',run:'/fixture/run',goal_token:'r7:abc',goal:{revision:7,hash:'abc',approval_status:'approved',approval_event:{token:'r7:abc',at:'2026-09-30T00:00:00Z'}},...fresh};}});
  vm.runInContext(approvalSource,ctx);return {run,calls,notices,ctx,state};
 }
 (async()=>{
@@ -18,7 +19,7 @@ function harness({receipt={status:'finished',id:'approve-1'},fresh={},started={s
  assert.deepEqual(valid.calls.map(c=>c.action),['approve_goal','continue']);
  assert.equal(valid.calls[0].extra.token,'r7:abc');assert.equal(valid.calls[1].extra.expected_goal_token,'r7:abc');assert.equal(valid.state.size,0);
  const cleared=harness({fresh:{goal_token:''}});await cleared.ctx.approveAndBuild(cleared.run);assert.deepEqual(cleared.calls.map(c=>c.action),['approve_goal','continue'],'A saved approval starts the same revision after its display token clears');
- for(const config of [{receipt:null},{rejectRead:true},{fresh:{goal_token:'r8:new'}},{fresh:{goal:{approval_status:'draft'}}},{fresh:{goal:{approval_status:'approved'}}},{fresh:{state_error:'unreadable'}},{fresh:{conversation:{plan_gate:{pending_product_change:true}}}}]){
+ for(const config of [{receipt:null},{rejectRead:true},{fresh:{goal_token:'r8:new'}},{fresh:{goal:{approval_status:'draft'}}},{fresh:{goal:{approval_status:'approved'}}},{fresh:{state_error:'unreadable'}},{fresh:{run:'/fixture/other'}},{fresh:{conversation:{plan_gate:{pending_product_change:true}}}}]){
    const h=harness(config);await h.ctx.approveAndBuild(h.run);assert.deepEqual(h.calls.map(c=>c.action),['approve_goal'],'Unconfirmed or stale approval never sends start');assert.equal(h.notices.length,1);assert.equal(h.state.size,0);
  }
  const uncertain=harness({started:{status:'uncertain'}});await uncertain.ctx.approveAndBuild(uncertain.run);assert.match(uncertain.notices[0],/could not be confirmed/);assert.equal(uncertain.calls.length,2,'No start replay');
@@ -39,5 +40,23 @@ function harness({receipt={status:'finished',id:'approve-1'},fresh={},started={s
  await sender.submitTaskAction(initial,'continue',{expected_goal_token:'r7:abc'});assert.equal(posts[1].confirmation,'r7:abc','Standalone plan/card build records the named confirmation');
  const resumed={...initial,stages:[{stage:'terra'}]};sender.latestRun=resumed;sender.renderPrimaryAction(resumed);node('#continue-run').onclick();await new Promise(setImmediate);assert.equal(posts[2].expected_goal_token,undefined,'Legacy resume remains distinct from first build');
  const clearedStart={...initial,run:'/fixture/cleared',goal_token:''};sender.latestRun=clearedStart;sender.renderPrimaryAction(clearedStart);node('#continue-run').onclick();await new Promise(setImmediate);assert.equal(posts[3].expected_goal_token,'r7:abc','Standalone Start building uses the saved approved revision after its display token clears');
- console.log('Continuous-chat exact approval, revision races, uncertain start and duplicate controls passed.');
+ // The receipt read can finish before the normal page snapshot catches up.
+ // Exercise the actual busy guard and sender, rather than a stubbed sender.
+ const lagging=harness({receipt:{id:'approve-1',status:'queued'},fresh:{actions:[{id:'approve-1',status:'finished',exit_status:0}]}});
+ Object.assign(lagging.ctx,{taskActionPending:new Set(),taskChatPending:new Set(),seq:0,taskArchiveBlocked:()=>false,projectBlocked:()=>false,
+   resolverReplyCurrent:()=>true,resolverResponseFields:()=>({}),renderLiveControls(){},renderExecution(){},renderTaskNow(){},
+   post:async(endpoint,payload)=>{lagging.calls.push({action:payload.action,extra:payload});if(payload.action==='approve_goal'){lagging.ctx.latestRun={...lagging.run,actions:[{id:'approve-1',status:'running'}]};return {id:'approve-1',status:'queued'};}return {id:'build-1',status:'queued'};}});
+ vm.runInContext(source.slice(source.indexOf('function taskActionBusy('),source.indexOf('function hasPrimaryQuestionReply('))+source.slice(source.indexOf('async function submitTaskAction('),source.indexOf('function modelCatalogueSnapshot(')),lagging.ctx);
+ await lagging.ctx.approveAndBuild(lagging.run);
+ assert.deepEqual(lagging.calls.map(call=>call.action),['approve_goal','continue'],'A confirmed approval must replace the stale busy snapshot before start: '+JSON.stringify(lagging.notices));
+ assert.equal(lagging.calls[1].extra.expected_goal_token,'r7:abc');
+ const navigated=harness(),approvedRead=navigated.ctx.api;
+ navigated.ctx.api=async()=>{const fresh=await approvedRead();navigated.ctx.currentView='tasks';navigated.ctx.cancelApprovalReceipts();return fresh;};
+ await navigated.ctx.approveAndBuild(navigated.run);
+ assert.deepEqual(navigated.calls.map(call=>call.action),['approve_goal'],'Leaving during the first approval read cancels the follow-on build');
+ const switched=harness(),sameTaskRead=switched.ctx.api;
+ switched.ctx.api=async()=>{const fresh=await sameTaskRead();switched.ctx.chosen={run:'/fixture/other'};switched.ctx.cancelApprovalReceipts();return fresh;};
+ await switched.ctx.approveAndBuild(switched.run);
+ assert.deepEqual(switched.calls.map(call=>call.action),['approve_goal'],'Switching tasks during the first approval read cancels the old task build');
+ assertionsFinished=true;console.log('Continuous-chat exact approval, revision races, uncertain start and duplicate controls passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

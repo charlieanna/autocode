@@ -429,6 +429,11 @@ def main():
                 value.pop("summary")
         if case == "revision-reference-stale":
             value["contract"]["revise_contract"] = "r0:stale"
+        elif case == "revision-reference-extra-field-repair":
+            if repair:
+                value["contract"].pop("private-refusal-field-491", None)
+            else:
+                value["contract"]["private-refusal-field-491"] = "private-refusal-value-491"
         elif case == "revision-reference-protected":
             value["contract"]["changes"]["permission_boundaries"] = ["Arbitrary network allowed"]
         elif case == "revision-reference-missing-criterion":

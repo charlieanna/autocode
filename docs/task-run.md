@@ -261,6 +261,36 @@ or contradictory identity records project as unknown; old attempts are not
 backfilled from the viewer's current settings/runtime. These are additive
 measurement fields, not action authority, route qualification or a new client.
 
+Each `usage.accounting.attempts` row also includes `tool_activity`, a bounded,
+count-only diagnostic projection of native tool events for that stage attempt.
+`families` counts only the fixed `command`, `read`, `search`, `edit`, `agent` and
+`other` buckets; `outcomes` counts `succeeded`, `failed` and `unknown` calls, and
+`error_classes` counts `nonzero_exit` and `tool_error` outcomes. Lifecycle updates
+with the same call identity count once. The core compares full arguments only
+in memory and exposes `comparable_calls` and `exact_argument_repeats`; repeats
+can be useful, including tests run again after edits, and are not a waste verdict.
+No commands, paths, raw tool names, arguments, results or argument digests are
+included in this projection. Tool calls are not correlated with provider requests.
+
+`basis` is `native_events` or `unavailable`, and `complete` requires a supported,
+fully observed stream with usable identities, outcomes and arguments. Partial,
+unsupported, active or historical observations retain explicit fixed `issues`;
+their counts describe what was observed, not zero unobserved calls. These
+diagnostics grant no verification, completion or gate authority.
+
+`tool_activity.version` identifies the diagnostic algorithm (currently `1`). A
+saved projection with a missing or different version cannot be reused, even when
+the event-file fingerprint is unchanged. The core refreshes it from the attempt's
+declared event file when available, otherwise reports it unavailable. This
+read-only refresh does not rewrite saved metrics.
+
+The supported shapes are OpenCode/Kilo `tool_use` parts and Codex-style item
+events. A rendered command alone cannot establish its complete original
+arguments, so those items retain incomplete comparison coverage. Completeness
+describes the supported observed stream, not a guarantee about tools a provider
+did not emit. Normal read-only status refreshes older saved receipts when their
+recorded event file is still available; it does not rewrite the saved run.
+
 ## Remote team service proposal (#2023)
 
 The [single-host team-service contract](team-service-contract.md) proposes an
@@ -2683,6 +2713,12 @@ contains `connections`, each with `id`, `label`, `connection_status`, `detail`, 
 The connection new runs use without `--provider` (`AUTOCODE_PROVIDER`, then `default_provider`
 in `~/.config/autocode/config.toml`, else `opencode`) also has `default: true`; it is display
 only, so a client can say what a new chat runs on.
+That plain marker cannot see the connected-backend choice a run makes when nothing is configured
+(OpenCode missing, Claude Code signed in: the run takes Claude Code), because the listing runs no
+backend command. The plain view therefore carries `new_runs: null` and the named action
+`new_runs_next_command` (`["connections", "list", "--new-runs", "--json"]`). That listing runs each
+backend's own login listing as the runner does, returns `new_runs` (`id`, `label`, `reason`) and moves
+`default: true` to that row, so a client that takes it names the engine the run will report.
 An action has `id`, `label`, and `next_command`: an argument array following
 `autocode`, not shell text. Clients execute only offered actions. Listing reads
 user-level provider configuration and executable availability; it never launches

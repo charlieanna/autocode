@@ -376,6 +376,38 @@ def rendered_cases():
 
 
 class RenderedPromptTests(unittest.TestCase):
+    def test_tool_activity_diagnostics_do_not_change_stage_prompt_bytes(self):
+        state = fixed_state()
+        record = {"stage": "terra", "iteration": 1, "metrics": {"request_context": {"accounting": {}}}}
+        state["stages"] = [record]
+        observed = copy.deepcopy(state)
+        observed["stages"][0]["metrics"]["request_context"]["accounting"]["tool_activity"] = {
+            "basis": "native_events",
+            "observed_calls": 401,
+            "exact_argument_repeats": 200,
+            "comparable_calls": 400,
+            "outcomes": {"succeeded": 399, "failed": 1, "unknown": 1},
+            "complete": False,
+            "issues": ["arguments_unavailable"],
+        }
+        with (
+            patch.object(catalog_context, "context", return_value=None),
+            patch.object(stage_context.source_scope, "snapshot", return_value=SNAPSHOT),
+            patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
+            patch.object(planner.artifacts, "verify_predecessor", return_value=None),
+        ):
+            for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+                with self.subTest(stage=stage):
+                    before = stage_context.context_packet(state, stage, STATE_PATH)
+                    after = stage_context.context_packet(observed, stage, STATE_PATH)
+                    self.assertEqual(before, after)
+                    self.assertNotIn("tool_activity", after[0])
+            for stage in planner.PROMPTS:
+                with self.subTest(stage=stage):
+                    self.assertEqual(
+                        planner.context(state, stage, STATE_PATH), planner.context(observed, stage, STATE_PATH)
+                    )
+
     def test_reviewers_receive_plain_english_progress_guidance(self):
         reviewers = {"astra_challenge", "astra_finalize", "plan_review", "plan_finalize"}
         cases = {name: text for name, text in rendered_cases().items() if name.startswith("planning/")}

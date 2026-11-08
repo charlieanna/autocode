@@ -126,6 +126,41 @@ class ConnectionTests(unittest.TestCase):
                 ["opencode"], [row["id"] for row in connections.view()["connections"] if row.get("default")]
             )
 
+    def test_the_checked_listing_marks_the_backend_a_new_run_takes(self):
+        """OpenCode is the configured default, but a machine with only Claude Code signed in runs Claude
+        Code: `--new-runs` checks as the runner does and moves `default` there; the plain listing names it."""
+        os.environ.pop("AUTOCODE_PROVIDER", None)
+        code, output = self.call("list", "--json")
+        plain = json.loads(output)
+        self.assertEqual(0, code)
+        self.assertIsNone(plain["new_runs"])
+        self.assertEqual(["connections", "list", "--new-runs", "--json"], plain["new_runs_next_command"])
+        connected = {"id": "claude", "label": "Claude Code", "reason": "Claude Code is connected"}
+        with mock.patch.object(connections.connected_engine, "choose", return_value=connected):
+            code, output = self.call("list", "--new-runs", "--json")
+            checked = json.loads(output)
+            self.assertIn("New runs use Claude Code (Claude Code is connected).", self.call("list", "--new-runs")[1])
+        self.assertEqual(0, code)
+        self.assertEqual(connected, checked["new_runs"])
+        self.assertEqual(["claude"], [row["id"] for row in checked["connections"] if row.get("default")])
+        self.assertNotIn("new_runs_next_command", checked)
+
+    def test_new_runs_follows_the_runner_order_of_choices(self):
+        os.environ.pop("AUTOCODE_PROVIDER", None)
+        connected = {"id": "codex", "label": "Codex", "reason": "Codex is connected"}
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(
+                {"id": "opencode", "label": "OpenCode", "reason": "the built-in default"},
+                connections.new_runs(folder, choose=lambda: None),
+            )
+            self.assertEqual(connected, connections.new_runs(folder, choose=lambda: connected))
+            with mock.patch.dict(os.environ, {"AUTOCODE_PROVIDER": "kilocode"}):
+                self.assertEqual("kilocode", connections.new_runs(folder, choose=lambda: connected)["id"])
+            (Path(folder) / ".autocode").mkdir()
+            (Path(folder) / ".autocode" / "config.toml").write_text('engine = "claude"\n')
+            with mock.patch.dict(os.environ, {"AUTOCODE_PROVIDER": "kilocode"}):
+                self.assertEqual("claude", connections.new_runs(folder, choose=lambda: connected)["id"])
+
     def test_codex_is_listed_as_an_engine_backend_and_checked_through_its_login_status(self):
         """The list had no Codex row, so a client could not offer a signed-in Codex (#2357)."""
         with mock.patch.object(connections.shutil, "which", return_value=None):

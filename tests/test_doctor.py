@@ -687,6 +687,17 @@ class ContainmentTests(unittest.TestCase):
         check = doctor.containment_check(status)
         self.assertEqual(doctor.WARN, check.status)
         self.assertTrue(check.detail.startswith("no kernel boundary: " + problem), check.detail)
+        self.assertNotIn("apt install", check.fix, "bwrap is not named missing here")
+
+    def test_linux_without_bwrap_names_the_package_to_install_first(self):
+        """A new Linux user's first OpenCode task was refused; the fix line never said bubblewrap is a package."""
+        problem = (
+            "strict tool containment requires macOS sandbox-exec or Linux bubblewrap at /usr/bin/bwrap; "
+            "this machine is linux without /usr/bin/bwrap"
+        )
+        check = doctor.containment_check({"backend": None, "backend_version": None, "problem": problem})
+        self.assertTrue(check.fix.startswith("install bubblewrap (`sudo apt install bubblewrap`"), check.fix)
+        self.assertIn("--allow-uncontained-tools", check.fix)
 
     def test_opencode_answers_once_in_the_workspace_and_both_checks_read_it(self):
         # One probe for the engine and containment lines, in the workspace, as run setup runs it.
@@ -1202,6 +1213,31 @@ class InstalledLauncherDriftTests(unittest.TestCase):
         version = self.invoke("--version", cwd=foreign)
         self.assertEqual(0, version.returncode, version.stderr)
         self.assertIn("commit unknown", version.stdout)
+
+
+class CheckLinesTests(unittest.TestCase):
+    def test_a_backend_a_ready_run_does_not_need_is_not_a_red_failure(self):
+        """Only Claude Code installed: doctor printed red ✖ rows for OpenCode and Codex, then
+        "ready for a first task"."""
+        checks = [
+            doctor.Check("engine:opencode", doctor.MISSING, "opencode is not on PATH", "npm install -g opencode-ai@1"),
+            doctor.Check("engine:claude", doctor.OK, "Claude Code 2.1, logged in"),
+            doctor.Check("engine", doctor.OK, "engine claude is ready"),
+        ]
+        lines = doctor.check_lines(checks)
+        self.assertEqual("– engine:opencode  opencode is not on PATH; not needed for a new run here", lines[0])
+        self.assertEqual("  " + " " * 16 + " to use it: npm install -g opencode-ai@1", lines[1])
+        self.assertNotIn("✖", "\n".join(lines))
+        self.assertTrue(doctor.passed(checks))
+
+    def test_while_the_engine_is_not_ready_every_missing_backend_stays_a_failure(self):
+        checks = [
+            doctor.Check("engine:opencode", doctor.MISSING, "opencode is not on PATH", "npm install -g opencode-ai@1"),
+            doctor.Check("engine", doctor.MISSING, "OpenCode is not ready", "fix engine:opencode above"),
+        ]
+        lines = doctor.check_lines(checks)
+        self.assertEqual("✖ engine:opencode  opencode is not on PATH", lines[0])
+        self.assertIn("fix: npm install -g opencode-ai@1", lines[1])
 
 
 if __name__ == "__main__":

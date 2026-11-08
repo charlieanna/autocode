@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Public usage accounting reports bounded native tool counts, outcomes and exact-argument
+  repeats, with coverage limits and versioned refresh of saved observations.
+
 - The terminal chat shows each working agent's newest thought as one live line under the
   conversation while its stage runs (`Planner · thinking`). When the stage ends, the section folds
   into one line of history saying how many thoughts there were; `/live NAME` unfolds them. Ordinary
@@ -23,6 +26,24 @@ PR template asks for an entry here; a change without one is incomplete.
   and approved check sequences still apply.
   Eligible Builder checks can run in one batch, with a fresh authenticated receipt for every command
   and phase; independent testing and completion checks remain required.
+- Once `autocode doctor` finds the engine a new run uses ready, a backend that run does not need is
+  shown with `–` and "not needed for a new run here" instead of a red `✖` above "ready for a first
+  task". `--json` is unchanged.
+
+- Planner revision rejections now identify the failed reference check in recovery history,
+  without exposing rejected values or changing admission and plan-approval checks.
+- `autocode setup` no longer reports "Installed OpenCode" and then lists it as not installed when npm
+  puts it in a global bin folder outside PATH: it names the folder and the `export PATH=…` line instead.
+  Without npm it no longer offers an install it cannot make, and says how to get Node.js on this
+  platform. On Linux without bubblewrap, `autocode doctor`'s containment fix now starts with the
+  package to install.
+
+- The terminal chat now names the engine a new chat will actually run on. With OpenCode missing and
+  Claude Code signed in, `autocode setup` and `doctor` said Claude Code while the chat's banner said
+  OpenCode, warned that it could not start, and `/connect` marked OpenCode for new chats.
+  `autocode connections list --new-runs --json` checks the backend a new run takes and marks it
+  `default`; the plain listing names that action as `new_runs_next_command`, and the chat takes it.
+
 - A new run's first moment no longer reads `Next: Planner` in the chat's log ahead of Requirements. The
   run's first save holds the default next stage until it chooses its first one; the status view now says
   `Starting the run` and names no stage until then.

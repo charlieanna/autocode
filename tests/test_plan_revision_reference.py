@@ -61,6 +61,84 @@ class RevisionReferenceTests(unittest.TestCase):
             with self.subTest(stage=stage), self.assertRaises(ValueError):
                 retention.expand(self.state, stage, self.report())
 
+    def test_each_refusal_reports_only_its_fixed_first_failing_reason(self):
+        token = retention.token(self.state)
+        saved = self.state["goal_contract"]["body"]
+        report = self.report()
+        canary = "private-model-text-/private/path-r99-" + "a" * 64
+        cases = (
+            ("wrong_stage", canary, token, saved, report),
+            ("current_reference_unavailable", "glm_revise", None, saved, report),
+            (
+                "reference_mismatch",
+                "glm_revise",
+                token,
+                saved,
+                {**report, "contract": {**report["contract"], "revise_contract": canary}},
+            ),
+            ("saved_contract_unavailable", "glm_revise", token, canary, report),
+            (
+                "unexpected_reference_fields",
+                "glm_revise",
+                token,
+                saved,
+                {**report, "contract": {**report["contract"], canary: canary}},
+            ),
+            (
+                "changes_not_object",
+                "glm_revise",
+                token,
+                saved,
+                {**report, "contract": {**report["contract"], "changes": [canary]}},
+            ),
+            (
+                "unexpected_change_fields",
+                "glm_revise",
+                token,
+                saved,
+                {**report, "contract": {**report["contract"], "changes": {canary: canary}}},
+            ),
+        )
+        for reason, stage, current, predecessor, value in cases:
+            with self.subTest(reason=reason):
+                before = copy.deepcopy((self.state, value))
+                with self.assertRaises(ValueError) as raised:
+                    references.expand(value, stage, current, predecessor, [])
+                message = str(raised.exception)
+                self.assertEqual(
+                    "Plan revision reference is stale, malformed or not a Planner revision "
+                    f"[plan_revision_reference:{reason}]",
+                    message,
+                )
+                self.assertNotIn(canary, message)
+                self.assertNotIn(token, message)
+                self.assertEqual(before, (self.state, value))
+
+    def test_refusal_order_preserves_short_circuiting_and_never_rebinds_a_reference(self):
+        report = {"contract": {"revise_contract": "r0:stale", "changes": None, "extra": True}}
+        for stage, current, saved, reason in (
+            ("astra_finalize", None, None, "wrong_stage"),
+            ("glm_revise", None, None, "current_reference_unavailable"),
+            ("glm_revise", "r1:current", None, "reference_mismatch"),
+            ("glm_revise", "r0:stale", None, "saved_contract_unavailable"),
+            ("glm_revise", "r0:stale", {}, "unexpected_reference_fields"),
+        ):
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                references.expand(report, stage, current, saved, None)
+        current = retention.token(self.state)
+        for foreign in ("r0:stale", "r1:another-task", "current", ""):
+            value = self.report()
+            value["contract"]["revise_contract"] = foreign
+            with self.subTest(foreign=foreign), self.assertRaisesRegex(ValueError, "reference_mismatch"):
+                references.expand(value, "glm_revise", current, {}, [])
+        # The same current reference still expands to the unchanged predecessor.
+        self.assertEqual(
+            self.state["goal_contract"]["body"],
+            references.expand(self.report(), "glm_revise", current, self.state["goal_contract"]["body"], [])[
+                "contract"
+            ],
+        )
+
     def test_trace_reuse_is_explicit_and_requires_the_exact_validated_predecessor(self):
         report = self.report()
         report["contract"].pop("retain_requirement_trace")

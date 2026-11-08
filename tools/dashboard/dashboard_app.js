@@ -2101,7 +2101,9 @@ function cancelApprovalReceipts(message='Build start cancelled when you left thi
 }
 async function waitForApprovalReceipt(run,token,receipt){
   if(!receipt.id&&receipt.status!=='finished')throw Error('The approval receipt has no action identity. Check status before starting separately.');
-  const fresh=await api('/api/run?workspace='+encodeURIComponent(run.workspace)+'&run='+encodeURIComponent(run.run));
+  await refresh(false,true);
+  const fresh=latestRun;
+  if(currentView!=='task-detail'||chosen?.run!==run.run||fresh?.run!==run.run)throw Error('Build start cancelled when you left this task or its status became unavailable. Any recorded approval remains saved.');
   const result=approvalReceiptState(fresh,token,receipt);
   if(result.state==='failed')throw Error(result.reason);if(result.state==='approved')return fresh;
   return new Promise((resolve,reject)=>{approvalReceiptWaiters.set(run.run,{reject,check(current){const outcome=approvalReceiptState(current,token,receipt);if(outcome.state==='pending')return;approvalReceiptWaiters.delete(run.run);if(outcome.state==='approved')resolve(current);else reject(Error(outcome.reason));}});refresh();});
