@@ -8,15 +8,19 @@ from __future__ import annotations
 
 import json
 import math
+import re
 
 MAX_CALLS = 4096
 MAX_ARGUMENT_BYTES = 65536
 MAX_ARGUMENT_TOTAL = 1024 * 1024
 MAX_EVENTS = 65536
-VERSION = 1  # Bump whenever saved diagnostic interpretation changes.
+VERSION = 2  # Bump whenever saved diagnostic interpretation changes.
 FAMILIES = ("command", "read", "search", "edit", "agent", "other")
 OUTCOMES = ("succeeded", "failed", "unknown")
 ERROR_CLASSES = ("nonzero_exit", "tool_error")
+SEARCH_ARGUMENT_COUNTS = ("with_instruction_name", "without_instruction_name", "unknown")
+# Literal fixed filename tokens only; do not interpret regex or shell syntax.
+INSTRUCTION_NAME = re.compile(r"(?<![\w.-])(?:AGENTS|CLAUDE)\.md(?![\w.-])")
 ISSUES = (
     "event_stream_incomplete",
     "unsupported_stream",
@@ -68,6 +72,7 @@ def unavailable(issue="saved_projection_unavailable"):
         "error_classes": dict.fromkeys(ERROR_CLASSES, 0),
         "exact_argument_repeats": 0,
         "comparable_calls": 0,
+        "search_arguments": {**dict.fromkeys(SEARCH_ARGUMENT_COUNTS, 0), "complete": False},
         "complete": False,
         "issues": [issue],
         "scope": SCOPE,
@@ -82,7 +87,8 @@ def is_current(value):
 def projection(value, *, active=False):
     """Whitelist saved diagnostics too: no caller-supplied text or new keys escape."""
     fallback = unavailable()
-    if not is_current(value) or value.get("basis") not in ("native_events", "unavailable"):
+    legacy = isinstance(value, dict) and type(value.get("version")) is int and value["version"] == 1
+    if not (is_current(value) or legacy) or value.get("basis") not in ("native_events", "unavailable"):
         return fallback
     result = {**fallback, "basis": value["basis"]}
     for field, keys in (("families", FAMILIES), ("outcomes", OUTCOMES), ("error_classes", ERROR_CLASSES)):
@@ -94,6 +100,23 @@ def projection(value, *, active=False):
         if type(value.get(field)) is not int or not 0 <= value[field] <= MAX_CALLS:
             return fallback
         result[field] = value[field]
+    search = (
+        {
+            "with_instruction_name": 0,
+            "without_instruction_name": 0,
+            "unknown": result["families"]["search"],
+            "complete": False,
+        }
+        if legacy
+        else value.get("search_arguments")
+    )
+    if not isinstance(search, dict) or any(
+        type(search.get(key)) is not int or not 0 <= search[key] <= MAX_CALLS for key in SEARCH_ARGUMENT_COUNTS
+    ):
+        return fallback
+    if sum(search[key] for key in SEARCH_ARGUMENT_COUNTS) != result["families"]["search"]:
+        return fallback
+    result["search_arguments"] = {key: search[key] for key in SEARCH_ARGUMENT_COUNTS}
     issues = value.get("issues")
     if not isinstance(issues, list) or any(not isinstance(issue, str) or issue not in ISSUES for issue in issues):
         return fallback
@@ -111,6 +134,9 @@ def projection(value, *, active=False):
         issues.add("arguments_unavailable")
     result["issues"] = [issue for issue in ISSUES if issue in issues or active and issue == "active_attempt"]
     result["complete"] = value.get("complete") is True and result["basis"] == "native_events" and not result["issues"]
+    result["search_arguments"]["complete"] = (
+        result["complete"] and not search["unknown"] and search.get("complete") is True
+    )
     return result
 
 
@@ -188,6 +214,17 @@ def _bounded_arguments(value):
     return visit(value, 0)
 
 
+def _mentions_instruction_name(value):
+    """Inspect only values of an already bounded structured argument tree."""
+    if isinstance(value, str):
+        return INSTRUCTION_NAME.search(value) is not None
+    if isinstance(value, dict):
+        return any(_mentions_instruction_name(child) for child in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_mentions_instruction_name(child) for child in value)
+    return False
+
+
 def summarize(rows, *, incomplete=False):
     """Aggregate known OpenCode/Kilo parts and Codex-style items, with strict bounds.
 
@@ -254,8 +291,8 @@ def summarize(rows, *, incomplete=False):
             supported, terminal = True, False
             part = row.get("part")
             part = part if isinstance(part, dict) else {}
-            state = part.get("state")
-            state = state if isinstance(state, dict) else {}
+            tool_state = part.get("state")
+            tool_state = tool_state if isinstance(tool_state, dict) else {}
             session = _identity(row.get("sessionID"))
             if session != native_session:
                 issues.add("event_stream_incomplete")
@@ -265,10 +302,10 @@ def summarize(rows, *, incomplete=False):
             name = part.get("tool")
             name = name if isinstance(name, str) and 0 < len(name) <= 1024 else None
             family = TOOL_FAMILIES.get(name, "other")
-            raw = state.get("input")
+            raw = tool_state.get("input")
             outcome, error = _outcome(
-                state.get("status"),
-                _command_exit(state),
+                tool_state.get("status"),
+                _command_exit(tool_state),
                 command=family == "command",
             )
             key = ("part", session, identity)
@@ -344,7 +381,8 @@ def summarize(rows, *, incomplete=False):
                     issues.add("observation_limit")
             except (ValueError, TypeError, RecursionError):
                 pass
-        current = (family, outcome, error, signature)
+        mention = _mentions_instruction_name(raw) if family == "search" and signature is not None else None
+        current = (family, outcome, error, signature, mention)
         if previous:
             if (
                 previous[0] != family
@@ -359,13 +397,14 @@ def summarize(rows, *, incomplete=False):
                 conflicts.add(key)
                 if previous[3] is not None:
                     argument_bytes -= len(previous[3])
-                calls[key] = ("other", "unknown", None, None)
+                calls[key] = ("other", "unknown", None, None, None)
                 continue
             current = (
                 family,
                 outcome if outcome != "unknown" else previous[1],
                 error if outcome != "unknown" else previous[2],
                 signature if signature is not None else previous[3],
+                mention if signature is not None else previous[4],
             )
             if previous[3] is not None:
                 argument_bytes -= len(previous[3])
@@ -374,8 +413,13 @@ def summarize(rows, *, incomplete=False):
             argument_bytes += len(current[3])
     result = unavailable()
     result.update(basis="native_events" if supported else "unavailable", issues=[])
-    for family, outcome, error, signature in calls.values():
+    for family, outcome, error, signature, mention in calls.values():
         result["families"][family] += 1
+        if family == "search":
+            category = (
+                "unknown" if mention is None else "with_instruction_name" if mention else "without_instruction_name"
+            )
+            result["search_arguments"][category] += 1
         result["outcomes"][outcome] += 1
         if error:
             result["error_classes"][error] += 1
@@ -392,4 +436,5 @@ def summarize(rows, *, incomplete=False):
     if not opened or not terminal:
         issues.add("event_stream_incomplete")
     result.update(observed_calls=len(calls), complete=not issues, issues=[issue for issue in ISSUES if issue in issues])
+    result["search_arguments"]["complete"] = result["complete"] and not result["search_arguments"]["unknown"]
     return result

@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Public tool accounting adds bounded counts of literal conventional instruction filename mentions
+  in search arguments, with explicit nonmention and unknown coverage; the counts do not infer intent or waste.
+
 - Public usage accounting reports bounded native tool counts, outcomes and exact-argument
   repeats, with coverage limits and versioned refresh of saved observations.
 
@@ -21,11 +24,21 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Fresh Linux Requirements launches check their selected kernel-shell tools before paid access probes.
+  Actual launch still rediscovers the toolchain and performs every native policy and startup check.
+- Requirements instructions call for acceptance examples on both sides of a requested transition, preserving
+  the stated domain and general rule; independent planning and verification checks still apply.
+- Final Reviewer recovery includes the current plan once while preserving distinct historical plans
+  and the complete review history.
+
 - The run-state typing check no longer mistakes an OpenCode tool-event payload for untyped
   AutoCode run state.
 - Scenario CI validates the Ubuntu runner's installed Java 17 runtime and compiler, avoiding repeated
   release-download HTTP 504 failures before the tests can start.
 
+- A fresh Requirements call replaces its own redundant model-access ping for the exact same
+  connection, model and reasoning level. Other routes keep their probes; billing, stop and budget
+  checks still run, and only the real call can earn successful access evidence.
 - Plans and Builder instructions assign independent fail-first proof to the runner and avoid requiring
   a duplicate Builder capture solely to establish it. Project instructions, explicit test-first requests
   and approved check sequences still apply.

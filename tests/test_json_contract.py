@@ -191,13 +191,18 @@ class SchemaCoverageTests(unittest.TestCase):
         shown = run_view.view({"status": "RUNNING", "stages": [{"stage": "terra"}]})["usage"]
         util.validate_schema(shown, schema)
         for field, value in (
-            ("version", 2),
+            ("version", 1),
             ("version", "1"),
             ("version", True),
             ("arguments", "private"),
             ("scope", "private"),
             ("issues", ["private"]),
             ("families", {"private": 1}),
+            ("search_arguments", {"private": 1}),
+            (
+                "search_arguments",
+                {"with_instruction_name": 0, "without_instruction_name": 0, "unknown": True, "complete": False},
+            ),
         ):
             invalid = copy.deepcopy(shown)
             invalid["accounting"]["attempts"][0]["tool_activity"][field] = value

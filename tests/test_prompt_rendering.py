@@ -54,6 +54,11 @@ FIXTURES = Path(__file__).with_name("prompt_rendering_fixtures.json")
 WORKSPACE = "/prompt-fixture/workspace"
 STATE_PATH = Path("/prompt-fixture/run/state.json")
 SNAPSHOT = {"head": "fixed-head", "revision": "fixed-revision", "files": {}}
+TRANSITION_TASK = (
+    "Fix tier selection across the transition: below 10 items use basic; above 10 use bulk. "
+    "Keep the public JSON format."
+)
+TRANSITION_SOURCE = {"id": "feedback-1", "text": "Keep the basic and bulk names unchanged."}
 
 
 def fixed_state():
@@ -131,6 +136,19 @@ def rendered_cases():
                 elif variant == "adaptive":
                     state["settings"]["adaptive_planning"] = True
                 add(f"planning/{stage}/{variant}", planner.context(state, stage, STATE_PATH))
+        for conversational in (False, True):
+            state = fixed_state()
+            state["task"] = TRANSITION_TASK
+            state["answers"] = {}
+            state["user_events"] = [TRANSITION_SOURCE]
+            state["settings"]["spec_first"] = conversational
+            for role in state["settings"]["roles"].values():
+                role["engine"] = "opencode"
+            request = planner.prepare(state, "requirements_gather", STATE_PATH, schema_dir)
+            add(
+                f"requirements-final/{'conversational' if conversational else 'batch'}",
+                opencode.prompt_for_schema(request.prompt, request.schema, STATE_PATH.with_name("events.jsonl")),
+            )
         for job in (workflows, bug, design, design_check, discuss, design_intake):
             for engine in ("codex", "opencode"):
                 add(
@@ -382,7 +400,14 @@ class RenderedPromptTests(unittest.TestCase):
         state["stages"] = [record]
         observed = copy.deepcopy(state)
         observed["stages"][0]["metrics"]["request_context"]["accounting"]["tool_activity"] = {
+            "version": 2,
             "basis": "native_events",
+            "search_arguments": {
+                "with_instruction_name": 7,
+                "without_instruction_name": 5,
+                "unknown": 2,
+                "complete": False,
+            },
             "observed_calls": 401,
             "exact_argument_repeats": 200,
             "comparable_calls": 400,
@@ -396,7 +421,7 @@ class RenderedPromptTests(unittest.TestCase):
             patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
             patch.object(planner.artifacts, "verify_predecessor", return_value=None),
         ):
-            for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+            for stage in (*support.STABLE, "astra_discovery"):
                 with self.subTest(stage=stage):
                     before = stage_context.context_packet(state, stage, STATE_PATH)
                     after = stage_context.context_packet(observed, stage, STATE_PATH)
@@ -617,6 +642,10 @@ class RenderedPromptTests(unittest.TestCase):
             with self.subTest(case=name):
                 if name.startswith("planning/"):
                     self.assertNotIn("Do not run a separate Builder pre-fix capture solely to", text)
+                if name.startswith("requirements-final/"):
+                    packet = json.loads(text.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+                    self.assertEqual(TRANSITION_TASK, packet["task"])
+                    self.assertEqual([TRANSITION_SOURCE], packet["user_events"])
                 self.assertEqual(
                     expected[name],
                     {"bytes": len(text.encode("utf-8")), "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()},

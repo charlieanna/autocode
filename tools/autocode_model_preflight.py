@@ -56,9 +56,11 @@ try:
     from . import autocode_process as processes
     from . import autocode_provider_auth as provider_auth
     from . import autocode_provider_env as provider_env
+    from . import autocode_review_effort as review_effort
     from . import autocode_role_transport as role_transport
     from . import autocode_route_fit as route_fit
     from . import autocode_support as support
+    from . import autocode_tool_admission as tool_admission
     from . import provider_conformance_transport as transport
 except ImportError:
     import autocode_access_evidence as access_evidence
@@ -70,9 +72,11 @@ except ImportError:
     import autocode_process as processes
     import autocode_provider_auth as provider_auth
     import autocode_provider_env as provider_env
+    import autocode_review_effort as review_effort
     import autocode_role_transport as role_transport
     import autocode_route_fit as route_fit
     import autocode_support as support
+    import autocode_tool_admission as tool_admission
     import provider_conformance_transport as transport
 
 PROMPT = 'Do not read or edit files. Return only this JSON object: {"ok": true}.'
@@ -424,6 +428,32 @@ def certify(state: RunState, model, effort, outcome, checkpoint) -> None:
     checkpoint()
 
 
+def _imminent_requirements_binding(state: RunState, facade, routes) -> dict | None:
+    """Only a fresh ordinary Requirements dispatch may replace its exact access ping.
+
+    This is no receipt: the real call must still pass normal launch admission and
+    earn its own completed-stage evidence. Earlier work, repairs or uncertain
+    ownership keep the existing probes, even when their route looks unchanged.
+    """
+    settings = state.get("settings") or {}
+    if (
+        state.get("next_stage") != "requirements_gather"
+        or "requirements" not in routes
+        or state.get("pending_report_repair")
+        or state.get("active_stage")
+        or state.get("active_stage_workers")
+        or state.get("active_runner_check")
+        or any(record.get("stage") != attempts.STAGE for record in state.get("stages", []))
+    ):
+        return None
+    route = (settings.get("roles") or {}).get("requirements")
+    if not isinstance(route, dict):
+        return None
+    effort, _choice = review_effort.launch(state, "requirements_gather", "requirements", False, route)
+    fitted = route_fit.fit(settings, "requirements", effort=effort, model=route.get("model"))
+    return access_evidence.launch_binding(settings, "requirements", facade, route.get("model"), fitted.effort)
+
+
 def check(
     runner,
     state: RunState,
@@ -581,14 +611,25 @@ def check(
 
     pending = [
         (adapter, identity, probed, model, efforts.get(model), roles.get(model))
-        for adapter, _routes, identity, probed, wanted, efforts, roles in receipts
+        for adapter, routes, identity, probed, wanted, efforts, roles in receipts
         for model in wanted
+        # Keep the full route's local auth/billing checks above, including when
+        # this is its only model. Never erase an explicit failed/uncertain probe.
+        if model in probed
+        or _imminent_requirements_binding(state, adapter, routes) != {"schema": 1, "identity": identity, "model": model}
     ]
+    tools_checked = False
     for adapter, identity, probed, model, effort, role in pending:
         # A role bound with --role-transport names its tool; the same model may also be on the run's tool.
         where = "" if adapter is getattr(runner, "opencode", None) else f" on {(identity or {}).get('provider')}"
         before_probe()
         allowed = _allowance(runner, state, run_dir, workspace, timeout)
+        if not tools_checked:
+            for facade, routes, _identity in groups:
+                if _imminent_requirements_binding(state, facade, routes) is not None:
+                    tool_admission.requirements(facade, state, workspace)
+                    break
+            tools_checked = True
         attempt = attempts.Attempt(
             runner,
             state,
@@ -655,4 +696,4 @@ def check(
                 "continuing within the remaining run budget",
                 flush=True,
             )
-    return True
+    return bool(pending)

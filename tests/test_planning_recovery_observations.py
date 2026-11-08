@@ -81,22 +81,36 @@ class RecoveryObservationsTests(unittest.TestCase):
         current = copy.deepcopy(self.state["goal_contract"]["body"])
         previous = {**current, "required_behaviors": ["Keep the historical behavior visible to the reviewer."]}
         reports = {
-            "astra_discovery": {"report": {"contract": current}, "output": "/run/discovery.json"},
+            "astra_discovery": {
+                "report": {"contract": current, "summary": "Keep the discovery summary."},
+                "output": "/run/discovery.json",
+            },
+            "astra_challenge": {
+                "report": {"concerns": [{"id": "R1", "description": "Keep the review concern."}]},
+                "output": "/run/challenge.json",
+            },
             "glm_revise": {"report": {"contract": previous}, "output": "/run/revision.json"},
         }
         self.state["planning"]["reports"] = reports
-        original = copy.deepcopy(self.state)
-        with patch.object(planning.stage_context.source_scope, "snapshot", return_value={"revision": "source-1"}):
-            prompt, _ = planning.context(self.state, "astra_challenge", self.run / "state.json")
-        packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
-        projected = packet["planning"]["reports"]
-        self.assertEqual({"contract_ref": "#/goal_contract/body"}, projected["astra_discovery"]["report"])
-        self.assertEqual(current, packet["goal_contract"]["body"])
-        self.assertEqual(reports["astra_discovery"]["output"], projected["astra_discovery"]["output"])
-        self.assertEqual(reports["glm_revise"], projected["glm_revise"])
-        self.assertIn("Resolve contract_ref within this handoff", prompt)
-        self.assertIn("retained_review_observations", packet)
-        self.assertEqual(original, self.state)
+        for stage in ("astra_challenge", "astra_finalize"):
+            with self.subTest(stage=stage):
+                self.state["recovery_context"] = {"stage": stage, "next_stage": stage}
+                self.record["stage"] = stage
+                original = copy.deepcopy(self.state)
+                with patch.object(
+                    planning.stage_context.source_scope, "snapshot", return_value={"revision": "source-1"}
+                ):
+                    prompt, _ = planning.context(self.state, stage, self.run / "state.json")
+                packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+                projected = packet["planning"]["reports"]
+                expected = copy.deepcopy(reports)
+                del expected["astra_discovery"]["report"]["contract"]
+                expected["astra_discovery"]["report"]["contract_ref"] = "#/goal_contract/body"
+                self.assertEqual(expected, projected)
+                self.assertEqual(current, packet["goal_contract"]["body"])
+                self.assertIn("Resolve contract_ref within this handoff", prompt)
+                self.assertIn("retained_review_observations", packet)
+                self.assertEqual(original, self.state)
 
     def retained(self, stage="astra_challenge", revision="source-1"):
         return observations.context(self.state, stage, self.run, revision)

@@ -30,7 +30,7 @@ KILO_VARIABLE = "KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX"
 OPENCODE_DEFAULT = 32000
 DEFAULT_TOKENS = 64000
 # How a provider's length stop starts; explain() adds the cap to exactly these reasons.
-LENGTH_STOP = "OpenCode exhausted its output token limit (finish reason: length)"
+LENGTH_STOP = "The response exhausted its output token limit (finish reason: length)"
 SET_BY = {
     "operator": "set by the operator",
     "autocode": "AutoCode's default",

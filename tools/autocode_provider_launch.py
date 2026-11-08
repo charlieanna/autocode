@@ -23,6 +23,7 @@ try:
     from . import autocode_prompts as prompts
     from . import autocode_route_evidence as route_evidence
     from . import autocode_storage_errors as storage_errors
+    from . import autocode_tool_admission as tool_admission
     from . import autocode_util as util
     from . import autocode_verification_copy as verification_copy
 except ImportError:
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_prompts as prompts
     import autocode_route_evidence as route_evidence
     import autocode_storage_errors as storage_errors
+    import autocode_tool_admission as tool_admission
     import autocode_util as util
     import autocode_verification_copy as verification_copy
 
@@ -113,19 +115,23 @@ def prepare(
         from .providers.kilocode import KiloEffortError, KiloProvider
     except ImportError:
         from providers.kilocode import KiloEffortError, KiloProvider
-    kilo_owner = type(native_role_isolation) is native_isolation.KiloRoleIsolation and type(adapter) is KiloProvider
     # A planning stage gets the same shell as a read-only checker (owner decision 2026-10-21): Planners compute the
     # exact literals the example rule asks for instead of working them out by hand. Report recovery keeps no tools.
-    planner_shell = planning and not planning_report_recovery and not allow_write
-    kilo_readonly = (
-        type(adapter) is KiloProvider and not allow_write and (not planning or planner_shell) and not kilo_owner
+    shell = tool_admission.shell_policy(
+        engine=engine,
+        adapter=adapter,
+        planning=planning,
+        allow_write=allow_write,
+        settings=settings,
+        enforce=enforce_tool_boundary,
+        isolation=native_role_isolation,
+        recovery=planning_report_recovery,
     )
     # macOS has no kernel shell boundary (owner decision 2026-10-21, #1766; as #1195 for every provider there): a
     # read-only Kilo checker gets Kilo's own policy instead, read tools and its shell with edits denied. A source
     # write it still makes is put back after the stage (autocode_stray_writes), as for any read-only stage.
-    kilo_portable = kilo_readonly and sys.platform == "darwin"
-    kilo_readonly = kilo_readonly and not kilo_portable
-    uncontained = containment_policy.accepted(settings)
+    planner_shell, kilo_owner = shell.planner_shell, shell.kilo_owner
+    kilo_readonly, kilo_portable, uncontained = shell.kilo_readonly, shell.kilo_portable, shell.uncontained
     if native_image_preparation is not None:
         try:
             from . import autocode_native_calls as calls
@@ -168,9 +174,7 @@ def prepare(
         tool_commands = tool_commands()
     if native_environment is not None and native_role_isolation is None:
         raise TypeError("Explicit native environment requires the original isolation owner")
-    environment = agent_env.scrubbed(os.environ if native_environment is None else native_environment)
-    for name in ("AUTOCODE_VERIFICATION_COPY", "AUTOCODE_VERIFICATION_COPY_SHA256"):
-        environment.pop(name, None)  # Never inherit another stage's authority.
+    environment = tool_admission.environment(native_environment)
     copy = None
     overrides = None
     prior_session = session
@@ -181,11 +185,7 @@ def prepare(
             session = None
             fresh_reason = "This provider starts every stage in a fresh session; only a same-stage correction resumes"
         containment = None
-        if (
-            enforce_tool_boundary
-            and (not planning or planner_shell or native_role_isolation is not None)
-            and (not getattr(adapter, "CONFIGURED", False) or kilo_owner or kilo_readonly)
-        ):
+        if shell.kernel_shell:
             session = None
             runtime = Path(__file__).resolve().parent
             roots = {runtime, Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()}
@@ -262,24 +262,7 @@ def prepare(
                         "PAUSED_TOOL_CONTAINMENT", "Kilo readonly tool policy was not established: " + str(error)
                     ) from error
                 raise
-            try:
-                from . import autocode_tool_containment as tool_containment
-            except ImportError:
-                import autocode_tool_containment as tool_containment
-            recovery = (
-                # These errors name their own remedy; reinstalling the sandbox does not clear a policy refusal.
-                ""
-                if isinstance(error, (*tool_containment.STORE_ERRORS, tool_containment.NativePermissionDenied))
-                else ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
-                if native_role_isolation is not None
-                else ". Restore qualified Kilo 7.8.3 and its kernel shell setup; readonly Kilo cannot waive this boundary"
-                if kilo_readonly
-                else ". Restore the qualified setup, or resume with --allow-uncontained-tools to run "
-                "this run's stages with OpenCode's own permission checks only"
-            )
-            raise util.Paused(
-                "PAUSED_TOOL_CONTAINMENT", "Native tool boundary was not established: " + str(error) + recovery
-            ) from error
+            raise tool_admission.failure(error, kilo_readonly=kilo_readonly, isolation=native_role_isolation) from error
         if child:
             environment = agent_env.scrubbed(child)
             if not containment or allow_write:

@@ -1329,8 +1329,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         if not report_recovery:
             report.pop("contract", None)
         elif (
-            stage == "astra_challenge"
-            and current_body
+            current_body
             and report.get("contract") == current_body
             and util.digest(report["contract"]) == util.digest(current_body)
         ):

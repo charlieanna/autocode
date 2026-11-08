@@ -171,10 +171,10 @@
                         "description": "Count-only diagnostic projection for one stage attempt. Counts describe observed calls; unavailable or incomplete coverage is never a claim of zero calls. Repeated arguments do not imply wasted work. No per-request correlation is inferred.",
                         "required": [
                           "version", "basis", "observed_calls", "families", "outcomes", "error_classes",
-                          "exact_argument_repeats", "comparable_calls", "complete", "issues", "scope"
+                          "exact_argument_repeats", "comparable_calls", "search_arguments", "complete", "issues", "scope"
                         ],
                         "properties": {
-                          "version": {"type": "integer", "enum": [1]},
+                          "version": {"type": "integer", "enum": [2]},
                           "basis": {"type": "string", "enum": ["native_events", "unavailable"]},
                           "observed_calls": {"type": "integer", "minimum": 0},
                           "families": {
@@ -211,6 +211,18 @@
                           },
                           "exact_argument_repeats": {"type": "integer", "minimum": 0},
                           "comparable_calls": {"type": "integer", "minimum": 0},
+                          "search_arguments": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "description": "Literal fixed instruction filename token mentions in bounded structured search argument values, never intent, absence or waste. Counts partition the observed search family; incomplete coverage is explicit.",
+                            "required": ["with_instruction_name", "without_instruction_name", "unknown", "complete"],
+                            "properties": {
+                              "with_instruction_name": {"type": "integer", "minimum": 0},
+                              "without_instruction_name": {"type": "integer", "minimum": 0},
+                              "unknown": {"type": "integer", "minimum": 0},
+                              "complete": {"type": "boolean"}
+                            }
+                          },
                           "complete": {"type": "boolean"},
                           "issues": {
                             "type": "array",

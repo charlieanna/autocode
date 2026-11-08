@@ -5,6 +5,7 @@ no person, and spends no new access check. Different bytes are a transport chang
 the change is accepted publicly, and access is checked again.
 """
 
+import hashlib
 import json
 import shutil
 import sys
@@ -32,8 +33,13 @@ raise SystemExit(autocode.main())
 """
 
 PROBE = """if 'CURRENT HANDOFF DATA\\n' not in prompt:
+    import hashlib
     model = sys.argv[sys.argv.index('--model') + 1]
-    record({'operation': 'preflight', 'model': model})
+    effort_flag = '--variant' if '--variant' in sys.argv else '--effort'
+    config = Path(Path(os.environ['RELOCATION_CONFIG_POINTER']).read_text())
+    record({'operation': 'preflight', 'model': model,
+            'effort': sys.argv[sys.argv.index(effort_flag) + 1],
+            'config_sha256': hashlib.sha256(config.read_bytes()).hexdigest()})
     session = 'access_' + uuid.uuid4().hex
     for row in [
         {'type': 'step_start', 'sessionID': session,
@@ -58,7 +64,7 @@ class PreflightRelocationCLI(unittest.TestCase):
         self.start_options = ()
         options = [value for value in self.options if value != "--allow-uncontained-tools"]
         options[options.index("--provider") + 1] = "fixture_command"
-        self.options = tuple(options)
+        self.options = (*options, "--max-cost-usd", "0")
         self.env["RELOCATION_RUNTIME"] = str(HERE)
         self.pointer = self.root / "config-location"
         self.env["RELOCATION_CONFIG_POINTER"] = str(self.pointer)
@@ -112,7 +118,12 @@ class PreflightRelocationCLI(unittest.TestCase):
         # Resume one ordinary Planner stage after acceptance, then stop before Builder.
         run.options = (*run.options, "--pause-after-stage")
         probes = self.operations("preflight")
-        self.assertTrue(probes)
+        initial_models = {"fixture-claude", "zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2.6-pro"}
+        self.assertCountEqual(initial_models, [row["model"] for row in probes])
+        self.assertEqual({("fixture_command", "high")}, {(row["tool"], row["effort"]) for row in probes})
+        self.assertEqual(
+            {hashlib.sha256(self.old_config.read_bytes()).hexdigest()}, {row["config_sha256"] for row in probes}
+        )
         attempts = self.attempts(before)
         self.assertEqual(len(probes), len(attempts))
         self.assertTrue(all(row["tokens"]["input_tokens"] == 17 for row in attempts), attempts)
@@ -160,9 +171,27 @@ class PreflightRelocationCLI(unittest.TestCase):
         self.assertEqual(attempts, current[: len(attempts)])
         self.assertEqual(evidence, {path: Path(path).read_bytes() for path in evidence})
         if changed:
-            self.assertEqual(2 * len(probes), len(self.operations("preflight")))
-            self.assertEqual(2 * len(attempts), len(current))
-            self.assertEqual(2 * usage["input_tokens"], after["usage"]["by_role"]["model_preflight"]["input_tokens"])
+            fresh = self.operations("preflight")[len(probes) :]
+            # Requirements replaced its own fresh ping. After a byte change its
+            # completed call proves only the old transport, so all four pairs
+            # need a new probe on the accepted connection.
+            fresh_models = initial_models | {"zai-coding-plan/glm-5.3-flash"}
+            self.assertCountEqual(fresh_models, [row["model"] for row in fresh])
+            self.assertEqual({("fixture_command", "high")}, {(row["tool"], row["effort"]) for row in fresh})
+            self.assertEqual(
+                {hashlib.sha256(new_config.read_bytes()).hexdigest()}, {row["config_sha256"] for row in fresh}
+            )
+            self.assertTrue({row["config_sha256"] for row in probes}.isdisjoint(row["config_sha256"] for row in fresh))
+            fresh_attempts = current[len(attempts) :]
+            self.assertCountEqual(fresh_models, [row["model"] for row in fresh_attempts])
+            self.assertTrue(all(row["launch_route"]["effort"] == "high" for row in fresh_attempts))
+            self.assertTrue(all(row["launch_route"]["provider"] == "fixture_command" for row in fresh_attempts))
+            self.assertEqual(len(fresh), len(fresh_attempts))
+            self.assertTrue(all(row["tokens"]["input_tokens"] == 17 for row in fresh_attempts))
+            self.assertEqual(
+                usage["input_tokens"] + 17 * len(fresh_attempts),
+                after["usage"]["by_role"]["model_preflight"]["input_tokens"],
+            )
         else:
             self.assertEqual(probes, self.operations("preflight"))
             self.assertEqual(attempts, current)

@@ -902,6 +902,18 @@ class DynamicDependenciesTests(unittest.TestCase):
             dependencies.dependencies("tools/autocode_model_preflight.py"),
         )
 
+    def test_selected_tool_admission_keeps_both_fresh_entrypoint_flows_even_when_slow(self):
+        consumer = "tests.test_tool_admission_cli"
+        for path in (
+            "tools/autocode_tool_admission.py",
+            "tools/autocode_model_preflight.py",
+            "tools/autocode_provider_launch.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_preflight_relocation_keeps_its_public_consumer_even_when_slow(self):
         consumer = "tests.test_preflight_relocation_cli"
         for path in (
@@ -1072,6 +1084,8 @@ class DynamicDependenciesTests(unittest.TestCase):
     def test_native_javascript_resources_select_their_real_consumers_even_when_slow(self):
         for path, expected in (
             ("tools/dashboard/tests/test_shell_a11y_ui.js", {"tests.test_catalogue_t12"}),
+            ("tools/dashboard/tests/test_m3_lifecycle_browser_ui.js", {"tests.test_catalogue_t12"}),
+            ("tools/dashboard/tests/browser_readiness.js", {"tests.test_catalogue_t12"}),
             ("tools/autocode_capture_bootstrap.cjs", {"tests.test_native_capture_ipc", "tests.test_native_capture"}),
             ("tools/autocode_native_capture_linux.cjs", {"tests.test_native_capture_ipc", "tests.test_native_capture"}),
             ("tools/autocode_kilo_image_delivery.mjs", {"tests.test_kilo_image_delivery", "tests.test_native_image"}),

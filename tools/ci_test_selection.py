@@ -83,6 +83,8 @@ SCENARIO_SELECTION_INPUTS = {
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (".github/workflows/tests.yml", ("tests.test_ci_java",)),
     ("tools/dashboard/tests/test_shell_a11y_ui.js", ("tests.test_catalogue_t12",)),
+    ("tools/dashboard/tests/test_m3_lifecycle_browser_ui.js", ("tests.test_catalogue_t12",)),
+    ("tools/dashboard/tests/browser_readiness.js", ("tests.test_catalogue_t12",)),
     ("tools/autocode_stage_context.py", ("tests.test_ready_capture_batch_cli",)),
     (
         "tools/autocode_ready_capture_batch.py",
@@ -1095,6 +1097,11 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("tools/autocode_access_evidence", "tools/autocode_model_preflight", "tools/autocode_provider_launch"),
         ("tests.test_access_evidence_cli",),
+    ),
+    # ENTRYPOINT_FIXTURE dynamically imports these modules in fresh source/package CLI children.
+    (
+        ("tools/autocode_tool_admission.py", "tools/autocode_model_preflight.py", "tools/autocode_provider_launch.py"),
+        ("tests.test_tool_admission_cli",),
     ),
     (("tools/autocode_model_preflight",), ("tests.test_provider_credentials",)),
     (

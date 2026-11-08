@@ -53,7 +53,7 @@ class ToolActivityTests(unittest.TestCase):
             stale.update(
                 outcomes={"succeeded": 1, "failed": 0, "unknown": 0}, error_classes={"nonzero_exit": 0, "tool_error": 0}
             )
-            for version in (None, 0, 2, "1", True):
+            for version in (None, 0, 1, activity.VERSION + 1, "2", True):
                 with self.subTest(version=version):
                     if version is None:
                         stale.pop("version", None)
@@ -80,6 +80,189 @@ class ToolActivityTests(unittest.TestCase):
             unavailable = run_view.view(state)["usage"]["accounting"]["attempts"][0]["tool_activity"]
             self.assertEqual("unavailable", unavailable["basis"])
             self.assertFalse(unavailable["complete"])
+
+    def test_legacy_counts_survive_missing_native_evidence_with_unknown_search_classification(self):
+        with tempfile.TemporaryDirectory() as root:
+            events = Path(root) / "native.jsonl"
+            events.write_text(
+                "".join(json.dumps(row) + "\n" for row in stream(tool(name="grep", given={"pattern": "AGENTS.md"})))
+            )
+            measured = request_usage.read(events)
+            legacy = measured["accounting"]["tool_activity"]
+            legacy["version"] = 1
+            legacy.pop("search_arguments")
+            legacy["private"] = "SECRET-canary"
+            events.unlink()
+            record = {"stage": "terra", "events": str(events), "metrics": {"request_context": measured}}
+            state = {"status": "RUNNING", "stages": [record]}
+            before = copy.deepcopy(state)
+            result = run_view.view(state)["usage"]["accounting"]["attempts"][0]["tool_activity"]
+            for key in (
+                "basis",
+                "observed_calls",
+                "families",
+                "outcomes",
+                "error_classes",
+                "exact_argument_repeats",
+                "comparable_calls",
+                "complete",
+                "issues",
+                "scope",
+            ):
+                self.assertEqual(legacy[key], result[key], key)
+            self.assertEqual(activity.VERSION, result["version"])
+            self.assertEqual(
+                {"with_instruction_name": 0, "without_instruction_name": 0, "unknown": 1, "complete": False},
+                result["search_arguments"],
+            )
+            self.assertEqual(before, state, "Migration is a read-only public projection")
+            self.assertNotIn("SECRET", json.dumps(result))
+            # A saved legacy projection with no declared source also retains its counts.
+            record.pop("events")
+            self.assertEqual(result, run_view.view(state)["usage"]["accounting"]["attempts"][0]["tool_activity"])
+            # Unsupported versions or invalid legacy counts cannot be migrated.
+            for field, value in (("version", 0), ("version", True), ("comparable_calls", -1)):
+                invalid = {**legacy, field: value}
+                self.assertEqual("unavailable", activity.projection(invalid)["basis"])
+
+    def test_public_status_refreshes_legacy_search_classification_when_native_evidence_is_available(self):
+        with tempfile.TemporaryDirectory() as root:
+            events = Path(root) / "native.jsonl"
+            events.write_text(
+                "".join(json.dumps(row) + "\n" for row in stream(tool(name="glob", given={"pattern": "**/AGENTS.md"})))
+            )
+            measured = request_usage.read(events)
+            measured["accounting"]["tool_activity"]["version"] = 1
+            measured["accounting"]["tool_activity"].pop("search_arguments")
+            state = {
+                "status": "RUNNING",
+                "stages": [{"stage": "terra", "events": str(events), "metrics": {"request_context": measured}}],
+            }
+            before = copy.deepcopy(state)
+            result = run_view.view(state)["usage"]["accounting"]["attempts"][0]["tool_activity"]
+            self.assertEqual(
+                {"with_instruction_name": 1, "without_instruction_name": 0, "unknown": 0, "complete": True},
+                result["search_arguments"],
+            )
+            self.assertEqual(before, state)
+
+    def test_search_arguments_count_literal_instruction_name_values_without_exporting_payloads(self):
+        canary = "SECRET-query-path-output-canary"
+        rows = stream(
+            tool("glob", "glob", {"pattern": "**/AGENTS.md", "path": canary}),
+            tool("grep", "grep", {"pattern": "find CLAUDE.md and AGENTS.md", "path": canary}),
+            tool("nested", "search", {"terms": [{"query": [None, 7, True, "'CLAUDE.md'"]}]}),
+            tool("code", "grep", {"pattern": "def select_tier", "include": "*.py"}, output="AGENTS.md"),
+            tool("keys", "search", {"AGENTS.md": "ordinary code query", "private": canary}),
+            tool("web", "websearch", {"query": "CLAUDE.md mentioned in unrelated prose"}),
+            tool("read", "read", {"file_path": "AGENTS.md"}),
+            tool("shell", "bash", {"command": "rg --files -g AGENTS.md"}),
+        )
+        result = activity.summarize(rows)
+        self.assertEqual(
+            {"with_instruction_name": 4, "without_instruction_name": 2, "unknown": 0, "complete": True},
+            result["search_arguments"],
+        )
+        self.assertEqual(6, result["families"]["search"])
+        self.assertEqual(8, result["observed_calls"])
+        self.assertEqual(8, result["comparable_calls"])
+        self.assertEqual(0, result["exact_argument_repeats"])
+        for private in (canary, "AGENTS.md", "CLAUDE.md", "select_tier", "query", "file_path"):
+            self.assertNotIn(private, json.dumps(result))
+
+    def test_instruction_name_tokens_preserve_literal_case_boundaries_and_escaping(self):
+        for pattern in (
+            "AGENTS.md",
+            "**/CLAUDE.md",
+            "/tmp/AGENTS.md",
+            "(AGENTS.md|CLAUDE.md)",
+            "AGENTS.md?raw=true",
+            "\u0041GENTS.md",
+            r"C:\repo\AGENTS.md",
+        ):
+            with self.subTest(pattern=pattern):
+                result = activity.summarize(stream(tool(name="glob", given={"pattern": pattern})))
+                self.assertEqual(1, result["search_arguments"]["with_instruction_name"])
+        for pattern in (
+            "MYAGENTS.md",
+            "AGENTS.md.bak",
+            "CLAUDE.mdpy",
+            "AGENTS-md",
+            "agents.md",
+            "CLAUDE.MD",
+            "x-AGENTS.md",
+            "éAGENTS.md",
+            r"AGENTS\.md",
+            r"\u0041GENTS.md",
+            "AGENTS[.]md",
+        ):
+            with self.subTest(pattern=pattern):
+                result = activity.summarize(stream(tool(name="grep", given={"pattern": pattern})))
+                self.assertEqual(
+                    {"with_instruction_name": 0, "without_instruction_name": 1, "unknown": 0, "complete": True},
+                    result["search_arguments"],
+                )
+        decoded = json.loads(r'{"pattern":"\u0041GENTS.md"}')
+        self.assertEqual(
+            1, activity.summarize(stream(tool(name="glob", given=decoded)))["search_arguments"]["with_instruction_name"]
+        )
+
+    def test_search_argument_unknowns_reuse_existing_bounds_and_never_parse_other_shapes(self):
+        missing = tool("missing", "grep")
+        missing["part"]["state"].pop("input")
+        for given in (
+            "AGENTS.md",
+            ["AGENTS.md"],
+            {"pattern": float("nan")},
+            {"pattern": "AGENTS.md" + "x" * activity.MAX_ARGUMENT_BYTES},
+        ):
+            with self.subTest(given_type=type(given)):
+                with mock.patch.object(
+                    activity, "_mentions_instruction_name", side_effect=AssertionError("unbounded scan")
+                ):
+                    result = activity.summarize(stream(tool(name="grep", given=given)))
+                self.assertEqual(
+                    {"with_instruction_name": 0, "without_instruction_name": 0, "unknown": 1, "complete": False},
+                    result["search_arguments"],
+                )
+        with (
+            mock.patch.object(activity, "MAX_ARGUMENT_TOTAL", 0),
+            mock.patch.object(activity, "_mentions_instruction_name", side_effect=AssertionError("over-total scan")),
+        ):
+            self.assertEqual(1, activity.summarize(stream(tool(name="grep")))["search_arguments"]["unknown"])
+        self.assertEqual(1, activity.summarize(stream(missing))["search_arguments"]["unknown"])
+        # A rendered Codex query is not the complete structured argument set.
+        codex = [
+            {"type": "thread.started", "thread_id": "t"},
+            {"type": "item.completed", "item": {"id": "one", "type": "web_search", "query": "AGENTS.md"}},
+            {"type": "turn.completed"},
+        ]
+        self.assertEqual(1, activity.summarize(codex)["search_arguments"]["unknown"])
+        for rows in ([], [{"type": "unsupported", "arguments": {"pattern": "AGENTS.md"}}], stream()[:-1]):
+            self.assertFalse(activity.summarize(rows)["search_arguments"]["complete"])
+
+    def test_search_argument_lifecycle_counts_and_projection_remain_bounded_and_allowlisted(self):
+        call = tool(name="glob", given={"pattern": "**/AGENTS.md"})
+        result = activity.summarize(
+            stream(tool(name="glob", status="running"), call, call, tool("two", "glob", {"pattern": "**/AGENTS.md"}))
+        )
+        self.assertEqual(2, result["search_arguments"]["with_instruction_name"])
+        self.assertEqual(1, result["exact_argument_repeats"])
+        self.assertEqual(2, result["comparable_calls"])
+        poisoned = copy.deepcopy(result)
+        poisoned["search_arguments"]["SECRET"] = "PRIVATE-canary"
+        self.assertEqual(result, activity.projection(poisoned))
+        for value in (
+            None,
+            {},
+            {**result["search_arguments"], "unknown": True},
+            {**result["search_arguments"], "unknown": 3},
+        ):
+            with self.subTest(value=value):
+                self.assertEqual("unavailable", activity.projection({**result, "search_arguments": value})["basis"])
+        self.assertFalse(activity.projection(result, active=True)["search_arguments"]["complete"])
+        self.assertFalse(activity.summarize(stream(call), incomplete=True)["search_arguments"]["complete"])
+        self.assertEqual(result["search_arguments"], activity.projection(result)["search_arguments"])
 
     def test_generic_calls_require_tool_and_mcp_server_identity_for_argument_comparison(self):
         def measure(kind, **identifiers):
