@@ -1688,7 +1688,8 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
             instruction, response_schema if response_schema is not None else _requirements_model_schema(state)
         )
     prompt = (
-        (retention.FINAL_PROMPT if compact_final else instruction)
+        (prompts.get("fragments/autoplanner/requirements-observation-reuse.md") if retained_requirements else "")
+        + (retention.FINAL_PROMPT if compact_final else instruction)
         + progress_rule
         + prompts.get("fragments/autoplanner/time-budget.md")
         + (prompts.get("fragments/autoplanner/late-repository-scope.md") if stage in planning_scope.STAGES else "")

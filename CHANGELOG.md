@@ -23,6 +23,11 @@ PR template asks for an entry here; a change without one is incomplete.
   Code's own login check (`claude auth status`) touched it, so the kernel stopped the whole run and
   Ctrl-C could not reach it. The run and the chat's status reads now take their input from `/dev/null`.
 
+- The first Planner can use complete source text and stable facts from authenticated
+  Requirements observations instead of reading or probing them again solely to plan.
+  Missing or stale facts and independent verification still require fresh inspection;
+  discovery no longer asks a tiny repository for a fixed number of source-file reads.
+
 - `autocode replay --export` or `--into` on a run with native capture receipts again refuses with exit
   code 3 when a later attempt's retained events are malformed, instead of crashing with a traceback while
   building the refusal's `native_capture_dependencies` diagnostics. The refusal is then returned without

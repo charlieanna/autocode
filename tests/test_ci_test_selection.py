@@ -93,10 +93,23 @@ class DynamicDependenciesTests(unittest.TestCase):
             "tools/autocode_requirements_handoff.py",
             "tools/autocode_job_source.py",
             "tools/units/autoplanner.py",
+            "tools/prompts/discovery.md",
+            "tools/prompts/fragments/autoplanner/requirements-observation-reuse.md",
         ):
             selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
             kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
             self.assertIn(consumer, kept, path)
+
+    def test_requirements_observation_guidance_keeps_its_authenticated_rendering_consumer(self):
+        for path in (
+            "tools/prompts/discovery.md",
+            "tools/prompts/fragments/autoplanner/requirements-observation-reuse.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests(
+                    [path], {"tests.test_requirements_observations": "", "tests.test_unrelated": ""}
+                )
+                self.assertEqual(["tests.test_requirements_observations"], list(selected))
 
     def test_scripted_changed_code_reasons_keep_the_protected_oracle_cli_regression(self):
         consumer = "tests.test_protected_oracles_cli"
