@@ -30,6 +30,36 @@ class ClassificationRecoveryCLI(unittest.TestCase):
     approve = routing_fixture.FailureRoutingCLI.approve
     drive = routing_fixture.FailureRoutingCLI.drive
 
+    def test_requested_stage_pause_preserves_queued_classification_for_ordinary_resume(self):
+        self.seed()
+        self.env.update(BUILD_AUDIT_FAULT="no_change", FAILURE_ROUTING_DIAGNOSIS="execution")
+        for index in range(8):
+            self.drive(*(["--resume-paused"] if index else []), "--pause-after-stage", codes=(2,))
+            held = self.status()
+            self.assertEqual("PAUSED_REQUESTED", held["status"], held["view"]["needs"])
+            self.assertEqual("resume", held["view"]["needs"]["kind"])
+            self.assertNotIn("job_retry_token", held["view"]["needs"])
+            if held["view"]["next_stage"] == "investigate_stuck":
+                break
+        else:
+            self.fail("The failed Builder did not queue its classification at a public boundary")
+        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual([], self.trace("investigate_stuck"))
+        self.assertEqual(self.approved_token, held["contract_token"])
+
+        self.env.pop("BUILD_AUDIT_FAULT")
+        self.drive("--resume-paused", codes=(0,))
+        completed = self.status()
+        self.assertEqual("TASK_COMPLETE", completed["status"], completed["view"]["needs"])
+        self.assertTrue(completed["completion_current"])
+        self.assertEqual(self.approved_token, completed["contract_token"])
+        investigators = self.trace("investigate_stuck")
+        self.assertEqual(1, len(investigators))
+        self.assertEqual("read-only", investigators[0]["argv"][investigators[0]["argv"].index("--sandbox") + 1])
+        self.assertEqual(2, len(self.trace("terra")))
+        oracle = subprocess.run([sys.executable, "main.py"], cwd=self.project, capture_output=True, text=True)
+        self.assertEqual((0, "hello\n"), (oracle.returncode, oracle.stdout))
+
     def test_failed_classification_retries_only_the_bound_read_only_investigator(self):
         self.seed()
         self.env.update(BUILD_AUDIT_FAULT="no_change", FAILURE_ROUTING_DIAGNOSIS="stale")

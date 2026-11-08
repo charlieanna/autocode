@@ -251,6 +251,35 @@ class BuilderFailureClassificationTests(unittest.TestCase):
         record = {"output": str(output), "source_revision": "source-1"}
         return state, builder_failure.evidence(state, record)
 
+    def test_requested_pause_retains_the_queued_classification_without_spending_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            state, evidence = self.fixture(root)
+            builder_failure.queue(state, evidence, "Empty diff", enabled=True)
+            request = copy.deepcopy(state["stuck_investigation"])
+            history = copy.deepcopy(state["stuck_investigations"])
+            calls = []
+
+            def pause(current):
+                raise Paused("PAUSED_REQUESTED", "Requested saved boundary")
+
+            with self.assertRaises(Paused) as caught:
+                stuck.drive(
+                    state,
+                    lambda current, stage: calls.append(stage),
+                    before=pause,
+                    active=lambda current: current["status"] == "RUNNING",
+                    skip=object(),
+                    paused=Paused,
+                    investigate=True,
+                )
+            self.assertEqual("PAUSED_REQUESTED", caught.exception.status)
+            self.assertEqual("Requested saved boundary", str(caught.exception))
+            self.assertEqual([], calls)
+            self.assertEqual(request, state["stuck_investigation"])
+            self.assertEqual(history, state["stuck_investigations"])
+            self.assertNotIn("builder_failure_hold", state)
+            self.assertEqual(["earlier"], state["builder_retries"]["existing"]["failures"])
+
     def test_pre_escalation_report_is_mode_specific_and_bound_to_evidence(self):
         with tempfile.TemporaryDirectory() as root:
             state, evidence = self.fixture(root)
