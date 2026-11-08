@@ -1295,6 +1295,88 @@ def _native_fixture(data, root, producer):
     return accepted
 
 
+BY_PROJECT_PINS = {
+    "timesheet/__main__.py": "5a365c43e8d82dabee0935a562b903bbc7e3a704300d8937c556d1a85808b246",
+    "timesheet/report.py": "fbb35625fffc8d27534aef844e0bdd10c7a3f58cdb68f1d1a5a18e6dee60d757",
+    "tests/test_by_project.py": "c837b72fe58def24ef3afeb99531712e6f4c4ad837e205a6a85164fb58ef41dd",
+}
+
+
+def _by_project(data, root, producer):
+    """The scripted Python fixture owns only its unsupported function declaration."""
+    if (
+        not isinstance(producer, dict)
+        or producer.get("check") != "python3 -m unittest discover -s tests -t ."
+        or not isinstance(producer.get("reference"), str)
+        or producer.get("turn_paths")
+        or not isinstance(producer.get("paths"), list)
+        or not all(isinstance(name, str) for name in producer["paths"])
+        or not set(BY_PROJECT_PINS) <= set(producer["paths"])
+    ):
+        return []
+    try:
+        reference = Path(producer["reference"])
+        if (
+            reference.resolve(strict=True).is_relative_to(root.resolve(strict=True))
+            or root.resolve(strict=True).is_relative_to(reference.resolve(strict=True))
+            or not _fixture_pins(reference, BY_PROJECT_PINS)
+            or not _fixture_pins(root, BY_PROJECT_PINS)
+        ):
+            return []
+    except (OSError, RuntimeError):
+        return []
+    proof = data.get("regression_proof") or {}
+    assessment = proof.get("changed_code_evidence") or {}
+    revision, context = assessment.get("source_revision"), assessment.get("proof_context")
+    selected = (proof.get("mutation_check") or {}).get("selected_tests") or []
+    required = {
+        "tests.test_by_project.ByProjectTests.test_combines_with_project_filter",
+        "tests.test_by_project.ByProjectTests.test_rows_per_week_and_project",
+        "tests.test_by_project.ByProjectTests.test_cli_preserves_default_and_filters_project_rows",
+    }
+    if (
+        proof.get("verdict") != "PASS"
+        or not isinstance(proof.get("path"), str)
+        or not proof["path"].strip()
+        or proof.get("source_revision") != revision
+        or not all(
+            isinstance(value, str) and len(value) == 64 and set(value) <= set("0123456789abcdef")
+            for value in (revision, context)
+        )
+        or not isinstance(selected, list)
+        or not all(isinstance(name, str) for name in selected)
+        or not required <= set(selected)
+    ):
+        return []
+    path, line = "timesheet/report.py", 21
+    identity = [revision, context, path, BY_PROJECT_PINS[path], line]
+    gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+    rows = [row for row in assessment.get("obligations") or [] if isinstance(row, dict) and row.get("gap_id") == gap]
+    if len(rows) != 1 or any(
+        (
+            rows[0].get("path") != path,
+            rows[0].get("sha256") != BY_PROJECT_PINS[path],
+            type(rows[0].get("line")) is not int,
+            rows[0].get("line") != line,
+            rows[0].get("status") != "reason_required",
+            rows[0].get("mutation_outcomes") != [],
+        )
+    ):
+        return []
+    return [
+        {
+            "gap_id": gap,
+            "decision": "accept",
+            "reason_kind": "instrumentation_unavailable",
+            "reason": "The exact scripted weekly_project_totals declaration has no supported mutation site. "
+            "test_rows_per_week_and_project observes the omitted project=None default, test_combines_with_project_filter "
+            "observes the public project keyword, and test_cli_preserves_default_and_filters_project_rows observes "
+            "default, grouped and filtered CLI rows. The annotations have no separate runtime behavior.",
+            "evidence_refs": [proof["path"], path],
+        }
+    ]
+
+
 def judgments(data, root=None, *, producer=None):
     root = Path.cwd() if root is None else Path(root)
     return (
@@ -1311,6 +1393,7 @@ def judgments(data, root=None, *, producer=None):
         + _csvcheck(data, root)
         + _package_greeting(data, root, producer)
         + _native_fixture(data, root, producer)
+        + _by_project(data, root, producer)
     )
 
 
