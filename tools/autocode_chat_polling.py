@@ -123,6 +123,7 @@ class StatusPoller:
                 )
                 child = self.launch(
                     [*self.command, *arguments],
+                    stdin=subprocess.DEVNULL,  # a background group that reads the terminal is stopped
                     stdout=output,
                     stderr=subprocess.DEVNULL,
                     cwd=key.workspace if isinstance(key, ProjectRuns) else key[0],
