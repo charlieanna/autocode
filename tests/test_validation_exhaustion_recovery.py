@@ -71,6 +71,9 @@ class ValidationRecovery(unittest.TestCase):
         self.assertEqual("continue", view["needs"]["kind"])
         self.assertIn("settle the retained validation limit", view["stop_reason"])
         self.assertNotIn("close the finding yourself", view["stop_reason"])
+        self.assertIn("automatically", view["explanation"]["what_it_means"])
+        self.assertIn("--resume-paused", view["explanation"]["what_the_command_does"])
+        self.assertNotIn("--answer", view["explanation"]["explanation"])
         self.assertIsNone(view["chat"]["gate"])
         self.assertIsNone(view["chat"]["input"])
         self.assertEqual(before, state)
@@ -138,6 +141,12 @@ class ValidationRecovery(unittest.TestCase):
         saved = deepcopy(state)
         self.assertFalse(recovery.settle(state, "rev", at="later"))
         self.assertEqual(saved, state)
+
+    def test_an_unreadable_current_frontier_cannot_authorize_the_retained_request(self):
+        state = legacy_checkpoint()
+        self.assertIsNotNone(human.retained(state))
+        with patch.object(human, "_binding", side_effect=ValueError("unreadable frontier")):
+            self.assertIsNone(human.current(state))
 
     def test_failed_withdrawal_keeps_the_checkpoint(self):
         state = legacy_checkpoint()
