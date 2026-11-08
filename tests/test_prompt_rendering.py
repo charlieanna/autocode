@@ -400,7 +400,14 @@ class RenderedPromptTests(unittest.TestCase):
         state["stages"] = [record]
         observed = copy.deepcopy(state)
         observed["stages"][0]["metrics"]["request_context"]["accounting"]["tool_activity"] = {
+            "version": 2,
             "basis": "native_events",
+            "search_arguments": {
+                "with_instruction_name": 7,
+                "without_instruction_name": 5,
+                "unknown": 2,
+                "complete": False,
+            },
             "observed_calls": 401,
             "exact_argument_repeats": 200,
             "comparable_calls": 400,
@@ -414,7 +421,7 @@ class RenderedPromptTests(unittest.TestCase):
             patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
             patch.object(planner.artifacts, "verify_predecessor", return_value=None),
         ):
-            for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+            for stage in (*support.STABLE, "astra_discovery"):
                 with self.subTest(stage=stage):
                     before = stage_context.context_packet(state, stage, STATE_PATH)
                     after = stage_context.context_packet(observed, stage, STATE_PATH)

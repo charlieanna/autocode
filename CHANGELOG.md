@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Public tool accounting adds bounded counts of literal conventional instruction filename mentions
+  in search arguments, with explicit nonmention and unknown coverage; the counts do not infer intent or waste.
+
 - Public usage accounting reports bounded native tool counts, outcomes and exact-argument
   repeats, with coverage limits and versioned refresh of saved observations.
 
