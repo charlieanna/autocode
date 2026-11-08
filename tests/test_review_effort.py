@@ -168,8 +168,61 @@ class LaunchTests(unittest.TestCase):
         self.assertIsNone(review_effort.note(decide(run_state(), "sol", "sol")))
         self.assertIsNone(review_effort.note(None))
 
+    def test_launch_bounds_a_format_repair_below_the_saved_level(self):
+        # #2868: a repair only fixes the report's format, so it never inherits the stage's
+        # full reasoning level; GLM 5.3 offers low, high and max, so high repairs run low.
+        state = run_state()
+        route = {"model": GLM, "reasoning_effort": "high"}
+        level, choice = review_effort.launch(state, "astra_discovery", "glm", True, route)
+        self.assertEqual(("low", "format_repair", True), (level, choice["reason"], choice["lowered"]))
+        self.assertEqual(
+            "Running at low, below your high: this repair only fixes the report's format.",
+            review_effort.note(choice),
+        )
+
 
 class RunnerLaunchTests(unittest.TestCase):
+    def test_a_format_repair_launches_below_the_saved_level_and_records_why(self):
+        # #2868: the discovery repair of a one-comma JSON slip reasoned 63,994 tokens into
+        # the 64k cap at the stage's saved high (run 20261107-115132-chat-0ff9ff). The repair
+        # launches at the highest level the model offers below the saved one, and the saved
+        # route stays untouched.
+        import autocode as runner
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            schema = root / "schema.json"
+            schema.write_text('{"type": "object", "properties": {}}')
+            state = run_state(version=2, next_stage="astra_discovery")
+            state["settings"].update(engine="opencode", provider="kilocode", joint_planning=True)
+            state["settings"]["roles"]["glm"] = {"model": GLM, "reasoning_effort": "high"}
+            state["settings"]["roles"]["terra"]["model"] = "fixture/builder"  # a checker never grades its own model
+            with mock.patch.object(
+                runner.provider_launch, "prepare", return_value=(["provider"], {}, {}, {})
+            ) as prepare:
+                _result, record = runner.run_role(
+                    role="glm",
+                    prompt="Repair the rejected report's format",
+                    sandbox="read-only",
+                    workspace=root,
+                    run_dir=root / "run",
+                    state=state,
+                    schema=schema,
+                    model=GLM,
+                    allow_write=False,
+                    dry_run=True,
+                    report_only=True,
+                )
+            self.assertEqual("low", prepare.call_args.kwargs["effort"])
+            self.assertEqual("low", record["reasoning_effort"])
+            choice = record["effort_choice"]
+            self.assertEqual(
+                ("low", "high", True, "format_repair"),
+                (choice["level"], choice["ceiling"], choice["lowered"], choice["reason"]),
+            )
+            self.assertEqual("high", record["launch_route"]["reasoning_effort"], "the saved route stays the ceiling")
+            self.assertEqual("high", state["settings"]["roles"]["glm"]["reasoning_effort"])
+
     def test_the_runner_launches_a_small_clear_review_below_its_ceiling_and_records_why(self):
         import autocode as runner
 

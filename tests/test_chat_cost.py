@@ -138,6 +138,29 @@ class CostDisplayTests(unittest.TestCase):
         self.assertIn(" · high · ", lines[repair + 1], "an attempt without its own level shows the saved one")
         self.assertNotIn("One level below", lines[repair + 2])
 
+    def test_a_format_repair_attempt_says_it_ran_below_the_saved_level_for_format_alone(self):
+        # #2868: the repair's effort_choice carries its own reason, never the review's.
+        view = public_view()
+        attempt = next(
+            row
+            for row in view["usage"]["accounting"]["attempts"]
+            if str(row.get("attempt_id", "")).startswith("001/validator-report-repair")
+        )
+        attempt.update(
+            reasoning_effort="low",
+            effort_choice={
+                "level": "low",
+                "ceiling": "high",
+                "lowered": True,
+                "reason": "format_repair",
+                "text": "this repair only fixes the report's format",
+            },
+        )
+        lines = details(view).splitlines()
+        repair = lines.index(next(line for line in lines if line.startswith("001/validator-report-repair-01")))
+        self.assertIn(" · low · ", lines[repair + 1])
+        self.assertEqual("  Below your high: this repair only fixes the report's format", lines[repair + 2])
+
     def test_attempts_and_subsets_are_not_added_to_the_core_totals(self):
         shown = details(public_view())
         self.assertIn("Input: 2,500", shown)
