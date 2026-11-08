@@ -19,16 +19,21 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from pathlib import Path
 
 try:
     from . import autocode_native_conformance as native_conformance
     from . import autocode_util as util
+    from .autocode_process import interruption_handler
     from .autocode_source_privacy import SECRET_NAME
 except ImportError:
     import autocode_native_conformance as native_conformance
     import autocode_util as util
+    from autocode_process import interruption_handler
     from autocode_source_privacy import SECRET_NAME
 
 
@@ -1205,11 +1210,25 @@ def _resolved_kilo_shell_policy(policy, definition):
     return {"*": "deny", "bash": dict(policy["bash"]), "external_directory": "deny"}
 
 
-def _native_debug(prefix, workspace, child):
-    """The model-free ``debug agent`` call every conformance probe makes; ``child`` is read at each call."""
+def _native_debug(prefix, workspace, child, *, supervised=False):
+    """Model-free ``debug agent``; serial setup stays live, supervised startup uses a snapshot."""
+    if supervised:
+        try:
+            from . import autocode_captured_process as captured_process
+        except ImportError:
+            import autocode_captured_process as captured_process
+
+        # Parallel startup checks share one final configuration, never the
+        # mutable setup environment used by the earlier serial safety probes.
+        prefix, child = tuple(prefix), dict(child)
 
     def debug(args=()):
-        result = subprocess.run([*prefix, *args], cwd=workspace, env=child, capture_output=True, text=True, timeout=60)
+        if supervised:
+            result = captured_process.run([*prefix, *args], cwd=workspace, env=child, timeout=60)
+        else:
+            result = subprocess.run(
+                [*prefix, *args], cwd=workspace, env=child, capture_output=True, text=True, timeout=60
+            )
         if result.returncode:
             if "The user has specified a rule which prevents you from using this specific tool call" in result.stderr:
                 # Native diagnostics can include private config/rules. Classify the known
@@ -1228,6 +1247,25 @@ def _native_debug(prefix, workspace, child):
             raise RuntimeError("Native tool conformance did not return auditable JSON") from error
 
     return debug
+
+
+def _check_native_shell(actual, permissions):
+    """Keep the final native policy gate ahead of every actual shell probe."""
+    if not isinstance(actual, dict):
+        raise RuntimeError("Native tool conformance returned an unsupported agent object")
+    if not _same_shell_permissions(shell_permissions(actual.get("permission")), permissions):
+        raise RuntimeError("Strict containment could not preserve the effective shell restrictions")
+    tools = actual.get("tools", {})
+    if (
+        not isinstance(tools, dict)
+        or tools.get("bash") is not True
+        or any(value is not False for name, value in tools.items() if name != "bash")
+    ):
+        raise RuntimeError("Strict containment could not disable every uncontained native tool")
+    # The final restrictive wildcard shadows all non-shell asks. A shell ask
+    # must remain a real approval, never be silently approved by debug agent.
+    if any(action == "ask" for action in permissions["bash"].values()):
+        raise RuntimeError("Native debug would auto-approve a shell ask; strict conformance is blocked")
 
 
 def _shell_probe(debug, workspace, target):
@@ -1451,6 +1489,24 @@ def _toolchain_checks(debug, workspace, probes):
     return tool_receipts
 
 
+def _parallel_toolchain_checks(debug, workspace, probes):
+    """Settle every startup probe, then accept receipts or raise in configured order."""
+    if not probes:
+        return []
+    # discover() selects fixed status/version/import checks, not project scripts.
+    # They consume the same readonly boundary without depending on one another's
+    # output or changing setup. Only the caller retains their combined receipt.
+    with ExitStack() as stack:
+        if threading.current_thread() is threading.main_thread():
+            stack.enter_context(interruption_handler())
+        workers = stack.enter_context(ThreadPoolExecutor(max_workers=3))
+        pending = [workers.submit(_toolchain_checks, debug, workspace, (probe,)) for probe in probes]
+        # Input order preserves both receipt order and earliest failing index.
+        # ExitStack joins all dispatched workers even on failure/interruption;
+        # each supervised debug call separately settles its owned process tree.
+        return [future.result()[0] for future in pending]
+
+
 def _retain(
     target,
     probe,
@@ -1619,21 +1675,7 @@ def configure(
     child["SHELL"] = boundary["shell"]
     child[config_variable] = json.dumps(config)
     actual = debug()
-    if not isinstance(actual, dict):
-        raise RuntimeError("Native tool conformance returned an unsupported agent object")
-    if not _same_shell_permissions(shell_permissions(actual.get("permission")), permissions):
-        raise RuntimeError("Strict containment could not preserve the effective shell restrictions")
-    tools = actual.get("tools", {})
-    if (
-        not isinstance(tools, dict)
-        or tools.get("bash") is not True
-        or any(value is not False for name, value in tools.items() if name != "bash")
-    ):
-        raise RuntimeError("Strict containment could not disable every uncontained native tool")
-    # The final restrictive wildcard shadows all non-shell asks. A shell ask
-    # must remain a real approval, never be silently approved by debug agent.
-    if any(action == "ask" for action in permissions["bash"].values()):
-        raise RuntimeError("Native debug would auto-approve a shell ask; strict conformance is blocked")
+    _check_native_shell(actual, permissions)
 
     control, probe, result, native_receipt = _shell_probe(debug, workspace, boundary)
 
@@ -1644,7 +1686,11 @@ def configure(
         if footprint is not None and not opt_in_writer
         else None
     )
-    tool_receipts = _toolchain_checks(debug, workspace, tools_ready["probes"])
+    if transport == "kilocode" and not allow_write:
+        startup_debug = _native_debug(prefix, workspace, child, supervised=True)
+        tool_receipts = _parallel_toolchain_checks(startup_debug, workspace, tools_ready["probes"])
+    else:
+        tool_receipts = _toolchain_checks(debug, workspace, tools_ready["probes"])
     retained = dict(
         tool_receipts=tool_receipts,
         supported_version=supported_version,
