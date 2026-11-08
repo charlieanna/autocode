@@ -113,6 +113,12 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
             or str(Path(state_path).parent / "evidence"),
             "instruction": prompts.get("fragments/stage-context/context-packet-04.md"),
         }
+        attached_source = review_source.builder_context(state, current)
+        if attached_source:
+            base["review_source"] = attached_source
+            base["builder_artifact_policy"]["source_inspection"] = prompts.get(
+                "fragments/stage-context/builder-source.md"
+            )
         # A package run's Builder may change only files inside the package (#711).
         write_scope = package_writes.context(state["settings"])
         if write_scope:

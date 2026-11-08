@@ -13,9 +13,9 @@ import autocode_stage_context as stage_context
 import autocode_util as util
 
 
-def approved_state(root, paths):
+def approved_state(root, paths, *, task_kind="build"):
     body = {
-        "task_kind": "build",
+        "task_kind": task_kind,
         "acceptance_criteria": [],
         "milestones": [],
         "initial_task": {"affected_paths": paths, "acceptance_criteria": []},
@@ -245,3 +245,157 @@ class ReviewSourceContextTests(unittest.TestCase):
                         data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
                         self.assertNotIn("review_source", data)
                         self.assertEqual(state["goal_contract"], data["goal_contract"])
+
+
+class BuilderSourceContextTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.contents = {
+            "app.py": b"def total(values):\n    return sum(values)\n",
+            "test_app.py": b"# library regression tests\n",
+            "test_cli.py": b"# CLI regression tests\n",
+        }
+        for name, content in self.contents.items():
+            (self.root / name).write_bytes(content)
+        self.state = approved_state(self.root, list(self.contents), task_kind="bugfix")
+        self.state["workflow"] = {"kind": "bugfix", "clarity": "clear", "brief_size": "small"}
+        self.state["planning"] = {"adaptive": {"size": "small"}}
+        self.state["settings"]["roles"]["terra"].update(model="selected/model", reasoning_effort="high")
+
+    def current(self):
+        return snapshot({name: hashlib.sha256((self.root / name).read_bytes()).hexdigest() for name in self.contents})
+
+    def render(self, *, current=None, state=None, stage="terra"):
+        with mock.patch.object(stage_context.source_scope, "snapshot", return_value=current or self.current()):
+            prompt, _ = stage_context.context_packet(state or self.state, stage, self.root / ".autocode/state.json")
+        return prompt, json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+
+    def assert_attached(self, data):
+        self.assertIn("review_source", data)
+        self.assertIn("source_inspection", data["builder_artifact_policy"])
+        return data["review_source"]
+
+    def assert_omitted(self, data):
+        self.assertNotIn("review_source", data)
+        if "builder_artifact_policy" in data:
+            self.assertNotIn("source_inspection", data["builder_artifact_policy"])
+
+    def test_small_clear_bugfix_builder_inspects_complete_current_text_without_new_authority(self):
+        before = copy.deepcopy(self.state)
+        current = self.current()
+        prompt, data = self.render(current=current)
+        attached = self.assert_attached(data)
+        self.assertEqual(current["revision"], attached["source_revision"])
+        self.assertEqual(current["head"], attached["git_head"])
+        self.assertEqual(
+            [
+                {"path": name, "sha256": current["files"][name], "content": self.contents[name].decode()}
+                for name in sorted(self.contents)
+            ],
+            attached["files"],
+        )
+        self.assertEqual(before, self.state)
+        self.assertEqual(before["goal_contract"], data["goal_contract"])
+        self.assertNotIn("requirements_observations", data)
+        self.assertNotIn("regression_proof", data, "the Builder never enters the reviewer proof branch")
+        self.assertIn("Implement current_task within the approved build brief", prompt)
+        self.assertIn("execute relevant available checks", prompt)
+        self.assertIn("independently execute all required checks", attached["instruction"])
+        self.assertIn("Reading that authenticated inline text satisfies", prompt)
+        self.assertIn("avoid another inventory, source read or hash command solely to rediscover", prompt)
+        self.assertIn("fail-first or TDD checks", prompt)
+        self.assertIn("execute all required checks", prompt)
+        self.assertIn("An absent attachment or changed source grants no inspection or verification credit", prompt)
+        self.assertIn("regression, mutation, independent Tester and Completion Reviewer gate", prompt)
+
+    def test_each_launch_refreshes_text_hash_and_revision_after_source_changes(self):
+        _, first = self.render()
+        original = copy.deepcopy(self.assert_attached(first))
+        changed = b"def total(values):\n    return sum(values, start=0)\n"
+        (self.root / "app.py").write_bytes(changed)
+        current = self.current()
+        _, second = self.render(current=current)
+        attached = self.assert_attached(second)
+        self.assertNotEqual(original["source_revision"], attached["source_revision"])
+        self.assertEqual(current["revision"], attached["source_revision"])
+        row = next(row for row in attached["files"] if row["path"] == "app.py")
+        self.assertEqual(changed.decode(), row["content"])
+        self.assertEqual(hashlib.sha256(changed).hexdigest(), row["sha256"])
+        self.assertEqual(original, first["review_source"], "earlier prompts keep their original source")
+
+    def test_stale_snapshot_omits_the_entire_attachment_and_inspection_credit(self):
+        current = self.current()
+        self.assert_attached(self.render(current=current)[1])
+        (self.root / "app.py").write_bytes(b"changed since the launch snapshot\n")
+        _, data = self.render(current=current)
+        self.assert_omitted(data)
+
+    def test_invalid_approval_cannot_read_or_attach_source(self):
+        self.assert_attached(self.render()[1])
+        for invalid in ("unapproved", "missing_event", "wrong_token", "changed_body"):
+            with self.subTest(invalid=invalid):
+                state = copy.deepcopy(self.state)
+                if invalid == "unapproved":
+                    state["goal_contract"]["approval_status"] = "draft"
+                elif invalid == "missing_event":
+                    state["user_events"] = []
+                elif invalid == "wrong_token":
+                    state["goal_contract"]["approval_event"]["token"] = "r1:wrong-plan"
+                else:
+                    state["goal_contract"]["body"]["initial_task"]["affected_paths"].append("elsewhere.py")
+                with mock.patch.object(review_source, "_read_file", wraps=review_source._read_file) as read:
+                    _, data = self.render(state=state)
+                self.assert_omitted(data)
+                read.assert_not_called()
+
+    def test_unsafe_missing_unreadable_or_oversized_source_keeps_ordinary_inspection(self):
+        self.assert_attached(self.render()[1])
+        current = self.current()
+        target = self.root / "app.py"
+        target.unlink()
+        try:
+            self.assert_omitted(self.render(current=current)[1])
+            target.symlink_to(self.root / "test_app.py")
+            self.assert_omitted(self.render(current=current)[1])
+        finally:
+            target.unlink(missing_ok=True)
+            target.write_bytes(self.contents["app.py"])
+        with mock.patch.object(review_source, "_read_file", side_effect=PermissionError("unreadable")):
+            self.assert_omitted(self.render()[1])
+        target.write_bytes(b"x" * (review_source.MAX_BYTES + 1))
+        self.assert_omitted(self.render()[1])
+        target.write_bytes(self.contents["app.py"])
+        self.contents["auth.json"] = b"PRIVATE-MUST-NOT-BE-READ"
+        (self.root / "auth.json").write_bytes(self.contents["auth.json"])
+        state = approved_state(self.root, list(self.contents), task_kind="bugfix")
+        state.update(workflow=self.state["workflow"], planning=self.state["planning"])
+        with mock.patch.object(review_source, "_read_file", wraps=review_source._read_file) as read:
+            prompt, data = self.render(state=state)
+        self.assert_omitted(data)
+        read.assert_not_called()
+        self.assertNotIn("PRIVATE-MUST-NOT-BE-READ", prompt)
+
+    def test_only_small_clear_bugfix_builder_launches_receive_the_attachment(self):
+        self.assert_attached(self.render()[1])
+        for clarity, size in (("vague", "small"), (None, "small"), ("clear", "medium"), ("clear", "large")):
+            with self.subTest(clarity=clarity, size=size):
+                state = copy.deepcopy(self.state)
+                state["workflow"]["clarity"] = clarity
+                state["planning"]["adaptive"]["size"] = size
+                self.assert_omitted(self.render(state=state)[1])
+        state = approved_state(self.root, list(self.contents), task_kind="build")
+        state.update(workflow=self.state["workflow"], planning=self.state["planning"])
+        self.assert_omitted(self.render(state=state)[1])
+        self.assert_omitted(self.render(stage="astra_plan")[1])
+        for stage in ("sol", "astra_review", "astra_checkpoint"):
+            with self.subTest(stage=stage):
+                _, data = self.render(stage=stage)
+                self.assertIn("review_source", data)
+                self.assertNotIn("builder_artifact_policy", data)
+
+    def test_malformed_optional_classification_keeps_ordinary_inspection(self):
+        self.assert_attached(self.render()[1])
+        state = {**self.state, "planning": ["malformed"]}
+        self.assertIsNone(review_source.builder_context(state, self.current()))
