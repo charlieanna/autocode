@@ -239,6 +239,19 @@ class PreflightCheckTests(unittest.TestCase):
                     self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
                 self.assertEqual(["plan/glm", "plan/mimo"], sorted(self.calls))
 
+    def test_imminent_requirements_without_a_saved_route_keeps_standalone_selection_unproven(self):
+        routes = {"requirements": {"model": "plan/glm", "reasoning_effort": "high"}}
+        for settings in (
+            {},
+            {"roles": {}},
+            {"roles": {"sol": {}}},
+            {"roles": {"requirements": None}},
+            {"roles": {"requirements": "unbound"}},
+        ):
+            with self.subTest(settings=settings):
+                state = {"next_stage": "requirements_gather", "settings": settings}
+                self.assertIsNone(preflight._imminent_requirements_binding(state, self.adapter, routes))
+
     def test_explicit_failed_or_uncertain_probe_is_never_replaced_by_imminent_requirements(self):
         self.fresh_requirements()
         identity = {**self.run_identity(), "reasoning_effort": "high"}

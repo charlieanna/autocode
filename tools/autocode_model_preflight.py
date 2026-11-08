@@ -444,7 +444,9 @@ def _imminent_requirements_binding(state: RunState, facade, routes) -> dict | No
         or any(record.get("stage") != attempts.STAGE for record in state.get("stages", []))
     ):
         return None
-    route = settings["roles"]["requirements"]
+    route = (settings.get("roles") or {}).get("requirements")
+    if not isinstance(route, dict):
+        return None
     effort, _choice = review_effort.launch(state, "requirements_gather", "requirements", False, route)
     fitted = route_fit.fit(settings, "requirements", effort=effort, model=route.get("model"))
     return access_evidence.launch_binding(settings, "requirements", facade, route.get("model"), fitted.effort)
