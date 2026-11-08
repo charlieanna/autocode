@@ -26,6 +26,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - The run-state typing check no longer mistakes an OpenCode tool-event payload for untyped
   AutoCode run state.
+- A fresh Requirements call replaces its own redundant model-access ping for the exact same
+  connection, model and reasoning level. Other routes keep their probes; billing, stop and budget
+  checks still run, and only the real call can earn successful access evidence.
 - Plans and Builder instructions assign independent fail-first proof to the runner and avoid requiring
   a duplicate Builder capture solely to establish it. Project instructions, explicit test-first requests
   and approved check sequences still apply.
