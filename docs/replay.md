@@ -109,17 +109,43 @@ paths, case names and nonces are not printed. `source_revision_match` and
 `capture_context_match` describe equality only, never authenticity or approval.
 
 The inventory always reports `closure_status: "unverified"` and
-`execution_authority: false`. The current projection has no independent selectors
-for capture receipt files, raw logs or copy manifests and their inputs, so these
-remain explicitly uninspected or unavailable. No claimed path is opened or
-resolved: even a path classified lexically as `run` may contain a symlink, and a
-matching digest may be a forged claim. Missing, stale, malformed and cross-run
-claims cannot enable export. Inspection stops after 128 dependencies or 16,384
-tool-output lines and sets `truncated: true`; that limit also cannot enable
-export. This diagnostic is not an import format or a portable native replay
-capability. If the retained events cannot be inventoried, the refusal is
-returned without this field. Existing non-JSON refusal text and exit code 3
-are unchanged.
+`execution_authority: false`. Capture receipt files and raw logs remain
+uninspected: no model-claimed path is opened or resolved. Even a path classified
+lexically as `run` may contain a symlink, and a matching digest may be forged.
+Missing, stale, malformed and cross-run claims cannot enable export. Claim
+inspection stops after 128 dependencies or 16,384 tool-output lines and sets
+`truncated: true`; that limit also cannot enable export.
+
+When the original core stage record retained a direct verification-copy selector,
+the public `replay_source.records[]` projection includes its optional version 1
+`verification_copy` field: `manifest`, `sha256` and `source_revision`. Inventory
+uses only that selector to add `copy_evidence` to a referenced dispatch. It reads
+the pinned manifest in that run's `tool-containment-<id>` directory and checks
+retained regular source files against the dispatch's historical source snapshot,
+including exact bytes, executable bits and source selection. It does not consult
+the current workspace source or run Git or archived commands. A matching copy
+pin in a claim is still just a comparison; a different claim is reported without
+rewriting it.
+
+`copy_evidence.status` is `matched`, `unavailable`, `invalid`, `unsupported` or
+`limited`, with a specific `reason` and counts of source files and bytes checked.
+Old runs without the selector report `unavailable` / `selector_missing`.
+`matched` covers only the pinned manifest and regular source, not the entire
+copy or the original capture's custody. Generated Git metadata and other files
+outside the historical source inventory are not read. Linked dependencies,
+submodule or deleted source entries, joint inputs, other copy layouts and unknown
+manifest versions remain unsupported. Symlinks, hardlinks, special files, unsafe
+paths, duplicate JSON keys and observed replacements cannot match. Reads use held
+no-follow directories and recheck observed file and directory identities. This
+is a bounded observation of retained evidence, not a frozen execution boundary.
+Per-file reads stop at 8 MiB; one inventory shares a 64 MiB / 10,000-file budget.
+Snapshot and manifest entry counts are also bounded at 10,000.
+
+This diagnostic is not an import format or a portable native replay capability.
+Export and direct replay still refuse before destination writes or startup,
+even when the retained copy matches. If the retained events cannot be inventoried,
+the refusal is returned without this field. Existing non-JSON refusal text and
+exit code 3 are unchanged.
 
 Fresh checks also require the evidence their current verifier expects. Some older
 report-file provider archives lack retained tool-command receipts; replay refuses

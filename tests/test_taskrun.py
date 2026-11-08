@@ -123,6 +123,10 @@ class RunViewTests(unittest.TestCase):
 
     def test_contract_fields(self):
         self.assertIn("gate", run_view.view({"status": "RUNNING"})["chat"])
+        copy_record = run_view.view(
+            {"status": "RUNNING", "stages": [{"role": "sol", "events": "tester.jsonl", "verification_copy": {}}]}
+        )["replay_source"]["records"][0]["verification_copy"]
+        self.assertEqual({"version", "manifest", "sha256", "source_revision"}, set(copy_record))
         self.assertEqual(
             {
                 "schema",
