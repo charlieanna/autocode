@@ -18,6 +18,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- New plans use the runner's independent fail-first proof instead of requiring a duplicate Builder
+  capture solely to establish it. Explicit test-first requests and approved check sequences still apply.
+  Eligible Builder checks can run in one batch, with a fresh authenticated receipt for every command
+  and phase; independent testing and completion checks remain required.
 - A new run's first moment no longer reads `Next: Planner` in the chat's log ahead of Requirements. The
   run's first save holds the default next stage until it chooses its first one; the status view now says
   `Starting the run` and names no stage until then.
