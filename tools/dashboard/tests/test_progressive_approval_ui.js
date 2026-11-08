@@ -63,8 +63,8 @@ function harness(){
     renderDocument:value=>new Element('pre',JSON.stringify(value)),human:value=>String(value),
     taskArchiveBlocked:()=>false,projectBlocked:()=>false,interruptedAttempt:()=>null,
     renderLiveControls(){},renderExecution(){},renderTaskNow(){},
-    dashboardNotice:message=>notices.push(message),refresh:async()=>{},
-    latestRun:run,chosen:{run:run.run},taskReadError:'',seq:0,
+    dashboardNotice:message=>notices.push(message),refresh:async()=>{if(context.api)context.latestRun=await context.api();},
+    latestRun:run,currentView:'task-detail',chosen:{run:run.run},taskReadError:'',seq:0,
     taskActionPending:new Set(),taskChatPending:new Map(),
     post:async(url,payload)=>{calls.push({url,payload:JSON.parse(JSON.stringify(payload))});return {id:'approval-1',status:'queued'};},
   });

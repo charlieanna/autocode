@@ -1049,6 +1049,7 @@ class DynamicDependenciesTests(unittest.TestCase):
 
     def test_native_javascript_resources_select_their_real_consumers_even_when_slow(self):
         for path, expected in (
+            ("tools/dashboard/tests/test_shell_a11y_ui.js", {"tests.test_catalogue_t12"}),
             ("tools/autocode_capture_bootstrap.cjs", {"tests.test_native_capture_ipc", "tests.test_native_capture"}),
             ("tools/autocode_native_capture_linux.cjs", {"tests.test_native_capture_ipc", "tests.test_native_capture"}),
             ("tools/autocode_kilo_image_delivery.mjs", {"tests.test_kilo_image_delivery", "tests.test_native_image"}),
