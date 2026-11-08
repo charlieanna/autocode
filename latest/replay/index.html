@@ -1918,7 +1918,7 @@
 
 
 <h1 id="replay-a-saved-run">Replay a saved run<a class="headerlink" href="#replay-a-saved-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/f5c48c107ba9b0c17bda0e679356e93585e0d1ac/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9744d0dd8b97e58e8cf029bd090f945b46470bcb/README.md">← Back to README</a></p>
 <p>Replay drives a fresh AutoCode task run with a saved brief, model routes and
 provider events. It makes no model calls. Normal replay runs the current
 verification checks again; a previous PASS cannot establish a current PASS.
@@ -2002,6 +2002,25 @@ dependencies before writing a bundle, including when export is implicit in a dir
 original completed run and its evidence remain usable and unchanged. A receipt's
 old paths and hashes cannot establish fresh capture authority in another run.
 Unreferenced tool output, such as a printed documentation example, remains exportable.</p>
+<p>With <code>--json</code>, this refusal includes <code>native_capture_dependencies</code>, a version 1
+inventory of referenced capture <strong>claims</strong> from the already-read original tool
+events. Each entry identifies the dispatch, normalized event/line occurrence,
+original event artifact digest, before/after snapshot selectors, source selection
+digest and task/contract/case-scope digest. It records digests of the claimed
+command, receipt text and output path, the claimed copy/log pins, comparisons with
+the dispatch's source and capture context, and specific <code>issues</code>. Raw commands,
+paths, case names and nonces are not printed. <code>source_revision_match</code> and
+<code>capture_context_match</code> describe equality only, never authenticity or approval.</p>
+<p>The inventory always reports <code>closure_status: "unverified"</code> and
+<code>execution_authority: false</code>. The current projection has no independent selectors
+for capture receipt files, raw logs or copy manifests and their inputs, so these
+remain explicitly uninspected or unavailable. No claimed path is opened or
+resolved: even a path classified lexically as <code>run</code> may contain a symlink, and a
+matching digest may be a forged claim. Missing, stale, malformed and cross-run
+claims cannot enable export. Inspection stops after 128 dependencies or 16,384
+tool-output lines and sets <code>truncated: true</code>; that limit also cannot enable
+export. This diagnostic is not an import format or a portable native replay
+capability. Existing non-JSON refusal text and exit code 3 are unchanged.</p>
 <p>Fresh checks also require the evidence their current verifier expects. Some older
 report-file provider archives lack retained tool-command receipts; replay refuses
 those paths instead of copying old supervision records into current proof.
