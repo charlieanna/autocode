@@ -40,21 +40,28 @@ PROSE = {"reasoning": "thinking", "agent_message": "message", "text": "message"}
 CODEX_ROWS = ("item.started", "item.updated", "item.completed")
 
 
-def _prose(value) -> str:
-    """Model text as one line: control characters and runs of space collapsed, secrets redacted, the
-    newest words kept."""
+def _prose(value, *, streaming=False) -> str:
+    """Model text as one line, bounded: control characters and runs of space collapsed, secrets
+    redacted. Finished text keeps its first words and ends with an ellipsis where it was cut; text
+    still streaming keeps its newest words behind one, and says ``[partial]``. The cut is at a word
+    boundary where there is one; a bracketed notice in its place read as part of the thought (#2762).
+    """
     text = " ".join("".join(char if char.isprintable() else " " for char in str(value or "")).split())
     text = util.redact(text)
-    if len(text) <= PROSE_LIMIT:
-        return text
-    prefix = "[earlier text omitted] "
-    start = len(text) - (PROSE_LIMIT - len(prefix))
-    if text[start - 1] != " ":
+    suffix = " [partial]" if streaming and text else ""
+    if len(text) + len(suffix) <= PROSE_LIMIT:
+        return text + suffix
+    if streaming:
+        start = len(text) - (PROSE_LIMIT - len(suffix) - 1)
         boundary = text.find(" ", start)
-        if boundary < 0:
-            return "[long text omitted]"
-        start = boundary + 1
-    return prefix + text[start:].lstrip()
+        if 0 <= boundary < len(text) - 1:
+            start = boundary + 1
+        return "…" + text[start:] + suffix
+    end = PROSE_LIMIT - 1
+    boundary = text.rfind(" ", 0, end + 1)
+    if boundary > 0:
+        end = boundary
+    return text[:end].rstrip() + "…"
 
 
 def _structured_response(text: str) -> bool:
@@ -113,7 +120,7 @@ def prose_event(row: dict) -> tuple[str, dict] | None:
         if len(text.split()) == 1:
             shown = "Partial thought received." if kind == "thinking" else "Partial message received."
         else:
-            shown = _prose(text + " [partial]")
+            shown = _prose(text, streaming=True)
     return (f"{kind}:{identifier}", {"kind": kind, "text": shown}) if shown else None
 
 
@@ -138,10 +145,10 @@ def progress_event(row: dict) -> tuple[str, dict] | None:
     name = "Reasoning" if kind == "reasoning" else "Response"
     shown = PROSE[kind]
     preview = progress.get("preview")
-    if kind == "reasoning" and isinstance(preview, str) and (text := _prose(preview)):
+    if kind == "reasoning" and isinstance(preview, str) and (text := _prose(preview, streaming=True)):
         # The provider hook's newest reasoning words, bounded and redacted again here. A response
         # part (possibly the report) never carries a preview, so it stays an opaque receipt.
-        return f"{shown}:{identifier}", {"kind": shown, "text": _prose(text + " [partial]")}
+        return f"{shown}:{identifier}", {"kind": shown, "text": text}
     return f"{shown}:{identifier}", {
         "kind": shown,
         "text": f"{name} stream activity received; text unavailable.",

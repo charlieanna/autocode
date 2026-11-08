@@ -324,17 +324,29 @@ class ReadTests(unittest.TestCase):
         self.assertNotIn("\n", first)
         self.assertNotIn("abcdefghijkl", first)
         self.assertLessEqual(len(second), log.PROSE_LIMIT)
-        self.assertTrue(second.startswith("[earlier text omitted] ") and second.endswith("newest"))
+        self.assertTrue(second.startswith("old old ") and second.endswith(" old…"), second)
 
-    def test_truncated_prose_starts_at_a_word_boundary_with_a_clear_notice(self):
-        text = "older context " * 50 + "Which codes should the history show?"
+    def test_a_finished_thought_keeps_its_first_words_and_ends_where_it_was_cut(self):
+        # A thought's start is what reads once it is complete; the newest words matter only while it
+        # streams. The cut was marked "[earlier text omitted]" at the front, which read as part of
+        # the thought on every thought longer than the bound (2026-11-08 live run).
+        text = "Which codes should the history show? " + "older context " * 50
         shown = log._prose(text)
-        self.assertTrue(shown.startswith("[earlier text omitted] "))
-        tail = shown.removeprefix("[earlier text omitted] ")
-        self.assertIn(" " + tail, text)
-        self.assertTrue(shown.endswith("Which codes should the history show?"))
+        self.assertTrue(shown.startswith("Which codes should the history show? older context"))
+        self.assertTrue(shown.endswith("…") and text.startswith(shown[:-1] + " "), "cut at a word boundary")
         self.assertLessEqual(len(shown), log.PROSE_LIMIT)
-        self.assertEqual("[long text omitted]", log._prose("x" * 500))
+        self.assertNotIn("omitted", shown)
+        self.assertEqual("x" * (log.PROSE_LIMIT - 1) + "…", log._prose("x" * 500), "one long word is cut as is")
+
+    def test_a_streaming_thought_keeps_its_newest_words_behind_an_ellipsis(self):
+        text = "older context " * 50 + "Which codes should the history show?"
+        shown = log._prose(text, streaming=True)
+        self.assertTrue(shown.startswith("…older context "), shown)
+        self.assertTrue(shown.endswith("Which codes should the history show? [partial]"))
+        self.assertIn(" " + shown[1:].removesuffix(" [partial]"), text, "a whole word follows the cut")
+        self.assertLessEqual(len(shown), log.PROSE_LIMIT)
+        self.assertEqual("Short. [partial]", log._prose("Short.", streaming=True))
+        self.assertEqual("", log._prose("", streaming=True), "nothing to show is not partial")
 
     def test_an_unfinished_first_token_is_activity_not_a_finished_word(self):
         write(
@@ -382,7 +394,7 @@ class ReadTests(unittest.TestCase):
             ],
         )
         shown = self.entries()[0][1]
-        self.assertTrue(shown.startswith("[earlier text omitted] "))
+        self.assertTrue(shown.startswith("…old "), shown)
         self.assertTrue(shown.endswith("newest [partial]"))
         self.assertLessEqual(len(shown), log.PROSE_LIMIT)
         self.assertNotIn("abcdefghijkl", shown)
