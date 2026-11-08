@@ -18,6 +18,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode replay --export` or `--into` on a run with native capture receipts again refuses with exit
+  code 3 when a later attempt's retained events are malformed, instead of crashing with a traceback while
+  building the refusal's `native_capture_dependencies` diagnostics. The refusal is then returned without
+  that field (#2888).
+
 - A thought or message longer than the status view's 400-character bound no longer appears in the chat
   behind `[earlier text omitted]`, which read as part of the thought on nearly every thought. A finished
   entry now keeps its first words and ends with `…` where it was cut; one still streaming keeps its

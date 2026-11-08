@@ -7,6 +7,7 @@ Original evidence stays untouched; exported bytes have their own redacted pins.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
 import json
@@ -1203,15 +1204,18 @@ def export(projection, destination, secret_values=()):
     except RecordingError as error:
         # Enrich the existing refusal only. Diagnostics never admit a capture,
         # read its claimed paths, or replace the original guard's decision.
-        error.native_capture_dependencies = dependencies.inventory(
-            document=document,
-            originals=original_values,
-            records=projection["records"],
-            references=references,
-            workspace=workspace,
-            run_dir=run_root,
-            contexts=contexts,
-        )
+        # The inventory also scans attempts after the refused one, which the
+        # guard never parsed; a failure there must not replace this refusal.
+        with contextlib.suppress(Exception):
+            error.native_capture_dependencies = dependencies.inventory(
+                document=document,
+                originals=original_values,
+                records=projection["records"],
+                references=references,
+                workspace=workspace,
+                run_dir=run_root,
+                contexts=contexts,
+            )
         raise
     revisions = list(dict.fromkeys([*projection["revisions"], *[row["head"] for row in snapshots]]))
     for snapshot in snapshots:

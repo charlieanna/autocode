@@ -275,6 +275,31 @@ class DependencyInventoryCliTests(unittest.TestCase):
         self.assertTrue(outside.is_symlink())
         self.assertFalse((self.root / "bundle").exists())
 
+    def test_unreadable_later_attempt_events_keep_the_original_refusal(self):
+        # The guard refuses at the first attempt; the inventory alone parses later ones.
+        later = copy.deepcopy(self.record)
+        events = Path(self.record["events"]).with_name("later.jsonl")
+        events.write_text(json.dumps({"type": "tool_use", "sessionID": "session"}) + "\n1\n")
+        later.update(events=str(events), bindings=[{"retained": True}])
+        later.pop("output")
+        self.projection["records"].append(later)
+        for options in (["--json"], []):
+            error = io.StringIO()
+            with (
+                self.subTest(options=options),
+                patch.object(cli.TaskRun, "status", return_value={"replay_source": self.projection}),
+                redirect_stderr(error),
+            ):
+                code = cli.cli([self.projection["run_dir"], "--export", str(self.root / "bundle"), *options])
+            self.assertEqual(3, code)
+            text = error.getvalue()
+            self.assertIn("native capture receipt dependencies are unsupported in v1", text)
+            if options:
+                self.assertEqual({"code", "message"}, set(json.loads(text)))
+            else:
+                self.assertTrue(text.startswith("Replay refused: "))
+        self.assertFalse((self.root / "bundle").exists())
+
     def test_other_refusals_do_not_acquire_native_capture_diagnostics(self):
         error = io.StringIO()
         with patch.object(cli.TaskRun, "status", return_value={"replay_source": None}), redirect_stderr(error):
