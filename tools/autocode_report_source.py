@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_cmd_only_report as cmd_only
     from . import autocode_opencode as opencode
+    from . import autocode_requirements_triage as requirements_triage
     from . import autocode_support as support
     from .autocode_report_bounds import MAX_REPORT_BYTES
     from .autocode_util import read as read_json
@@ -26,6 +27,7 @@ try:
 except ImportError:
     import autocode_cmd_only_report as cmd_only
     import autocode_opencode as opencode
+    import autocode_requirements_triage as requirements_triage
     import autocode_support as support
     from autocode_report_bounds import MAX_REPORT_BYTES
     from autocode_util import read as read_json
@@ -292,6 +294,15 @@ def load_stage_report(runtime, record, workspace=None, evidence_record=None, sta
         runtime.report_edits.validation_schema(runtime.read_json(Path(record["schema"]))), state, record, value
     )
     value = runtime.support.normalize_loaded_report(value, schema, record)
+    if (
+        state is not None
+        and requirements_triage.due(state)
+        and str(record.get("stage", "")).removesuffix("_report_repair") == requirements_triage.STAGE
+    ):
+        # The triage dispatch (#2940) answers a small contract; the strict wire schema a transport
+        # demands (every property required) must not refuse it here. Only the two summary lines are
+        # required, exactly as the request promised; a full report keeps the schema below.
+        schema = requirements_triage.answer_schema(schema)
     # finding_dispositions may be present in reports validated against schemas
     # saved before the field was introduced. Strip it before validation rather
     # than rejecting a correct report.

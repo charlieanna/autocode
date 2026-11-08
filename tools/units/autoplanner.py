@@ -12,6 +12,7 @@ try:
     from .. import autocode_planning_time as planning_time
     from .. import autocode_prompts as prompts
     from .. import autocode_requirements_observations as requirements_observations
+    from .. import autocode_requirements_triage as requirements_triage
 except ImportError:
     import autocode_gate_chat as gate_chat
     import autocode_packet_events as packet_events
@@ -22,6 +23,7 @@ except ImportError:
     import autocode_planning_time as planning_time
     import autocode_prompts as prompts
     import autocode_requirements_observations as requirements_observations
+    import autocode_requirements_triage as requirements_triage
 
 
 import copy
@@ -1826,6 +1828,26 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         raise ValueError(f"Autoplanner cannot run {stage}")
     joint = is_planning(state, stage)
     state["phase"] = "PLANNING" if joint else "DISCOVERING"
+    if joint and stage == requirements_triage.STAGE and requirements_triage.due(state):
+        # The triage pass (#2940): a small prompt and schema at the floor effort level, so the
+        # first blocking question reaches the person before the full Requirements report runs.
+        prompt = requirements_triage.prompt(
+            state,
+            workspace_inventory(state["workspace"], state["task"]),
+            engine_for(state["settings"], route_for(state, stage)),
+        )
+        role = role_for(state, stage)
+        return ModelRequest(
+            role,
+            route_for(state, stage, role),
+            prompt,
+            {
+                "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
+                "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000),
+            },
+            requirements_triage.request_schema(_requirements_model_schema(state)),
+            False,
+        )
     schema = _requirements_model_schema(state) if joint and stage == "requirements_gather" else None
     try:
         if joint and stage == "requirements_gather":

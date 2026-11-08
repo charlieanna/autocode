@@ -327,40 +327,51 @@ elif stage == "investigate_stuck":
         )
 elif stage == "requirements_gather":
     draft = body(questions=not data["saved_answers"], task_kind=task_kind)
-    result = {
-        "summary": "Requirements for a local greeting CLI, without an implementation plan",
-        "intended_outcome": draft["intended_outcome"],
-        "required_behaviors": draft["required_behaviors"],
-        "constraints": draft["constraints"],
-        "acceptance_tests": ["Valid and invalid CLI input have the requested outcomes"],
-        "source_refs": [f"{name}:1" for name in ("greet.py", "bye.py") if Path(name).is_file()],
-        "proposed_assumptions": [
-            {
-                "id": "A1",
-                "text": "Use a local CLI if the user chooses that interface",
-                "kind": "inferable",
-                "category": "behavior",
-                "convention_ref": "task",
-                "rationale": "The task asks for a local tool",
-                "supports": [],
-            }
-        ],
-        "open_questions": draft["open_blocking_questions"],
-        "requirements": [],
-        "ignored_statements": [],
-        "conflicts": [],
-        "proposed_reframes": [],
-        "ignored_requirements": [],
-        "machine_resolutions": [],
-        "access_blockers": [],
-        "task_kind": task_kind,
-        # Requirements names the job (#1860); this offline fixture treats every request as a build.
-        "job": "build",
-        "design_document": "",
-        # This offline fixture's requests belong to this repository alone (#2066), unless a test names a part
-        # that belongs elsewhere as TARGET|WORK|QUOTE, the quote copied from its task.
-        "workspace_scope": {"spans_repositories": False, "external_parts": []},
-    }
+    if "ready" in schema.get("properties", {}):
+        # The triage pass's small contract (#2940): the wire schema asks only for the blocking
+        # questions or ready, so answer exactly that; the full report runs on the ordinary
+        # schema once the answers are saved.
+        result = {
+            "summary": "Triage: ask the blocking question before drafting requirements",
+            "intended_outcome": draft["intended_outcome"],
+            "ready": not draft["open_blocking_questions"],
+            "open_questions": draft["open_blocking_questions"],
+        }
+    else:
+        result = {
+            "summary": "Requirements for a local greeting CLI, without an implementation plan",
+            "intended_outcome": draft["intended_outcome"],
+            "required_behaviors": draft["required_behaviors"],
+            "constraints": draft["constraints"],
+            "acceptance_tests": ["Valid and invalid CLI input have the requested outcomes"],
+            "source_refs": [f"{name}:1" for name in ("greet.py", "bye.py") if Path(name).is_file()],
+            "proposed_assumptions": [
+                {
+                    "id": "A1",
+                    "text": "Use a local CLI if the user chooses that interface",
+                    "kind": "inferable",
+                    "category": "behavior",
+                    "convention_ref": "task",
+                    "rationale": "The task asks for a local tool",
+                    "supports": [],
+                }
+            ],
+            "open_questions": draft["open_blocking_questions"],
+            "requirements": [],
+            "ignored_statements": [],
+            "conflicts": [],
+            "proposed_reframes": [],
+            "ignored_requirements": [],
+            "machine_resolutions": [],
+            "access_blockers": [],
+            "task_kind": task_kind,
+            # Requirements names the job (#1860); this offline fixture treats every request as a build.
+            "job": "build",
+            "design_document": "",
+            # This offline fixture's requests belong to this repository alone (#2066), unless a test names a part
+            # that belongs elsewhere as TARGET|WORK|QUOTE, the quote copied from its task.
+            "workspace_scope": {"spans_repositories": False, "external_parts": []},
+        }
     external = os.environ.get("AUTOCODE_FIXTURE_EXTERNAL_PART")
     if external:
         target, work, quote = external.split("|", 2)
