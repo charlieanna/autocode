@@ -104,45 +104,46 @@ class WorkflowAdmissionTests(unittest.TestCase):
         java_steps = [
             step for step in steps if re.search(r"uses: actions/setup-java@|name: Select .*Java", step.splitlines()[0])
         ]
-        self.assertEqual(1, len(java_steps))
-        command = re.search(r"(?m)^        run: (.+)$", java_steps[0])
-        self.assertIsNotNone(command, "Java admission must use installed tools rather than a release downloader")
-        with tempfile.TemporaryDirectory() as directory:
-            home = Path(directory) / "jdk"
-            (home / "bin").mkdir(parents=True)
-            for name in ("java", "javac"):
-                path = home / "bin" / name
-                path.write_text(
-                    "#!"
-                    + sys.executable
-                    + "\nprint("
-                    + repr("java.specification.version = 17" if name == "java" else "javac 17.0.16")
-                    + ")\n"
+        self.assertEqual(2, len(java_steps))
+        for index, step in enumerate(java_steps):
+            command = re.search(r"(?m)^        run: (.+)$", step)
+            self.assertIsNotNone(command, "Java admission must use installed tools rather than a release downloader")
+            with self.subTest(job=index), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory) / "jdk"
+                (home / "bin").mkdir(parents=True)
+                for name in ("java", "javac"):
+                    path = home / "bin" / name
+                    path.write_text(
+                        "#!"
+                        + sys.executable
+                        + "\nprint("
+                        + repr("java.specification.version = 17" if name == "java" else "javac 17.0.16")
+                        + ")\n"
+                    )
+                    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+                env_file, path_file = Path(directory) / "env", Path(directory) / "path"
+                environment = {
+                    **os.environ,
+                    "JAVA_HOME_17_X64": str(home),
+                    "GITHUB_ENV": str(env_file),
+                    "GITHUB_PATH": str(path_file),
+                    "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""),
+                }
+                result = subprocess.run(
+                    command.group(1),
+                    shell=True,
+                    executable="/bin/bash",
+                    cwd=root,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
-                path.chmod(path.stat().st_mode | stat.S_IXUSR)
-            env_file, path_file = Path(directory) / "env", Path(directory) / "path"
-            environment = {
-                **os.environ,
-                "JAVA_HOME_17_X64": str(home),
-                "GITHUB_ENV": str(env_file),
-                "GITHUB_PATH": str(path_file),
-                "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""),
-            }
-            result = subprocess.run(
-                command.group(1),
-                shell=True,
-                executable="/bin/bash",
-                cwd=root,
-                env=environment,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-            self.assertIn("java.specification.version = 17", result.stdout)
-            self.assertIn("javac 17.0.16", result.stdout)
-            self.assertEqual("JAVA_HOME=" + str(home.resolve()) + "\n", env_file.read_text())
-            self.assertEqual(str(home.resolve() / "bin") + "\n", path_file.read_text())
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                self.assertIn("java.specification.version = 17", result.stdout)
+                self.assertIn("javac 17.0.16", result.stdout)
+                self.assertEqual("JAVA_HOME=" + str(home.resolve()) + "\n", env_file.read_text())
+                self.assertEqual(str(home.resolve() / "bin") + "\n", path_file.read_text())
 
     @unittest.skipIf(os.name == "nt", "The Ubuntu Java admission step runs POSIX tools")
     def test_valid_version_output_with_unsuccessful_tool_exit_is_refused(self):
