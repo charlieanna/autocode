@@ -84,6 +84,7 @@ try:
     from . import autocode_verification_preparation as preparation
     from . import autocode_verification_schedule as schedule
     from . import autocode_verify_judgment as judgment
+    from . import autocode_verify_result as verify_result
     from . import autocode_vitest_tests as vitest_tests
     from .autocode_suite_health import suite_health
     from .autocode_test_framework import Framework
@@ -123,6 +124,7 @@ except ImportError:
     import autocode_verification_preparation as preparation
     import autocode_verification_schedule as schedule
     import autocode_verify_judgment as judgment
+    import autocode_verify_result as verify_result
     import autocode_vitest_tests as vitest_tests
     from autocode_suite_health import suite_health
     from autocode_test_framework import Framework
@@ -2878,44 +2880,15 @@ def verify(
     if stats["non_code_files"]:
         review_reasons.append("non-code files changed: " + ", ".join(stats["non_code_files"][:5]))
     verdict = FAIL if fail else UNVERIFIED if unverified else PASS
-    return {
-        "verdict": verdict,
-        "failures": fail,
-        "unverified": unverified,
-        "notes": notes,
-        "review_reasons": review_reasons,
-        "base": base,
-        "base_patch": str(base_patch) if base_patch else None,
-        "source_revision": before,
-        "changes": changes,
-        "test_files": tests,
-        "source_files": sources,
-        "stats": stats,
-        "commands": {k: commands[k] for k in ("suite", "suite_source", "regression", "regression_source")},
-        "framework": framework.to_dict() if framework else None,
-        "baseline": (
-            {
-                "health": base_suite["health"],
-                "exit_code": base_suite["receipt"]["exit_code"],
-                "output": base_suite["receipt"]["output"],
-            }
-            if base_suite
-            else None
-        ),
-        "fail_to_pass": proof.get("fail_to_pass"),
-        "pass_to_pass": proof.get("pass_to_pass"),
-        "not_run_on_base": proof.get("not_run_on_base"),
-        "failed_on_candidate": proof.get("failed_on_candidate"),
-        "suite_pass_to_pass": proof.get("suite_pass_to_pass"),
-        "ignored_test_files": hidden,
-        "no_test_changed": existing_guards,
-        "guard_run_incomplete": bool(proof.get("guard_run_incomplete")),
-        "unstable": proof.get("unstable"),
-        "proof_stability": proof.get("proof_stability"),
-        "diff_coverage": proof.get("diff_coverage"),
-        "test_prerequisites": proof.get("test_prerequisites"),
-        "checks": checks,
-    }
+    return verify_result.assemble(
+        run,
+        verdict=verdict,
+        source_revision=before,
+        test_files=tests,
+        source_files=sources,
+        stats=stats,
+        ignored_test_files=hidden,
+    )
 
 
 def product_files(changes) -> list[tuple[str, str]]:
