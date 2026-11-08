@@ -183,7 +183,7 @@ class RiskCliTests(unittest.TestCase):
 
     def test_failed_lifecycle_observation_reaches_the_builder_and_its_correction_completes(self):
         # #451: the runner's failing observation is a finding the repair loop acts on, not a report
-        # repair. The scripted reviewers rework it and the second build applies the honest reference.
+        # repair. The next build receives the finding and applies the honest reference.
         scenario = catalog.load("ladder-18-durable-lease-queue")
         scenario, run, view = self.start(
             "ladder-18-durable-lease-queue",
@@ -193,25 +193,27 @@ class RiskCliTests(unittest.TestCase):
         )
         self.assertEqual("TASK_COMPLETE", view["status"], self.details(view))
         self.assertTrue(verdict.evaluate(scenario, run.workspace).passed)
-        state = json.loads((run.run_dir / "state.json").read_text())
-        builders = [row for row in state["stages"] if row.get("stage") == "terra" and not row.get("rejected")]
-        self.assertGreaterEqual(len(builders), 2, [row.get("stage") for row in state["stages"]])
-        runner = [row for row in state["findings_ledger"] if row["source"] == "runner"]
-        self.assertEqual(1, len(runner), state["findings_ledger"])
+        attempts = view["usage"]["accounting"]["attempts"]
+        builders = [row for row in attempts if row.get("stage") == "terra" and not row.get("rejected")]
+        self.assertGreaterEqual(len(builders), 2, [row.get("stage") for row in attempts])
+        runner = [row for row in view["evidence"]["findings"] if row["source"] == "runner"]
+        self.assertEqual(1, len(runner), view["evidence"]["findings"])
         self.assertIn("Restart reused a lease token", runner[0]["finding"])
         self.assertEqual("resolved", runner[0]["status"])
-        # The correction task the second Builder ran was assigned this finding.
-        self.assertEqual(builders[-1]["task_id"], runner[0]["assigned_task"], runner[0])
-        self.assertNotEqual(builders[0]["task_id"], builders[-1]["task_id"])
+        # A changed-code send-back can keep the approved task. Bind the actual
+        # later Builder's handoff to its public attempt and the exact runner finding.
         handoffs = [
-            path.read_text()
-            for path in run.run_dir.rglob("*")
-            if path.is_file()
-            and path.suffix in (".md", ".txt", ".json")
-            and "actionable_findings" in path.read_text(errors="ignore")
+            json.loads(Path(row["output"]).with_suffix(".prompt.md").read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
+            for row in builders
         ]
-        self.assertTrue(any("Restart reused a lease token" in text for text in handoffs))
-        self.assertFalse(any(row.get("stage") == "sol" and row.get("report_only") for row in state["stages"]))
+        for attempt, handoff in zip(builders, handoffs, strict=True):
+            self.assertEqual(attempt["task_id"], handoff["current_task"]["id"])
+        self.assertNotIn(runner[0]["id"], [row["id"] for row in handoffs[0]["actionable_findings"]])
+        correction = [row for row in handoffs[-1]["actionable_findings"] if row["id"] == runner[0]["id"]]
+        self.assertEqual(1, len(correction), handoffs[-1]["actionable_findings"])
+        self.assertEqual(runner[0]["finding"], correction[0]["finding"])
+        self.assertTrue(correction[0]["blocking"])
+        self.assertFalse(any(row.get("stage") == "sol" and row.get("report_only") for row in attempts))
         receipt = view["evidence"]["check_replay"]["risk_acceptance"]
         self.assertEqual("PASS", receipt["verdict"])
         self.assertEqual(1, view["efficiency"]["delivery"]["verified_deliveries"])

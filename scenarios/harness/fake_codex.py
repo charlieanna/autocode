@@ -630,7 +630,9 @@ def lazy_citations(report):
         else:
             # The configured reference/paths are the Builder's copy source,
             # never a producer identity asserted by model handoff data.
-            report["changed_code_exceptions"] = judgments(DATA, producer=CONFIG)
+            report["changed_code_exceptions"] = judgments(
+                DATA, producer={**CONFIG, "reference": builder_copy_source(DATA)}
+            )
     if CONFIG.get("fault") not in ("lazy_validator", "extra_file_citation") or not isinstance(report, dict):
         return report
     for row in report.get("criterion_results") or []:
@@ -1783,6 +1785,16 @@ def runner_findings(data: dict) -> list[dict]:
     return [row for row in rows if row.get("source") == "runner" and row.get("blocking", True)]
 
 
+def builder_copy_source(data: dict) -> str:
+    """The configured source actually copied by this scripted Builder, including a repair."""
+    rework = (
+        os.environ.get("SCENARIO_FAKE_REWORK_SOLUTION")
+        if not MILESTONES and not CONFIG.get("turn_paths") and runner_findings(data)
+        else None
+    )
+    return rework or CONFIG["reference"]
+
+
 def runner_rework(stage: str, data: dict, common: dict) -> dict:
     task = data.get("current_task") or {}
     approved = ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
@@ -2285,9 +2297,8 @@ def report_for(stage: str, data: dict) -> dict:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(Path(CONFIG["reference"]) / rel, destination)
     elif stage == "terra":
-        rework = os.environ.get("SCENARIO_FAKE_REWORK_SOLUTION") if runner_findings(data) else None
         shutil.copytree(
-            rework or CONFIG["reference"],
+            builder_copy_source(data),
             Path.cwd(),
             dirs_exist_ok=True,
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
