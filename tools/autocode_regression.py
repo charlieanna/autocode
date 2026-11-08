@@ -74,6 +74,7 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_package_writes as package_writes
     from . import autocode_pending_tests as pending_tests
+    from . import autocode_recovery_review as recovery_review
     from . import autocode_regression_selection as selection
     from . import autocode_run_base as run_base
     from . import autocode_runner_check as runner_check
@@ -97,6 +98,7 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_package_writes as package_writes
     import autocode_pending_tests as pending_tests
+    import autocode_recovery_review as recovery_review
     import autocode_regression_selection as selection
     import autocode_run_base as run_base
     import autocode_runner_check as runner_check
@@ -1137,8 +1139,12 @@ def _review_needs_proof(state: RunState, workspace):
     A failing replay demands REWORK. Replay it once more within the same proof context,
     because a timing flake can otherwise hold a finished run. Reapproved contracts and
     changed case bindings require fresh execution even when candidate source is unchanged.
+    The bound review of an archived Builder timeout first inspects its partial work;
+    the Tester/checkpoint and the ordinary completion gate still require fresh proof.
     """
     current = source_scope.snapshot(workspace, state)["revision"]
+    if recovery_review.builder_timeout_inspection(state, current):
+        return False
     saved = state.get("regression_proof") or {}
     context = saved.get("execution_context") or {}
     if (

@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import autocode as runner
 import autocode_completion as completion_gate
+import autocode_completion_result as completion_result
 import autocode_configure
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
@@ -579,6 +580,35 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual("idle", archived["timeout_kind"])
         self.assertTrue(Path(archived["events"]).is_file())
         self.assertEqual(["greet.py"], archived["changed_files"])
+
+    def test_archived_builder_reaches_failure_inspection_before_running_regression(self):
+        self.start_task()
+        self.state["implementation"] = {"source_revision": "earlier", "summary": "An older accepted report"}
+        source, record = self.interrupted_attempt()
+        record.update(
+            task_id=self.state["current_task"]["id"],
+            contract_hash=self.state["goal_contract"]["hash"],
+            contract_revision=self.state["goal_contract"]["revision"],
+        )
+        with patch.object(runner, "run_role", side_effect=AssertionError("Recovery must not replay the writer")):
+            self.assertTrue(
+                runner.automatically_recover_timed_out_stage(
+                    self.state, self.run, self.root, support.Paused("PAUSED_PROVIDER_TIMEOUT", "idle")
+                )
+            )
+        self.assertEqual("astra_review", self.state["next_stage"])
+        retained = source.read_bytes()
+        with patch.object(runner.regression, "prove", side_effect=AssertionError("Inspect the failed attempt first")):
+            completion_result.before_review(self.state, "astra_review", self.root, self.run)
+        self.assertEqual(retained, source.read_bytes())
+        self.assertNotIn("regression_proof", self.state)
+        self.assertFalse(
+            completion_gate.completion_ready(self.state, self.decision("TASK_COMPLETE"), support.snapshot(self.root))
+        )
+        # A later validation launch runs the proof even while the recovery note is still current.
+        with patch.object(runner.regression, "prove") as prove:
+            completion_result.before_review(self.state, "sol", self.root, self.run)
+        prove.assert_called_once()
 
     def test_a_timeout_that_exited_0_before_any_session_row_recovers_on_resume(self):
         # A provider that handles the stop signal exits 0. With no output there is no session row, which is

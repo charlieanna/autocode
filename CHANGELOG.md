@@ -31,6 +31,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - Final Reviewer recovery includes the current plan once while preserving distinct historical plans
   and the complete review history.
 
+- After a stopped Builder times out, the recovery review can inspect its retained partial work before
+  starting the regression proof. The deferral is bound to that source, task and archived attempt;
+  independent testing and completion still require the ordinary fresh evidence.
 - The run-state typing check no longer mistakes an OpenCode tool-event payload for untyped
   AutoCode run state.
 - Scenario CI validates the Ubuntu runner's installed Java 17 runtime and compiler, avoiding repeated
