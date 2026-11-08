@@ -186,6 +186,11 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tests/opencode_fixture_cli.py", ("tests.test_quota_worker",)),
     ("tools/prompts/fragments/stage-context/context-packet-04.md", ("tests.test_capture_event_contract",)),
     ("tools/prompts/fragments/stage-context/builder-source.md", ("tests.test_review_source",)),
+    ("tools/autocode_test_examples.py", ("tests.test_builder_source_examples_cli",)),
+    (
+        "tools/prompts/fragments/test-examples/",
+        ("tests.test_test_examples", "tests.test_builder_source_examples_cli"),
+    ),
     (
         "tools/prompts/fragments/stage-context/context-packet-07.md",
         ("tests.test_milestone_checkpoints", "tests.test_build_graph_cli"),
