@@ -24,6 +24,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat retries a failed fresh status read once before ending the interaction. It keeps
+  the existing read deadlines and requires a fresh view before approving a plan or sending a reply.
 - Corrective feedback is available at a clean requested pause, including after review. It keeps
   the run paused, preserves work and receipts, and requires a refreshed plan and exact approval;
   active or uncertain work, interrupted operational holds and terminal stops remain protected.
