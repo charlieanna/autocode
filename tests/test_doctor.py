@@ -1215,5 +1215,30 @@ class InstalledLauncherDriftTests(unittest.TestCase):
         self.assertIn("commit unknown", version.stdout)
 
 
+class CheckLinesTests(unittest.TestCase):
+    def test_a_backend_a_ready_run_does_not_need_is_not_a_red_failure(self):
+        """Only Claude Code installed: doctor printed red ✖ rows for OpenCode and Codex, then
+        "ready for a first task"."""
+        checks = [
+            doctor.Check("engine:opencode", doctor.MISSING, "opencode is not on PATH", "npm install -g opencode-ai@1"),
+            doctor.Check("engine:claude", doctor.OK, "Claude Code 2.1, logged in"),
+            doctor.Check("engine", doctor.OK, "engine claude is ready"),
+        ]
+        lines = doctor.check_lines(checks)
+        self.assertEqual("– engine:opencode  opencode is not on PATH; not needed for a new run here", lines[0])
+        self.assertEqual("  " + " " * 16 + " to use it: npm install -g opencode-ai@1", lines[1])
+        self.assertNotIn("✖", "\n".join(lines))
+        self.assertTrue(doctor.passed(checks))
+
+    def test_while_the_engine_is_not_ready_every_missing_backend_stays_a_failure(self):
+        checks = [
+            doctor.Check("engine:opencode", doctor.MISSING, "opencode is not on PATH", "npm install -g opencode-ai@1"),
+            doctor.Check("engine", doctor.MISSING, "OpenCode is not ready", "fix engine:opencode above"),
+        ]
+        lines = doctor.check_lines(checks)
+        self.assertEqual("✖ engine:opencode  opencode is not on PATH", lines[0])
+        self.assertIn("fix: npm install -g opencode-ai@1", lines[1])
+
+
 if __name__ == "__main__":
     unittest.main()

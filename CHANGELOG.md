@@ -21,6 +21,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Once `autocode doctor` finds the engine a new run uses ready, a backend that run does not need is
+  shown with `–` and "not needed for a new run here" instead of a red `✖` above "ready for a first
+  task". `--json` is unchanged.
+
 - Planner revision rejections now identify the failed reference check in recovery history,
   without exposing rejected values or changing admission and plan-approval checks.
 - `autocode setup` no longer reports "Installed OpenCode" and then lists it as not installed when npm
