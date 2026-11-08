@@ -443,7 +443,15 @@ def unittest_results(
     skipped -= fixtures
     total += len(fixtures & failed) if total else 0
     collection = {test for test in failed if COLLECTION_ERROR.search(test)}
-    complete = len(passed) + len(skipped) + len(failed) >= total
+    # A parallel module can stop before unittest prints its summary. Its zero
+    # count is absent from the aggregate total, so other modules' named results
+    # cannot establish completeness. A child timeout remains incomplete even
+    # when it printed a summary before it stopped.
+    unfinished = any(
+        count == "0" or timeout
+        for count, timeout in re.findall(r"^FAIL +[0-9.]+s +\S+ \((\d+) tests(, timed out)?\)$", text, re.M)
+    )
+    complete = not unfinished and len(passed) + len(skipped) + len(failed) >= total
 
     results = {
         "passed": sorted(passed),

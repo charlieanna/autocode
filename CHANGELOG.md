@@ -28,9 +28,13 @@ PR template asks for an entry here; a change without one is incomplete.
   with the open findings and evidence, instead of asking a person to manage validation or close a
   finding. The run retains its work and cannot resume or claim successful completion.
 
+- Named unittest proof remains incomplete when a parallel module times out or fails before reporting
+  any results, preserving the test identities and counts that were actually observed.
 - A regression proof whose original project suite times out records unverified evidence and retains
   that baseline receipt without starting candidate checks. Completed failing baseline tests still run
   the comparison, and a later diagnosed retry can refresh the baseline through the existing path.
+- A requested stage pause preserves a queued Builder failure classification, so ordinary resume
+  runs the pending Investigator without inventing a failed attempt or requiring a retry grant.
 - Fresh Linux Requirements launches check their selected kernel-shell tools before paid access probes.
   Actual launch still rediscovers the toolchain and performs every native policy and startup check.
 - Requirements instructions call for acceptance examples on both sides of a requested transition, preserving
