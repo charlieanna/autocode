@@ -140,6 +140,7 @@ no-follow directories and recheck observed file and directory identities. This
 is a bounded observation of retained evidence, not a frozen execution boundary.
 Per-file reads stop at 8 MiB; one inventory shares a 64 MiB / 10,000-file budget.
 Snapshot and manifest entry counts are also bounded at 10,000.
+Relative names stop at 4,096 characters and 128 components before path parsing.
 
 This diagnostic is not an import format or a portable native replay capability.
 Export and direct replay still refuse before destination writes or startup,

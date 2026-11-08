@@ -22,6 +22,8 @@ except ImportError:
 MAX_BYTES = 64 * 1024 * 1024
 MAX_FILE_BYTES = 8 * 1024 * 1024
 MAX_FILES = 10000
+MAX_PATH = 4096
+MAX_DEPTH = 128
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _MANIFEST = re.compile(r"tool-containment-[0-9a-f]{32}/verification-copy\.json\Z")
 _INTERNAL = {".git", ".autocode", ".autocode-ui"}
@@ -56,6 +58,7 @@ def _hash(value):
 
 def _relative(value, *, source=False):
     _require(isinstance(value, str) and bool(value) and "\\" not in value and "\x00" not in value, "unsafe_path")
+    _require(len(value) <= MAX_PATH and value.count("/") < MAX_DEPTH, "inspection_path_limit", "limited")
     path = PurePosixPath(value)
     _require(
         bool(path.parts) and not path.is_absolute() and path.as_posix() == value and ".." not in path.parts,

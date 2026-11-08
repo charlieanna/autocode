@@ -328,6 +328,33 @@ class RetainedCopyTests(unittest.TestCase):
         self.reason("inspection_byte_limit", budget=budget)
         self.assertEqual(0, budget["bytes"])
 
+    def test_path_size_and_depth_are_bounded_before_parsing_or_inspecting(self):
+        for name in ("a" * (self.evidence.MAX_PATH + 1), "a/" * self.evidence.MAX_DEPTH + "leaf"):
+            snapshot = {**self.fixture.snapshot, "source_paths": [name]}
+            with (
+                self.subTest(name=name[:20]),
+                patch.object(self.evidence, "PurePosixPath", wraps=self.evidence.PurePosixPath) as parse,
+            ):
+                result = self.reason(
+                    "inspection_path_limit", snapshot=snapshot, read=lambda *_a, **_k: self.fail("must not read")
+                )
+                self.assertEqual("limited", result["status"])
+                self.assertNotIn(name, [call.args[0] for call in parse.call_args_list])
+
+            original = self.fixture.body["directories"]
+            self.fixture.body["directories"] = [name]
+            self.fixture.save()
+            reads = []
+
+            def read(root, relative, **kwargs):
+                reads.append(relative)
+                return recording._read(root, relative, **kwargs)
+
+            self.reason("inspection_path_limit", read=read)
+            self.assertEqual([self.fixture.manifest.relative_to(self.run).as_posix()], reads)
+            self.fixture.body["directories"] = original
+            self.fixture.save()
+
     def test_legacy_and_malformed_selectors_remain_readable_without_reads(self):
         reader = lambda *_a, **_k: self.fail("must not read")
         missing = self.evidence.inspect_copy(
