@@ -610,6 +610,145 @@ class RegclientFixtureReviewTests(unittest.TestCase):
         self.assertIn("FAILED (failures=1)", broken.stderr)
 
 
+class LeaseCleanupFixtureReviewTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        base = Path(temporary.name)
+        self.root, self.reference = base / "project", base / "reference"
+        scenario = REFERENCE.parents[1] / "ladder-18-durable-lease-queue"
+        shutil.copytree(scenario / "reference", self.reference)
+        shutil.copytree(self.reference, self.root)
+        self.path = "leasequeue/__init__.py"
+        self.producer = {
+            "reference": str(self.reference),
+            "paths": [self.path, "tests/test_behavior.py"],
+            "check": "python3 -m unittest discover -s tests -t .",
+            "turn_paths": [],
+        }
+
+    def data(self, line=23):
+        identity = ["a" * 64, "b" * 64, self.path, fixture.LEASE_SOURCE, line]
+        gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+        mutant = {
+            "line": line,
+            "operator": "never_catch" if line == 23 else "drop_call",
+            "before": "BaseException" if line == 23 else "db.rollback()",
+            "after": "()" if line == 23 else "None",
+            "source_sha256": fixture.LEASE_SOURCE,
+            "outcome": "survived",
+            "failed_tests": [],
+            "survived_tests": [fixture.LEASE_TRANSACTION_CASE],
+            "evidence": ["/runner/mutant.log"],
+        }
+        return {
+            "regression_proof": {
+                "path": "/runner/verification.json",
+                "verdict": "PASS",
+                "source_revision": identity[0],
+                "fail_to_pass": [fixture.LEASE_TRANSACTION_CASE],
+                "changed_code_evidence": {
+                    "source_revision": identity[0],
+                    "proof_context": identity[1],
+                    "obligations": [
+                        {
+                            "gap_id": gap,
+                            "path": self.path,
+                            "line": line,
+                            "status": "reason_required",
+                            "sha256": fixture.LEASE_SOURCE,
+                            "mutation_outcomes": ["survived"],
+                        }
+                    ],
+                },
+                "mutation_check": {"files": [{"path": self.path, "sha256": fixture.LEASE_SOURCE, "mutants": [mutant]}]},
+            }
+        }
+
+    def judge(self, data=None, producer=None):
+        rows = fixture.judgments(
+            self.data() if data is None else data,
+            self.root,
+            producer=self.producer if producer is None else producer,
+        )
+        return [row for row in rows if row["reason_kind"] == "equivalent_mutant"]
+
+    def test_exact_cleanup_observations_require_the_delivered_transaction_test(self):
+        for line in (23, 24):
+            data = self.data(line)
+            (reason,) = self.judge(data)
+            self.assertEqual(
+                data["regression_proof"]["changed_code_evidence"]["obligations"][0]["gap_id"], reason["gap_id"]
+            )
+            for change in (
+                {"operator": "drop_raise"},
+                {"before": "db.close()"},
+                {"after": "pass"},
+                {"source_sha256": "0" * 64},
+                {"line": 20},
+                {"outcome": "not_run"},
+                {"failed_tests": [fixture.LEASE_TRANSACTION_CASE]},
+                {"survived_tests": ["unrelated"]},
+                {"evidence": []},
+            ):
+                altered = copy.deepcopy(data)
+                altered["regression_proof"]["mutation_check"]["files"][0]["mutants"][0].update(change)
+                with self.subTest(line=line, change=change):
+                    self.assertEqual([], self.judge(altered))
+            altered = copy.deepcopy(data)
+            altered["regression_proof"]["mutation_check"]["files"].append(
+                altered["regression_proof"]["mutation_check"]["files"][0]
+            )
+            self.assertEqual([], self.judge(altered))
+
+    def test_stale_gap_or_incomplete_proof_has_no_equivalence_authority(self):
+        for change in (
+            {"gap_id": "changed-code:" + "0" * 64},
+            {"line": 27},
+            {"line": 23.0},
+            {"status": "tested"},
+            {"sha256": "0" * 64},
+            {"mutation_outcomes": ["timeout"]},
+        ):
+            data = self.data()
+            data["regression_proof"]["changed_code_evidence"]["obligations"][0].update(change)
+            with self.subTest(gap=change):
+                self.assertEqual([], self.judge(data))
+        for change in ({"verdict": "FAIL"}, {"source_revision": "c" * 64}, {"path": ""}, {"fail_to_pass": []}):
+            data = self.data()
+            data["regression_proof"].update(change)
+            with self.subTest(proof=change):
+                self.assertEqual([], self.judge(data))
+        for key in ("source_revision", "proof_context"):
+            data = self.data()
+            data["regression_proof"]["changed_code_evidence"][key] = "c" * 64
+            self.assertEqual([], self.judge(data))
+
+    def test_unknown_or_borrowed_producer_source_and_test_bytes_are_refused(self):
+        for change in (
+            {"paths": []},
+            {"paths": [[]]},
+            {"check": "echo PASS"},
+            {"turn_paths": [["other.py"]]},
+            {"reference": str(self.root)},
+        ):
+            with self.subTest(producer=change):
+                self.assertEqual([], self.judge(producer={**self.producer, **change}))
+        self.assertEqual([], self.judge(producer={}))
+        for root in (self.root, self.reference):
+            for name in (self.path, "tests/test_behavior.py"):
+                path = root / name
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n# unknown bytes\n")
+                with self.subTest(root=root, file=name):
+                    self.assertEqual([], self.judge())
+                path.write_bytes(original)
+        path = self.reference / self.path
+        path.unlink()
+        path.symlink_to(self.root / self.path)
+        self.assertEqual([], self.judge())
+
+
 class LifecycleFixtureReviewTests(unittest.TestCase):
     def test_lifecycle_references_get_reasons_only_for_their_exact_source_and_tests(self):
         catalog = REFERENCE.parents[1]
