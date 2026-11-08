@@ -935,8 +935,11 @@ def drive(
                 if state.get("active_stage"):
                     # An unreconciled attempt pauses like any stage; the investigation reruns after.
                     raise
-                if status in BOUNDARY_LIMITS and (
-                    not launched(state, current) or classification_recovery.pending_repair(state, current)
+                # A requested checkpoint preserves the queued investigation,
+                # including a report repair; it is not an Investigator failure.
+                if status == "PAUSED_REQUESTED" or (
+                    status in BOUNDARY_LIMITS
+                    and (not launched(state, current) or classification_recovery.pending_repair(state, current))
                 ):
                     release_route(state)
                     raise
