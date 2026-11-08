@@ -62,6 +62,20 @@ class SettingTests(unittest.TestCase):
                 if external:
                     self.assertTrue(remaining[0]["id"].startswith("workspace-scope-"))
 
+    def test_a_line_break_inside_a_listed_row_does_not_break_the_list(self):
+        """An acceptance example quoting file content ("  Ana \\n") broke the summary onto a new screen
+        line, "file '  Ana" then "' greets 'Hello, Ana!'" (2026-11-08 live run). Examples keep the break
+        visible as \\n; prose rows fold it into a space; each row stays one list item."""
+        current = self.catalog_bug(external=False)
+        report = current["requirements_handoff"]["report"]
+        report["acceptance_tests"] = ["A name file '  Ana \n' greets 'Hello, Ana!'"]
+        report["required_behaviors"] = ["Read the name from the file,\n  stripped of surrounding space"]
+        with patch("autocode_catalog_context.context", return_value={"repositories": [{"name": "history"}]}):
+            text = review.review_question(current)["question"]
+        self.assertIn("  - A name file '  Ana \\n' greets 'Hello, Ana!'", text.splitlines())
+        self.assertIn("  - Read the name from the file, stripped of surrounding space", text.splitlines())
+        self.assertNotIn("' greets 'Hello, Ana!'", text.splitlines())
+
     def test_catalog_bug_correction_returns_to_requirements_before_any_scope_routing(self):
         with patch("autocode_catalog_context.context", return_value={"repositories": [{"name": "history"}]}):
             current = self.catalog_bug()

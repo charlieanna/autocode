@@ -121,8 +121,18 @@ def questions_only(report: dict) -> bool:
     )
 
 
-def _lines(title: str, rows) -> list[str]:
-    rows = [str(row).strip() for row in rows or [] if str(row).strip()]
+def _row(row, *, literal: bool) -> str:
+    """One list item on one line. An example is data, so a line break inside it stays visible as
+    ``\\n`` ("a name file '  Ana \\n'"); in prose it is only wrapping and becomes a space. A raw break
+    split one item across screen lines (2026-11-08 live run)."""
+    text = str(row).strip()
+    if literal:
+        return text.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\r")
+    return " ".join(text.split())
+
+
+def _lines(title: str, rows, *, literal: bool = False) -> list[str]:
+    rows = [_row(row, literal=literal) for row in rows or [] if str(row).strip()]
     if not rows:
         return []
     more = [f"  … and {len(rows) - SHOWN} more"] if len(rows) > SHOWN else []
@@ -147,7 +157,7 @@ def review_question(state: RunState) -> dict:
             "",
             f"Outcome: {str(report.get('intended_outcome', '')).strip()}",
             *_lines("Behaviors", report.get("required_behaviors")),
-            *_lines("Acceptance examples", report.get("acceptance_tests")),
+            *_lines("Acceptance examples", report.get("acceptance_tests"), literal=True),
             *_lines("Constraints", report.get("constraints")),
             *_lines("Other source statements", statements),
             *(["", f"Notes: {notes}"] if notes else []),
