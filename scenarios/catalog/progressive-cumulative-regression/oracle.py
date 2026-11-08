@@ -1,3 +1,4 @@
+import hashlib
 import sys
 
 from harness.oracle import Check, run_checks, scratch_copy, tail
@@ -25,7 +26,34 @@ def check(project, scenario, run=None):
             )
         )
         stages = run.get("stages", [])
-        checks.append(Check("honest_failure_reached_resolver", "astra_resolve" in stages, str(stages)))
+        # Changed-code evidence now sends the first bounded repair directly to the Builder.
+        # Require the actual planted line to have been rejected, not an incidental extra attempt.
+        corrupt = (
+            (scenario.reference / "lessons.py")
+            .read_bytes()
+            .replace(
+                b"if response != LESSONS[lesson][1]:", b"if lesson == 'addition' or response != LESSONS[lesson][1]:"
+            )
+        )
+        pin = hashlib.sha256(corrupt).hexdigest()
+        verification = (run.get("view") or {}).get("verification") or {}
+        current = verification.get("source_revision")
+        rejected = any(
+            row.get("action") == "builder"
+            and row.get("source_revision")
+            and current
+            and row["source_revision"] != current
+            and any(
+                gap.get("path") == "lessons.py"
+                and gap.get("sha256") == pin
+                and gap.get("line") == 12
+                and gap.get("status") == "reason_required"
+                and "survived" in (gap.get("mutation_outcomes") or [])
+                for gap in (row.get("assessment") or {}).get("obligations") or []
+            )
+            for row in verification.get("changed_code_repairs") or []
+        )
+        checks.append(Check("planted_regression_rejected_before_repair", bool(rejected), str(stages)))
         checks.append(
             Check("fresh_repair_and_validation", stages.count("terra") >= 3 and stages.count("sol") >= 3, str(stages))
         )

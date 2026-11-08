@@ -871,6 +871,50 @@ class LifecycleFixtureReviewTests(unittest.TestCase):
 
 
 class ProgressiveFixtureReviewTests(unittest.TestCase):
+    def test_each_catalog_s1_uses_only_known_scripted_bytes_after_relocation(self):
+        catalog = REFERENCE.parents[1]
+        names = (
+            "progressive-learning-journey",
+            "progressive-cumulative-regression",
+            "progressive-split-learning-journey",
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            for name in names:
+                with self.subTest(scenario=name):
+                    scenario = catalog / name
+                    expected = (scenario / "slices/S1/lessons.py").read_bytes()
+                    sources = fixture.progressive_sources(scenario / "reference", "S1")
+                    self.assertEqual(expected, sources["lessons.py"])
+                    root = Path(folder) / ("review-" + name)
+                    shutil.copytree(scenario / "seed", root)
+                    for path, content in sources.items():
+                        (root / path).write_bytes(content)
+                    gaps = [
+                        {
+                            "gap_id": f"gap:{path}:{line}",
+                            "path": path,
+                            "line": line,
+                            "sha256": hashlib.sha256(sources[path]).hexdigest(),
+                            "status": "reason_required",
+                            "mutation_outcomes": [],
+                        }
+                        for path, line in [("lessons.py", 1), ("progress.py", 1), ("progress.py", 2)]
+                    ]
+                    data = {"regression_proof": {"path": "proof.json", "changed_code_evidence": {"obligations": gaps}}}
+                    self.assertEqual(
+                        {row["gap_id"] for row in gaps},
+                        {
+                            row["gap_id"]
+                            for row in fixture.progressive_judgments(data, scenario / "reference", "S1", root=root)
+                        },
+                    )
+                    copied = Path(folder) / ("relocated-" + name)
+                    shutil.copytree(scenario, copied)
+                    self.assertEqual(expected, fixture.progressive_sources(copied / "reference", "S1")["lessons.py"])
+                    (copied / "slices/S1/lessons.py").write_bytes(expected + b"\n# Unknown source\n")
+                    with self.assertRaisesRegex(ValueError, "Unknown progressive S1 bytes"):
+                        fixture.progressive_sources(copied / "reference", "S1")
+
     def test_only_scripted_variants_exact_import_gaps_receive_reasons(self):
         scenario = Path(__file__).resolve().parents[1] / "scenarios/catalog/progressive-learning-journey"
         reference = scenario / "reference"

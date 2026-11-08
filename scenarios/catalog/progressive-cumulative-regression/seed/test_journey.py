@@ -7,6 +7,12 @@ import progress
 
 
 class Skeleton(unittest.TestCase):
+    def test_existing_lesson_prompts(self):
+        self.assertEqual("What is 2 + 3?", lessons.open_lesson("addition"))
+        self.assertEqual("What is 3 * 4?", lessons.open_lesson("multiplication"))
+        with self.assertRaises(KeyError):
+            lessons.open_lesson("unknown")
+
     def test_answer_survives_reopen(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "progress.json"
