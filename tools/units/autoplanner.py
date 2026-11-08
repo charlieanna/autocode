@@ -59,6 +59,7 @@ try:
     from .. import autocode_regression_reference as regression_reference
     from .. import autocode_requirement_cues as requirement_cues
     from .. import autocode_requirement_retention as requirement_retention
+    from .. import autocode_requirements_prompt as requirements_prompt
     from .. import autocode_risk_obligations as risk_obligations
     from .. import autocode_role_route as role_route
     from .. import autocode_roles as role_names
@@ -102,6 +103,7 @@ except ImportError:
     import autocode_regression_reference as regression_reference
     import autocode_requirement_cues as requirement_cues
     import autocode_requirement_retention as requirement_retention
+    import autocode_requirements_prompt as requirements_prompt
     import autocode_risk_obligations as risk_obligations
     import autocode_role_route as role_route
     import autocode_roles as role_names
@@ -1303,7 +1305,7 @@ BRIEF_ACCEPTANCE_CARRY_RULE = prompts.get("fragments/autoplanner/brief-acceptanc
 RISK_OBSERVATION_REVIEW_RULE = prompts.get("fragments/autoplanner/risk-observation-review-rule.md")
 
 
-def context(state: RunState, stage, state_path):
+def context(state: RunState, stage, state_path, *, response_schema=None):
     if (message := gate_chat.pending(state)) and message["stage"] == stage:
         return gate_chat.context(state)
     if (
@@ -1680,8 +1682,13 @@ def context(state: RunState, stage, state_path):
         if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
         else ""
     )
+    instruction = PROMPTS[stage]
+    if stage == "requirements_gather":
+        instruction = requirements_prompt.render(
+            instruction, response_schema if response_schema is not None else _requirements_model_schema(state)
+        )
     prompt = (
-        (retention.FINAL_PROMPT if compact_final else PROMPTS[stage])
+        (retention.FINAL_PROMPT if compact_final else instruction)
         + progress_rule
         + prompts.get("fragments/autoplanner/time-budget.md")
         + (prompts.get("fragments/autoplanner/late-repository-scope.md") if stage in planning_scope.STAGES else "")
@@ -1754,6 +1761,11 @@ def _model_report_schema(schema, state: RunState):
     return report_policy.concern_schema(result, review)
 
 
+def _requirements_model_schema(state: RunState):
+    stage = "requirements_gather"
+    return retention.model_schema(_model_report_schema(schema_for(state, stage), state), state, stage)
+
+
 def prepare(state: RunState, stage, state_path, schema_dir):
     if progressive.revision_pending(state):
         transition = progressive.view(state)["transition"]
@@ -1814,10 +1826,14 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         raise ValueError(f"Autoplanner cannot run {stage}")
     joint = is_planning(state, stage)
     state["phase"] = "PLANNING" if joint else "DISCOVERING"
+    schema = _requirements_model_schema(state) if joint and stage == "requirements_gather" else None
     try:
-        prompt, metrics = (
-            context(state, stage, state_path) if joint else stage_context.context_packet(state, stage, state_path)
-        )
+        if joint and stage == "requirements_gather":
+            prompt, metrics = context(state, stage, state_path, response_schema=schema)
+        else:
+            prompt, metrics = (
+                context(state, stage, state_path) if joint else stage_context.context_packet(state, stage, state_path)
+            )
     except ValueError as error:
         if stage in V2_STAGES:
             raise s.Paused("PAUSED_INVALID_PREDECESSOR", str(error)) from error
@@ -1826,17 +1842,19 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         prompt = BRIEF_ACCEPTANCE_CARRY_RULE + prompt
         metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
     role = role_for(state, stage)
-    schema = (
-        schema_for(state, stage)
-        if joint
-        else design_plan.report_schema(goals.DISCOVERY_SCHEMA, (state.get("settings") or {}).get("design_manifest"))
-    )
+    if schema is None:
+        schema = (
+            schema_for(state, stage)
+            if joint
+            else design_plan.report_schema(goals.DISCOVERY_SCHEMA, (state.get("settings") or {}).get("design_manifest"))
+        )
+        schema = retention.model_schema(_model_report_schema(schema, state), state, stage)
     return ModelRequest(
         role,
         route_for(state, stage, role),
         prompt,
         metrics,
-        retention.model_schema(_model_report_schema(schema, state), state, stage),
+        schema,
         False,
     )
 
