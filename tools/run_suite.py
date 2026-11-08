@@ -328,16 +328,21 @@ def harness_tests(changed: list[str] | None = None) -> list[str]:
         classes.update(
             {"DriverTimeoutTests", "HarnessNativeIdentityTests", "HarnessAttemptTests", "HarnessOwnerLossTests"}
         )
-    classes.update(
-        target.removeprefix(HARNESS + ".")
+    consumers = {
+        target
         for path in changed
         for target in SCENARIO_RUNTIME_CONSUMERS.get(path, ())
         if target.startswith(HARNESS + ".")
-    )
+    }
+    classes.update(target.removeprefix(HARNESS + ".") for target in consumers)
     if any(path.startswith("scenarios/catalog/") for path in changed):
         classes.update({"CatalogTests", "OracleControlTests", "RunChecksTests"})
     # Failed imports must still run and fail, rather than disappear from focus.
-    return [test for test in tests if test == HARNESS or "._FailedTest." in test or test.split(".")[-2] in classes]
+    return [
+        test
+        for test in tests
+        if test == HARNESS or "._FailedTest." in test or test in consumers or test.split(".")[-2] in classes
+    ]
 
 
 def scenario_modules() -> list[str]:

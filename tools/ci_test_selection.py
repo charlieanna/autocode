@@ -55,7 +55,9 @@ SUITE_CONSUMERS = (
 # map; its producer and top-level scenario files also select the map-discovery guard.
 SCENARIO_RUNTIME_CONSUMERS = {
     **{
-        f"scenarios/catalog/{scenario}/{resource}": ("scenarios.test_harness.AdaptiveCompletionTests",)
+        f"scenarios/catalog/{scenario}/{resource}": (
+            "scenarios.test_harness.AdaptiveCompletionTests.test_progressive_delegations_retain_the_review_that_authorizes_execution",
+        )
         for scenario in ("progressive-cumulative-regression", "progressive-split-learning-journey")
         for resource in ("seed/test_journey.py", "slices/S1/lessons.py", "oracle.py", "scenario.toml")
     },
