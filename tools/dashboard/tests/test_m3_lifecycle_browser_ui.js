@@ -182,7 +182,7 @@ function openScenario(info, name, width, height) {
   const expected = name === 'unavailable-model' || name.startsWith('flow-model')
     ? 'unavailable saved planning model'
     : 'interrupted build';
-  waitForCondition('document.querySelector("#task-title")?.textContent.includes(' + JSON.stringify(expected) + ')', name + ' scenario render');
+  waitForCondition('latestRun&&!latestRun.project_removed&&document.querySelector("#task-removed-banner")?.hidden===true&&document.querySelector("#task-title")?.textContent.includes(' + JSON.stringify(expected) + ')', name + ' scenario render');
   // The page loads its own model catalogue at start. The checks below replace
   // it with syncModelOptions, and a load still in flight would land on top of
   // that, or leave no last usable catalogue to judge the saved model by (#314).

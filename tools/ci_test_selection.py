@@ -83,6 +83,8 @@ SCENARIO_SELECTION_INPUTS = {
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (".github/workflows/tests.yml", ("tests.test_ci_java",)),
     ("tools/dashboard/tests/test_shell_a11y_ui.js", ("tests.test_catalogue_t12",)),
+    ("tools/dashboard/tests/test_m3_lifecycle_browser_ui.js", ("tests.test_catalogue_t12",)),
+    ("tools/dashboard/tests/browser_readiness.js", ("tests.test_catalogue_t12",)),
     ("tools/autocode_stage_context.py", ("tests.test_ready_capture_batch_cli",)),
     (
         "tools/autocode_ready_capture_batch.py",
