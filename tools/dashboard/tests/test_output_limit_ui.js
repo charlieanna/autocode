@@ -6,7 +6,7 @@ const vm = require('./dashboard_vm');
 const source = fs.readFileSync(path.join(__dirname, '../dashboard_app.js'), 'utf8');
 const context = vm.createContext({});
 vm.runInContext(source.slice(source.indexOf('function operationalRequest('), source.indexOf('function badge(')), context);
-const reason = 'OpenCode exhausted its output token limit (finish reason: length). The attempt is incomplete; review saved work before recovery.';
+const reason = 'The response exhausted its output token limit (finish reason: length). The attempt is incomplete; review saved work before recovery.';
 for (const status of ['PAUSED_UNCERTAIN_STAGE', 'PAUSED_PROVIDER_UNCERTAIN']) {
   const run = {status, stop_reason: reason, questions: [{id: 'old', question: 'Old question'}]};
   const info = context.statusInfo(run);
