@@ -592,6 +592,10 @@ class ChatClient:
         The child runs in its own process group, so Ctrl-C reaches only this client:
         the first asks for the view's boundary pause, the second interrupts the child
         and a third stops it. The chat never exits while the child still runs.
+        Its input is /dev/null, never the chat's terminal: a background process group
+        that touches the terminal is stopped by the kernel (SIGTTIN), and Claude Code's
+        own login check (`claude auth status`) does, so a first task on Claude Code sat
+        at "Starting the run" for good and Ctrl-C could not reach it.
         """
         if argv[:1] != ["coordinate"] and (
             ("--new-run-dir" in argv and self._execution_offer.get("id") == "durable_local")
@@ -602,6 +606,7 @@ class ChatClient:
         with tempfile.TemporaryFile("w+") as log:
             child = subprocess.Popen(
                 [*self.command, *argv],
+                stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 text=True,

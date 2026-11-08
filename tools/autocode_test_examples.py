@@ -21,6 +21,8 @@ except ImportError:
     import autocode_prompts as prompts
 
 
+import hashlib
+import json
 import re
 import subprocess
 from pathlib import Path, PurePosixPath
@@ -70,30 +72,56 @@ def choose(task_paths: list[str], tests: list[str]) -> list[str]:
     return chosen[:MAX_FILES] or sorted(tests, key=lambda test: (other(test), len(PurePosixPath(test).parts), test))[:1]
 
 
-def excerpt(workspace, path: str) -> str:
+def excerpt(workspace, path: str, *, attached_files=()) -> str:
     try:
-        lines = (Path(workspace) / path).read_text(errors="replace").splitlines()
+        content = (Path(workspace) / path).read_bytes()
     except OSError:
         return ""
+    text = content.decode("utf-8", errors="replace")
+    lines = text.splitlines()
     shown = "\n".join(lines[:MAX_LINES])[:MAX_CHARS]
     more = f" of {len(lines)}" if len(lines) > MAX_LINES else ""
-    return f"--- {path} (lines 1-{min(len(lines), MAX_LINES)}{more}) ---\n{shown}\n"
+    original = f"--- {path} (lines 1-{min(len(lines), MAX_LINES)}{more}) ---\n{shown}\n"
+    for index, row in enumerate(attached_files):
+        if (
+            isinstance(row, dict)
+            and row.get("path") == path
+            and row.get("content") == text
+            and text.encode("utf-8") == content
+            and row.get("sha256") == hashlib.sha256(content).hexdigest()
+        ):
+            reference = prompts.get("fragments/test-examples/source-reference.md").format(path, index)
+            if len(reference.encode()) < len(original.encode()):
+                return reference
+    return original
 
 
-def section(workspace, current_task: dict | None) -> str:
+def section(workspace, current_task: dict | None, *, attached_files=()) -> str:
     """The prompt section for a Builder, or "" when the project has no test near the task."""
     task = current_task or {}
     chosen = choose(list(task.get("affected_paths") or []), tracked_tests(workspace))
-    parts = [part for part in (excerpt(workspace, path) for path in chosen) if part]
+    parts = [part for part in (excerpt(workspace, path, attached_files=attached_files) for path in chosen) if part]
     return HEADER + "\n" + "\n".join(parts) if parts else ""
 
 
 def add_to_prompt(prompt: str, workspace, current_task: dict | None) -> str:
     """Insert the section before the handoff data (providers read the JSON after that marker)."""
-    extra = section(workspace, current_task)
+    marker = "\nCURRENT HANDOFF DATA\n"
+    # A small clear bug fix can already carry these complete tests as authenticated
+    # source. Keep that canonical packet byte-identical and reference only an exact
+    # duplicate; missing, stale or partial attachments retain the ordinary excerpt.
+    attached_files: list[object] | tuple[()] = ()
+    try:
+        data = json.loads(prompt.partition(marker)[2])
+        source = data.get("review_source") if isinstance(data, dict) and data.get("stage") == "terra" else None
+        files = source.get("files") if isinstance(source, dict) else None
+        if isinstance(files, list):
+            attached_files = files
+    except ValueError:
+        pass
+    extra = section(workspace, current_task, attached_files=attached_files)
     if not extra:
         return prompt
-    marker = "\nCURRENT HANDOFF DATA\n"
     return prompt.replace(marker, extra + marker, 1) if marker in prompt else prompt + extra
 
 
