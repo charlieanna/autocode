@@ -278,11 +278,27 @@ unsupported, active or historical observations retain explicit fixed `issues`;
 their counts describe what was observed, not zero unobserved calls. These
 diagnostics grant no verification, completion or gate authority.
 
-`tool_activity.version` identifies the diagnostic algorithm (currently `1`). A
-saved projection with a missing or different version cannot be reused, even when
-the event-file fingerprint is unchanged. The core refreshes it from the attempt's
-declared event file when available, otherwise reports it unavailable. This
-read-only refresh does not rewrite saved metrics.
+`search_arguments` partitions the observed `search` family into `with_instruction_name`,
+`without_instruction_name` and `unknown` calls. The core inspects only string values
+in complete structured arguments that already passed the comparison bounds. A mention
+is a case-sensitive literal `AGENTS.md` or `CLAUDE.md` token, with neither an adjacent
+Unicode word character, dot nor hyphen. Keys, output and rendered queries are excluded.
+JSON escapes have already been decoded; regex or shell syntax is never interpreted
+(for example, `AGENTS\.md` has no literal known-name mention). A mention in unrelated
+prose still counts. No individual name counts are exposed. `unknown` includes unavailable,
+unsupported or over-limit arguments; nested `complete` also requires complete native
+observation. Zero mentions establishes neither absence of instruction searches nor
+file absence, necessity or waste. This covers the whole search family, including web tools.
+
+`tool_activity.version` identifies the diagnostic algorithm (currently `2`). A
+saved projection with a missing or different version cannot bypass a refresh, even
+when the event-file fingerprint is unchanged. The core refreshes it from the attempt's
+declared event file when available. Valid version `1` counts retain their original
+meaning when that evidence is unavailable (or no source is declared): the public
+projection migrates to version `2`, preserving prior counts, outcomes and issues,
+with every prior search call's classification `unknown` and nested `complete: false`.
+Unsupported or invalid saved diagnostics remain unavailable. This read-only refresh
+or migration does not rewrite saved metrics.
 
 The supported shapes are OpenCode/Kilo `tool_use` parts and Codex-style item
 events. A rendered command alone cannot establish its complete original

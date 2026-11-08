@@ -364,7 +364,17 @@ def accounting(state: RunState):
             except (OSError, ValueError):
                 current = False
             if is_active or not current:
-                native = request_usage.read(record["events"])["accounting"]
+                refreshed = request_usage.read(record["events"])["accounting"]
+                legacy = tool_activity.projection(native.get("tool_activity"))
+                if (
+                    not tool_activity.is_current(native.get("tool_activity"))
+                    and legacy["basis"] == "native_events"
+                    and _dict(refreshed.get("tool_activity")).get("basis") == "unavailable"
+                ):
+                    # Version 1 counts retain their meaning when the declared
+                    # source is gone. Only the new classification stays unknown.
+                    refreshed["tool_activity"] = legacy
+                native = refreshed
         issues = [] if runner else list(native.get("issues") or [])
         requests = [] if runner else native.get("requests") or []
         # A Claude Code stage runs on the OpenCode engine but reports Codex-shaped events: its usage is the

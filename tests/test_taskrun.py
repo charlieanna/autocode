@@ -254,16 +254,22 @@ class RunViewTests(unittest.TestCase):
                 "error_classes",
                 "exact_argument_repeats",
                 "comparable_calls",
+                "search_arguments",
                 "complete",
                 "issues",
                 "scope",
             },
             set(activity),
         )
-        self.assertEqual(1, activity["version"])
+        self.assertEqual(2, activity["version"])
         self.assertEqual({"command", "read", "search", "edit", "agent", "other"}, set(activity["families"]))
         self.assertEqual({"succeeded", "failed", "unknown"}, set(activity["outcomes"]))
         self.assertEqual({"nonzero_exit", "tool_error"}, set(activity["error_classes"]))
+        self.assertEqual(
+            {"with_instruction_name", "without_instruction_name", "unknown", "complete"},
+            set(activity["search_arguments"]),
+        )
+        self.assertFalse(activity["search_arguments"]["complete"])
         self.assertEqual("unavailable", activity["basis"])
         self.assertFalse(activity["complete"], "Historical tool activity is unavailable, never complete zero")
 
