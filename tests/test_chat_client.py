@@ -2176,6 +2176,58 @@ class StreamAndNoticeTests(unittest.TestCase):
         self.assertEqual(1, client.text().count("Another chat needs you: plan approval needed (r0)"))
 
 
+class FirstStageCommandTests(unittest.TestCase):
+    """#2879: in a chat started with a brief, /live, /log, /plan, /panel and /pause answered "is not
+    available right now" for the whole first stage. The first step runs inside start(), and the screen
+    was bound to the client only after it returned."""
+
+    LAUNCHES = (
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "if '--status' in sys.argv:\n"
+        "    print(json.dumps({'view': {'status': 'WAITING_FOR_USER', 'progress': {'needs_you': 'answer'}}}))\n"
+        "    sys.exit(0)\n"
+        "(Path(sys.argv[0]).parent / 'launched').touch()\n"
+        "sys.exit(0)\n"
+    )
+
+    def test_the_client_is_handed_over_before_its_first_step_is_launched(self):
+        with tempfile.TemporaryDirectory() as folder:
+            script = Path(folder) / "autocode"
+            script.write_text(self.LAUNCHES)
+            launched = Path(folder) / "launched"
+            seen = []
+            client = chat.start(
+                Path(folder),
+                "hi",
+                [],
+                [],
+                command=(sys.executable, str(script)),
+                say=lambda text: None,
+                poll_seconds=0.01,
+                wait=lambda seconds: None,
+                created=lambda fresh: seen.append((launched.exists(), fresh.run_dir)),
+            )
+            self.addCleanup(client.close)
+            self.assertTrue(launched.exists(), "the first step ran")
+            self.assertEqual([(False, client.run_dir)], seen, "handed over before it, for the run it creates")
+
+    def test_the_handover_binds_the_screen_to_the_clients_commands_and_its_project_list(self):
+        bound = []
+        ui = mock.Mock(bind=lambda act, run=True: bound.append((act, run)))
+        history = chat.History(WORKSPACE)
+        client = chat.ChatClient(WORKSPACE, RUN, ask=lambda prompt: "", say=lambda text: None, poll_seconds=0)
+        self.addCleanup(client.close)
+        chat.handover(ui, history)(client)
+        self.assertIs(history, client.history)
+        ui.set_context.assert_called_once_with(WORKSPACE, RUN)
+        self.assertEqual([(client.slash, True)], bound, "run-only commands on, as after the first question")
+        plain = chat.ChatClient(WORKSPACE, RUN, ask=lambda prompt: "", say=lambda text: None, poll_seconds=0)
+        self.addCleanup(plain.close)
+        chat.handover(None, history)(plain)  # the line-by-line chat has no screen to bind
+        self.assertIs(history, plain.history)
+
+
 class RefusedStartTests(unittest.TestCase):
     """A new run AutoCode refuses before saving anything: the chat says why, not that it has no status."""
 
