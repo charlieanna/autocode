@@ -1094,6 +1094,25 @@ def passed(checks: list[Check]) -> bool:
     return all(c.status != MISSING for c in checks if not c.name.startswith("engine:"))
 
 
+def check_lines(checks: list[Check]) -> list[str]:
+    """The checks as a person reads them: a mark, the name, the detail and its fix.
+
+    Once the engine verdict is ready, a backend that is missing but not the one a new run uses is not
+    a failure (``passed`` already ignores it): it is shown with "–" and "not needed", never a red ✖
+    beside "ready for a first task". ``--json`` keeps its status as it is.
+    """
+    marks = {OK: "✔", MISSING: "✖", WARN: "!"}
+    ready = any(c.name == "engine" and c.status == OK for c in checks)
+    lines = []
+    for check in checks:
+        spare = ready and check.name.startswith("engine:") and check.status == MISSING
+        detail = f"{check.detail}; not needed for a new run here" if spare else check.detail
+        lines.append(f"{'–' if spare else marks[check.status]} {check.name:<16} {detail}")
+        if check.fix:
+            lines.append(f"  {'':<16} {'to use it' if spare else 'fix'}: {check.fix}")
+    return lines
+
+
 def parser() -> argparse.ArgumentParser:
     """The arguments `autocode doctor` reads; `autocode completion` reads them too."""
     result = argparse.ArgumentParser(
@@ -1132,11 +1151,8 @@ def cli(argv: list[str] | None = None) -> int:
             )
         )
     else:
-        marks = {OK: "✔", MISSING: "✖", WARN: "!"}
-        for check in checks:
-            print(f"{marks[check.status]} {check.name:<16} {check.detail}")
-            if check.fix:
-                print(f"  {'':<16} fix: {check.fix}")
+        for line in check_lines(checks):
+            print(line)
         chosen = [row for row in settings if row["source"] != "built-in default" or row["key"] == "provider"]
         print("Settings for a new run when no flag gives them:")
         for row in chosen:

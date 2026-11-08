@@ -21,6 +21,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Once `autocode doctor` finds the engine a new run uses ready, a backend that run does not need is
+  shown with `–` and "not needed for a new run here" instead of a red `✖` above "ready for a first
+  task". `--json` is unchanged.
+
 - `autocode setup` no longer reports "Installed OpenCode" and then lists it as not installed when npm
   puts it in a global bin folder outside PATH: it names the folder and the `export PATH=…` line instead.
   Without npm it no longer offers an install it cannot make, and says how to get Node.js on this
