@@ -91,6 +91,7 @@ class ContainedOpenCodeScenarioTests(unittest.TestCase):
         bindir.mkdir()
         shutil.copy2(REPO / "tools/fake_opencode.py", bindir / "opencode")
         shutil.copy2(REPO / "scenarios/harness/fake_codex.py", bindir / "codex")
+        shutil.copy2(REPO / "scenarios/harness/fake_changed_code.py", bindir / "fake_changed_code.py")
         for name in ("opencode", "codex"):
             (bindir / name).chmod(0o755)
         (self.root / "config").mkdir()
