@@ -128,6 +128,14 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_risk_cli",),
     ),
     (
+        "scenarios/catalog/ladder-18-durable-lease-queue/broken/process-local-tokens/",
+        ("tests.test_risk_cli",),
+    ),
+    (
+        "scenarios/catalog/ladder-19-transactional-outbox/broken/ack-with-exception-rollback/",
+        ("tests.test_risk_cli",),
+    ),
+    (
         "tools/goal_fixtures.py",
         (
             "tests.test_goal_fixture_changed_code",

@@ -731,16 +731,19 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
     variant = "reference"
     source_digest = fixture.LEASE_SOURCE
     cleanup_lines = (23, 24)
+    scenario_name = "ladder-18-durable-lease-queue"
+    source_path = "leasequeue/__init__.py"
+    transaction_case = fixture.LEASE_TRANSACTION_CASE
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         base = Path(temporary.name)
         self.root, self.reference = base / "project", base / "reference"
-        scenario = REFERENCE.parents[1] / "ladder-18-durable-lease-queue"
+        scenario = REFERENCE.parents[1] / self.scenario_name
         shutil.copytree(scenario / self.variant, self.reference)
         shutil.copytree(self.reference, self.root)
-        self.path = "leasequeue/__init__.py"
+        self.path = self.source_path
         self.producer = {
             "reference": str(self.reference),
             "paths": [self.path, "tests/test_behavior.py"],
@@ -760,7 +763,7 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
             "source_sha256": self.source_digest,
             "outcome": "survived",
             "failed_tests": [],
-            "survived_tests": [fixture.LEASE_TRANSACTION_CASE],
+            "survived_tests": [self.transaction_case],
             "evidence": ["/runner/mutant.log"],
         }
         return {
@@ -768,7 +771,7 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
                 "path": "/runner/verification.json",
                 "verdict": "PASS",
                 "source_revision": identity[0],
-                "fail_to_pass": [fixture.LEASE_TRANSACTION_CASE],
+                "fail_to_pass": [self.transaction_case],
                 "changed_code_evidence": {
                     "source_revision": identity[0],
                     "proof_context": identity[1],
@@ -809,7 +812,7 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
                 {"source_sha256": "0" * 64},
                 {"line": 20},
                 {"outcome": "not_run"},
-                {"failed_tests": [fixture.LEASE_TRANSACTION_CASE]},
+                {"failed_tests": [self.transaction_case]},
                 {"survived_tests": ["unrelated"]},
                 {"evidence": []},
             ):
@@ -875,9 +878,10 @@ class NonAtomicLeaseFixtureReviewTests(LeaseCleanupFixtureReviewTests):
     variant = "broken/non-atomic-claim"
     source_digest = "a7067c3c67d30194cf473870d350072529de7af46d2fe0097aa9efd56183cd02"
     cleanup_lines = (24, 25)
+    reason_lines = (6, 14, 17, 22, 30)
 
     def test_non_mutable_lines_require_the_pinned_producer_and_exact_current_gap(self):
-        for line in (6, 14, 17, 22, 30):
+        for line in self.reason_lines:
             with self.subTest(line=line):
                 data = self.data(line)
                 row = data["regression_proof"]["changed_code_evidence"]["obligations"][0]
@@ -891,6 +895,23 @@ class NonAtomicLeaseFixtureReviewTests(LeaseCleanupFixtureReviewTests):
                     changed = copy.deepcopy(data)
                     changed["regression_proof"]["changed_code_evidence"]["obligations"][0].update(change)
                     self.assertEqual([], fixture.judgments(changed, self.root, producer=self.producer))
+
+
+class ExceptionRollbackOutboxFixtureReviewTests(NonAtomicLeaseFixtureReviewTests):
+    scenario_name = "ladder-19-transactional-outbox"
+    variant = "broken/ack-with-exception-rollback"
+    source_path = "outbox/__init__.py"
+    source_digest = "0acfa82f221ffc6f29756329fe2049461786a6f295992b47abf16e83d30c0d12"
+    transaction_case = (
+        "tests.test_behavior.OutboxTests.test_creation_locks_before_the_idempotency_read_and_closes_its_connection"
+    )
+    reason_lines = (5, 14, 17, 22, 42, 43, 53, 60, 61, 62, 66)
+
+
+class ProcessLocalTokenFixtureReviewTests(LeaseCleanupFixtureReviewTests):
+    variant = "broken/process-local-tokens"
+    source_digest = fixture.LEASE_TOKENS_SOURCE
+    cleanup_lines = (25, 26)
 
 
 class LifecycleFixtureReviewTests(unittest.TestCase):

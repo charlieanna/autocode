@@ -556,7 +556,7 @@ def _regclient(data, root):
 
 LEASE_SOURCE = "37086ea9920187aa6f500f5d946c70c33229ebade1d69cb1a655235c2c6304e3"
 LEASE_TESTS = "78e4c933baa51d3a0c09167303692e9dacd71439c9769b086163a28f71bd345d"
-LEASE_TOKENS_TESTS = "d736b080b6d9cd3095de44622bf20ccd54ac815569f2e55a6fcd875d1772b8ce"
+LEASE_TOKENS_TESTS = LEASE_TESTS
 _LEASE_TXN = (
     "No supported mutation for this transaction line. Every test in tests/test_behavior.py enqueues, claims "
     "and acknowledges through _db; test_enqueue_claim_restart_and_ack reads the claim back from a new "
@@ -823,12 +823,23 @@ LEASE_TRANSACTION_CASE = "tests.test_behavior.QueueTests.test_claim_locks_before
 
 
 def _lease_cleanup(data, root, producer):
-    """The configured scripted producer and current proof own each exact line judgment."""
-    path = "leasequeue/__init__.py"
-    variants = (
-        (LEASE_SOURCE, LEASE_TESTS, 23, {}),
-        (LEASE_NON_ATOMIC_SOURCE, LEASE_NON_ATOMIC_TESTS, 24, LEASE_NON_ATOMIC_REASONS),
+    return _scripted_cleanup(
+        data,
+        root,
+        producer,
+        path="leasequeue/__init__.py",
+        variants=(
+            (LEASE_SOURCE, LEASE_TESTS, 23, {}),
+            (LEASE_NON_ATOMIC_SOURCE, LEASE_NON_ATOMIC_TESTS, 24, LEASE_NON_ATOMIC_REASONS),
+            (LEASE_TOKENS_SOURCE, LEASE_TOKENS_TESTS, 25, {}),
+        ),
+        transaction_case=LEASE_TRANSACTION_CASE,
+        label="lease queue",
     )
+
+
+def _scripted_cleanup(data, root, producer, *, path, variants, transaction_case, label):
+    """The configured scripted producer and current proof own each exact line judgment."""
     try:
         for variant in variants:
             digest, test_digest, handler_line, reasons = variant
@@ -864,7 +875,7 @@ def _lease_cleanup(data, root, producer):
         proof.get("verdict") != "PASS"
         or proof.get("source_revision") != revision
         or not all(isinstance(value, str) and value for value in (proof.get("path"), revision, context))
-        or LEASE_TRANSACTION_CASE not in (proof.get("fail_to_pass") or [])
+        or transaction_case not in (proof.get("fail_to_pass") or [])
     ):
         return []
     accepted = []
@@ -899,14 +910,14 @@ def _lease_cleanup(data, root, producer):
             continue
         mutants = next(file["mutants"] for file in proof["mutation_check"]["files"] if file["path"] == path)
         mutant = next(mutant for mutant in mutants if mutant.get("line") == line)
-        if LEASE_TRANSACTION_CASE not in mutant["survived_tests"]:
+        if transaction_case not in mutant["survived_tests"]:
             continue
         accepted.append(
             {
                 "gap_id": gap,
                 "decision": "accept",
                 "reason_kind": "equivalent_mutant",
-                "reason": "Exact scripted lease queue: removing this explicit exception rollback leaves "
+                "reason": f"Exact scripted {label}: removing this explicit exception rollback leaves "
                 "the exception propagating through the unchanged finally block. db.close() rolls back "
                 "its pending SQLite transaction and releases the connection. The delivered transaction "
                 "test passes on this exact mutant and detects omitted transaction start or close; only "
@@ -926,8 +937,25 @@ def _leasequeue(data, root, producer):
     )
 
 
-def _outbox(data, root):
-    return _lifecycle(data, root, "outbox/__init__.py", {OUTBOX_SOURCE: OUTBOX_REASONS}, OUTBOX_TESTS)
+OUTBOX_ACK_SOURCE = "0acfa82f221ffc6f29756329fe2049461786a6f295992b47abf16e83d30c0d12"
+OUTBOX_TRANSACTION_CASE = (
+    "tests.test_behavior.OutboxTests.test_creation_locks_before_the_idempotency_read_and_closes_its_connection"
+)
+OUTBOX_ACK_REASONS = {line: OUTBOX_REASONS[line] for line in (5, 14, 17, 22, 42, 43, 53, 60, 61, 62, 66)}
+
+
+def _outbox(data, root, producer):
+    return _lifecycle(
+        data, root, "outbox/__init__.py", {OUTBOX_SOURCE: OUTBOX_REASONS}, OUTBOX_TESTS
+    ) + _scripted_cleanup(
+        data,
+        root,
+        producer,
+        path="outbox/__init__.py",
+        variants=((OUTBOX_ACK_SOURCE, OUTBOX_TESTS, 24, OUTBOX_ACK_REASONS),),
+        transaction_case=OUTBOX_TRANSACTION_CASE,
+        label="outbox",
+    )
 
 
 def _cleanup_equivalent(proof, row, digest, source_path, signatures):
@@ -1775,7 +1803,7 @@ def judgments(data, root=None, *, producer=None):
         + _weeks(data, root)
         + _regclient(data, root)
         + _leasequeue(data, root, producer)
-        + _outbox(data, root)
+        + _outbox(data, root, producer)
         + _csvcheck(data, root)
         + _package_greeting(data, root, producer)
         + _native_fixture(data, root, producer)
