@@ -481,7 +481,9 @@ def run_probes(
 
 NAMED_PROOF_NOTE = prompts.get("fragments/test-cases/named-proof-note.md")
 
-BUILDER_NOTE = prompts.get("fragments/test-cases/builder-note.md") + NAMED_PROOF_NOTE
+BUILDER_PROOF_NOTE = prompts.get("fragments/test-cases/builder-proof-note.md")
+
+BUILDER_NOTE = prompts.get("fragments/test-cases/builder-note.md") + NAMED_PROOF_NOTE + BUILDER_PROOF_NOTE
 
 
 # A live Arena bug fix (Boltons #474, 2026-10-05) used the plan's AC ids for its
@@ -514,7 +516,7 @@ def builder_note(state: RunState) -> str:
             rows.append(
                 f"- {case_text(case)}; test name: {case_test_name(case['id'], names.get(case['id']))}; {before}."
             )
-        return DIAGNOSIS_BUILDER_NOTE + "\n".join(rows) + "\n" + NAMED_PROOF_NOTE + fix_note
+        return DIAGNOSIS_BUILDER_NOTE + "\n".join(rows) + "\n" + NAMED_PROOF_NOTE + BUILDER_PROOF_NOTE + fix_note
     if contract_cases(state):
         return BUILDER_NOTE + fix_note
     return fix_note

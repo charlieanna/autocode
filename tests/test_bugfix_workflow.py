@@ -105,6 +105,8 @@ class BugfixWorkflow(unittest.TestCase):
         proof = final["regression_proof"]
         self.assertEqual("PASS", proof["verdict"], proof)
         self.assertEqual(["test_greet.TestGreet.test_blank_name_rejected"], proof["fail_to_pass"])
+        self.assertNotEqual(0, proof["checks"]["regression_on_base"]["exit_code"])
+        self.assertEqual(0, proof["checks"]["suite_on_candidate"]["exit_code"])
         self.assertEqual(final["validation"]["source_revision"], proof["source_revision"])
         runner = next(row for row in final["stages"] if row["stage"] == "regression_proof")
         self.assertTrue(runner["runner_owned"])

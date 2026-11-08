@@ -21,6 +21,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Plans and Builder instructions assign independent fail-first proof to the runner and avoid requiring
+  a duplicate Builder capture solely to establish it. Project instructions, explicit test-first requests
+  and approved check sequences still apply.
+  Eligible Builder checks can run in one batch, with a fresh authenticated receipt for every command
+  and phase; independent testing and completion checks remain required.
 - Once `autocode doctor` finds the engine a new run uses ready, a backend that run does not need is
   shown with `–` and "not needed for a new run here" instead of a red `✖` above "ready for a first
   task". `--json` is unchanged.

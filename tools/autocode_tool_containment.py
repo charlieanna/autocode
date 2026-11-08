@@ -1019,6 +1019,15 @@ def prepare(
     control.mkdir(mode=0o700)
     scratch = control / "scratch"
     scratch.mkdir(mode=0o700)
+    if allow_write:
+        # The control parent remains read-only inside the shell, even for a
+        # scoped writer. This affirmative marker lets the capture batch choose
+        # that launch's existing scratch without pretending it is a readonly copy.
+        marker = control / "writer-capture.json"
+        marker.write_text(
+            json.dumps({"version": 1, "workspace": str(root), "scratch": str(scratch), "control": control.name})
+        )
+        marker.chmod(0o400)
     verification = None
     if verification_copy:
         if allow_write:
