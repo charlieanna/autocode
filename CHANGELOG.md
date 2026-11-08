@@ -307,6 +307,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- `autocode setup` asks which hub to install when neither OpenCode nor Kilo is installed:
+  OpenCode, Kilo or neither, by number or name (Enter takes OpenCode, as before). It used to
+  offer only OpenCode, so a Kilo user had to decline and install Kilo by hand.
+  After the install, Enter signs in to the hub just installed (it used to skip it), and when
+  another connected backend still comes first for new runs, setup says why and names
+  `--provider kilocode` or `default_provider` to run on Kilo instead.
+  The OpenCode and Kilo sign-in offers now read "Connect an account in Kilo now (ChatGPT, Z.ai,
+  an API key or Kilo Gateway)?", since the hub's own picker connects any of those, not only the
+  Kilo Gateway.
+
 - A plan whose criteria write the request's dollar amounts in the code's cents is no longer refused
   as having changed them, when the request itself spells one amount that way, such as
   "$50.00 (shipping_fee(5000))" (#2780). Without that pairing, $50 must still appear as 50. The

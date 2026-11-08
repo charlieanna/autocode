@@ -48,9 +48,11 @@ a virtual environment in every shell.
 
 **Connect your accounts once.** Run `autocode setup` right after installing. It
 checks Claude Code, Codex, OpenCode and Kilo. When neither OpenCode nor Kilo is
-installed it offers to install OpenCode with npm (`--install kilocode` installs Kilo
-instead), then offers the sign-in of each installed one that is not signed in, and
-says which backend your tasks will use. If a saved backend is unavailable, setup keeps that
+installed it asks which of the two to install with npm, or neither (Enter takes
+OpenCode; `--install kilocode` installs Kilo without asking), then offers the sign-in of each installed one that is not signed in
+(Enter signs in to the hub it just installed), and says which backend your tasks will use. When
+another connected backend comes first (Claude Code, then Codex, then Kilo), it says so and how
+to run on the hub you installed instead. If a saved backend is unavailable, setup keeps that
 choice and reports the install or sign-in command needed before a task can start. API keys (Z.ai, MiMo, OpenAI, Anthropic) go in OpenCode or
 Kilo. It then asks which model and reasoning level each stage runs, with advice for each, and
 every task uses that choice; change it any time with `autocode stages choose`

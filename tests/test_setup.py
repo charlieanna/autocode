@@ -125,6 +125,9 @@ class SetupTests(unittest.TestCase):
         self.assertEqual([["login", "--provider", "codex"]], logins)
         self.assertFalse(setup._sign_in([CODEX_OUT], ask=lambda _prompt: "", login=login))
         self.assertEqual(1, len(logins))
+        asked.clear()
+        setup._sign_in([row("opencode", "OpenCode", "sign_in_required")], ask=ask, login=login)
+        self.assertEqual(["Connect an account in OpenCode now (ChatGPT, Z.ai, MiMo or an API key)? [y/N] "], asked)
 
     def test_json_reports_without_asking_and_exits_by_whether_a_run_could_start(self):
         for found, chosen, code in (
@@ -196,6 +199,62 @@ class SetupTests(unittest.TestCase):
                 self.assertEqual("claude", offer.call_args.args[0]["id"])
             self.assertEqual(routes, listed)
 
+    def test_after_installing_kilo_setup_signs_in_on_enter_and_says_when_another_backend_runs(self):
+        """It installed Kilo, offered "Sign in to Kilo now? [y/N]", which read as the Kilo Gateway
+        alone and took Enter as no, and then said
+        "New runs use Claude Code" without saying why Kilo, the hub just chosen, was passed over."""
+        kilo_out = {**row("kilocode", "Kilo", "sign_in_required"), "actions": [{"id": "login"}]}
+        kilo_in = row("kilocode", "Kilo", "credentials_present")
+        before = [CLAUDE_IN, CODEX_OUT, OPENCODE_MISSING, KILO_MISSING]
+        installed = [CLAUDE_IN, CODEX_OUT, OPENCODE_MISSING, kilo_out]
+        signed_in = [CLAUDE_IN, CODEX_OUT, OPENCODE_MISSING, kilo_in]
+        output, prompts = io.StringIO(), []
+        with (
+            mock.patch.object(setup, "_interactive", return_value=True),
+            mock.patch.object(setup, "rows", side_effect=[before, installed, signed_in]),
+            mock.patch.object(setup, "_install", return_value="kilocode"),
+            mock.patch("builtins.input", side_effect=lambda prompt: prompts.append(prompt) or ""),
+            mock.patch.object(setup.connections, "cli", return_value=0) as login,
+            mock.patch.object(setup.connected_engine, "choose", return_value=CLAUDE_CHOSEN),
+            mock.patch.object(setup, "offer_stages", return_value=True),
+            contextlib.redirect_stdout(output),
+        ):
+            self.assertEqual(0, setup.cli([]))
+        self.assertEqual(
+            [
+                "Sign in to Codex now? [y/N] ",
+                "Connect an account in Kilo now (ChatGPT, Z.ai, an API key or Kilo Gateway)? [Y/n] ",
+            ],
+            prompts,
+        )
+        login.assert_called_once_with(["login", "--provider", "kilocode"])
+        shown = output.getvalue()
+        self.assertIn(
+            "New runs use Claude Code, not Kilo: Claude Code comes first when several backends are connected. "
+            'To run on Kilo, pass `--provider kilocode` for one task, or add `default_provider = "kilocode"` '
+            "to ~/.config/autocode/config.toml for every task.",
+            shown,
+        )
+
+    def test_the_hub_note_says_nothing_when_new_runs_use_the_hub_or_nothing_was_installed(self):
+        kilo_in = row("kilocode", "Kilo", "credentials_present")
+        kilo_out = row("kilocode", "Kilo", "sign_in_required")
+        kilo_use = {"id": "kilocode", "label": "Kilo", "reason": "Kilo is connected"}
+        claude_use = {"id": "claude", "label": "Claude Code", "reason": "Claude Code is connected"}
+        self.assertIsNone(setup.hub_note(None, [CLAUDE_IN, kilo_in], claude_use))
+        self.assertIsNone(setup.hub_note("kilocode", [kilo_in], kilo_use))
+        self.assertIsNone(setup.hub_note("kilocode", [kilo_out], None))
+        self.assertEqual(
+            "Kilo is installed but has no account connected, so new runs cannot use it yet. "
+            "Connect one with: autocode connections login --provider kilocode",
+            setup.hub_note("kilocode", [CLAUDE_IN, kilo_out], claude_use),
+        )
+        named = {"id": "claude", "label": "Claude Code", "reason": "named by AUTOCODE_PROVIDER"}
+        self.assertIn(
+            "New runs use Claude Code, not Kilo: Claude Code is named by AUTOCODE_PROVIDER.",
+            setup.hub_note("kilocode", [CLAUDE_IN, kilo_in], named),
+        )
+
     def test_saved_stage_choices_are_what_setup_lists_instead_of_the_selected_routes(self):
         shown = io.StringIO()
         current = {"label": "OpenCode", "file": "/x/stages.toml", "options_stop": None, "stages": []}
@@ -214,7 +273,9 @@ class SetupTests(unittest.TestCase):
         setup.say_routes({"id": "claude"}, stream=broken, load=mock.Mock(side_effect=ValueError("bad TOML")))
         self.assertEqual("Your stage choices cannot be read: bad TOML\n", broken.getvalue())
 
-    def test_with_no_hub_installed_setup_offers_opencode_once_and_installs_it_with_npm(self):
+    def test_with_no_hub_installed_setup_asks_which_hub_and_installs_the_one_chosen(self):
+        """It offered only OpenCode ("Install OpenCode now? [Y/n]"), so a person who uses Kilo
+        could only say no and install Kilo by hand."""
         found = [CLAUDE_IN, CODEX_OUT, OPENCODE_MISSING, KILO_MISSING]
         found = [
             {**item, "install_command": setup.INSTALL[item["id"]]}
@@ -222,27 +283,54 @@ class SetupTests(unittest.TestCase):
             else item
             for item in found
         ]
-        asked, ran, said = [], [], []
-        npm = lambda name: {"npm": "/bin/npm", "opencode": "/bin/opencode" if ran else None}.get(name)  # noqa: E731
-        installed = setup._install(
-            found,
-            ask=lambda prompt: asked.append(prompt) or "",
-            which=npm,
-            run=lambda argv: ran.append(argv) or 0,
-            out=said.append,
-        )
-        self.assertTrue(installed)
-        self.assertEqual(1, len(asked))
-        self.assertIn("Install OpenCode 1.18.33 now", asked[0])
-        self.assertEqual([["npm", "install", "-g", "opencode-ai@1.18.33"]], ran)
-        self.assertEqual(["Installed OpenCode 1.18.33."], said)
-        ran.clear()
-        self.assertFalse(
-            setup._install(found, ask=lambda _prompt: "n", which=npm, run=lambda argv: ran.append(argv) or 0)
-        )
-        self.assertEqual([], ran)
+        npm_argv = {"opencode": ["npm", "install", "-g", "opencode-ai@1.18.33"]}
+        npm_argv["kilocode"] = ["npm", "install", "-g", "@kilocode/cli@7.8.3"]
+        for answer, hub in [
+            ("", "opencode"),
+            ("1", "opencode"),
+            ("OpenCode", "opencode"),
+            ("2", "kilocode"),
+            (" kilo ", "kilocode"),
+        ]:
+            with self.subTest(answer=answer):
+                asked, ran, said = [], [], []
+                command = setup.EXECUTABLES[hub]
+                npm = lambda name, ran=ran, command=command: {  # noqa: E731
+                    "npm": "/bin/npm",
+                    command: f"/bin/{command}" if ran else None,
+                }.get(name)
+                installed = setup._install(
+                    found,
+                    ask=lambda prompt, asked=asked: asked.append(prompt) or answer,
+                    which=npm,
+                    run=lambda argv, ran=ran: ran.append(argv) or 0,
+                    out=said.append,
+                )
+                self.assertTrue(installed)
+                self.assertEqual(["Install which? [1-3, Enter for 1] "], asked)
+                self.assertIn("1. OpenCode 1.18.33", said[0])
+                self.assertIn("2. Kilo 7.8.3", said[0])
+                self.assertIn("(npm install -g @kilocode/cli@7.8.3)", said[0])
+                self.assertIn("3. Neither", said[0])
+                self.assertEqual([npm_argv[hub]], ran)
+                self.assertEqual(f"Installed {setup.HUBS[hub]}.", said[-1])
+        for answer in ("3", "n", "neither", "kilo code"):
+            with self.subTest(answer=answer):
+                ran, said = [], []
+                self.assertFalse(
+                    setup._install(
+                        found,
+                        ask=lambda _prompt, answer=answer: answer,
+                        which=lambda name: "/bin/npm" if name == "npm" else None,
+                        run=lambda argv, ran=ran: ran.append(argv) or 0,
+                        out=said.append,
+                    )
+                )
+                self.assertEqual([], ran)
+        self.assertIn("'kilo code' is not one of the choices; nothing was installed", said[-1])
         # No terminal (no ask) and no --install: nothing is installed or asked.
-        self.assertFalse(setup._install(found, which=npm, run=lambda argv: ran.append(argv) or 0))
+        ran = []
+        self.assertFalse(setup._install(found, which=lambda _name: "/bin/npm", run=lambda argv: ran.append(argv) or 0))
         self.assertEqual([], ran)
 
     def test_an_installed_hub_is_never_reinstalled_and_install_names_kilo_explicitly(self):
@@ -286,7 +374,7 @@ class SetupTests(unittest.TestCase):
         self.assertIn("Run it yourself: npm install -g opencode-ai@1.18.33", said[0])
 
     def test_without_npm_setup_does_not_offer_an_install_it_cannot_make(self):
-        """It asked "Install OpenCode now? [Y/n]" and only then said npm was missing."""
+        """It asked which hub to install and only then said npm was missing."""
         missing = [
             {**OPENCODE_MISSING, "install_command": setup.INSTALL["opencode"]},
             {**KILO_MISSING, "install_command": setup.INSTALL["kilocode"]},
@@ -299,7 +387,7 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(installed)
         self.assertEqual(
             [
-                "OpenCode 1.18.33 installs with npm, which is not on PATH. Install Node.js with `brew install node` "
+                "OpenCode and Kilo install with npm, which is not on PATH. Install Node.js with `brew install node` "
                 "or from https://nodejs.org, then run `autocode setup` again."
             ],
             said,
@@ -324,9 +412,9 @@ class SetupTests(unittest.TestCase):
         )
         self.assertFalse(installed, "a hub AutoCode cannot run is not reported installed")
         self.assertEqual([["npm", "install", "-g", "opencode-ai@1.18.33"]], ran)
-        self.assertEqual(1, len(said))
-        self.assertIn("Installed OpenCode 1.18.33 in /opt/node22/bin, which is not on your PATH", said[0])
-        self.assertIn('export PATH="/opt/node22/bin:$PATH"', said[0])
+        self.assertEqual(2, len(said), said)
+        self.assertIn("Installed OpenCode 1.18.33 in /opt/node22/bin, which is not on your PATH", said[1])
+        self.assertIn('export PATH="/opt/node22/bin:$PATH"', said[1])
         said.clear()
         setup._install(
             missing, wanted="opencode", which=npm, run=lambda _argv: 0, out=said.append, npm_bin=lambda: None
