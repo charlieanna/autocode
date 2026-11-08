@@ -133,9 +133,9 @@ class RiskCliTests(unittest.TestCase):
         self.assertTrue(any(expected_reason in row.get("error", "") for row in observed), observed)
         self.assertEqual(0, view["efficiency"]["delivery"]["verified_deliveries"])
 
-    def advance_to_testers(self, run, view, count):
-        # Keep each public call bounded to a saved stage. A deliberately unchanged
-        # mutant must reach rework, not spend one call repeating every proof.
+    def advance_stages(self, run, view, *, testers=None):
+        # Keep each public call bounded to a saved stage, with regression proof
+        # and actual rework observed through their own public receipts.
         for _ in range(32):
             attempts = view["usage"]["accounting"]["attempts"]
             self.assertFalse(
@@ -150,9 +150,11 @@ class RiskCliTests(unittest.TestCase):
                 any(row.get("stage") == "investigate_stuck" and row.get("rejected") for row in attempts),
                 "An unknown scripted diagnosis must still cite its pinned Builder failure",
             )
-            if sum(row.get("stage") == "sol" for row in attempts) >= count:
+            if testers is None and view["done"]:
+                return view
+            if testers is not None and sum(row.get("stage") == "sol" for row in attempts) >= testers:
                 builders = [row for row in attempts if row.get("stage") == "terra" and not row.get("rejected")]
-                self.assertGreaterEqual(len(builders), count)
+                self.assertGreaterEqual(len(builders), testers)
                 return view
             need = view.get("needs") or {}
             if need.get("kind") == "approve_plan":
@@ -163,7 +165,7 @@ class RiskCliTests(unittest.TestCase):
             else:
                 self.assertEqual("continue", need.get("kind"), self.details(view))
                 view = run.advance()
-        self.fail(f"{count} scripted Builder/Tester rounds did not reach their public boundaries")
+        self.fail("The scripted lifecycle task did not reach its expected result within 32 public stages")
 
     def mutant_restart(self, scenario_id, solution, reason, tests, *, reword=()):
         scenario, run, view = self.start(
@@ -173,7 +175,7 @@ class RiskCliTests(unittest.TestCase):
             reword=reword,
             drive=False,
         )
-        view = self.advance_to_testers(run, view, 1)
+        view = self.advance_stages(run, view, testers=1)
         self.assert_mutant(scenario, run, view, reason, tests)
         runner = [row for row in view["evidence"]["findings"] if row["source"] == "runner"]
         self.assertEqual(["open"], [row["status"] for row in runner], view["evidence"]["findings"])
@@ -183,7 +185,7 @@ class RiskCliTests(unittest.TestCase):
         self.assertFalse(restored["done"])
         self.assertEqual(view["usage"]["accounting"], restored["usage"]["accounting"])
         self.assertEqual(runner, [row for row in restored["evidence"]["findings"] if row["source"] == "runner"])
-        after = self.advance_to_testers(again, restored, 2)
+        after = self.advance_stages(again, restored, testers=2)
         self.assert_mutant(scenario, again, after, reason, tests)
         self.assertEqual(view["evidence"]["validator_source_revision"], after["evidence"]["validator_source_revision"])
         self.assertEqual(
@@ -236,9 +238,11 @@ class RiskCliTests(unittest.TestCase):
         scenario, run, view = self.start(
             "ladder-18-durable-lease-queue",
             solution="broken/process-local-tokens",
-            planning=("--no-adaptive-planning",),
+            planning=("--no-adaptive-planning", "--pause-after-stage"),
             env={"SCENARIO_FAKE_REWORK_SOLUTION": str(scenario.dir / "reference")},
+            drive=False,
         )
+        view = self.advance_stages(run, view)
         self.assertEqual("TASK_COMPLETE", view["status"], self.details(view))
         self.assertTrue(verdict.evaluate(scenario, run.workspace).passed)
         attempts = view["usage"]["accounting"]["attempts"]
