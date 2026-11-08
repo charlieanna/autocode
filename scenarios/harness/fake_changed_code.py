@@ -5,9 +5,57 @@ surviving/unrun mutants receive no judgment; the core still authenticates every
 offered gap, source pin and cited runner proof.
 """
 
+import copy
 import hashlib
 import json
 from pathlib import Path
+
+
+def _review_data(data):
+    """Read the runner's pinned full rows before judging summarized proof detail."""
+    fields = {
+        "regression_proof_mutation_files": ("mutation_check", "files"),
+        "regression_proof_obligations": ("changed_code_evidence", "obligations"),
+    }
+    artifact = data.get("context_artifact") or {}
+    if not isinstance(artifact, dict):
+        return None
+    declared = artifact.get("fields") or {}
+    if not isinstance(declared, dict):
+        return None
+    requested = fields.keys() & declared.keys()
+    if requested:
+        try:
+            raw = Path(artifact["path"]).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != artifact["sha256"]:
+                return None
+            saved = json.loads(raw)
+            result = copy.deepcopy(data)
+            proof = result.get("regression_proof") or {}
+            for name in requested:
+                rows = saved[name]
+                if (
+                    not isinstance(rows, list)
+                    or not all(isinstance(row, dict) for row in rows)
+                    or declared[name].get("total") != len(rows)
+                ):
+                    return None
+                holder, key = fields[name]
+                proof.setdefault(holder, {})[key] = rows
+            result["regression_proof"] = proof
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+    else:
+        result = data
+    proof = result.get("regression_proof") or {}
+    for row in (proof.get("mutation_check") or {}).get("files") or []:
+        if not isinstance(row, dict) or not isinstance(row.get("mutants", []), list):
+            return None  # A count without readable full rows is not mutation evidence.
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        if not isinstance(row, dict) or "gaps" in row or "tested_lines" in row:
+            return None  # Grouped handles cannot substitute for the pinned gap identities.
+    return result
+
 
 STOCK_SOURCE = "ab756c8dc262940703efb13321038874624b89f55bb946bd403897e22da7b9d0"
 STOCK_TESTS = "f16ce9d71d25577c9df3b74ba30b680fba7ec85a46204f09f405a8a161aa1e30"
@@ -1296,6 +1344,9 @@ def _native_fixture(data, root, producer):
 
 
 def judgments(data, root=None, *, producer=None):
+    data = _review_data(data)
+    if data is None:
+        return []
     root = Path.cwd() if root is None else Path(root)
     return (
         _stock(data, root)
@@ -1454,7 +1505,7 @@ CSVCHECK_SOURCES = {
     "csvcheck/__main__.py": "0472e2ffee01c7582c667fb3eb1ef01023e7d584f175cef8cb475e45e6bd1736",
 }
 CSVCHECK_TESTS = {
-    "tests/test_csvcheck.py": "a2d7a8c0baf8c87a9a13bf14bc6e42968427a9f0aa19773ddea0474293202fec",
+    "tests/test_csvcheck.py": "0f38d7a9365dec107086cd5f6f61517bfb1c36f20cf9138d0e974320c1459dcc",
     "tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 }
 CSVCHECK_REASONS = {
@@ -1644,6 +1695,9 @@ def progressive_sources(reference, slice_id, *, catalog=False, corrupt=False, no
 
 def progressive_judgments(data, reference, slice_id, *, root=None, **variant):
     """Only unsupported imports in the exact Builder variant receive reasons."""
+    data = _review_data(data)
+    if data is None:
+        return []
     root = Path.cwd() if root is None else Path(root)
     proof = data.get("regression_proof") or {}
     try:
