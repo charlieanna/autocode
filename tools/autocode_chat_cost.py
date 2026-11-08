@@ -139,7 +139,10 @@ def _attempt(row: dict, number: int) -> list[str]:
     lines = [f"{label} · {job}{worker} · {', '.join(flags)}", "  " + _route(route)]
     choice = _mapping(row.get("effort_choice"))
     if choice.get("lowered") and isinstance(choice.get("ceiling"), str):
-        lines.append(f"  One level below your {_label(choice['ceiling'])}: the task is small and clear")
+        if choice.get("reason") == "small_clear":
+            lines.append(f"  One level below your {_label(choice['ceiling'])}: the task is small and clear")
+        elif isinstance(choice.get("text"), str):
+            lines.append(f"  Below your {_label(choice['ceiling'])}: {choice['text']}")
     tokens = _mapping(row.get("attributed_tokens")) or _mapping(row.get("tokens"))
     lines.extend(_tokens(tokens, indent="  "))
     if "attributed_reported_usd" in row:

@@ -37,10 +37,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_light_builder as light_builder
+    from . import autocode_repair_effort as repair_effort
     from . import autocode_role_route as role_route
     from . import autocode_route_fit as route_fit
 except ImportError:
     import autocode_light_builder as light_builder
+    import autocode_repair_effort as repair_effort
     import autocode_role_route as role_route
     import autocode_route_fit as route_fit
 
@@ -120,10 +122,14 @@ def launch(state: RunState, stage, route_role, report_only, route: dict) -> tupl
     """``(level, decision)`` for a stage launch, before the boundary fit (autocode_route_fit.launch).
 
     A small task's first Builder attempt runs low (autocode_light_builder, #1710); a review runs under
-    its stage-choice ceiling (``decide``). ``decision`` is None when neither rule considered the launch.
+    its stage-choice ceiling (``decide``); a format repair runs below the configured level
+    (autocode_repair_effort, #2868). ``decision`` is None when no rule considered the launch.
     """
     configured = light_builder.effort(state, stage, report_only, route.get("reasoning_effort"))
-    decision = decide(state, stage, route_role, report_only, configured, model=route.get("model"))
+    if report_only:
+        decision = repair_effort.decide(state, configured, model=route.get("model"))
+    else:
+        decision = decide(state, stage, route_role, report_only, configured, model=route.get("model"))
     return effort(decision, configured), decision
 
 
@@ -133,13 +139,16 @@ def effort(decision: dict | None, configured):
 
 
 def note(decision) -> str | None:
-    """One sentence for the live log when a review runs below the ceiling; None otherwise."""
+    """One sentence for the live log when a launch runs below the person's level; None otherwise."""
     if not isinstance(decision, dict) or not decision.get("lowered"):
         return None
     level, ceiling = decision.get("level"), decision.get("ceiling")
     if not isinstance(level, str) or not isinstance(ceiling, str):
         return None
-    return f"Running at {level}, one level below your {ceiling}: the task is small and clear."
+    if decision.get("reason") == SMALL_CLEAR:
+        return f"Running at {level}, one level below your {ceiling}: the task is small and clear."
+    text = decision.get("text")
+    return f"Running at {level}, below your {ceiling}: {text}." if isinstance(text, str) else None
 
 
 def _kept(configured, reason, text, facts) -> dict:
