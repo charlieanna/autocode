@@ -310,6 +310,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - `autocode setup` asks which hub to install when neither OpenCode nor Kilo is installed:
   OpenCode, Kilo or neither, by number or name (Enter takes OpenCode, as before). It used to
   offer only OpenCode, so a Kilo user had to decline and install Kilo by hand.
+  Invalid numeric choices, including superscript digits and oversized entries, install nothing
+  and return to setup instead of crashing.
   After the install, Enter signs in to the hub just installed (it used to skip it), and when
   another connected backend still comes first for new runs, setup says why and names
   `--provider kilocode` or `default_provider` to run on Kilo instead.
