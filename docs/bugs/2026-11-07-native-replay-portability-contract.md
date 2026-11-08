@@ -108,6 +108,14 @@ These are proposed owners and acceptance criteria, not permission to implement.
 
 ## Unresolved decisions before execution support
 
+The first bounded follow-up adds [descriptive refusal diagnostics](../replay.md)
+over the public projection's existing event/answer/snapshot bytes. This is the
+claim-inventory portion of step 1 only: it deliberately reports missing receipt,
+log and copy custody instead of following model-selected paths. Exact portable
+closure validation still needs core-owned pinned selectors for those dependencies;
+the current projection cannot establish them. No status field, import trust,
+receipt rebinding or native execution authority is added by that follow-up.
+
 - **Import trust:** which trusted party authenticates an exported closure across
   machines? Recommend untrusted historical data plus fresh checking by default;
   if authenticated origin is required, specify a separately trusted pin or

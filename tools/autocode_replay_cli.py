@@ -200,7 +200,10 @@ def cli(argv=None) -> int:
     except (recording.RecordingError, TaskRunError, OSError, ValueError) as error:
         message = util.redact(str(error))
         if args.json:
-            print(json.dumps({"code": "REPLAY_REFUSED", "message": message}), file=sys.stderr)
+            refusal: dict[str, object] = {"code": "REPLAY_REFUSED", "message": message}
+            if isinstance(error, recording.RecordingError) and error.native_capture_dependencies is not None:
+                refusal["native_capture_dependencies"] = error.native_capture_dependencies
+            print(json.dumps(refusal), file=sys.stderr)
         else:
             print("Replay refused: " + message, file=sys.stderr)
         return 3
