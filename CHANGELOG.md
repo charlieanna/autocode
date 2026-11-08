@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Public usage accounting reports bounded native tool counts, outcomes and exact-argument
+  repeats, with coverage limits and versioned refresh of saved observations.
+
 - The terminal chat shows each working agent's newest thought as one live line under the
   conversation while its stage runs (`Planner · thinking`). When the stage ends, the section folds
   into one line of history saying how many thoughts there were; `/live NAME` unfolds them. Ordinary
