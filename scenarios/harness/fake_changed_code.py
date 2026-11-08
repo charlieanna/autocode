@@ -507,7 +507,8 @@ def _regclient(data, root):
 
 
 LEASE_SOURCE = "37086ea9920187aa6f500f5d946c70c33229ebade1d69cb1a655235c2c6304e3"
-LEASE_TESTS = "d736b080b6d9cd3095de44622bf20ccd54ac815569f2e55a6fcd875d1772b8ce"
+LEASE_TESTS = "78e4c933baa51d3a0c09167303692e9dacd71439c9769b086163a28f71bd345d"
+LEASE_TOKENS_TESTS = "d736b080b6d9cd3095de44622bf20ccd54ac815569f2e55a6fcd875d1772b8ce"
 _LEASE_TXN = (
     "No supported mutation for this transaction line. Every test in tests/test_behavior.py enqueues, claims "
     "and acknowledges through _db; test_enqueue_claim_restart_and_ack reads the claim back from a new "
@@ -756,13 +757,111 @@ def _lifecycle(data, root, source_path, sources, tests_digest):
     return accepted
 
 
-def _leasequeue(data, root):
-    sources = {LEASE_SOURCE: LEASE_REASONS, LEASE_TOKENS_SOURCE: LEASE_TOKENS_REASONS}
-    return _lifecycle(data, root, "leasequeue/__init__.py", sources, LEASE_TESTS)
+LEASE_TRANSACTION_CASE = "tests.test_behavior.QueueTests.test_claim_locks_before_reading_jobs_and_closes_its_connection"
+
+
+def _lease_cleanup(data, root, producer):
+    """The configured scripted producer and current proof own these exact two reasons."""
+    path = "leasequeue/__init__.py"
+    pins = {path: LEASE_SOURCE, "tests/test_behavior.py": LEASE_TESTS}
+    if (
+        not isinstance(producer, dict)
+        or producer.get("check") != "python3 -m unittest discover -s tests -t ."
+        or producer.get("turn_paths")
+        or not isinstance(producer.get("reference"), str)
+        or not isinstance(producer.get("paths"), list)
+        or not all(isinstance(name, str) for name in producer["paths"])
+        or not set(pins) <= set(producer["paths"])
+    ):
+        return []
+    try:
+        reference = Path(producer["reference"])
+        if reference.resolve(strict=True).is_relative_to(root.resolve(strict=True)):
+            return []
+        if not _fixture_pins(root, pins) or not _fixture_pins(reference, pins):
+            return []
+    except (OSError, RuntimeError):
+        return []
+    proof = data.get("regression_proof") or {}
+    assessment = proof.get("changed_code_evidence") or {}
+    revision, context = assessment.get("source_revision"), assessment.get("proof_context")
+    if (
+        proof.get("verdict") != "PASS"
+        or proof.get("source_revision") != revision
+        or not all(isinstance(value, str) and value for value in (proof.get("path"), revision, context))
+        or LEASE_TRANSACTION_CASE not in (proof.get("fail_to_pass") or [])
+    ):
+        return []
+    accepted = []
+    signatures = {23: ("never_catch", "BaseException", "()"), 24: ("drop_call", "db.rollback()", "None")}
+    for row in assessment.get("obligations") or []:
+        line = row.get("line")
+        identity = [revision, context, path, LEASE_SOURCE, line]
+        gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+        if (
+            type(line) is not int
+            or row.get("status") != "reason_required"
+            or row.get("path") != path
+            or row.get("sha256") != LEASE_SOURCE
+            or row.get("gap_id") != gap
+            or not _cleanup_equivalent(proof, row, LEASE_SOURCE, path, signatures)
+        ):
+            continue
+        mutants = next(file["mutants"] for file in proof["mutation_check"]["files"] if file["path"] == path)
+        mutant = next(mutant for mutant in mutants if mutant.get("line") == line)
+        if LEASE_TRANSACTION_CASE not in mutant["survived_tests"]:
+            continue
+        accepted.append(
+            {
+                "gap_id": gap,
+                "decision": "accept",
+                "reason_kind": "equivalent_mutant",
+                "reason": "Exact scripted lease queue: removing this explicit exception rollback leaves "
+                "the exception propagating through the unchanged finally block. db.close() rolls back "
+                "its pending SQLite transaction and releases the connection. The delivered transaction "
+                "test passes on this exact mutant and detects omitted transaction start or close; only "
+                "these two redundant-cleanup mutants are equivalent for this pinned fixture.",
+                "evidence_refs": [proof["path"], path],
+            }
+        )
+    return accepted
+
+
+def _leasequeue(data, root, producer):
+    path = "leasequeue/__init__.py"
+    return (
+        _lifecycle(data, root, path, {LEASE_SOURCE: LEASE_REASONS}, LEASE_TESTS)
+        + _lifecycle(data, root, path, {LEASE_TOKENS_SOURCE: LEASE_TOKENS_REASONS}, LEASE_TOKENS_TESTS)
+        + _lease_cleanup(data, root, producer)
+    )
 
 
 def _outbox(data, root):
     return _lifecycle(data, root, "outbox/__init__.py", {OUTBOX_SOURCE: OUTBOX_REASONS}, OUTBOX_TESTS)
+
+
+def _cleanup_equivalent(proof, row, digest, source_path, signatures):
+    """Match one observed exact cleanup mutant, never an arbitrary survivor."""
+    expected = signatures.get(row.get("line"))
+    if expected is None or row.get("mutation_outcomes") != ["survived"]:
+        return False
+    files = [file for file in (proof.get("mutation_check") or {}).get("files") or [] if file.get("path") == source_path]
+    if len(files) != 1 or files[0].get("sha256") != digest:
+        return False
+    mutants = [mutant for mutant in files[0].get("mutants") or [] if mutant.get("line") == row["line"]]
+    if len(mutants) != 1:
+        return False
+    mutant = mutants[0]
+    return (
+        (mutant.get("operator"), mutant.get("before"), mutant.get("after")) == expected
+        and mutant.get("source_sha256") == digest
+        and mutant.get("outcome") == "survived"
+        and mutant.get("failed_tests") == []
+        and all(
+            isinstance(values, list) and bool(values) and all(isinstance(value, str) and value for value in values)
+            for values in (mutant.get("survived_tests"), mutant.get("evidence"))
+        )
+    )
 
 
 PACKAGE_GREETING_SOURCE = "packages/greet/greet.py"
@@ -1207,7 +1306,7 @@ def judgments(data, root=None, *, producer=None):
         + _diamond(data, root)
         + _weeks(data, root)
         + _regclient(data, root)
-        + _leasequeue(data, root)
+        + _leasequeue(data, root, producer)
         + _outbox(data, root)
         + _csvcheck(data, root)
         + _package_greeting(data, root, producer)
