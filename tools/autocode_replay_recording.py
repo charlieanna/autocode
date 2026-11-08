@@ -22,6 +22,7 @@ try:
     from . import autocode_changed_code_evidence as line_evidence
     from . import autocode_proof_detail as proof_detail
     from . import autocode_replay_bindings as identity_bindings
+    from . import autocode_replay_dependencies as dependencies
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
@@ -30,6 +31,7 @@ except ImportError:
     import autocode_changed_code_evidence as line_evidence
     import autocode_proof_detail as proof_detail
     import autocode_replay_bindings as identity_bindings
+    import autocode_replay_dependencies as dependencies
     import autocode_source_snapshot as source_snapshot
     import autocode_test_cases as test_cases
     import autocode_util as util
@@ -115,6 +117,8 @@ SYMBOLS = frozenset(
 
 class RecordingError(ValueError):
     """A recording is incomplete, corrupt, unsafe, or outside v1 support."""
+
+    native_capture_dependencies: dict | None = None
 
 
 def relative_path(name, *, source=False):
@@ -1193,8 +1197,22 @@ def export(projection, destination, secret_values=()):
         original_values[row[field]] for row in document["dispatches"] for field in ("report", "response") if row[field]
     ]
     references = _native_capture_references(answers, workspace)
-    for row in document["dispatches"]:
-        _refuse_native_capture_dependencies(original_values[row["events"]], references, workspace)
+    try:
+        for row in document["dispatches"]:
+            _refuse_native_capture_dependencies(original_values[row["events"]], references, workspace)
+    except RecordingError as error:
+        # Enrich the existing refusal only. Diagnostics never admit a capture,
+        # read its claimed paths, or replace the original guard's decision.
+        error.native_capture_dependencies = dependencies.inventory(
+            document=document,
+            originals=original_values,
+            records=projection["records"],
+            references=references,
+            workspace=workspace,
+            run_dir=run_root,
+            contexts=contexts,
+        )
+        raise
     revisions = list(dict.fromkeys([*projection["revisions"], *[row["head"] for row in snapshots]]))
     for snapshot in snapshots:
         for name, identity in snapshot["files"].items():

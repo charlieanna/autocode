@@ -98,6 +98,27 @@ original completed run and its evidence remain usable and unchanged. A receipt's
 old paths and hashes cannot establish fresh capture authority in another run.
 Unreferenced tool output, such as a printed documentation example, remains exportable.
 
+With `--json`, this refusal includes `native_capture_dependencies`, a version 1
+inventory of referenced capture **claims** from the already-read original tool
+events. Each entry identifies the dispatch, normalized event/line occurrence,
+original event artifact digest, before/after snapshot selectors, source selection
+digest and task/contract/case-scope digest. It records digests of the claimed
+command, receipt text and output path, the claimed copy/log pins, comparisons with
+the dispatch's source and capture context, and specific `issues`. Raw commands,
+paths, case names and nonces are not printed. `source_revision_match` and
+`capture_context_match` describe equality only, never authenticity or approval.
+
+The inventory always reports `closure_status: "unverified"` and
+`execution_authority: false`. The current projection has no independent selectors
+for capture receipt files, raw logs or copy manifests and their inputs, so these
+remain explicitly uninspected or unavailable. No claimed path is opened or
+resolved: even a path classified lexically as `run` may contain a symlink, and a
+matching digest may be a forged claim. Missing, stale, malformed and cross-run
+claims cannot enable export. Inspection stops after 128 dependencies or 16,384
+tool-output lines and sets `truncated: true`; that limit also cannot enable
+export. This diagnostic is not an import format or a portable native replay
+capability. Existing non-JSON refusal text and exit code 3 are unchanged.
+
 Fresh checks also require the evidence their current verifier expects. Some older
 report-file provider archives lack retained tool-command receipts; replay refuses
 those paths instead of copying old supervision records into current proof.
