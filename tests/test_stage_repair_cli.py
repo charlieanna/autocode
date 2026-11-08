@@ -349,6 +349,27 @@ class StageRepairCLI(unittest.TestCase):
         self.assertTrue(repairs[0]["reference_instruction"])
         self.assertIn("revise_contract", repairs[0]["revision_reference"])
 
+    def test_sparse_revision_refusal_reason_is_public_without_exporting_rejected_fields(self):
+        fixture = self.fixture_for("revision-reference-extra-field-repair")
+        run, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        rejected = [row for row in view["recoveries"] if row["kind"] == "rejected" and row["job"] == "Planner"]
+        self.assertEqual(1, len(rejected), view["recoveries"])
+        self.assertEqual(
+            "Plan revision reference is stale, malformed or not a Planner revision "
+            "[plan_revision_reference:unexpected_reference_fields]",
+            rejected[0]["problem"],
+        )
+        public_recoveries = json.dumps(view["recoveries"])
+        for canary in ("private-refusal-field-491", "private-refusal-value-491", state["goal_contract"]["hash"]):
+            self.assertNotIn(canary, public_recoveries)
+        self.assertEqual(1, sum(row["repair"] for row in trace))
+        refused = fixture.launch(["--run-dir", str(run), "--approve-goal", "r0:stale"], 2)
+        self.assertIn("current displayed draft token", refused.stdout + refused.stderr)
+        current = json.loads(fixture.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
+        self.assertEqual("AWAITING_GOAL_APPROVAL", current["status"])
+        self.assertFalse((fixture.project / "greet.py").exists())
+
     def test_sparse_revision_rejects_stale_protected_and_missing_criteria(self):
         for case in ("stale", "protected", "missing-criterion"):
             with self.subTest(case=case):
@@ -359,6 +380,10 @@ class StageRepairCLI(unittest.TestCase):
                 self.assertFalse(any(row["stage"] == "terra" for row in trace))
                 errors = " ".join(row["error"] for row in trace)
                 self.assertTrue("reference" in errors or "criterion" in errors, errors)
+                if case in ("stale", "protected"):
+                    reason = "reference_mismatch" if case == "stale" else "unexpected_change_fields"
+                    public_errors = " ".join(row["problem"] or "" for row in view["recoveries"])
+                    self.assertIn(f"[plan_revision_reference:{reason}]", public_errors)
 
     def test_unchanged_rewording_metadata_repairs_without_a_human_question(self):
         from autocode_taskrun import TaskRun
