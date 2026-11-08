@@ -12,6 +12,10 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_contract_identity as contracts
@@ -163,12 +167,12 @@ def context(capture, commands, evidence_directory):
     }
 
 
-def builder_context(state, capture, evidence_directory):
+def builder_context(state: RunState, capture, evidence_directory):
     """Offer only the current approved implementation's unchanged initial command list."""
     try:
-        contract = state["goal_contract"]
+        contract = cast(dict, state["goal_contract"])
         first = contract["body"]["initial_task"]
-        task = state["current_task"]
+        task = cast(dict, state["current_task"])
         if (
             not contracts.approved(state)
             or first.get("kind") != "implement"
