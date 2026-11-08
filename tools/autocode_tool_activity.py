@@ -7,6 +7,7 @@ are interpreted; neither prose nor command/output text determines an outcome.
 from __future__ import annotations
 
 import json
+import math
 
 MAX_CALLS = 4096
 MAX_ARGUMENT_BYTES = 65536
@@ -104,35 +105,72 @@ def _identity(value):
     return value if isinstance(value, str) and 0 < len(value) <= 1024 else None
 
 
-def _outcome(status, exit_code):
+def _command_exit(state):
+    """Match supported OpenCode precedence without importing provider machinery."""
+    metadata = state.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    if "exit" in metadata:
+        code = metadata["exit"]
+    else:
+        nested = metadata.get("metadata")
+        code = nested.get("exit") if isinstance(nested, dict) else None
+    return code if type(code) is int else None
+
+
+def _outcome(status, exit_code, *, command=False):
     if status not in ("completed", "error", "failed", "declined"):
         return "unknown", None
     if type(exit_code) is int and exit_code != 0:
         return "failed", "nonzero_exit"
     if status in ("error", "failed", "declined"):
         return "failed", "tool_error"
+    if command and type(exit_code) is not int:
+        return "unknown", None
     if status == "completed":
         return "succeeded", None
     return "unknown", None
 
 
 def _bounded_arguments(value):
-    # Bound traversal and string expansion before JSON encoding. The encoder's
-    # worst-case ASCII expansion is at most twelve times this character budget.
-    nodes, characters = 0, 0
+    """Upper-bound compact ASCII JSON bytes before the serializer allocates them."""
+    nodes, encoded_bytes = 0, 0
+
+    def add(size):
+        nonlocal encoded_bytes
+        encoded_bytes += size
+        return encoded_bytes <= MAX_ARGUMENT_BYTES
 
     def visit(item, depth):
-        nonlocal nodes, characters
+        nonlocal nodes
         nodes += 1
         if nodes > 8192 or depth > 32:
             return False
         if isinstance(item, str):
-            characters += len(item)
-        elif isinstance(item, dict):
-            return all(visit(key, depth + 1) and visit(child, depth + 1) for key, child in item.items())
-        elif isinstance(item, (list, tuple)):
-            return all(visit(child, depth + 1) for child in item)
-        return characters <= MAX_ARGUMENT_BYTES
+            if len(item) > MAX_ARGUMENT_BYTES or not add(2):
+                return False
+            for char in item:
+                code = ord(char)
+                size = 2 if char in '"\\\b\f\n\r\t' else 1 if 32 <= code <= 126 else 6 if code <= 65535 else 12
+                if not add(size):
+                    return False
+            return True
+        if item is None or type(item) is bool:
+            return add(4 if item is None or item is True else 5)
+        if type(item) is int:
+            # 30103/100000 is a strict upper bound on log10(2). Never convert
+            # an arbitrarily large integer to decimal just to measure it.
+            return add(item.bit_length() * 30103 // 100000 + 1 + int(item < 0))
+        if type(item) is float:
+            return math.isfinite(item) and add(32)
+        if isinstance(item, dict):
+            return add(2 + max(0, len(item) - 1) + len(item)) and all(
+                isinstance(key, str) and visit(key, depth + 1) and visit(child, depth + 1)
+                for key, child in item.items()
+            )
+        if isinstance(item, (list, tuple)):
+            return add(2 + max(0, len(item) - 1)) and all(visit(child, depth + 1) for child in item)
+        return False
 
     return visit(value, 0)
 
@@ -217,7 +255,8 @@ def summarize(rows, *, incomplete=False):
             raw = state.get("input")
             outcome, error = _outcome(
                 state.get("status"),
-                (state.get("metadata") or {}).get("exit") if isinstance(state.get("metadata"), dict) else None,
+                _command_exit(state),
+                command=family == "command",
             )
             key = ("part", session, identity)
         elif kind in ("item.started", "item.updated", "item.completed"):
@@ -238,7 +277,7 @@ def summarize(rows, *, incomplete=False):
                 status = "running"
             if status is None and kind == "item.completed" and type(item.get("exit_code")) is int:
                 status = "completed"
-            outcome, error = _outcome(status, item.get("exit_code"))
+            outcome, error = _outcome(status, item.get("exit_code"), command=family == "command")
             key = ("item", session, identity)
         else:
             if kind not in ("text", "reasoning", "autocode_progress"):

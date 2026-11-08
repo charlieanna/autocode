@@ -18,6 +18,8 @@ def boundary(kind="step_start", reason="stop"):
 
 
 def tool(identity="one", name="bash", given=None, status="completed", **extra):
+    if name in ("bash", "shell") and "metadata" not in extra:
+        extra["metadata"] = {"exit": 0}
     return {
         "type": "tool_use",
         "sessionID": "s",
@@ -34,6 +36,57 @@ def stream(*calls):
 
 
 class ToolActivityTests(unittest.TestCase):
+    def test_large_numeric_arguments_are_bounded_before_serialization(self):
+        given = {"values": [10**999] * 1000}
+        with mock.patch.object(activity.json, "dumps", side_effect=AssertionError("serializer must not run")):
+            result = activity.summarize(stream(tool(given=given)))
+        self.assertEqual(1, result["observed_calls"])
+        self.assertEqual(1, result["families"]["command"])
+        self.assertEqual(1, result["outcomes"]["succeeded"])
+        self.assertEqual(0, result["comparable_calls"])
+        self.assertFalse(result["complete"])
+        self.assertIn("observation_limit", result["issues"])
+        self.assertIn("arguments_unavailable", result["issues"])
+
+    def test_complete_public_view_sanitizes_saved_diagnostics_without_mutating_metrics(self):
+        good = activity.summarize(stream(tool()))
+        native = {"tool_activity": {**good, "arguments": "PRIVATE_CANARY"}, "legacy_receipt": {"keep": True}}
+        state = {
+            "status": "RUNNING",
+            "stages": [{"stage": "terra", "metrics": {"request_context": {"accounting": native}}}],
+        }
+        before = copy.deepcopy(state)
+        public = run_view.view(state)
+        self.assertNotIn("PRIVATE_CANARY", json.dumps(public))
+        self.assertNotIn("arguments", public["request_context"]["last_completed_stage"]["accounting"]["tool_activity"])
+        self.assertEqual(
+            {"keep": True}, public["request_context"]["last_completed_stage"]["accounting"]["legacy_receipt"]
+        )
+        self.assertEqual(before, state)
+
+    def test_shell_exit_metadata_matches_supported_opencode_precedence(self):
+        cases = (
+            ({"metadata": {"exit": 7}}, "failed", 1),
+            ({"metadata": {"exit": 0}}, "succeeded", 0),
+            ({"exit": 0, "metadata": {"exit": 7}}, "succeeded", 0),
+            ({"exit": 7, "metadata": {"exit": 0}}, "failed", 1),
+            ({"exit": "7", "metadata": {"exit": 0}}, "unknown", 0),
+            ({"exit": False, "metadata": {"exit": 7}}, "unknown", 0),
+            ({"metadata": {"exit": "7", "output": "SECRET"}}, "unknown", 0),
+            ({"metadata": {"exit": True}}, "unknown", 0),
+            ({"metadata": "SECRET"}, "unknown", 0),
+            ("SECRET", "unknown", 0),
+            ({}, "unknown", 0),
+        )
+        for metadata, outcome, nonzero in cases:
+            with self.subTest(metadata=metadata):
+                result = activity.summarize(stream(tool(name="shell", metadata=metadata)))
+                self.assertEqual(1, result["observed_calls"])
+                self.assertEqual(1, result["outcomes"][outcome])
+                self.assertEqual(nonzero, result["error_classes"]["nonzero_exit"])
+                self.assertEqual(outcome != "unknown", result["complete"])
+                self.assertNotIn("SECRET", json.dumps(result))
+
     def test_distinct_calls_compare_exact_structured_arguments_not_lifecycle_updates(self):
         rows = stream(
             tool(status="running"),
@@ -199,7 +252,7 @@ class ToolActivityTests(unittest.TestCase):
             canary = "SECRET-private-command-path-argument-output"
             rows = stream(
                 tool(given={"command": canary}, output=canary),
-                tool("two", given={"command": canary}, metadata={"exit": 7}),
+                tool("two", given={"command": canary}, metadata={"metadata": {"exit": 7}}),
             )
             events.write_text("".join(json.dumps(row) + "\n" for row in rows))
             legacy = request_usage.read(events)
