@@ -2343,6 +2343,39 @@ class AdvancingDiagnosticTests(unittest.TestCase):
         self.assertEqual([], client.taken)
 
 
+class RunChildInputTests(unittest.TestCase):
+    def test_the_run_child_never_reads_the_chat_terminal(self):
+        """The full-screen chat runs AutoCode in a background process group. A child that touches the
+        terminal there is stopped by the kernel, and Claude Code's `auth status` does: a first task on
+        Claude Code waited at "Starting the run" for good. Its input must be /dev/null, which answers
+        at once; here the chat's own input is a pipe that never answers, as that terminal does."""
+        with tempfile.TemporaryDirectory() as folder:
+            seen = Path(folder) / "stdin"
+            client = ScriptedChat({"status": "RUNNING"})
+            self.addCleanup(client.close)
+            client.workspace = Path(folder)
+            client.viewed.add(str(client.run_dir))
+            client.command = (
+                sys.executable,
+                "-c",
+                "import pathlib, select, sys\n"
+                "ready = select.select([sys.stdin], [], [], 10)[0]\n"
+                "pathlib.Path(sys.argv[1]).write_text(repr(sys.stdin.read()) if ready else 'blocked')",
+                str(seen),
+            )
+            silent, kept_open = os.pipe()
+            saved = os.dup(0)
+            try:
+                os.dup2(silent, 0)
+                with mock.patch.object(client, "show"), mock.patch.object(client, "check_others"):
+                    client.advance(["--no-chat"])
+            finally:
+                os.dup2(saved, 0)
+                for descriptor in (saved, silent, kept_open):
+                    os.close(descriptor)
+            self.assertEqual("''", seen.read_text(), "the run child waited on the chat's terminal")
+
+
 class InterruptTests(unittest.TestCase):
     """Ctrl-C while a stage works, against a real child that stands in for AutoCode."""
 

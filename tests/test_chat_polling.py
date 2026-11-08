@@ -38,7 +38,7 @@ class Reads(unittest.TestCase):
 
         def launch(argv, **kw):
             child = Child(kw["stdout"], len(self.children))
-            child.argv = argv
+            child.argv, child.stdin = argv, kw.get("stdin")
             self.children.append(child)
             return child
 
@@ -62,6 +62,12 @@ class Reads(unittest.TestCase):
         self.kill.side_effect = ProcessLookupError()
         self.poller.tick({key: 0})
         self.poller.close()  # an already gone group is still no error
+
+    def test_a_status_read_never_takes_the_chat_terminal_as_input(self):
+        """A read runs in a background process group, which the kernel stops when it touches the
+        terminal; its input is /dev/null instead."""
+        self.poller.tick(dict(list(self.keys.items())[:1]))
+        self.assertEqual([polling.subprocess.DEVNULL], [child.stdin for child in self.children])
 
     def test_no_queue_and_fairness_even_when_every_read_hangs(self):
         admitted = set()
