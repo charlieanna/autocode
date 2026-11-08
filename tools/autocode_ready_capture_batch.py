@@ -13,6 +13,11 @@ import sys
 import uuid
 from pathlib import Path
 
+try:
+    from . import autocode_contract_identity as contracts
+except ImportError:
+    import autocode_contract_identity as contracts
+
 # The plan is data, never shell/Python source. Keep the tool call copyable without
 # the nested shell quotes that failed before capture in the ISO-week trial.
 MAX_PLAN_BYTES = 64 * 1024
@@ -158,6 +163,36 @@ def context(capture, commands, evidence_directory):
     }
 
 
+def builder_context(state, capture, evidence_directory):
+    """Offer only the current approved implementation's unchanged initial command list."""
+    try:
+        contract = state["goal_contract"]
+        first = contract["body"]["initial_task"]
+        task = state["current_task"]
+        if (
+            not contracts.approved(state)
+            or first.get("kind") != "implement"
+            or task.get("kind") != "implement"
+            or task.get("contract_hash") != contract["hash"]
+            or task.get("contract_revision") != contract["revision"]
+            or task.get("validation_plan") != first.get("validation_plan")
+        ):
+            return None
+        batch = context(capture, first.get("validation_plan"), evidence_directory)
+        if batch:
+            batch["instruction"] += (
+                " Preserve the approved phase sequence: when it requires fail-first checks, add the "
+                "necessary regression tests, run this batch once before the product fix, retain each "
+                "expected failure, implement the fix, and run the same command fresh again afterward. "
+                "Each invocation creates new receipts; "
+                "never reuse an earlier phase's receipts. This offer does not advance the task or "
+                "decide whether a failure was expected."
+            )
+        return batch
+    except (KeyError, TypeError, AttributeError):
+        return None
+
+
 def _plan(encoded):
     """Reject malformed or unbounded input before any capture is launched."""
     if len(encoded) > MAX_ENCODED_BYTES:
@@ -199,14 +234,33 @@ def run(encoded):
     if control is not None:
         scratch = Path(os.environ.get("TMPDIR", ""))
         manifest = os.environ.get("AUTOCODE_VERIFICATION_COPY")
+        pin = os.environ.get("AUTOCODE_VERIFICATION_COPY_SHA256")
         valid = re.fullmatch("tool-containment-[0-9a-f]{32}", control) is not None and scratch.is_absolute()
         expected = Path.cwd() / ".autocode" / control / "scratch"
         try:
             valid = valid and scratch == expected and scratch.resolve(strict=True) == scratch and scratch.is_dir()
-            valid = valid and manifest == str(scratch.parent / "verification-copy.json")
-            valid = valid and Path(manifest).is_file() and not Path(manifest).is_symlink()
-            valid = valid and bool(os.environ.get("AUTOCODE_VERIFICATION_COPY_SHA256"))
-        except OSError:
+            if not valid:
+                raise ValueError("Invalid current native scratch")
+            copy_path = scratch.parent / "verification-copy.json"
+            if manifest is None and pin is None and not copy_path.exists() and not copy_path.is_symlink():
+                # Only prepare(allow_write=True) creates this marker, outside the
+                # shell's writable scratch. It selects a receipt location; the
+                # existing kernel policy and capture still own all authority.
+                writer = scratch.parent / "writer-capture.json"
+                valid = not writer.is_symlink() and writer.is_file() and writer.stat().st_mode & 0o222 == 0
+                if valid:
+                    binding = json.loads(writer.read_text())
+                    valid = isinstance(binding, dict) and type(binding.get("version")) is int
+                    valid = valid and binding == {
+                        "version": 1,
+                        "workspace": str(Path.cwd()),
+                        "scratch": str(scratch),
+                        "control": control,
+                    }
+            else:
+                valid = valid and manifest == str(copy_path)
+                valid = valid and copy_path.is_file() and not copy_path.is_symlink() and bool(pin)
+        except (OSError, ValueError):
             valid = False
         if not valid:
             raise ValueError("Prepared capture batch requires the current native scratch directory")

@@ -260,6 +260,12 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
             )
             if batch:
                 base["ready_capture_batch"] = batch
+        elif stage == "terra":
+            batch = ready_capture_batch.builder_context(
+                state, base["capture_command"], base["builder_artifact_policy"]["evidence_directory"]
+            )
+            if batch:
+                base["ready_capture_batch"] = batch
         instruction += prompts.get("fragments/stage-context/context-packet-03.md")
         if progressive:
             base["progressive_verification"] = {
