@@ -3,9 +3,9 @@
 AutoCode offers four backends (owner decision 2026-10-30): Claude Code (a Claude subscription) and
 Codex (a ChatGPT login) as engines, and OpenCode and Kilo for every other account and API key.
 ``setup`` checks each one with its own login listing, the check ``autocode connections check``
-runs. In a terminal, when neither OpenCode nor Kilo is installed, it offers to install OpenCode
-(the pinned, containment-qualified release) with npm, the one question it asks before changing
-the machine; ``--install opencode|kilocode`` installs that hub without asking. It then offers each
+runs. In a terminal, when neither OpenCode nor Kilo is installed, it asks which of the two to install
+with npm (OpenCode, the pinned containment-qualified release, is the first choice), or neither: the
+one question it asks before changing the machine; ``--install opencode|kilocode`` installs that hub without asking. It then offers each
 installed, signed-out backend's own sign-in, where a person connects ChatGPT, GLM, MiMo or an API
 key. It then says which backend new runs will use and, in a terminal, offers to choose the model and
 reasoning level of each stage on it (owner decision 2026-10-30, autocode_stages_cli), which every new
@@ -173,8 +173,9 @@ def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=
     """Install a missing hub with npm; True when an install finished and the hub is on PATH.
 
     ``wanted`` (``--install``) installs that hub without asking. Otherwise, only when ``ask`` is given
-    (an interactive terminal) and neither hub is installed, OpenCode is offered once; without npm it
-    is not offered, and the person is told how to get Node.js instead. An install that lands in an
+    (an interactive terminal) and neither hub is installed, the person chooses OpenCode, Kilo or
+    neither (``_choose_hub``); without npm nothing is offered, and the person is told how to get
+    Node.js instead. An install that lands in an
     npm global bin outside PATH says the line that puts it there, instead of "installed" followed by
     "not installed".
     """
@@ -186,14 +187,13 @@ def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=
     else:
         if ask is None or not HUBS.keys() <= missing:
             return False
-        name = "opencode"
         if not which("npm"):
             out(
-                f"{HUBS[name]} installs with npm, which is not on PATH. {_get_node()}, then run `autocode setup` again."
+                f"OpenCode and Kilo install with npm, which is not on PATH. {_get_node()}, then run `autocode setup` again."
             )
             return False
-        answer = ask(f"Install {HUBS[name]} now, to connect your accounts in it ({INSTALL[name]})? [Y/n] ")
-        if answer.strip().lower() not in ("", "y", "yes"):
+        name = _choose_hub(ask, out)
+        if name is None:
             return False
     if not which("npm"):
         out(f"npm is not on PATH. {_get_node()}, then run: {INSTALL[name]}")
@@ -214,6 +214,41 @@ def _install(found, *, wanted=None, ask=None, which=shutil.which, run=None, out=
         return False
     out(f"Installed {HUBS[name]}.")
     return True
+
+
+# The hub choice setup offers when neither is installed, in its order; Enter takes the first.
+HUB_CHOICES = (
+    ("opencode", "the default, the version AutoCode is tested with"),
+    ("kilocode", "if you already use Kilo, or want Kilo Gateway models"),
+)
+
+
+def _choose_hub(ask, out=print) -> str | None:
+    """Which hub to install, as the person answers: its id, or None for neither.
+
+    The answer is the option's number, or its name ("opencode", "kilo"); Enter takes OpenCode, as
+    the single yes/no offer did; "3", "n" or "no" installs nothing. Anything else installs nothing
+    and says so, so a typo never installs a hub the person did not pick.
+    """
+    lines = [
+        "Neither OpenCode nor Kilo is installed. Either one connects your other accounts "
+        "(ChatGPT, GLM, MiMo or an API key):"
+    ]
+    for number, (hub, note) in enumerate(HUB_CHOICES, 1):
+        lines.append(f"  {number}. {HUBS[hub]}: {note} ({INSTALL[hub]})")
+    lines.append(f"  {len(HUB_CHOICES) + 1}. Neither: I will use Claude Code or Codex")
+    out("\n".join(lines))
+    answer = ask(f"Install which? [1-{len(HUB_CHOICES) + 1}, Enter for 1] ").strip().lower()
+    names = {"opencode": "opencode", "kilo": "kilocode", "kilocode": "kilocode"}
+    if answer in ("", "y", "yes"):
+        return HUB_CHOICES[0][0]
+    if answer.isdigit() and 1 <= int(answer) <= len(HUB_CHOICES):
+        return HUB_CHOICES[int(answer) - 1][0]
+    if answer in names:
+        return names[answer]
+    if answer not in (str(len(HUB_CHOICES) + 1), "n", "no", "neither"):
+        out(f"{answer!r} is not one of the choices; nothing was installed. Run `autocode setup` again to choose.")
+    return None
 
 
 def _get_node() -> str:

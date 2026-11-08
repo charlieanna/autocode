@@ -289,6 +289,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- `autocode setup` asks which hub to install when neither OpenCode nor Kilo is installed:
+  OpenCode, Kilo or neither, by number or name (Enter takes OpenCode, as before). It used to
+  offer only OpenCode, so a Kilo user had to decline and install Kilo by hand.
+
 - A plan whose criteria write the request's dollar amounts in the code's cents is no longer refused
   as having changed them, when the request itself spells one amount that way, such as
   "$50.00 (shipping_fee(5000))" (#2780). Without that pairing, $50 must still appear as 50. The

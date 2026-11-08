@@ -214,7 +214,9 @@ class SetupTests(unittest.TestCase):
         setup.say_routes({"id": "claude"}, stream=broken, load=mock.Mock(side_effect=ValueError("bad TOML")))
         self.assertEqual("Your stage choices cannot be read: bad TOML\n", broken.getvalue())
 
-    def test_with_no_hub_installed_setup_offers_opencode_once_and_installs_it_with_npm(self):
+    def test_with_no_hub_installed_setup_asks_which_hub_and_installs_the_one_chosen(self):
+        """It offered only OpenCode ("Install OpenCode now? [Y/n]"), so a person who uses Kilo
+        could only say no and install Kilo by hand."""
         found = [CLAUDE_IN, CODEX_OUT, OPENCODE_MISSING, KILO_MISSING]
         found = [
             {**item, "install_command": setup.INSTALL[item["id"]]}
@@ -222,27 +224,54 @@ class SetupTests(unittest.TestCase):
             else item
             for item in found
         ]
-        asked, ran, said = [], [], []
-        npm = lambda name: {"npm": "/bin/npm", "opencode": "/bin/opencode" if ran else None}.get(name)  # noqa: E731
-        installed = setup._install(
-            found,
-            ask=lambda prompt: asked.append(prompt) or "",
-            which=npm,
-            run=lambda argv: ran.append(argv) or 0,
-            out=said.append,
-        )
-        self.assertTrue(installed)
-        self.assertEqual(1, len(asked))
-        self.assertIn("Install OpenCode 1.18.33 now", asked[0])
-        self.assertEqual([["npm", "install", "-g", "opencode-ai@1.18.33"]], ran)
-        self.assertEqual(["Installed OpenCode 1.18.33."], said)
-        ran.clear()
-        self.assertFalse(
-            setup._install(found, ask=lambda _prompt: "n", which=npm, run=lambda argv: ran.append(argv) or 0)
-        )
-        self.assertEqual([], ran)
+        npm_argv = {"opencode": ["npm", "install", "-g", "opencode-ai@1.18.33"]}
+        npm_argv["kilocode"] = ["npm", "install", "-g", "@kilocode/cli@7.8.3"]
+        for answer, hub in [
+            ("", "opencode"),
+            ("1", "opencode"),
+            ("OpenCode", "opencode"),
+            ("2", "kilocode"),
+            (" kilo ", "kilocode"),
+        ]:
+            with self.subTest(answer=answer):
+                asked, ran, said = [], [], []
+                command = setup.EXECUTABLES[hub]
+                npm = lambda name, ran=ran, command=command: {  # noqa: E731
+                    "npm": "/bin/npm",
+                    command: f"/bin/{command}" if ran else None,
+                }.get(name)
+                installed = setup._install(
+                    found,
+                    ask=lambda prompt, asked=asked: asked.append(prompt) or answer,
+                    which=npm,
+                    run=lambda argv, ran=ran: ran.append(argv) or 0,
+                    out=said.append,
+                )
+                self.assertTrue(installed)
+                self.assertEqual(["Install which? [1-3, Enter for 1] "], asked)
+                self.assertIn("1. OpenCode 1.18.33", said[0])
+                self.assertIn("2. Kilo 7.8.3", said[0])
+                self.assertIn("(npm install -g @kilocode/cli@7.8.3)", said[0])
+                self.assertIn("3. Neither", said[0])
+                self.assertEqual([npm_argv[hub]], ran)
+                self.assertEqual(f"Installed {setup.HUBS[hub]}.", said[-1])
+        for answer in ("3", "n", "neither", "kilo code"):
+            with self.subTest(answer=answer):
+                ran, said = [], []
+                self.assertFalse(
+                    setup._install(
+                        found,
+                        ask=lambda _prompt, answer=answer: answer,
+                        which=lambda name: "/bin/npm" if name == "npm" else None,
+                        run=lambda argv, ran=ran: ran.append(argv) or 0,
+                        out=said.append,
+                    )
+                )
+                self.assertEqual([], ran)
+        self.assertIn("'kilo code' is not one of the choices; nothing was installed", said[-1])
         # No terminal (no ask) and no --install: nothing is installed or asked.
-        self.assertFalse(setup._install(found, which=npm, run=lambda argv: ran.append(argv) or 0))
+        ran = []
+        self.assertFalse(setup._install(found, which=lambda _name: "/bin/npm", run=lambda argv: ran.append(argv) or 0))
         self.assertEqual([], ran)
 
     def test_an_installed_hub_is_never_reinstalled_and_install_names_kilo_explicitly(self):
@@ -286,7 +315,7 @@ class SetupTests(unittest.TestCase):
         self.assertIn("Run it yourself: npm install -g opencode-ai@1.18.33", said[0])
 
     def test_without_npm_setup_does_not_offer_an_install_it_cannot_make(self):
-        """It asked "Install OpenCode now? [Y/n]" and only then said npm was missing."""
+        """It asked which hub to install and only then said npm was missing."""
         missing = [
             {**OPENCODE_MISSING, "install_command": setup.INSTALL["opencode"]},
             {**KILO_MISSING, "install_command": setup.INSTALL["kilocode"]},
@@ -299,7 +328,7 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(installed)
         self.assertEqual(
             [
-                "OpenCode 1.18.33 installs with npm, which is not on PATH. Install Node.js with `brew install node` "
+                "OpenCode and Kilo install with npm, which is not on PATH. Install Node.js with `brew install node` "
                 "or from https://nodejs.org, then run `autocode setup` again."
             ],
             said,
@@ -324,9 +353,9 @@ class SetupTests(unittest.TestCase):
         )
         self.assertFalse(installed, "a hub AutoCode cannot run is not reported installed")
         self.assertEqual([["npm", "install", "-g", "opencode-ai@1.18.33"]], ran)
-        self.assertEqual(1, len(said))
-        self.assertIn("Installed OpenCode 1.18.33 in /opt/node22/bin, which is not on your PATH", said[0])
-        self.assertIn('export PATH="/opt/node22/bin:$PATH"', said[0])
+        self.assertEqual(2, len(said), said)
+        self.assertIn("Installed OpenCode 1.18.33 in /opt/node22/bin, which is not on your PATH", said[1])
+        self.assertIn('export PATH="/opt/node22/bin:$PATH"', said[1])
         said.clear()
         setup._install(
             missing, wanted="opencode", which=npm, run=lambda _argv: 0, out=said.append, npm_bin=lambda: None
