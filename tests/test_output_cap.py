@@ -58,6 +58,16 @@ class CapTests(unittest.TestCase):
                     output_cap.length_stop(tokens),
                 )
 
+    def test_a_length_stop_does_not_name_an_engine_the_person_did_not_choose(self):
+        # #2869: a Kilo run's stop named OpenCode because the shared normalizer hardcoded it.
+        stop = output_cap.length_stop({"output": 64000, "reasoning": 63994})
+        self.assertNotIn("OpenCode", stop)
+        explained = output_cap.explain(
+            stop, {"tokens": 64000, "set_by": "autocode", "variable": output_cap.KILO_VARIABLE}
+        )
+        self.assertIn("63994 of them reasoning", explained)
+        self.assertIn(output_cap.KILO_VARIABLE, explained)
+
     def test_explain_names_the_cap_only_for_a_length_stop(self):
         stop = output_cap.length_stop({"output": 32000, "reasoning": 32000})
         explained = output_cap.explain(stop, {"tokens": 64000, "set_by": "autocode"})
@@ -214,9 +224,7 @@ class KiloCapTests(unittest.TestCase):
             self.assertEqual(worker["output_token_cap"], record["output_token_cap"])
             self.assertIn(
                 output_cap.KILO_VARIABLE,
-                output_cap.explain(
-                    "OpenCode exhausted its output token limit (finish reason: length)", record["output_token_cap"]
-                ),
+                output_cap.explain(output_cap.LENGTH_STOP, record["output_token_cap"]),
             )
             self.assertIn(
                 str(tokens),
