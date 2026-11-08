@@ -24,6 +24,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Named unittest proof remains incomplete when a parallel module times out or fails before reporting
+  any results, preserving the test identities and counts that were actually observed.
 - A regression proof whose original project suite times out records unverified evidence and retains
   that baseline receipt without starting candidate checks. Completed failing baseline tests still run
   the comparison, and a later diagnosed retry can refresh the baseline through the existing path.
