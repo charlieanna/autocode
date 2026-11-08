@@ -110,7 +110,7 @@ def add_to_prompt(prompt: str, workspace, current_task: dict | None) -> str:
     # A small clear bug fix can already carry these complete tests as authenticated
     # source. Keep that canonical packet byte-identical and reference only an exact
     # duplicate; missing, stale or partial attachments retain the ordinary excerpt.
-    attached_files = ()
+    attached_files: list[object] | tuple[()] = ()
     try:
         data = json.loads(prompt.partition(marker)[2])
         source = data.get("review_source") if isinstance(data, dict) and data.get("stage") == "terra" else None
