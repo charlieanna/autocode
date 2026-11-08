@@ -196,7 +196,19 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/stage-context/context-packet-07.md",
         ("tests.test_milestone_checkpoints", "tests.test_build_graph_cli"),
     ),
-    ("tools/prompts/discovery.md", ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli")),
+    (
+        "tools/prompts/discovery.md",
+        (
+            "tests.test_investigation_evidence",
+            "tests.test_investigation_handoff_cli",
+            "tests.test_requirements_observations",
+            "tests.test_requirements_observations_cli",
+        ),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/requirements-observation-reuse.md",
+        ("tests.test_requirements_observations", "tests.test_requirements_observations_cli"),
+    ),
     ("tools/prompts/fragments/autoplanner/time-budget.md", ("tests.test_planning", "tests.test_planning_time")),
     (
         "tools/prompts/fragments/autoplanner/retained-review-observations.md",
