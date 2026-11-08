@@ -149,6 +149,44 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertNotIn("output-limit setting", asked["why"])
         self.assertNotIn("candidates", asked)
 
+    def test_an_output_limit_stop_lists_same_account_models_the_answer_path_accepts(self):
+        # #2870: the cap is the model's, not a provider refusal; the gate excluded
+        # same-account models while validate() accepted zai-coding-plan/glm-5.3-flash.
+        state = self.state(engine="opencode", sol="zai-coding-plan/glm-5.3")
+        state["settings"]["roles"]["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        state["settings"]["roles"]["completion"]["model"] = "zai-coding-plan/glm-5.3-flash"
+        attempt = {
+            "role": "sol",
+            "stage": "sol",
+            "attempt_id": "001/validator-01",
+            "model": "zai-coding-plan/glm-5.3",
+            "pause_status": quota_route.OUTPUT_STATUS,
+        }
+        asked = quota_route.question(state, attempt, cross_check=dispatch.enforce_cross_model_verification)
+        self.assertIn("zai-coding-plan/glm-5.3-flash", asked["candidates"])
+        self.assertNotIn("another provider", asked["recommendation"])
+        self.validate(state, "zai-coding-plan/glm-5.3-flash")
+
+    def test_an_output_limit_stop_with_no_passing_model_never_demands_another_provider(self):
+        # #2870: the live pool held only the stopped model and an independence-refused one;
+        # the advice claimed another provider was required while the answer path accepted
+        # the same account's flash model.
+        state = self.state(engine="opencode", sol="zai-coding-plan/glm-5.3")
+        state["settings"]["roles"]["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        state["settings"]["roles"]["completion"]["model"] = "zai-coding-plan/glm-5.3"
+        attempt = {
+            "role": "sol",
+            "stage": "sol",
+            "attempt_id": "001/validator-01",
+            "model": "zai-coding-plan/glm-5.3",
+            "pause_status": quota_route.OUTPUT_STATUS,
+        }
+        asked = quota_route.question(state, attempt, cross_check=dispatch.enforce_cross_model_verification)
+        self.assertEqual([], asked["candidates"])
+        self.assertIn("refused: xiaomi-token-plan-sgp/mimo-v2.6-pro", asked["recommendation"])
+        self.assertNotIn("another provider", asked["recommendation"])
+        self.validate(state, "zai-coding-plan/glm-5.3-flash")
+
     def test_completion_stop_asks_for_the_completion_route(self):
         state = self.state(stage="astra_review", role="astra")
         state["active_stage"]["route_role"] = "completion"
