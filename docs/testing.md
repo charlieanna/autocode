@@ -544,3 +544,10 @@ Completed interrupted stages reconcile before migration; live/uncertain stages
 refuse migration. No migration was applied to the original IdleCampus run.
 
 See also: [Execution](execution.md) · [Reliability priorities](../RELIABILITY.md)
+
+### Java in GitHub Actions
+
+The Ubuntu scenario job uses the runner's installed `JAVA_HOME_17_X64` toolchain.
+`tools/ci_java.py` verifies both the runtime specification and compiler are Java 17
+before publishing `JAVA_HOME` and `PATH`, and records the actual versions in the job log.
+It refuses a missing or mismatched toolchain instead of downloading a release asset.

@@ -131,11 +131,11 @@ jobs:
           go-version: "1.25.5"
           cache: false
 
-      - uses: actions/setup-java@v4
+      - name: Select installed Java 17 for scenario tests
         if: needs.scope.outputs.scenarios == 'true'
-        with:
-          distribution: temurin
-          java-version: '17.0.16+8'
+        # Ubuntu runners provide this JDK. Validate both tools and log their actual versions;
+        # downloading an older release asset here has repeatedly failed with HTTP 504.
+        run: python tools/ci_java.py
 
       - name: Install dashboard browser test dependencies
         if: needs.scope.outputs.dashboard == 'true'

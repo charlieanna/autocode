@@ -23,6 +23,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - The run-state typing check no longer mistakes an OpenCode tool-event payload for untyped
   AutoCode run state.
+- Scenario CI validates the Ubuntu runner's installed Java 17 runtime and compiler, avoiding repeated
+  release-download HTTP 504 failures before the tests can start.
+
 - Plans and Builder instructions assign independent fail-first proof to the runner and avoid requiring
   a duplicate Builder capture solely to establish it. Project instructions, explicit test-first requests
   and approved check sequences still apply.
