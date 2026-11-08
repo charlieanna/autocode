@@ -170,10 +170,11 @@
                         "additionalProperties": false,
                         "description": "Count-only diagnostic projection for one stage attempt. Counts describe observed calls; unavailable or incomplete coverage is never a claim of zero calls. Repeated arguments do not imply wasted work. No per-request correlation is inferred.",
                         "required": [
-                          "basis", "observed_calls", "families", "outcomes", "error_classes",
+                          "version", "basis", "observed_calls", "families", "outcomes", "error_classes",
                           "exact_argument_repeats", "comparable_calls", "complete", "issues", "scope"
                         ],
                         "properties": {
+                          "version": {"type": "integer", "enum": [1]},
                           "basis": {"type": "string", "enum": ["native_events", "unavailable"]},
                           "observed_calls": {"type": "integer", "minimum": 0},
                           "families": {

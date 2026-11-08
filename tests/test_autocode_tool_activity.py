@@ -36,6 +36,50 @@ def stream(*calls):
 
 
 class ToolActivityTests(unittest.TestCase):
+    def test_public_status_refreshes_stale_diagnostic_version_with_unchanged_events(self):
+        with tempfile.TemporaryDirectory() as root:
+            events = Path(root) / "native.jsonl"
+            events.write_text(
+                "".join(json.dumps(row) + "\n" for row in stream(tool(metadata={"metadata": {"exit": 7}})))
+            )
+            measured = request_usage.read(events)
+            record = {"stage": "terra", "events": str(events), "metrics": {"request_context": measured}}
+            state = {"status": "RUNNING", "stages": [record]}
+            original = copy.deepcopy(state)
+            original_stat = events.stat()
+            # Model a saved projection from the parser that missed nested exit7.
+            stale = measured["accounting"]["tool_activity"]
+            stale.update(
+                outcomes={"succeeded": 1, "failed": 0, "unknown": 0}, error_classes={"nonzero_exit": 0, "tool_error": 0}
+            )
+            for version in (None, 0, 2, "1", True):
+                with self.subTest(version=version):
+                    if version is None:
+                        stale.pop("version", None)
+                    else:
+                        stale["version"] = version
+                    before = copy.deepcopy(state)
+                    result = run_view.view(state)["usage"]["accounting"]["attempts"][0]["tool_activity"]
+                    self.assertEqual(1, result["error_classes"]["nonzero_exit"])
+                    self.assertEqual(1, result["outcomes"]["failed"])
+                    self.assertTrue(result["complete"])
+                    self.assertEqual(before, state, "Read-only refresh must not rewrite saved diagnostics")
+            self.assertEqual(
+                (original_stat.st_size, original_stat.st_mtime_ns), (events.stat().st_size, events.stat().st_mtime_ns)
+            )
+            # A current, unchanged projection retains the existing receipt cache.
+            with mock.patch.object(request_usage, "read", side_effect=AssertionError("current cache must be reused")):
+                current = usage.accounting(original)["attempts"][0]["tool_activity"]
+            self.assertEqual(1, current["outcomes"]["failed"])
+            events.unlink()
+            unavailable = run_view.view(state)["usage"]["accounting"]["attempts"][0]["tool_activity"]
+            self.assertEqual("unavailable", unavailable["basis"])
+            self.assertFalse(unavailable["complete"])
+            record.pop("events")
+            unavailable = run_view.view(state)["usage"]["accounting"]["attempts"][0]["tool_activity"]
+            self.assertEqual("unavailable", unavailable["basis"])
+            self.assertFalse(unavailable["complete"])
+
     def test_generic_calls_require_tool_and_mcp_server_identity_for_argument_comparison(self):
         def measure(kind, **identifiers):
             calls = [

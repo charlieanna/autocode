@@ -278,6 +278,12 @@ unsupported, active or historical observations retain explicit fixed `issues`;
 their counts describe what was observed, not zero unobserved calls. These
 diagnostics grant no verification, completion or gate authority.
 
+`tool_activity.version` identifies the diagnostic algorithm (currently `1`). A
+saved projection with a missing or different version cannot be reused, even when
+the event-file fingerprint is unchanged. The core refreshes it from the attempt's
+declared event file when available, otherwise reports it unavailable. This
+read-only refresh does not rewrite saved metrics.
+
 The supported shapes are OpenCode/Kilo `tool_use` parts and Codex-style item
 events. A rendered command alone cannot establish its complete original
 arguments, so those items retain incomplete comparison coverage. Completeness

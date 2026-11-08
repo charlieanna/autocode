@@ -13,6 +13,7 @@ MAX_CALLS = 4096
 MAX_ARGUMENT_BYTES = 65536
 MAX_ARGUMENT_TOTAL = 1024 * 1024
 MAX_EVENTS = 65536
+VERSION = 1  # Bump whenever saved diagnostic interpretation changes.
 FAMILIES = ("command", "read", "search", "edit", "agent", "other")
 OUTCOMES = ("succeeded", "failed", "unknown")
 ERROR_CLASSES = ("nonzero_exit", "tool_error")
@@ -53,6 +54,7 @@ ITEM_FAMILIES = {
 
 def unavailable(issue="saved_projection_unavailable"):
     return {
+        "version": VERSION,
         "basis": "unavailable",
         "observed_calls": 0,
         "families": dict.fromkeys(FAMILIES, 0),
@@ -66,10 +68,15 @@ def unavailable(issue="saved_projection_unavailable"):
     }
 
 
+def is_current(value):
+    """Only this algorithm's exact version may reuse an unchanged saved stream."""
+    return isinstance(value, dict) and type(value.get("version")) is int and value["version"] == VERSION
+
+
 def projection(value, *, active=False):
     """Whitelist saved diagnostics too: no caller-supplied text or new keys escape."""
     fallback = unavailable()
-    if not isinstance(value, dict) or value.get("basis") not in ("native_events", "unavailable"):
+    if not is_current(value) or value.get("basis") not in ("native_events", "unavailable"):
         return fallback
     result = {**fallback, "basis": value["basis"]}
     for field, keys in (("families", FAMILIES), ("outcomes", OUTCOMES), ("error_classes", ERROR_CLASSES)):

@@ -359,7 +359,7 @@ def accounting(state: RunState):
                     and saved.get("sha256")
                     and saved.get("size") == stat.st_size
                     and saved.get("mtime_ns") == stat.st_mtime_ns
-                    and isinstance(native.get("tool_activity"), dict)
+                    and tool_activity.is_current(native.get("tool_activity"))
                 )
             except (OSError, ValueError):
                 current = False

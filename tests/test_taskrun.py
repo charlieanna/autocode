@@ -246,6 +246,7 @@ class RunViewTests(unittest.TestCase):
         activity = shown["usage"]["accounting"]["attempts"][0]["tool_activity"]
         self.assertEqual(
             {
+                "version",
                 "basis",
                 "observed_calls",
                 "families",
@@ -259,6 +260,7 @@ class RunViewTests(unittest.TestCase):
             },
             set(activity),
         )
+        self.assertEqual(1, activity["version"])
         self.assertEqual({"command", "read", "search", "edit", "agent", "other"}, set(activity["families"]))
         self.assertEqual({"succeeded", "failed", "unknown"}, set(activity["outcomes"]))
         self.assertEqual({"nonzero_exit", "tool_error"}, set(activity["error_classes"]))
