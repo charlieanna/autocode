@@ -243,6 +243,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
     elif (
         (
             planning_feedback.semantic_stop(state, status)
+            or (status == state.get("status") and pause_authority.requested_feedback(state))
             # An answered semantic blocker holds for its contract decision: the person's explicit
             # plan feedback takes it, through the same named --feedback action (#2434).
             or (blocker_hold := status == state.get("status") and pause_authority.answered_blocker_decision(state))

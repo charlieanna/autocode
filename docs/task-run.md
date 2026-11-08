@@ -740,6 +740,11 @@ Saving feedback or a follow-up launches no model. A button explicitly offering
 to send **and continue** may then follow the ordinary `needs.kind=continue`
 action. It may never infer a plan approval, answer another question or release
 an operational pause. Approval remains bound to the displayed plan token.
+At a clean requested pause, `chat.input` also offers corrective feedback. Saving
+it retains that pause and its receipts, invalidates the old plan approval, and
+routes explicit resume through discovery and fresh approval. A pause interrupting
+an operational hold, active or uncertain work, pending questions and terminal
+stops keep their existing restrictions.
 Older cores without `chat` leave free-text input disabled for an existing run.
 
 This projection is separate from the explicit Requirements journal below:

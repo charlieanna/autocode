@@ -215,6 +215,18 @@ def feedback_stage(event: dict, default: str) -> str:
     return "astra_discovery" if event.get(FEEDBACK) else default
 
 
+def feedback_start_stage(state: RunState, event: dict) -> str:
+    """Choose the same correction route for direct and queued feedback."""
+    default = (
+        "requirements"
+        if roles.planning_flow(state) == "v2"
+        else "requirements_gather"
+        if "requirements" in state.get("settings", {}).get("roles", {})
+        else "astra_discovery"
+    )
+    return feedback_stage(event, default)
+
+
 def feedback_pause_reason(event: dict) -> str:
     """Explain the saved feedback checkpoint using the same plan-revision marker as its route."""
     stage = "Planner revision" if event.get(FEEDBACK) else "Requirements discovery"

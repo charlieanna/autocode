@@ -335,7 +335,12 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
                 refusal = pause_authority.feedback_refusal(candidate)
                 if refusal:
                     raise ValueError(refusal)
-                goals.feedback(candidate, args.feedback, semantic_hold=semantic_hold)
+                goals.feedback(
+                    candidate,
+                    args.feedback,
+                    semantic_hold=semantic_hold,
+                    requested_hold=pause_authority.requested_feedback(candidate),
+                )
             requirements_chat.adopt_reply(candidate)
             if args.follow_up is not None:
                 follow_up.accept(candidate, args.follow_up, workspace, runner.now())
