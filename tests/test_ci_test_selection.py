@@ -57,6 +57,17 @@ class DynamicDependenciesTests(unittest.TestCase):
         kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
         self.assertEqual([consumer], list(kept))
 
+    def test_todo_fixture_bytes_and_reasons_keep_brief_cli_when_slow(self):
+        consumer = "tests.test_brief_cli"
+        for source in (
+            "scenarios/harness/fake_changed_code.py",
+            "scenarios/catalog/greenfield-todo-cli/reference/test_todo.py",
+        ):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_ready_capture_batch_keeps_its_public_cli_consumer_when_slow(self):
         consumer = "tests.test_ready_capture_batch_cli"
         for source in ("tools/autocode_ready_capture_batch.py", "tools/autocode_stage_context.py"):
@@ -82,10 +93,23 @@ class DynamicDependenciesTests(unittest.TestCase):
             "tools/autocode_requirements_handoff.py",
             "tools/autocode_job_source.py",
             "tools/units/autoplanner.py",
+            "tools/prompts/discovery.md",
+            "tools/prompts/fragments/autoplanner/requirements-observation-reuse.md",
         ):
             selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
             kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
             self.assertIn(consumer, kept, path)
+
+    def test_requirements_observation_guidance_keeps_its_authenticated_rendering_consumer(self):
+        for path in (
+            "tools/prompts/discovery.md",
+            "tools/prompts/fragments/autoplanner/requirements-observation-reuse.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests(
+                    [path], {"tests.test_requirements_observations": "", "tests.test_unrelated": ""}
+                )
+                self.assertEqual(["tests.test_requirements_observations"], list(selected))
 
     def test_scripted_changed_code_reasons_keep_the_protected_oracle_cli_regression(self):
         consumer = "tests.test_protected_oracles_cli"

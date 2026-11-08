@@ -84,6 +84,8 @@ if {repair!r} and stage in ('requirements_gather', 'requirements_gather_report_r
     output.write_text(json.dumps(report))
 with Path({str(observed)!r}).open('a') as stream:
     stream.write(json.dumps({{'stage': stage, 'observations': data.get('requirements_observations'),
+                             'inspection_credit': 'REQUIREMENTS OBSERVATION REUSE FOR THIS FIRST PLANNER' in
+                                                  prompt.split('CURRENT HANDOFF DATA\\n', 1)[0],
                              'handoff': data.get('requirements_handoff'),
                              'report': report if stage == 'requirements_gather' else None,
                              'raw_repair': report if stage == 'requirements_gather_report_repair' else None,
@@ -135,6 +137,7 @@ print(''.join(lines), end='')
         self.assertIsNotNone(retained, "first Planner must receive the completed source-bound intake probe")
         self.assertEqual("2025-01-01 (2025, 1)\n", retained["observations"][0]["output"])
         self.assertIn("untrusted", retained["instruction"])
+        self.assertTrue(planner["inspection_credit"], "accepted first-Planner packet needs trusted reuse guidance")
         self.assertTrue(all(row["observations"] is None for row in rows if row["stage"] != "astra_discovery"))
         if view["needs"]["kind"] == "answer":
             for question in view["needs"]["questions"]:
@@ -153,6 +156,11 @@ print(''.join(lines), end='')
         view = run.advance_until_input()
         self.assertEqual("TASK_COMPLETE", view["status"], view)
         rows = [json.loads(line) for line in observed.read_text().splitlines()]
+        for row in rows:
+            with self.subTest(stage=row["stage"]):
+                self.assertEqual(bool(row["observations"]), row["inspection_credit"])
+                if row["inspection_credit"]:
+                    self.assertEqual("astra_discovery", row["stage"])
         for stage in ("sol", "astra_review"):
             self.assertTrue(any(row["stage"] == stage for row in rows), stage)
             self.assertTrue(all(row["observations"] is None for row in rows if row["stage"] == stage))

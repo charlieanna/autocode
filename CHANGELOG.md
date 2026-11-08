@@ -23,6 +23,10 @@ PR template asks for an entry here; a change without one is incomplete.
   Code's own login check (`claude auth status`) touched it, so the kernel stopped the whole run and
   Ctrl-C could not reach it. The run and the chat's status reads now take their input from `/dev/null`.
 
+- The first Planner can use complete source text and stable facts from authenticated
+  Requirements observations instead of reading or probing them again solely to plan.
+  Missing or stale facts and independent verification still require fresh inspection;
+  discovery no longer asks a tiny repository for a fixed number of source-file reads.
 - Saying "hi" in a folder outside Git no longer gets a paragraph about folders: the chat says where
   the work happens only once a plan is approved, the first point AutoCode writes files, and in one
   sentence that names your folder rather than the private project's path. A report AutoCode rejected

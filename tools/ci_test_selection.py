@@ -102,6 +102,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "scenarios/harness/fake_changed_code.py",
         (
+            "tests.test_brief_cli",
             "tests.test_scenario_changed_code_fixtures",
             "tests.test_native_scenario_fixture_reasons",
             "tests.test_acceptance_tests",
@@ -195,7 +196,19 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/stage-context/context-packet-07.md",
         ("tests.test_milestone_checkpoints", "tests.test_build_graph_cli"),
     ),
-    ("tools/prompts/discovery.md", ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli")),
+    (
+        "tools/prompts/discovery.md",
+        (
+            "tests.test_investigation_evidence",
+            "tests.test_investigation_handoff_cli",
+            "tests.test_requirements_observations",
+            "tests.test_requirements_observations_cli",
+        ),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/requirements-observation-reuse.md",
+        ("tests.test_requirements_observations", "tests.test_requirements_observations_cli"),
+    ),
     ("tools/prompts/fragments/autoplanner/time-budget.md", ("tests.test_planning", "tests.test_planning_time")),
     (
         "tools/prompts/fragments/autoplanner/retained-review-observations.md",
@@ -264,6 +277,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
+    ("scenarios/catalog/greenfield-todo-cli/reference/", ("tests.test_brief_cli",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
     ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
     ("scenarios/harness/components_driver.py", ("tests.test_local_compose_scenario",)),

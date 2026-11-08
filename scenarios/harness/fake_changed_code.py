@@ -144,8 +144,8 @@ def _totals(data, root):
 TODO_SOURCE = "cefe6abde79ff40a33e3b0bdb7147edc12af36305a6e1b1c2be244b4d51cd00d"
 # The reference tests, and the same tests with the follow-up turn's list test (tests.test_brief_cli).
 TODO_TESTS = {
-    "ca4befa627cc78630e8527a189254648ec880635e945e917b0aab0851154edfe",
-    "68b50358a20e551c82ea64ef10a3b8ba570bbc294c544742e417185506c835f6",
+    "55536eb04e1ddccd31e434df0655b40a7064d83587540a210014986dca783ff7",
+    "4e7e88535f8ba0fe9fd8da156b765a5e73c05ce089f2a57724ad197670a6a41f",
 }
 _TODO_IMPORT = (
     "No supported import mutation. Every CLI test runs todo.py as a subprocess; without this import the "
@@ -591,7 +591,7 @@ LEASE_TOKENS_REASONS = {
 
 
 OUTBOX_SOURCE = "edc2e9466110c1f311254eab65c61b59aad12a324e07577e6be4689e115109e2"
-OUTBOX_TESTS = "21bb3e3db547ed67f9018ba8d9c6de211cce3dcd95e6a34b0dbbcc40d0e90d4e"
+OUTBOX_TESTS = "bf0b21a820bdeb356f04d5f1ceb955ad8bffeae04aa7ca33c5185815dd862d6f"
 _OUTBOX_TXN = (
     "No supported mutation for this transaction line. Every test in tests/test_behavior.py creates, reads and "
     "publishes through _db; test_orders_publish_and_restart and test_sink_failure_retries_same_durable_event "
@@ -681,6 +681,38 @@ OUTBOX_REASONS = {
 }
 
 
+def _outbox_cleanup_equivalent(proof, row, digest):
+    """Only these two exact mutants leave SQLite's mandatory close rollback intact."""
+    signatures = {
+        24: ("never_catch", "BaseException", "()"),
+        25: ("drop_call", "db.rollback()", "None"),
+    }
+    expected = signatures.get(row.get("line"))
+    if digest != OUTBOX_SOURCE or expected is None or row.get("mutation_outcomes") != ["survived"]:
+        return False
+    files = [
+        file
+        for file in (proof.get("mutation_check") or {}).get("files") or []
+        if file.get("path") == "outbox/__init__.py"
+    ]
+    if len(files) != 1 or files[0].get("sha256") != digest:
+        return False
+    mutants = [mutant for mutant in files[0].get("mutants") or [] if mutant.get("line") == row["line"]]
+    if len(mutants) != 1:
+        return False
+    mutant = mutants[0]
+    return (
+        (mutant.get("operator"), mutant.get("before"), mutant.get("after")) == expected
+        and mutant.get("source_sha256") == digest
+        and mutant.get("outcome") == "survived"
+        and mutant.get("failed_tests") == []
+        and all(
+            isinstance(values, list) and bool(values) and all(isinstance(value, str) and value for value in values)
+            for values in (mutant.get("survived_tests"), mutant.get("evidence"))
+        )
+    )
+
+
 def _lifecycle(data, root, source_path, sources, tests_digest):
     """The ladder lifecycle fixtures: no-mutation-site lines of an exact scripted source and its tests."""
     proof = data.get("regression_proof") or {}
@@ -697,19 +729,26 @@ def _lifecycle(data, root, source_path, sources, tests_digest):
         return []
     accepted = []
     for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
-        if (
-            row.get("status") != "reason_required"
-            or row.get("path") != source_path
-            or row.get("sha256") != digest
-            or row.get("mutation_outcomes")
-        ):
+        if row.get("status") != "reason_required" or row.get("path") != source_path or row.get("sha256") != digest:
             continue
-        if reason := reasons.get(row.get("line")):
+        equivalent = source_path == "outbox/__init__.py" and _outbox_cleanup_equivalent(proof, row, digest)
+        if row.get("mutation_outcomes") and not equivalent:
+            continue
+        reason = (
+            "Exact scripted outbox: this mutant only removes the explicit rollback on exception. "
+            "The exception still propagates through the unchanged finally block, whose db.close() "
+            "rolls back the pending SQLite transaction before releasing the connection. The conflict "
+            "and failed-sink tests observe unchanged persisted orders/events, and the connection test "
+            "proves that close still occurs. No transaction-start or connection-close mutant is equivalent."
+            if equivalent
+            else reasons.get(row.get("line"))
+        )
+        if reason:
             accepted.append(
                 {
                     "gap_id": row["gap_id"],
                     "decision": "accept",
-                    "reason_kind": "instrumentation_unavailable",
+                    "reason_kind": "equivalent_mutant" if equivalent else "instrumentation_unavailable",
                     "reason": reason,
                     "evidence_refs": [proof["path"], source_path],
                 }
