@@ -118,9 +118,9 @@ def _identity(value):
     return value if isinstance(value, str) and 0 < len(value) <= 1024 else None
 
 
-def _command_exit(state):
+def _command_exit(tool_state):
     """Match supported OpenCode precedence without importing provider machinery."""
-    metadata = state.get("metadata")
+    metadata = tool_state.get("metadata")
     if not isinstance(metadata, dict):
         return None
     if "exit" in metadata:
