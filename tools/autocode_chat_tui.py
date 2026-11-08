@@ -922,9 +922,7 @@ class ChatTUI:
         if self._history_file != history_file:
             self._history_file = history_file
             self._composer.history = read_history(self._history_file)
-        self._context = Path(workspace).name
-        if run_dir is not None:
-            self._context += f" · {Path(run_dir).name}"
+        self._context = contexts.label(workspace, run_dir)
         self._draw()
 
     def close(self) -> None:
@@ -1234,7 +1232,7 @@ class ChatTUI:
             self._transcript.progress(view)
             if view.get("workspace") and view.get("run_dir"):  # the run the chat talks to, after going back too
                 self._context_key = contexts.identity(view["workspace"], view["run_dir"])
-                self._context = f"{Path(view['workspace']).name} · {Path(view['run_dir']).name}"
+                self._context = contexts.label(view["workspace"], view["run_dir"])
             self._keep_history_anchor(anchor)
             self._draw()
 

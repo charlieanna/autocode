@@ -11,6 +11,8 @@ from __future__ import annotations
 
 PREFIX = "Recovery ·"  # the transcript draws a block that starts with it as a notice
 PANEL_ROWS = 3
+# autocode_recovery_history kinds that settle themselves and stay out of the conversation.
+QUIET = ("rejected", "report_repaired")
 # When AutoCode calls each of the two jobs that handle a failure, said under /why when one ran.
 WHY_CALLED = {
     "Investigator": (
@@ -38,6 +40,18 @@ def entries(view: dict | None) -> list[dict]:
         and isinstance(row.get("headline"), str)
         and isinstance(row.get("action"), str)
     ]
+
+
+def spoken(view: dict | None) -> list[dict]:
+    """The recoveries the conversation says as they happen: all but a rejected or rewritten report.
+
+    A stage whose answer was rejected for its format and whose report was rewritten has recovered
+    on its own, usually within seconds: "hi" was answered with "Requirements answer rejected
+    $: missing required_behaviors" and "Requirements rewrote its report" around the greeting. The
+    person can do nothing about either, so they stay in the side panel and ``/why``. A stage that
+    stops converging goes to the Investigator, which the conversation does say.
+    """
+    return [row for row in entries(view) if row.get("kind") not in QUIET]
 
 
 def clock(row: dict) -> str:

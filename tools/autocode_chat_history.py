@@ -104,7 +104,10 @@ def _bootstrap_notice(state: RunState) -> dict | None:
     """Say once where the work happens when the selected folder held no Git repository (#1908).
 
     A launch prints the project it created, but a chat client starts the CLI as a subprocess and
-    never shows that output, so the person would otherwise find the path only in a footer.
+    never shows that output, so the person would otherwise find the path only in a footer. It
+    matters only once AutoCode is about to write files, so ``messages`` shows it after the plan's
+    approval: a "hi", a question or a review never builds, and was answered with a paragraph about
+    folders. The private project's own path is machinery; the status view's ``workspace`` keeps it.
     """
     record = state.get("workspace_bootstrap")
     if not isinstance(record, dict):
@@ -115,12 +118,11 @@ def _bootstrap_notice(state: RunState) -> dict | None:
     selected = record.get("selected")
     if isinstance(selected, str) and scratch_projects.is_scratch(selected, project):
         text = (
-            f"{selected} is not a Git repository, so I am working in a private project of my own ({project}). "
-            f"Your files stay as they are. When I finish building something, I put it in a named project "
-            f"folder in {selected}."
+            f"{selected} is not in Git, so I build in a private project of my own and leave your files as "
+            f"they are. When the build is done, I put it in a new folder in {selected}."
         )
     elif selected == project:
-        text = f"This folder was not a Git repository, so I started one here and the work happens in it: {project}."
+        text = f"{project} was not a Git repository, so I made it one; what I build is written there."
     else:
         text = (
             f"{selected} is not a Git repository, so I created a project inside it and the work happens there: "
@@ -135,8 +137,7 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
     # A chat shows the message it opened with, not a later reply that became the task.
     initial = requirements_chat.opener(state) or initial
     rows = [{"id": "initial", "role": "user", "text": initial}] if initial else []
-    if notice := _bootstrap_notice(state):
-        rows.append(notice)
+    notice = _bootstrap_notice(state)  # shown after the first approved plan, the first point files are written
     prior = {turn.get("event_id"): (turn.get("previous") or {}).get("chat_response") for turn in turns}
     # Turn k's response is shown where follow-up k was said; its delivery note follows it.
     turn_of = {turn.get("event_id"): number for number, turn in enumerate(turns)}
@@ -152,6 +153,9 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
             if plan:
                 rows.append({"id": f"plan-{event['token']}", "role": "assistant", "text": plan})
             rows.append({"id": f"approval-{index}", "role": "user", "text": APPROVED_PLAN})
+            if notice is not None:
+                rows.append(notice)
+                notice = None
             continue
         if (
             event.get("kind") not in ("brief_feedback", "answer", "plan_message", "gate_message")

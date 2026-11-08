@@ -256,3 +256,25 @@ class PerRunContext(unittest.TestCase):
         self.assertEqual("B stays here 你好", ui._composer.text)
         self.assertEqual(cursor, ui._composer.cursor)
         self.assertEqual(str(B), ui._view["run_dir"])
+
+
+class HeaderName(unittest.TestCase):
+    def test_a_private_project_is_named_by_the_persons_folder_not_its_random_id(self):
+        """A chat in a folder outside Git runs in FOLDER/.autocode/projects/ID; the header read
+        "AutoCode chat  1a866272d49d · RUN" once the first status view arrived."""
+        folder = Path("/home/person/notes")
+        project = folder / ".autocode" / "projects" / "1a866272d49d"
+        run = project / ".autocode" / "runs" / "20261108-chat-abc"
+        ui = screen_ui()
+        ui.set_context(folder)
+        self.assertEqual("notes", ui._context)
+        ui.observe({**view(run, "c1"), "workspace": str(project)})
+        self.assertEqual("notes · 20261108-chat-abc", ui._context)
+        ui.set_context(project, run)
+        self.assertEqual("notes · 20261108-chat-abc", ui._context)
+        # Anything else is named as it is: a repository, a legacy visible project, a lookalike path.
+        self.assertEqual("context-project · a", contexts.label(WORKSPACE, A))
+        legacy = folder / "autocode-projects" / "hi-0123abcd"
+        self.assertEqual("hi-0123abcd", contexts.label(legacy))
+        self.assertEqual("1a866272d49d", contexts.label(Path("/projects/1a866272d49d")))
+        self.assertEqual("x", contexts.label(Path("/x")))

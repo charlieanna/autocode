@@ -111,7 +111,10 @@ class ProjectDeliveryTests(unittest.TestCase):
         delivery.deliver(self.state(), self.project)
         state = self.state(
             turns=[{"say": "Add done", "event_id": "event-1", "previous": {"chat_response": "Built it."}}],
-            user_events=[{"kind": "brief_feedback", "id": "event-1", "text": "Add done"}],
+            user_events=[
+                {"kind": "goal_approval", "token": "t1"},
+                {"kind": "brief_feedback", "id": "event-1", "text": "Add done"},
+            ],
         )
         rows = chat_history.messages(state, completed=True)
         ids = [row["id"] for row in rows]

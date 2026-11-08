@@ -964,8 +964,8 @@ class ChatClient:
         """Each new recovery once: what went wrong at which stage and what AutoCode did (view.recoveries).
 
         A chat opened on a run that already recovered sums those up in one line instead of replaying them;
-        /why lists them."""
-        fresh = [row for row in recoveries.entries(view) if row["id"] not in self._recoveries_seen]
+        /why lists them. A rejected or rewritten report is not said at all (``recoveries.spoken``)."""
+        fresh = [row for row in recoveries.spoken(view) if row["id"] not in self._recoveries_seen]
         self._recoveries_seen.update(row["id"] for row in fresh)
         if not fresh:
             return
