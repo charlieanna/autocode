@@ -3,10 +3,12 @@
 import importlib.util
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 
 class ScenarioReportEnvelopeTests(unittest.TestCase):
@@ -66,3 +68,32 @@ class ScenarioReportEnvelopeTests(unittest.TestCase):
             with patch.object(self.provider, "_stream") as stream:
                 self.provider._report(report, "answer.json")
         stream.assert_called_once_with({"kind": "report", "output": "answer.json", "report": {"repair_report": report}})
+
+    def test_changed_code_review_uses_the_scripted_builders_actual_repair_source(self):
+        self.provider.CONFIG.update(reference="/fixtures/broken", paths=["product.py"], turn_paths=[])
+        self.provider.OUTPUT_SCHEMA = {"properties": {"changed_code_exceptions": {}}}
+        judge = Mock(return_value=[{"gap_id": "current", "decision": "accept"}])
+        finding = {"source": "runner", "blocking": True}
+        for findings, expected in (([], "/fixtures/broken"), ([finding], "/fixtures/correction")):
+            with self.subTest(findings=findings):
+                self.provider.DATA = {"open_findings": findings, "reference": "/model-asserted-source"}
+                with (
+                    patch.dict(os.environ, {"SCENARIO_FAKE_REWORK_SOLUTION": "/fixtures/correction"}),
+                    patch.dict(sys.modules, {"fake_changed_code": SimpleNamespace(judgments=judge)}),
+                ):
+                    report = self.provider.lazy_citations({})
+                    self.assertEqual(expected, self.provider.builder_copy_source(self.provider.DATA))
+                self.assertEqual(expected, judge.call_args.kwargs["producer"]["reference"])
+                self.assertEqual(["product.py"], judge.call_args.kwargs["producer"]["paths"])
+                self.assertEqual([{"gap_id": "current", "decision": "accept"}], report["changed_code_exceptions"])
+        for mode in ("turn_paths", "milestones"):
+            self.provider.CONFIG["turn_paths"] = [["product.py"]] if mode == "turn_paths" else []
+            self.provider.MILESTONES = [{"id": "M1"}] if mode == "milestones" else []
+            with (
+                self.subTest(copy_mode=mode),
+                patch.dict(os.environ, {"SCENARIO_FAKE_REWORK_SOLUTION": "/fixtures/correction"}),
+                patch.dict(sys.modules, {"fake_changed_code": SimpleNamespace(judgments=judge)}),
+            ):
+                self.provider.lazy_citations({})
+                self.assertEqual("/fixtures/broken", self.provider.builder_copy_source(self.provider.DATA))
+                self.assertEqual("/fixtures/broken", judge.call_args.kwargs["producer"]["reference"])
