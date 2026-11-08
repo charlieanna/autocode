@@ -17,11 +17,15 @@ import subprocess
 import sys
 
 try:
+    from . import autocode_connected_engine as connected_engine
     from . import autocode_direct_config as direct
+    from . import autocode_project_config as project_config
     from . import autocode_providers as providers
     from .providers import claude, command
 except ImportError:
+    import autocode_connected_engine as connected_engine
     import autocode_direct_config as direct
+    import autocode_project_config as project_config
     import autocode_providers as providers
     from providers import claude, command
 
@@ -44,6 +48,11 @@ def parser():
         "--routes",
         action="store_true",
         help="Also choose the route each role would use, from the connected tool's own model listing (#2057)",
+    )
+    listing.add_argument(
+        "--new-runs",
+        action="store_true",
+        help="Also check which backend a new run that names none takes, as the runner chooses it",
     )
     check = actions.add_parser("check", help="Check backend credentials without launching a model")
     check.add_argument("--provider", required=True, help="Connection to check (an ID from `connections list`)")
@@ -203,6 +212,34 @@ def view():
     return {"version": 1, "connections": rows}
 
 
+def new_runs(workspace=".", *, choose=None) -> dict:
+    """The backend a new run in ``workspace`` that names none takes, as the runner resolves it (#2049).
+
+    The project's ``engine``, else ``AUTOCODE_PROVIDER`` or ``default_provider``, else the first connected
+    backend (``autocode_connected_engine.choose``, which runs each backend's own login listing), else the
+    built-in OpenCode; the rule ``autocode_stages_cli.current_backend`` applies too. ``reason`` is one
+    sentence for the person. The plain listing's ``default`` names only the configured choice, which is
+    OpenCode on a machine where a run would take Claude Code instead.
+    """
+    labels = {name: entry[0] for name, entry in BUILTINS.items()}
+    try:
+        engine = project_config.read(workspace).get("engine", (None, None))[0]
+    except (OSError, ValueError):
+        engine = None
+    if engine in ("codex", "claude"):
+        return {"id": engine, "label": labels[engine], "reason": "the project's engine setting names it"}
+    try:
+        default, origin = providers.default_choice()
+    except (OSError, ValueError) as error:
+        return {"id": None, "label": None, "reason": f"your AutoCode config could not be read: {error}"}
+    if origin != "built-in default":
+        return {"id": default, "label": labels.get(default, default), "reason": f"named by {origin}"}
+    chosen = (choose or connected_engine.choose)()
+    if chosen is None:
+        return {"id": "opencode", "label": "OpenCode", "reason": "the built-in default"}
+    return {"id": chosen["id"], "label": chosen["label"], "reason": chosen["reason"]}
+
+
 def routes(provider=None):
     """The route each role would run on, from the connected tool's own local listing (#2057).
 
@@ -272,6 +309,16 @@ def text(result) -> str:
         )
     elif result.get("routes_next_command"):
         lines += ["", "The route each role would use: autocode connections list --routes"]
+    if result.get("new_runs"):
+        use = result["new_runs"]
+        lines += [
+            "",
+            f"New runs use {use['label']} ({use['reason']})."
+            if use.get("id")
+            else f"New runs cannot start: {use['reason']}.",
+        ]
+    elif result.get("new_runs_next_command"):
+        lines.append("The backend a new run takes: autocode connections list --new-runs")
     return "\n".join(lines)
 
 
@@ -295,6 +342,16 @@ def cli(argv):
         else:
             result["routes"] = None
             result["routes_next_command"] = ["connections", "list", "--routes", "--json"]
+        if args.new_runs:
+            # Checked: the row a new run takes is the one marked, so a client's "new chats use" agrees with it.
+            result["new_runs"] = new_runs()
+            for row in result["connections"]:
+                row.pop("default", None)
+                if row["id"] == result["new_runs"]["id"]:
+                    row["default"] = True
+        else:
+            result["new_runs"] = None
+            result["new_runs_next_command"] = ["connections", "list", "--new-runs", "--json"]
     elif args.action == "check":
         result = connection_view(args.provider, check=True)
     else:

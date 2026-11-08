@@ -2683,6 +2683,12 @@ contains `connections`, each with `id`, `label`, `connection_status`, `detail`, 
 The connection new runs use without `--provider` (`AUTOCODE_PROVIDER`, then `default_provider`
 in `~/.config/autocode/config.toml`, else `opencode`) also has `default: true`; it is display
 only, so a client can say what a new chat runs on.
+That plain marker cannot see the connected-backend choice a run makes when nothing is configured
+(OpenCode missing, Claude Code signed in: the run takes Claude Code), because the listing runs no
+backend command. The plain view therefore carries `new_runs: null` and the named action
+`new_runs_next_command` (`["connections", "list", "--new-runs", "--json"]`). That listing runs each
+backend's own login listing as the runner does, returns `new_runs` (`id`, `label`, `reason`) and moves
+`default: true` to that row, so a client that takes it names the engine the run will report.
 An action has `id`, `label`, and `next_command`: an argument array following
 `autocode`, not shell text. Clients execute only offered actions. Listing reads
 user-level provider configuration and executable availability; it never launches

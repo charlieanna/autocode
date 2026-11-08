@@ -18,6 +18,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat now names the engine a new chat will actually run on. With OpenCode missing and
+  Claude Code signed in, `autocode setup` and `doctor` said Claude Code while the chat's banner said
+  OpenCode, warned that it could not start, and `/connect` marked OpenCode for new chats.
+  `autocode connections list --new-runs --json` checks the backend a new run takes and marks it
+  `default`; the plain listing names that action as `new_runs_next_command`, and the chat takes it.
+
 - A new run's first moment no longer reads `Next: Planner` in the chat's log ahead of Requirements. The
   run's first save holds the default next stage until it chooses its first one; the status view now says
   `Starting the run` and names no stage until then.

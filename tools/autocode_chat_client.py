@@ -172,11 +172,22 @@ class History:
             raise actions.ClientGap(f"`autocode {' '.join(argv)}` failed: {tail(proc)}") from None
 
     def connection_rows(self) -> list[dict]:
-        """`connections list`, or none when it cannot be read: the banner and /engine still show the rest."""
+        """`connections list`, or none when it cannot be read: the banner and /engine still show the rest.
+
+        The listing's named `new_runs_next_command` is taken when offered: it marks as `default` the backend
+        a new run that names none actually takes (a connected Claude Code where OpenCode is missing), so
+        the banner, /engine and /connect name the engine the run will say it uses."""
         try:
-            return setup.connections(self.read(["connections", "list", "--json"]))
+            listed = self.read(["connections", "list", "--json"])
         except actions.ClientGap:
             return []
+        words = listed.get("new_runs_next_command") if isinstance(listed, dict) else None
+        if isinstance(words, list) and words and all(isinstance(word, str) for word in words):
+            with contextlib.suppress(actions.ClientGap):
+                checked = self.read(words)
+                if setup.connections(checked):
+                    listed = checked
+        return setup.connections(listed)
 
     def summary(self) -> str:
         rows = self.connection_rows()
@@ -219,7 +230,7 @@ class History:
 
     def connect(self, argument: str) -> str:
         """/connect: list the backends; /connect NAME check|login|setup|use takes what that row offers."""
-        rows = setup.connections(self.read(["connections", "list", "--json"]))
+        rows = self.connection_rows()
         name, _, wanted = argument.partition(" ")
         if not name:
             return setup.connections_text(rows, self.new)
