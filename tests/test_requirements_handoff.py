@@ -1,5 +1,6 @@
 """Which Requirements reports the runner accepts as the handoff (autocode_requirements_handoff.accept)."""
 
+import json
 import os
 import tempfile
 import unittest
@@ -41,6 +42,49 @@ def report(**change):
 
 
 class RequirementsHandoffTests(unittest.TestCase):
+    def test_transition_examples_and_scope_reach_discovery_unchanged(self):
+        # This guards handoff fidelity, not the model's choice of examples.
+        from units import autoplanner
+
+        task = "Fix tier selection: below 10 items use basic; above 10 use bulk. Keep the public JSON format."
+        examples = ["Given 9 items, selection returns basic.", "Given 11 items, selection returns bulk."]
+        requirements = [{"id": "R1", "text": task, "source_quote": task}]
+        scope = {"spans_repositories": False, "external_parts": []}
+        value = report(
+            intended_outcome="Select the requested tier on either side of the transition",
+            required_behaviors=["Below 10 items use basic; above 10 use bulk"],
+            acceptance_tests=examples,
+            requirements=requirements,
+            constraints=["Keep the public JSON format"],
+            source_refs=["task"],
+            open_questions=[],
+            workspace_scope=scope,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            state = {
+                "version": 3,
+                "task_id": "transition-handoff",
+                "task": task,
+                "workspace": str(workspace),
+                "settings": {
+                    "joint_planning": True,
+                    "roles": {"astra": {"engine": "opencode", "model": "fixture"}},
+                },
+                "stages": [],
+                "answers": {},
+                "user_events": [],
+            }
+            handoff.accept(state, value, {"output": None}, check_code_refs=mock.Mock(), queue=mock.Mock())
+            prompt, _ = autoplanner.context(state, "astra_discovery", workspace / "state.json")
+        packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        received = packet["requirements_handoff"]["report"]
+        self.assertEqual(examples, received["acceptance_tests"])
+        self.assertEqual(requirements, received["requirements"])
+        self.assertEqual(["Keep the public JSON format"], received["constraints"])
+        self.assertEqual(scope, received["workspace_scope"])
+        self.assertIn({"id": "task:0", "kind": "task", "text": task}, packet["source_inventory"])
+
     def test_catalog_bug_handoff_confirms_requirements_before_coordination(self):
         import autocode_catalog_context as catalog
         import autocode_coordination_store as coordination

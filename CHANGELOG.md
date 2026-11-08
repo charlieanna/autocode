@@ -21,6 +21,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Fresh Linux Requirements launches check their selected kernel-shell tools before paid access probes.
+  Actual launch still rediscovers the toolchain and performs every native policy and startup check.
+- Requirements instructions call for acceptance examples on both sides of a requested transition, preserving
+  the stated domain and general rule; independent planning and verification checks still apply.
 - Final Reviewer recovery includes the current plan once while preserving distinct historical plans
   and the complete review history.
 

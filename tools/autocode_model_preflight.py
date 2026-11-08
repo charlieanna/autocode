@@ -60,6 +60,7 @@ try:
     from . import autocode_role_transport as role_transport
     from . import autocode_route_fit as route_fit
     from . import autocode_support as support
+    from . import autocode_tool_admission as tool_admission
     from . import provider_conformance_transport as transport
 except ImportError:
     import autocode_access_evidence as access_evidence
@@ -75,6 +76,7 @@ except ImportError:
     import autocode_role_transport as role_transport
     import autocode_route_fit as route_fit
     import autocode_support as support
+    import autocode_tool_admission as tool_admission
     import provider_conformance_transport as transport
 
 PROMPT = 'Do not read or edit files. Return only this JSON object: {"ok": true}.'
@@ -616,11 +618,18 @@ def check(
         if model in probed
         or _imminent_requirements_binding(state, adapter, routes) != {"schema": 1, "identity": identity, "model": model}
     ]
+    tools_checked = False
     for adapter, identity, probed, model, effort, role in pending:
         # A role bound with --role-transport names its tool; the same model may also be on the run's tool.
         where = "" if adapter is getattr(runner, "opencode", None) else f" on {(identity or {}).get('provider')}"
         before_probe()
         allowed = _allowance(runner, state, run_dir, workspace, timeout)
+        if not tools_checked:
+            for facade, routes, _identity in groups:
+                if _imminent_requirements_binding(state, facade, routes) is not None:
+                    tool_admission.requirements(facade, state, workspace)
+                    break
+            tools_checked = True
         attempt = attempts.Attempt(
             runner,
             state,
