@@ -239,6 +239,34 @@ class RunViewTests(unittest.TestCase):
         self.assertIn("execution_identity", attempts[0])
         self.assertEqual({}, attempts[0]["execution_identity"], "Historical launches remain unknown")
 
+    def test_accounting_attempt_inventory_names_count_only_tool_activity(self):
+        shown = run_view.view(
+            {"status": "RUNNING", "stages": [{"stage": "terra", "engine": "codex", "model": "gpt-6-sol"}]}
+        )
+        activity = shown["usage"]["accounting"]["attempts"][0]["tool_activity"]
+        self.assertEqual(
+            {
+                "version",
+                "basis",
+                "observed_calls",
+                "families",
+                "outcomes",
+                "error_classes",
+                "exact_argument_repeats",
+                "comparable_calls",
+                "complete",
+                "issues",
+                "scope",
+            },
+            set(activity),
+        )
+        self.assertEqual(1, activity["version"])
+        self.assertEqual({"command", "read", "search", "edit", "agent", "other"}, set(activity["families"]))
+        self.assertEqual({"succeeded", "failed", "unknown"}, set(activity["outcomes"]))
+        self.assertEqual({"nonzero_exit", "tool_error"}, set(activity["error_classes"]))
+        self.assertEqual("unavailable", activity["basis"])
+        self.assertFalse(activity["complete"], "Historical tool activity is unavailable, never complete zero")
+
     def test_dev_server_is_the_callers_inspection_copied(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["dev_server"])
         inspected = {"configured": True, "status": "running", "url": "http://127.0.0.1:4100/"}
@@ -875,6 +903,14 @@ class TaskRunTests(unittest.TestCase):
         model_attempts = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]
         self.assertTrue(model_attempts)
         self.assertTrue(all(row.get("prompts_hash") == prompts.HASH for row in model_attempts))
+        for attempt in model_attempts:
+            activity = attempt["tool_activity"]
+            self.assertEqual(1, activity["observed_calls"])
+            self.assertEqual(1, activity["families"]["command"])
+            self.assertEqual(1, activity["outcomes"]["succeeded"])
+            self.assertEqual(0, activity["comparable_calls"])
+            self.assertFalse(activity["complete"], "Rendered fixture commands are not full tool arguments")
+            self.assertIn("arguments_unavailable", activity["issues"])
         self.assertEqual("Waiting for you", view["progress"]["headline"], view["progress"])
         self.assertEqual("plan approval needed", view["progress"]["needs_you"])
         self.assertNotIn("approved_contract", view)  # shown for approval, not yet the plan in force

@@ -182,6 +182,35 @@ class JsonContractTests(unittest.TestCase):
 
 
 class SchemaCoverageTests(unittest.TestCase):
+    def test_tool_activity_schema_rejects_private_fields_and_unknown_categories(self):
+        import copy
+
+        import autocode_run_view as run_view
+
+        schema = SCHEMA["properties"]["view"]["properties"]["usage"]
+        shown = run_view.view({"status": "RUNNING", "stages": [{"stage": "terra"}]})["usage"]
+        util.validate_schema(shown, schema)
+        for field, value in (
+            ("version", 2),
+            ("version", "1"),
+            ("version", True),
+            ("arguments", "private"),
+            ("scope", "private"),
+            ("issues", ["private"]),
+            ("families", {"private": 1}),
+        ):
+            invalid = copy.deepcopy(shown)
+            invalid["accounting"]["attempts"][0]["tool_activity"][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                util.validate_schema(invalid, schema)
+        missing_version = copy.deepcopy(shown)
+        del missing_version["accounting"]["attempts"][0]["tool_activity"]["version"]
+        with self.assertRaisesRegex(ValueError, "missing version"):
+            util.validate_schema(missing_version, schema)
+        del shown["accounting"]["attempts"][0]["tool_activity"]
+        with self.assertRaisesRegex(ValueError, "missing tool_activity"):
+            util.validate_schema(shown, schema)
+
     def test_execution_identity_schema_covers_known_unknown_and_invalid_types(self):
         import autocode_route_evidence as evidence
         import autocode_run_view as run_view
