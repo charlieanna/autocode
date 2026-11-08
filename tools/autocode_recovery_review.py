@@ -40,7 +40,7 @@ def builder_timeout_inspection(state: RunState, source_revision: str) -> bool:
         return False
     # Runner observations may follow the archive. Any later model attempt makes
     # this an ordinary review again, even if an obsolete recovery note survived.
-    record = next((row for row in reversed(state.get("stages") or []) if not row.get("runner_owned")), {})
+    record: dict = next((row for row in reversed(state.get("stages") or []) if not row.get("runner_owned")), {})
     iteration, output = record.get("iteration"), record.get("output")
     return (
         record.get("stage") == "terra"
