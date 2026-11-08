@@ -14,6 +14,24 @@ from scenarios.harness import catalog, fake_changed_code
 from scenarios.harness.project import overlay_paths
 
 CASES = {
+    "feature-node-stable-sort": (
+        "src/records.js",
+        [*range(7, 19), 20],
+        "tests/score-order.test.js",
+        (
+            "test_c1_numeric_score_order_in_both_directions",
+            "test_c2_stable_ties_and_caller_data_preserved",
+        ),
+    ),
+    "feature-vitest-ledger-subtotals": (
+        "src/ledger.ts",
+        [*range(10, 15), *range(16, 29)],
+        "tests/regression.test.ts",
+        (
+            "test_c1_account_groups_keep_exact_keys_and_zero_subtotals",
+            "test_c2_large_cents_empty_inputs_and_input_order_are_preserved",
+        ),
+    ),
     "bugfix-node-interval-boundary": (
         "src/interval.js",
         [13, 14],
@@ -77,7 +95,17 @@ def fixture_case(case):
                     "mutation_outcomes": [],
                 }
             )
-        if case == "bugfix-node-interval-boundary":
+        if case == "feature-node-stable-sort":
+            names = [
+                "tests/score-order.test.js::test_c1_numeric_score_order_in_both_directions",
+                "tests/score-order.test.js::test_c2_stable_ties_and_caller_data_preserved",
+            ]
+        elif case == "feature-vitest-ledger-subtotals":
+            names = [
+                "tests/regression.test.ts::test_c1_account_groups_keep_exact_keys_and_zero_subtotals",
+                "tests/regression.test.ts::test_c2_large_cents_empty_inputs_and_input_order_are_preserved",
+            ]
+        elif case == "bugfix-node-interval-boundary":
             names = [
                 "tests/interval-boundaries.test.js::test_c1_touching_intervals_are_disjoint",
                 "tests/interval-boundaries.test.js::test_c2_empty_interval_never_overlaps",
@@ -147,7 +175,8 @@ class NativeScenarioFixtureReasonTests(unittest.TestCase):
                 )
                 for row in rows:
                     self.assertEqual("instrumentation_unavailable", row["reason_kind"])
-                    self.assertIn(assertion, row["reason"])
+                    assertions = (assertion,) if isinstance(assertion, str) else assertion
+                    self.assertTrue(any(name in row["reason"] for name in assertions), row)
                     source = next(gap["path"] for gap in offered if gap["gap_id"] == row["gap_id"])
                     self.assertEqual([data["regression_proof"]["path"], source], row["evidence_refs"])
                 self.assertEqual(
