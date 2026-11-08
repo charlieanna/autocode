@@ -611,6 +611,74 @@ class RegclientFixtureReviewTests(unittest.TestCase):
 
 
 class LifecycleFixtureReviewTests(unittest.TestCase):
+    def test_only_the_exact_outbox_cleanup_mutants_get_equivalence_reasons(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            scenario = REFERENCE.parents[1] / "ladder-19-transactional-outbox"
+            shutil.copytree(scenario / "seed", root, dirs_exist_ok=True)
+            shutil.copytree(scenario / "reference", root, dirs_exist_ok=True)
+            for line, operator, before, after in (
+                (24, "never_catch", "BaseException", "()"),
+                (25, "drop_call", "db.rollback()", "None"),
+            ):
+                gap = {
+                    "gap_id": f"gap:{line}",
+                    "path": "outbox/__init__.py",
+                    "line": line,
+                    "status": "reason_required",
+                    "sha256": fixture.OUTBOX_SOURCE,
+                    "mutation_outcomes": ["survived"],
+                }
+                mutant = {
+                    "line": line,
+                    "operator": operator,
+                    "before": before,
+                    "after": after,
+                    "source_sha256": fixture.OUTBOX_SOURCE,
+                    "outcome": "survived",
+                    "failed_tests": [],
+                    "survived_tests": ["tests.test_behavior.OutboxTests.test_orders_publish_and_restart"],
+                    "evidence": ["/runner/mutant.log"],
+                }
+                data = {
+                    "regression_proof": {
+                        "path": "/runner/verification.json",
+                        "changed_code_evidence": {"obligations": [gap]},
+                        "mutation_check": {
+                            "files": [{"path": gap["path"], "sha256": fixture.OUTBOX_SOURCE, "mutants": [mutant]}]
+                        },
+                    }
+                }
+                (reason,) = fixture.judgments(data, root)
+                self.assertEqual("equivalent_mutant", reason["reason_kind"])
+                self.assertEqual(gap["gap_id"], reason["gap_id"])
+                for change in (
+                    {"operator": "drop_raise"},
+                    {"before": "db.close()"},
+                    {"after": "pass"},
+                    {"source_sha256": "0" * 64},
+                    {"line": 21},
+                    {"outcome": "not_run"},
+                    {"failed_tests": ["tests.failed"]},
+                    {"survived_tests": []},
+                    {"evidence": "not an observation list"},
+                ):
+                    altered = copy.deepcopy(data)
+                    altered["regression_proof"]["mutation_check"]["files"][0]["mutants"][0].update(change)
+                    with self.subTest(line=line, change=change):
+                        self.assertEqual([], fixture.judgments(altered, root))
+                for change in ({"line": 28}, {"mutation_outcomes": ["timeout"]}, {"sha256": "0" * 64}):
+                    altered = copy.deepcopy(data)
+                    altered["regression_proof"]["changed_code_evidence"]["obligations"][0].update(change)
+                    with self.subTest(gap=change):
+                        self.assertEqual([], fixture.judgments(altered, root))
+                altered = copy.deepcopy(data)
+                altered["regression_proof"]["mutation_check"]["files"][0]["mutants"].append(mutant)
+                self.assertEqual([], fixture.judgments(altered, root))
+            tests = root / "tests/test_behavior.py"
+            tests.write_text(tests.read_text() + "\n# unknown test bytes\n")
+            self.assertEqual([], fixture.judgments(data, root))
+
     def test_lifecycle_references_get_reasons_only_for_their_exact_source_and_tests(self):
         catalog = REFERENCE.parents[1]
         for scenario, variant, path, reasons in (
