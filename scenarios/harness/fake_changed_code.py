@@ -144,8 +144,8 @@ def _totals(data, root):
 TODO_SOURCE = "cefe6abde79ff40a33e3b0bdb7147edc12af36305a6e1b1c2be244b4d51cd00d"
 # The reference tests, and the same tests with the follow-up turn's list test (tests.test_brief_cli).
 TODO_TESTS = {
-    "ca4befa627cc78630e8527a189254648ec880635e945e917b0aab0851154edfe",
-    "68b50358a20e551c82ea64ef10a3b8ba570bbc294c544742e417185506c835f6",
+    "55536eb04e1ddccd31e434df0655b40a7064d83587540a210014986dca783ff7",
+    "4e7e88535f8ba0fe9fd8da156b765a5e73c05ce089f2a57724ad197670a6a41f",
 }
 _TODO_IMPORT = (
     "No supported import mutation. Every CLI test runs todo.py as a subprocess; without this import the "

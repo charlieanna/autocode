@@ -34,7 +34,7 @@ class TodoTests(unittest.TestCase):
             for args in (("list",), ("add", "x"), ("complete", "1")):
                 refused = self.todo(*args)
                 self.assertEqual(1, refused.returncode)
-                self.assertIn("todos.json is malformed", refused.stderr)
+                self.assertTrue(refused.stderr.startswith("todo: todos.json is malformed"), refused.stderr)
                 self.assertEqual(text, self.store.read_text())
 
     def test_usage_errors_exit_2_and_create_no_store(self):
