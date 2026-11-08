@@ -37,6 +37,23 @@ def joined_graph(dependencies=None):
     return spec, dependencies, values
 
 
+def citation_repair_spec():
+    spec = fixtures.notes()
+    # Statement mutants cover the original storage module completely. Future
+    # imports have no mutation site; test the postponed annotation they enable
+    # so the fixture Tester must cite a reason and the bad citation reaches repair.
+    source = spec["payloads"]["M1"]["notes/storage.py"]
+    spec["payloads"]["M1"]["notes/storage.py"] = "from __future__ import annotations\n" + source.replace(
+        "def load(p):", "def load(p: Path):"
+    )
+    spec["payloads"]["M1"]["test_storage.py"] += (
+        "\n    def test_load_postpones_its_path_annotation(self):\n"
+        "        self.assertEqual({'p': 'Path'}, load.__annotations__)\n"
+    )
+    spec["changed_code_citation_repair"] = True
+    return spec
+
+
 class JoinedGraphCLI(unittest.TestCase):
     setUp = fixtures.BuildBlackbox.setUp
     command = fixtures.BuildBlackbox.command
@@ -115,8 +132,7 @@ class JoinedGraphCLI(unittest.TestCase):
         self.assertEqual(0, check.returncode, check.stdout + check.stderr)
 
     def test_format_failure_in_first_repair_keeps_the_original_evidence_error(self):
-        spec = fixtures.notes()
-        spec["changed_code_citation_repair"] = True
+        spec = citation_repair_spec()
         spec["repair_loses_error"] = True
         self.seed(spec, max_parallel=2)
         self.build()
@@ -132,8 +148,7 @@ class JoinedGraphCLI(unittest.TestCase):
         self.assertFalse(status["completion_current"])
 
     def test_changed_line_citation_repair_uses_enclosing_proof_without_new_builder(self):
-        spec = fixtures.notes()
-        spec["changed_code_citation_repair"] = True
+        spec = citation_repair_spec()
         self.seed(spec, max_parallel=2)
         self.build()
         starts = self.events()
