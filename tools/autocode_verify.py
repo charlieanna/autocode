@@ -84,6 +84,7 @@ try:
     from . import autocode_verification_preparation as preparation
     from . import autocode_verification_schedule as schedule
     from . import autocode_verify_judgment as judgment
+    from . import autocode_verify_result as verify_result
     from . import autocode_vitest_tests as vitest_tests
     from .autocode_suite_health import suite_health
     from .autocode_test_framework import Framework
@@ -123,6 +124,7 @@ except ImportError:
     import autocode_verification_preparation as preparation
     import autocode_verification_schedule as schedule
     import autocode_verify_judgment as judgment
+    import autocode_verify_result as verify_result
     import autocode_vitest_tests as vitest_tests
     from autocode_suite_health import suite_health
     from autocode_test_framework import Framework
@@ -2763,8 +2765,14 @@ def verify(
         existing_failures=existing_failures,
     )
     trees, hidden = {}, []
+    baseline_timed_out = bool(base_suite and (base_suite.get("receipt") or {}).get("timed_out") is True)
+    if baseline_timed_out:
+        # A settled timeout cannot anchor preservation. Retain its receipt, but
+        # do not spend another command budget on an already unprovable attempt.
+        checks["suite_on_base"] = base_suite["receipt"]
+        unverified.append("The original project suite timed out; candidate checks were not started")
     try:
-        if (changes or existing_guards) and (commands["regression"] or commands["suite"]):
+        if not baseline_timed_out and (changes or existing_guards) and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(
                 workspace,
                 base,
@@ -2843,13 +2851,13 @@ def verify(
                 review_reasons.append("the regression proof rests on the whole suite's exit code")
                 if on_base["exit_code"] == 0 and not preserve:
                     fail.append("The new tests pass on the unfixed base code, so they do not reproduce the bug")
-        elif tests and sources:
+        elif tests and sources and not baseline_timed_out:
             unverified.append("No command to run the regression tests; pass --regression-command")
 
         # No regressions: the suite on the candidate, compared with base.
         if "candidate" in trees and (sources or preserve) and commands["suite"]:
             hidden = _preserve_suite(run, trees, no_go_project=no_go_project, no_junit_project=no_junit_project)
-        elif sources or preserve:
+        elif (sources or preserve) and not baseline_timed_out:
             unverified.append(
                 "No project test command was found; existing behavior was not checked (pass --test-command)"
             )
@@ -2872,44 +2880,15 @@ def verify(
     if stats["non_code_files"]:
         review_reasons.append("non-code files changed: " + ", ".join(stats["non_code_files"][:5]))
     verdict = FAIL if fail else UNVERIFIED if unverified else PASS
-    return {
-        "verdict": verdict,
-        "failures": fail,
-        "unverified": unverified,
-        "notes": notes,
-        "review_reasons": review_reasons,
-        "base": base,
-        "base_patch": str(base_patch) if base_patch else None,
-        "source_revision": before,
-        "changes": changes,
-        "test_files": tests,
-        "source_files": sources,
-        "stats": stats,
-        "commands": {k: commands[k] for k in ("suite", "suite_source", "regression", "regression_source")},
-        "framework": framework.to_dict() if framework else None,
-        "baseline": (
-            {
-                "health": base_suite["health"],
-                "exit_code": base_suite["receipt"]["exit_code"],
-                "output": base_suite["receipt"]["output"],
-            }
-            if base_suite
-            else None
-        ),
-        "fail_to_pass": proof.get("fail_to_pass"),
-        "pass_to_pass": proof.get("pass_to_pass"),
-        "not_run_on_base": proof.get("not_run_on_base"),
-        "failed_on_candidate": proof.get("failed_on_candidate"),
-        "suite_pass_to_pass": proof.get("suite_pass_to_pass"),
-        "ignored_test_files": hidden,
-        "no_test_changed": existing_guards,
-        "guard_run_incomplete": bool(proof.get("guard_run_incomplete")),
-        "unstable": proof.get("unstable"),
-        "proof_stability": proof.get("proof_stability"),
-        "diff_coverage": proof.get("diff_coverage"),
-        "test_prerequisites": proof.get("test_prerequisites"),
-        "checks": checks,
-    }
+    return verify_result.assemble(
+        run,
+        verdict=verdict,
+        source_revision=before,
+        test_files=tests,
+        source_files=sources,
+        stats=stats,
+        ignored_test_files=hidden,
+    )
 
 
 def product_files(changes) -> list[tuple[str, str]]:
