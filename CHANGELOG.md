@@ -21,6 +21,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Final Reviewer recovery includes the current plan once while preserving distinct historical plans
+  and the complete review history.
+
 - Plans and Builder instructions assign independent fail-first proof to the runner and avoid requiring
   a duplicate Builder capture solely to establish it. Project instructions, explicit test-first requests
   and approved check sequences still apply.
