@@ -728,13 +728,17 @@ class RegclientFixtureReviewTests(unittest.TestCase):
 
 
 class LeaseCleanupFixtureReviewTests(unittest.TestCase):
+    variant = "reference"
+    source_digest = fixture.LEASE_SOURCE
+    cleanup_lines = (23, 24)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         base = Path(temporary.name)
         self.root, self.reference = base / "project", base / "reference"
         scenario = REFERENCE.parents[1] / "ladder-18-durable-lease-queue"
-        shutil.copytree(scenario / "reference", self.reference)
+        shutil.copytree(scenario / self.variant, self.reference)
         shutil.copytree(self.reference, self.root)
         self.path = "leasequeue/__init__.py"
         self.producer = {
@@ -744,15 +748,16 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
             "turn_paths": [],
         }
 
-    def data(self, line=23):
-        identity = ["a" * 64, "b" * 64, self.path, fixture.LEASE_SOURCE, line]
+    def data(self, line=None):
+        line = self.cleanup_lines[0] if line is None else line
+        identity = ["a" * 64, "b" * 64, self.path, self.source_digest, line]
         gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
         mutant = {
             "line": line,
-            "operator": "never_catch" if line == 23 else "drop_call",
-            "before": "BaseException" if line == 23 else "db.rollback()",
-            "after": "()" if line == 23 else "None",
-            "source_sha256": fixture.LEASE_SOURCE,
+            "operator": "never_catch" if line == self.cleanup_lines[0] else "drop_call",
+            "before": "BaseException" if line == self.cleanup_lines[0] else "db.rollback()",
+            "after": "()" if line == self.cleanup_lines[0] else "None",
+            "source_sha256": self.source_digest,
             "outcome": "survived",
             "failed_tests": [],
             "survived_tests": [fixture.LEASE_TRANSACTION_CASE],
@@ -773,12 +778,12 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
                             "path": self.path,
                             "line": line,
                             "status": "reason_required",
-                            "sha256": fixture.LEASE_SOURCE,
+                            "sha256": self.source_digest,
                             "mutation_outcomes": ["survived"],
                         }
                     ],
                 },
-                "mutation_check": {"files": [{"path": self.path, "sha256": fixture.LEASE_SOURCE, "mutants": [mutant]}]},
+                "mutation_check": {"files": [{"path": self.path, "sha256": self.source_digest, "mutants": [mutant]}]},
             }
         }
 
@@ -791,7 +796,7 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
         return [row for row in rows if row["reason_kind"] == "equivalent_mutant"]
 
     def test_exact_cleanup_observations_require_the_delivered_transaction_test(self):
-        for line in (23, 24):
+        for line in self.cleanup_lines:
             data = self.data(line)
             (reason,) = self.judge(data)
             self.assertEqual(
@@ -822,7 +827,7 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
         for change in (
             {"gap_id": "changed-code:" + "0" * 64},
             {"line": 27},
-            {"line": 23.0},
+            {"line": float(self.cleanup_lines[0])},
             {"status": "tested"},
             {"sha256": "0" * 64},
             {"mutation_outcomes": ["timeout"]},
@@ -864,6 +869,28 @@ class LeaseCleanupFixtureReviewTests(unittest.TestCase):
         path.unlink()
         path.symlink_to(self.root / self.path)
         self.assertEqual([], self.judge())
+
+
+class NonAtomicLeaseFixtureReviewTests(LeaseCleanupFixtureReviewTests):
+    variant = "broken/non-atomic-claim"
+    source_digest = "a7067c3c67d30194cf473870d350072529de7af46d2fe0097aa9efd56183cd02"
+    cleanup_lines = (24, 25)
+
+    def test_non_mutable_lines_require_the_pinned_producer_and_exact_current_gap(self):
+        for line in (6, 14, 17, 22, 30):
+            with self.subTest(line=line):
+                data = self.data(line)
+                row = data["regression_proof"]["changed_code_evidence"]["obligations"][0]
+                row["mutation_outcomes"] = []
+                data["regression_proof"]["mutation_check"]["files"] = []
+                reasons = fixture.judgments(data, self.root, producer=self.producer)
+                self.assertEqual([row["gap_id"]], [reason["gap_id"] for reason in reasons])
+                self.assertEqual("instrumentation_unavailable", reasons[0]["reason_kind"])
+                self.assertEqual([], fixture.judgments(data, self.root))
+                for change in ({"gap_id": "stale"}, {"mutation_outcomes": ["survived"]}):
+                    changed = copy.deepcopy(data)
+                    changed["regression_proof"]["changed_code_evidence"]["obligations"][0].update(change)
+                    self.assertEqual([], fixture.judgments(changed, self.root, producer=self.producer))
 
 
 class LifecycleFixtureReviewTests(unittest.TestCase):

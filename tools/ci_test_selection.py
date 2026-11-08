@@ -113,6 +113,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "scenarios/harness/fake_changed_code.py",
         (
+            "tests.test_risk_cli",
             "tests.test_brief_cli",
             "tests.test_scenario_changed_code_fixtures",
             "tests.test_native_scenario_fixture_reasons",
@@ -121,6 +122,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_follow_up_acceptance_cli",
             "tests.test_requirements_first_cli",
         ),
+    ),
+    (
+        "scenarios/catalog/ladder-18-durable-lease-queue/broken/non-atomic-claim/",
+        ("tests.test_risk_cli",),
     ),
     (
         "tools/goal_fixtures.py",
