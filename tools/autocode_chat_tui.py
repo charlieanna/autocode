@@ -2314,10 +2314,15 @@ class ChatTUI:
         return glyphs.top_left + glyphs.rule + title + glyphs.rule * fill + glyphs.top_right
 
     def _hints(self, layout: Layout) -> None:
+        asking_segments: list[str] = []
         if self._asking:
-            hints = "enter send · \\⏎ newline · / commands · ↑↓ history · pgup/pgdn scroll · ctrl-d quit"
-            if not self._glyphs.unicode:
-                hints = "enter send | \\enter newline | / commands | up/down history | pgup/pgdn scroll | ctrl-d quit"
+            newline = "\\⏎ newline" if self._glyphs.unicode else "\\enter newline"
+            history = "↑↓ history" if self._glyphs.unicode else "up/down history"
+            # The optional hints give way first, in this order, when the row is short of room:
+            # "ctrl-d quit" is the way out of the full screen and "/ commands" the menu, so a
+            # stage and cost prefix must never push them off the edge of the footer.
+            asking_segments = ["enter send", newline, "/ commands", history, "pgup/pgdn scroll", "ctrl-d quit"]
+            hints = (" · " if self._glyphs.unicode else " | ").join(asking_segments)
         elif self._view and self._view.get("coordination"):
             detach = "ctrl-d detaches · " if self._can_detach() else ""
             hints = f"/ commands · {detach}ctrl-c cancels coordination after this step"
@@ -2339,6 +2344,13 @@ class ChatTUI:
         # boundary action matter more, and the Stages section carries the time too.
         if display_width(status + " · " + hints) > layout.width - 2:
             status = " · ".join(value for value in (stage, spend) if value)
+        prefix = f"{status} · " if status else ""
+        if self._asking and layout.width >= 72 and display_width(prefix + hints) > layout.width - 2:
+            for droppable in (asking_segments[1], asking_segments[4], asking_segments[3]):
+                asking_segments.remove(droppable)
+                hints = (" · " if self._glyphs.unicode else " | ").join(asking_segments)
+                if display_width(prefix + hints) <= layout.width - 2:
+                    break
         # At narrow widths the stage already appears on the status row. Keep the
         # navigation and boundary action visible instead of letting a stage/cost
         # prefix push them past the right edge of the footer.

@@ -498,6 +498,18 @@ class ChatScreenTests(unittest.TestCase):
         self.assertEqual("/Build something nice", composer_text(shown), "the text stays to edit")
         self.no_run_started()
 
+    def test_a_question_footer_keeps_the_way_out_visible_at_the_common_width(self):
+        screen = self.chat()
+        screen.paste(BRIEF)
+        screen.keys("Enter")
+        # Wait for the whole frame: tmux can capture the question before curses has drawn the footer.
+        shown = screen.wait_for(
+            lambda shown: "Approve understanding" in shown and "/ commands" in shown and "ctrl-d quit" in shown,
+            RUN_SECONDS,
+            what="the decision screen's footer with its exit hint at 100 columns",
+        )
+        self.assertIn("ctrl-d quit", shown, "the footer of a decision screen keeps the exit hint at 100 columns")
+
     def test_the_command_menu_says_how_many_commands_it_hides(self):
         screen = self.chat()
         screen.paste(BRIEF)
