@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat retries a failed fresh status read once before ending the interaction. It keeps
+  the existing read deadlines and requires a fresh view before approving a plan or sending a reply.
+
 - Unchanged validation rounds that exhaust their progress limit record an automatic failed outcome
   with the open findings and evidence, instead of asking a person to manage validation or close a
   finding. The run retains its work and cannot resume or claim successful completion.
