@@ -153,6 +153,17 @@ def _dict(value):
     return value if isinstance(value, dict) else {}
 
 
+def _request_reported_cost(requests):
+    """The sum of per-request reported costs, or None when no request reports one."""
+    costs = []
+    for item in requests:
+        if isinstance(item, dict):
+            value = _money(item.get("reported_cost_usd"))
+            if value is not None:
+                costs.append(value)
+    return round(sum(costs), 10) if costs else None
+
+
 def _model(record):
     """The model a stage ran: the launch command first (`--model X` or `--model=X`), then the saved launch route."""
     command = record.get("command")
@@ -210,6 +221,11 @@ def stage_rows(state: RunState, estimator=None):
             cost, basis = metrics["provider_cost_usd"], "reported"
         elif (observation := cost_state_cost(metrics)) is not None:
             cost, basis = observation, "reported"
+        elif (request_sum := _request_reported_cost(requests)) is not None:
+            # The provider reported per-request costs; use their sum even when the
+            # model has no price-table rate (#2996). A stage is never zero-cost just
+            # because its model is missing from the table.
+            cost, basis = request_sum, "reported"
         elif (guess := estimator(model, tokens, record.get("finished_at"))) is not None:
             cost, basis = guess, "estimated"
         else:
