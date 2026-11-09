@@ -1,6 +1,7 @@
 """Public CLI and adversarial oracle checks, with no live model requests."""
 
 import copy
+import importlib
 import json
 import os
 import shlex
@@ -312,8 +313,8 @@ class ProbeLaunchRoleTests(unittest.TestCase):
 
         return types.SimpleNamespace(launch=launch)
 
-    def execute(self, adapter, *, allow_write=False, role=None, directory="probe"):
-        return transport.execute(
+    def execute(self, adapter, *, allow_write=False, role=None, directory="probe", module=transport):
+        return module.execute(
             adapter=adapter,
             workspace=self.root,
             directory=self.root / directory,
@@ -363,6 +364,36 @@ class ProbeLaunchRoleTests(unittest.TestCase):
         self.assertIs(error, caught.exception.__cause__)
         child.assert_not_called()
         self.assertFalse((self.root / "probe/launch.json").exists())
+
+    def test_bounded_setup_failure_keeps_attempt_evidence_without_a_model_launch(self):
+        for prefix in ("", "tools."):
+            kilocode_probe = importlib.import_module(prefix + "providers.kilocode_probe")
+            module = importlib.import_module(prefix + "provider_conformance_transport")
+
+            directory = "packaged-probe" if prefix else "probe"
+            clock = [0.0]
+
+            def setup(*_args, **_kwargs):
+                def timeout(seconds):
+                    clock[0] += seconds
+                    raise subprocess.TimeoutExpired(["kilo", "debug", "config"], seconds)
+
+                return kilocode_probe.probe(["kilo", "debug", "config"], timeout)
+
+            adapter = types.SimpleNamespace(launch=setup)
+            with (
+                patch.object(kilocode_probe.time, "monotonic", lambda: clock[0]),
+                patch.object(module, "_provider_child") as child,
+                self.assertRaises(module.support.Paused) as caught,
+            ):
+                self.execute(adapter, role="glm", module=module, directory=directory)
+            self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
+            self.assertIsInstance(caught.exception.__cause__, kilocode_probe.KiloProbeTimeout)
+            child.assert_not_called()
+            checks = json.loads((self.root / directory / "model-free-setup.json").read_text())["checks"]
+            self.assertEqual([30, 60], [row["timeout_seconds"] for row in checks])
+            self.assertEqual(["timed_out", "timed_out"], [row["outcome"] for row in checks])
+            self.assertFalse((self.root / directory / "launch.json").exists())
 
     def test_a_timeout_after_preparation_is_not_mislabeled_as_unlaunched(self):
         error = subprocess.TimeoutExpired(["kilo", "run"], 30)

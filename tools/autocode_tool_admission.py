@@ -24,6 +24,7 @@ try:
     from . import autocode_toolchain as toolchain
     from . import autocode_util as util
     from .providers.kilocode import KiloProvider
+    from .providers.kilocode_probe import KiloProbeTimeout
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_containment_policy as containment_policy
@@ -33,6 +34,7 @@ except ImportError:
     import autocode_toolchain as toolchain
     import autocode_util as util
     from providers.kilocode import KiloProvider
+    from providers.kilocode_probe import KiloProbeTimeout
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,9 @@ def failure(error, *, kilo_readonly=False, isolation=None):
     recovery = (
         ""
         if isinstance(error, (*containment.STORE_ERRORS, containment.NativePermissionDenied))
+        # A check that ran out of time on a loaded host asks for another attempt, not a reinstalled Kilo (#2959).
+        else ". Bounded setup retries were exhausted; the timeout does not establish a broken Kilo installation"
+        if isinstance(error, KiloProbeTimeout)
         else ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
         if isolation is not None
         else ". Restore qualified Kilo 7.8.3 and its kernel shell setup; readonly Kilo cannot waive this boundary"

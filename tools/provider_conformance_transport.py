@@ -163,25 +163,29 @@ def execute(
         if hasattr(adapter, "parse_opencode_version"):
             launch_kwargs["opencode_version"] = adapter.local_settings(workspace, env=env)["version"]
         try:
+            from .providers import kilocode_probe
             from .providers.kilocode import KiloEffortError
         except ImportError:
+            from providers import kilocode_probe
             from providers.kilocode import KiloEffortError
+        checks = []
         try:
-            argv, child_env, _ = adapter.launch(
-                role or ("terra" if allow_write else "sol"),
-                workspace,
-                directory,
-                session,
-                model,
-                effort,
-                allow_write,
-                report=report_path,
-                schema=schema_path,
-                prompt_file=prompt_path,
-                env=child_env,
-                **launch_kwargs,
-            )
-        except KiloEffortError as error:
+            with kilocode_probe.capture() as checks:
+                argv, child_env, _ = adapter.launch(
+                    role or ("terra" if allow_write else "sol"),
+                    workspace,
+                    directory,
+                    session,
+                    model,
+                    effort,
+                    allow_write,
+                    report=report_path,
+                    schema=schema_path,
+                    prompt_file=prompt_path,
+                    env=child_env,
+                    **launch_kwargs,
+                )
+        except (KiloEffortError, kilocode_probe.KiloProbeTimeout) as error:
             # The tool refused the variant before any request. A probe has no stage wrapper to
             # classify it, so report the same pause its stage launch would (autocode_provider_launch),
             # instead of an unclassified RuntimeError (#2108).
@@ -193,6 +197,9 @@ def execute(
                 "PAUSED_TRANSPORT_UNVERIFIED",
                 f"Provider setup timed out before model access; no model request was launched: {error}",
             ) from error
+        finally:
+            if checks:
+                atomic_json(directory / "model-free-setup.json", {"checks": checks})
     if prepare is not None and adapter is not None:
         argv, child_env = prepare(list(argv), dict(child_env))
     prompt_path.write_text(prompt)

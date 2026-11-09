@@ -12,6 +12,8 @@ import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+from . import kilocode_probe
+
 try:
     from .. import autocode_tool_containment as containment
 except ImportError:
@@ -72,9 +74,16 @@ def restrict(
     if not executable:
         raise RuntimeError("Kilo readonly launch cannot find the configured executable")
 
+    observe = kilocode_probe.observer()
+
     def debug(*args):
-        result = subprocess.run(
-            [executable, "debug", *args], cwd=workspace, env=child, capture_output=True, text=True, timeout=30
+        words = [executable, "debug", *args]
+        result = kilocode_probe.probe(
+            words,
+            lambda seconds: subprocess.run(
+                words, cwd=workspace, env=child, capture_output=True, text=True, timeout=seconds
+            ),
+            observe=observe,
         )
         if result.returncode:
             raise RuntimeError("Kilo readonly policy could not be resolved before launch")
@@ -87,9 +96,10 @@ def restrict(
         selected = argv[argv.index("--agent") + 1]
         original = debug("agent", selected)
     else:
-        # Each debug command is a Kilo start of two to five seconds, paid before every stage. The usual
-        # default agent's policy is read alongside the config; it is used only when the config names that
-        # agent, and both are read fresh for this launch, so a changed default or permission still counts.
+        # Each debug command is a Kilo start paid before every stage, and `probe` bounds the whole set of
+        # attempts rather than each one. The usual default agent's policy is read alongside the config; it
+        # is used only when the config names that agent, and both are read fresh for this launch, so a
+        # changed default or permission still counts.
         with ThreadPoolExecutor(max_workers=2) as pool:
             usual = pool.submit(debug, "agent", "code")
             selected = debug("config").get("default_agent") or "code"
