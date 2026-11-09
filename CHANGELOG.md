@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Linux supervision identifies Kilo's wrapper by its kernel executable path, so Node 24's
+  `MainThread` name no longer turns a silent model wait into tool activity (#2968).
+
 - Active process supervision no longer repeatedly probes descendants already
   observed to have exited. Their receipts remain retained, while active workers,
   ownership leases and cleanup still receive fresh identity checks.

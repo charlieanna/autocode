@@ -132,6 +132,7 @@ class ProcessTests(unittest.TestCase):
         process.ppid.return_value = 90
         process.status.return_value = "sleeping"
         process._proc.name.return_value = "mcp-server-darw"
+        process.exe.return_value = "mcp-server-darw"
         with (
             patch.object(processes.psutil, "Process", return_value=process),
             patch.object(processes.os, "getpgid", return_value=101),
@@ -153,6 +154,34 @@ class ProcessTests(unittest.TestCase):
         self.assertFalse(processes.matches({**legacy, "birth_time": 0}, row))
         legacy.pop("birth_time")
         self.assertTrue(processes.matches(legacy, row))
+
+    def test_linux_uses_executable_identity_when_node_renames_its_main_thread(self):
+        root, child = MagicMock(), MagicMock()
+        for process, pid, parent, executable in (
+            (root, 101, 90, "/fixture/node"),
+            (child, 102, 101, "/fixture/.kilo"),
+        ):
+            process.create_time.return_value = 1790019574.123
+            process._ident = (pid, 1790019574.123)
+            process.ppid.return_value = parent
+            process.status.return_value = "sleeping"
+            process._proc.name.return_value = "MainThread"
+            process.exe.return_value = executable
+        with (
+            patch.object(processes.sys, "platform", "linux"),
+            patch.object(processes.psutil, "Process", side_effect=lambda pid: {101: root, 102: child}[pid]),
+            patch.object(processes.os, "getpgid", return_value=101),
+            patch.object(processes.os, "getsid", return_value=101),
+        ):
+            rows = processes.process_table({101, 102})
+        self.assertEqual("/fixture/node", rows[101]["executable"])
+        self.assertEqual("/fixture/.kilo", rows[102]["executable"])
+        self.assertTrue(ActivityMonitor._kilo_wrapper(rows[102], rows[101]))
+        for process in (root, child):
+            process.cmdline.assert_not_called()
+            process._proc.name.assert_not_called()
+            process.exe.assert_called_once_with()
+        self.assertFalse(ActivityMonitor._kilo_wrapper({**rows[102], "executable": "/fixture/tool"}, rows[101]))
 
     def test_stable_identity_ignores_display_time_but_never_falls_back_on_mismatch(self):
         row = {
@@ -305,6 +334,7 @@ class ProcessTests(unittest.TestCase):
                 process.ppid.return_value = 90
                 process.status.return_value = "sleeping"
                 process._proc.name.side_effect = error
+                process.exe.side_effect = error
                 with (
                     patch.object(processes.psutil, "Process", return_value=process),
                     patch.object(processes.os, "getpgid", return_value=101),
