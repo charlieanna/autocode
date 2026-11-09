@@ -448,24 +448,24 @@
     "sha256": "1b653e44bd7589b02c316b25b4c27be2251a468f997e0b88de232d199b0023ac"
   },
   "planning/requirements_gather/adaptive": {
-    "bytes": 22124,
-    "sha256": "1aeb68f2fa0dde508974ee1e0cc6bcd7c9d90f0a1f597e54ea974d25aa11f2b8"
+    "bytes": 22427,
+    "sha256": "e6e762bd087758d86778e562cc79f89d30599409e61fb83f8d9d26bc91b85a41"
   },
   "planning/requirements_gather/design": {
-    "bytes": 23236,
-    "sha256": "d4188f93b808f2b336182a9507202f2abebcedc93ebaad94cae029842e348b1b"
+    "bytes": 23539,
+    "sha256": "01cc57fb1ceafd1f0019758aa91604919b732b43076dcec54be6aef424af04c9"
   },
   "planning/requirements_gather/figma": {
-    "bytes": 23012,
-    "sha256": "d55241084c70586283b1692a48710b96a2759de2a84d58f2b315361070e8fe73"
+    "bytes": 23315,
+    "sha256": "ab23ad2cdd6d38cd5957428673afd529a4d40f1d9deaf939bd31a365d369a3e6"
   },
   "planning/requirements_gather/investigation": {
-    "bytes": 23040,
-    "sha256": "237310c24b77d2528b106e60ce4640d56cd29d7a465065b69a4eae0e3cbbc036"
+    "bytes": 23343,
+    "sha256": "25eb1a7398bfb68c15d8c49d0ee2fac98a73d596fcb268fadb5c70630fc145c9"
   },
   "planning/requirements_gather/ordinary": {
-    "bytes": 22124,
-    "sha256": "1aeb68f2fa0dde508974ee1e0cc6bcd7c9d90f0a1f597e54ea974d25aa11f2b8"
+    "bytes": 22427,
+    "sha256": "e6e762bd087758d86778e562cc79f89d30599409e61fb83f8d9d26bc91b85a41"
   },
   "progressive/astra_checkpoint": {
     "bytes": 11676,
@@ -620,12 +620,12 @@
     "sha256": "c41533aa11c59e369e71b775ec1edd4c59fa33cf236de6573ae2bd63670b4b30"
   },
   "requirements-final/batch": {
-    "bytes": 28375,
-    "sha256": "80ac660fd49acf00cf77c1d454ee1d4d97a046c7300f3928ce58538a19ff2af1"
+    "bytes": 28678,
+    "sha256": "7ef7ae5412b6d5df734eba7ec8c80bb86dee446c469762fc5cbab0034f74f378"
   },
   "requirements-final/conversational": {
-    "bytes": 28242,
-    "sha256": "3b1cfebebc28ffe5cea4bd908ce13c7742a98b5476ff652161cd8f89ac587369"
+    "bytes": 28553,
+    "sha256": "b1e962027f54f87b57efb71711740f2424bf8d87bc7301c5e177c237d95ba542"
   },
   "resolver/astra_diagnose": {
     "bytes": 18642,
