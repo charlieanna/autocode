@@ -163,7 +163,7 @@ def _produced(view: dict) -> dict:
         "clean_replay_checks": len(_rows(replay.get("checks"))),
         "clean_replay_verdict": replay.get("verdict") if isinstance(replay.get("verdict"), str) else None,
         "mutants_killed": sum(1 for mutant in mutants if mutant.get("outcome") == "killed"),
-        "mutants_tried": len(mutants),
+        "mutants_tried": sum(1 for mutant in mutants if mutant.get("outcome") in ("killed", "survived", "timeout")),
         "findings": len(findings),
         "blocking_findings": sum(1 for row in findings if row.get("blocking") is True),
         "problems_handled": len(_rows(view.get("recoveries"))),

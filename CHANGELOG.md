@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Run metrics exclude unrun mutation candidates from the number of mutants tried,
+  so an exhausted mutation budget does not inflate the reported testing work.
+
 - Corrected verification commands at an idle paused Tester checkpoint can retire an
   obsolete report repair that has not launched. The rejected report, counters and usage
   stay archived, the approved plan stays exact, and fresh proof and testing remain required.

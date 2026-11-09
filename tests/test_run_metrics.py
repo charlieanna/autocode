@@ -163,6 +163,32 @@ class RunMetricsTests(unittest.TestCase):
         single = run_metrics.project(early)["single_model"]
         self.assertEqual((None, None, None), (single["builder_usd"], single["builder_share"], single["checking_usd"]))
 
+    def test_budget_exhausted_mutants_do_not_inflate_the_reported_work(self):
+        partial = view()
+        partial["evidence"]["mutation_check"]["files"] = [
+            {"mutants": [{"outcome": "killed"}] * 15 + [{"outcome": "survived"}] * 18},
+            {"mutants": [{"outcome": "not_run"}] * 212},
+        ]
+        metrics = run_metrics.project(partial)
+        produced = metrics["single_model"]["produced"]
+        self.assertEqual(33, produced["mutants_tried"])
+        self.assertEqual(15, produced["mutants_killed"])
+
+    def test_only_recorded_execution_outcomes_count_as_mutants_tried(self):
+        for outcome, tried in (
+            ("killed", 1),
+            ("survived", 1),
+            ("timeout", 1),
+            ("not_run", 0),
+            ("unknown", 0),
+            (None, 0),
+            ({}, 0),
+        ):
+            with self.subTest(outcome=outcome):
+                observed = view()
+                observed["evidence"]["mutation_check"]["files"] = [{"mutants": [{"outcome": outcome}]}]
+                self.assertEqual(tried, run_metrics.project(observed)["single_model"]["produced"]["mutants_tried"])
+
     def test_the_status_view_carries_run_metrics_for_a_run_with_nothing_spent(self):
         public = run_view.view({"status": "RUNNING"})
         metrics = public["run_metrics"]
