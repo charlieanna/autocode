@@ -2372,7 +2372,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/061cb2f63fe9ac181cfe9153111537c661f0318b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/34b93b87365daea4ca328350e7277c54dad1ecc3/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3559,7 +3559,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/061cb2f63fe9ac181cfe9153111537c661f0318b/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/34b93b87365daea4ca328350e7277c54dad1ecc3/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4258,7 +4258,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/061cb2f63fe9ac181cfe9153111537c661f0318b/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/34b93b87365daea4ca328350e7277c54dad1ecc3/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4830,6 +4830,14 @@ contract (a criterion Resolver proved contradictory): the response is retained
 as information and never edits the contract, so after it the run holds and
 <code>needs.reason</code> names the path that applies such a decision, <code>--edit-goal
 body.json</code> followed by <code>--approve-goal</code>.</p>
+<p>A retained no-progress question from an older validation-only Builder handoff can
+instead offer <code>needs.kind=continue</code> and the normal named resume action. The core
+authenticates the old question, approved task, independent review and current
+source and evidence before returning the unresolved changed-line obligations to
+scope review. This action launches no provider and grants no Builder attempt,
+counter reset, evidence acceptance or plan change. Clients read the resulting
+view for the next action; scope changes still require exact-plan review and
+approval. Unrelated pauses and stale evidence do not qualify for this recovery.</p>
 <p>When a role's quota ran out, its provider's content filter refused it, or its authenticated response exhausted the output limit, the <code>answer</code>
 need also carries <code>route</code>: <code>question_id</code> (<code>route-ROLE</code>), <code>role</code>, <code>job</code>, <code>current_model</code>,
 <code>engine</code>, <code>cause</code> (<code>quota</code>, <code>content_filter</code> or <code>output_limit</code>), <code>stopped_model</code> and, for a refusal,
@@ -5111,6 +5119,20 @@ the wait so the new decision can be reviewed. Keep the worker running while wait
 if it exits with an error, reconcile the reported cause and restart it against the same
 run. A failed/incomplete producer cannot release the consumer.</p>
 <p><code>TaskRun.grant_recovery(N)</code> explicitly grants a positive number of additional recoveries after the operator inspects saved work and fixes the cause. It preserves recovery history and uses the CLI checkpoint guards. <code>resume_paused()</code> and operational guidance do not grant an allowance.</p>
+<h3 id="retained-report-repair-diagnostics">Retained report repair diagnostics<a class="headerlink" href="#retained-report-repair-diagnostics" title="Permanent link">&para;</a></h3>
+<p><code>view.report_repair</code> is null without a retained rejected report. Otherwise it exposes
+its stage, recorded source revision, attempt count and limit, plus original and
+latest rejection diagnostics. Each reason has a fixed <code>category</code>, <code>error_sha256</code>,
+and nullable <code>command_sha256</code>, <code>timeout_seconds</code>, <code>exit_code</code> and <code>planned</code>.
+Unrecognized messages remain <code>unclassified</code>; raw commands, captured output,
+report text and control tokens are never included. These are recorded errors,
+not independently accepted evidence or recovery actions.</p>
+<p><code>freshness</code> is <code>recorded</code> when the saved source, task, contract and stage bindings
+agree, <code>stale</code> when a binding changed or the caller's inspection found stale
+repair evidence, and <code>unavailable</code> without a valid source digest. Recorded does
+not assert that the current filesystem was rehashed. <code>active</code> additionally
+requires a running report-only attempt for the original stage. No field grants
+approval, retry, proof reuse or completion authority.</p>
 <h3 id="failed-workflow-jobs">Failed workflow jobs<a class="headerlink" href="#failed-workflow-jobs" title="Permanent link">&para;</a></h3>
 <p>When a sessionless <code>report_file</code> bug Investigator lost its controller after
 writing a report but before the exit/result checkpoint, <code>status()</code> may expose

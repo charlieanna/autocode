@@ -2398,6 +2398,11 @@ pin its source/test/check evidence. Each obligation also carries a short handle
 the runner maps to the same exact line, so a model never retypes 64-hex IDs. An unavailable tool alone is not a blanket
 exception. Empty survivor lists and the old six-site sample never prove that
 all changed lines were tested.</p>
+<p>A PASS that omits an offered Tester decision for a line with no mutation
+outcome is returned for report repair before clean verification commands run.
+This early check uses the current source and offered gap bindings; missing or
+stale bindings cannot establish such an omission. Complete and repaired reports
+still take the fresh verification and exact evidence-admission gates.</p>
 <p>The core returns unresolved exact lines to Builder for two bounded repair rounds,
 then uses its existing Investigator path and saved run limits. It records those
 decisions and the fallback in the public verification view and final report.
