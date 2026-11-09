@@ -215,6 +215,7 @@ def stage_rows(state: RunState, estimator=None):
                     if all(value is not None for value in values):
                         tokens[key] = sum(values)
                         fallback_used = True
+        request_cost_partial = False
         if record.get("runner_owned") is True and record.get("engine") == "runner":
             cost, basis = 0.0, "runner"
         elif _money(metrics.get("provider_cost_usd")) is not None:
@@ -226,6 +227,11 @@ def stage_rows(state: RunState, estimator=None):
             # model has no price-table rate (#2996). A stage is never zero-cost just
             # because its model is missing from the table.
             cost, basis = request_sum, "reported"
+            # Complete aggregate tokens do not price missing requests or missing
+            # request amounts. Keep the known spend, but expose it as a floor.
+            request_cost_partial = native.get("complete") is not True or any(
+                _money(_dict(item).get("reported_cost_usd")) is None for item in requests
+            )
         elif (guess := estimator(model, tokens, record.get("finished_at"))) is not None:
             cost, basis = guess, "estimated"
         else:
@@ -238,7 +244,8 @@ def stage_rows(state: RunState, estimator=None):
                 "model": model,
                 "tokens": row_tokens,
                 "partial": metrics.get("provider_tokens_partial") is True
-                or (fallback_used and native.get("complete") is not True),
+                or (fallback_used and native.get("complete") is not True)
+                or request_cost_partial,
                 # Process completion is not a passing review or accepted work.
                 "process_outcome": (
                     "interrupted"

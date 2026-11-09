@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Request-level cost subtotals stay marked incomplete when any request price or request
+  coverage is missing, even when aggregate token counts are complete (#3000).
+
 - Corrected verification commands at an idle paused Tester checkpoint can retire an
   obsolete report repair that has not launched. The rejected report, counters and usage
   stay archived, the approved plan stays exact, and fresh proof and testing remain required.
