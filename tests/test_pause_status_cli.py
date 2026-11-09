@@ -5,6 +5,7 @@ import shlex
 import subprocess
 import unittest
 
+from autocode_pause_command import display
 from autocode_taskrun import TaskRun
 
 from . import test_subprocess
@@ -42,7 +43,10 @@ class PauseStatusCLITests(unittest.TestCase):
         }
         result = self.invoke(run, *flags)
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
-        self.assertIn("Next command: " + before["next_command"], result.stderr)
+        self.assertIn("Next command: " + display(before["next_command"]), result.stderr)
+        for name, value in (before.get("needs") or {}).items():
+            if "token" in name and isinstance(value, str) and value:
+                self.assertNotIn(value, result.stdout + result.stderr)
         self.assertEqual(saved, (run.run_dir / "state.json").read_bytes())
         self.assertEqual(
             provider_outputs,
@@ -103,7 +107,7 @@ class PauseStatusCLITests(unittest.TestCase):
         self.assertNotIn("--accept-transport-change", view["next_command"])
         self.assert_refusal_retains_current_command(run, "--resume-paused", "--accept-transport-change")
 
-    def test_the_printed_question_command_is_accepted_without_bypassing_approval(self):
+    def test_the_status_question_command_is_accepted_without_bypassing_approval_or_printing_its_token(self):
         run = TaskRun.start(
             self.project,
             "Build a greeting tool",
@@ -128,6 +132,7 @@ class PauseStatusCLITests(unittest.TestCase):
         words.pop(0)
         self.assertNotIn(need["resolver_token"], words)
         self.assertEqual(need["resolver_token"], private["AUTOCODE_RESOLVER_TOKEN"])
+        self.assertNotIn(need["resolver_token"], run.last_advance.stdout + run.last_advance.stderr)
         answer = words.index("--answer") + 1
         self.assertEqual(need["questions"][0]["id"] + "=ANSWER", words[answer])
         words[answer] = need["questions"][0]["id"] + "=CLI"
