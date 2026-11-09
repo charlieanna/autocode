@@ -44,6 +44,7 @@ try:
     from . import autocode_chat_stages_panel as stages_panel
     from . import autocode_chat_verification as verification
     from . import autocode_client_actions as actions
+    from .autocode_util import replace_text
 except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_panel as attention_panel
@@ -57,6 +58,7 @@ except ImportError:
     import autocode_chat_stages_panel as stages_panel
     import autocode_chat_verification as verification
     import autocode_client_actions as actions
+    from autocode_util import replace_text
 
 PROGRESS_PREFIX = "· "
 HISTORY_LIMIT = 100
@@ -264,7 +266,7 @@ def keep_history(path: Path, texts: list[str]) -> bool:
         return False
     try:
         lines = [*read_history(path), *texts][-HISTORY_LIMIT:]
-        path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+        replace_text(path, "".join(json.dumps(line) + "\n" for line in lines))
     except OSError:
         return False
     return True

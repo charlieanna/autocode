@@ -304,6 +304,22 @@ def atomic_json(path, value, *, before_commit=None, after_commit=None):
             os.unlink(tmp)
 
 
+def replace_text(path, text: str) -> None:
+    """Write ``text`` to ``path`` so a concurrent reader sees the old file or the new one, never
+    a truncated or half-written one (atomic_json's guarantee, for plain text: a project's saved
+    chat choices and reply history, which more than one chat session may read while one saves)."""
+    path = Path(path)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        os.replace(tmp, path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
 def read(path):
     return json.loads(Path(path).read_text())
 

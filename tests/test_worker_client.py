@@ -3,6 +3,9 @@
 import json
 import signal
 import subprocess
+import sys
+import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +26,22 @@ EXECUTION = worker_view.execution(
     {"version": 1, "mode": "durable_local", "launch_id": "b" * 32, "controller_epoch": "c" * 32},
     observation=OBSERVATION,
 )
+WORKER_LAUNCH_OFFER = {  # the modes list's durable offer a fresh run launches through (fresh=True)
+    "id": "durable_local",
+    "available": True,
+    "next_command": [
+        "autocode",
+        "worker",
+        "launch",
+        "--workspace",
+        "WORKSPACE",
+        "--run-dir",
+        "RUN_DIR",
+        "--checkpoint",
+        "CHECKPOINT",
+        "--",
+    ],
+}
 
 
 class NamedWorkerTransport(unittest.TestCase):
@@ -174,7 +193,7 @@ class NamedWorkerTransport(unittest.TestCase):
 
     def test_ctrl_c_while_launch_receipt_is_pending_never_signals_or_replays_the_launcher(self):
         child = Mock(returncode=0)
-        child.poll.side_effect = [None, None, 0]
+        child.poll.side_effect = [None, None, 0, 0]
         client = SimpleNamespace(
             command=("/runtime/python", "/runtime/autocode.py"),
             workspace=WORKSPACE,
@@ -185,7 +204,7 @@ class NamedWorkerTransport(unittest.TestCase):
         )
 
         def started(*args, **kwargs):
-            kwargs["stdout"].write('{"launch_id":"retained"}')
+            kwargs["stdout"].write(b'{"launch_id":"retained"}')
             return child
 
         with patch.object(chat_worker.subprocess, "Popen", side_effect=started) as popen:
@@ -216,3 +235,99 @@ class NamedWorkerTransport(unittest.TestCase):
         popen.assert_called_once()
         child.kill.assert_not_called()
         child.terminate.assert_not_called()
+
+    def test_an_unreadable_inspection_body_is_a_gap_not_a_crash(self):
+        receipt = {
+            "launch_id": "b" * 32,
+            "inspect_command": ["autocode", "worker", "inspect", "b" * 32],
+            "ready": False,
+        }
+        child = Mock(returncode=0)
+        child.poll.side_effect = [None, 0, 0]
+
+        def started(*args, **kwargs):
+            kwargs["stdout"].write(json.dumps(receipt).encode())
+            return child
+
+        client = SimpleNamespace(
+            command=("/runtime/core",),
+            workspace=WORKSPACE,
+            run_dir=RUN,
+            env={},
+            _execution_offer=WORKER_LAUNCH_OFFER,
+            _status_view=None,
+            _pause_pending=False,
+            _attached=False,
+            _launched_worker=None,
+            say=Mock(),
+            _wait=Mock(return_value=None),
+            cli=Mock(return_value=subprocess.CompletedProcess([], 0, "", "")),  # rc 0, empty body
+            watch=Mock(),
+        )
+        with patch.object(chat_worker.subprocess, "Popen", side_effect=started):
+            with self.assertRaisesRegex(actions.ClientGap, "inspection is unreadable"):
+                chat_worker.advance(client, ["--new-run-dir", str(RUN)])
+        client.watch.assert_not_called()
+
+    def test_a_ready_receipt_without_a_binding_is_a_gap_not_a_crash(self):
+        receipt = {
+            "launch_id": "b" * 32,
+            "inspect_command": ["autocode", "worker", "inspect", "b" * 32],
+            "ready": True,
+        }
+        child = Mock(returncode=0)
+        child.poll.side_effect = [None, 0, 0]
+
+        def started(*args, **kwargs):
+            kwargs["stdout"].write(json.dumps(receipt).encode())
+            return child
+
+        client = SimpleNamespace(
+            command=("/runtime/core",),
+            workspace=WORKSPACE,
+            run_dir=RUN,
+            env={},
+            _execution_offer=WORKER_LAUNCH_OFFER,
+            _status_view=None,
+            _pause_pending=False,
+            _attached=False,
+            _launched_worker=None,
+            say=Mock(),
+            _wait=Mock(return_value=None),
+            watch=Mock(),
+        )
+        with patch.object(chat_worker.subprocess, "Popen", side_effect=started):
+            with self.assertRaisesRegex(actions.ClientGap, "no core binding"):
+                chat_worker.advance(client, ["--new-run-dir", str(RUN)])
+        client.watch.assert_not_called()
+
+    def test_a_launcher_log_with_invalid_bytes_is_replaced_not_fatal(self):
+        with tempfile.TemporaryDirectory() as folder:
+            client = SimpleNamespace(
+                command=(sys.executable,),
+                workspace=Path(folder),
+                env={},
+                _pause_pending=False,
+                say=Mock(),
+                _wait=Mock(return_value=None),
+            )
+            reply = chat_worker.launch_command(client, ["-c", "import sys; sys.stdout.buffer.write(b'\\xff\\xfe bad')"])
+        self.assertEqual(0, reply.returncode)
+        self.assertIn("\ufffd", reply.stdout)
+
+    def test_a_pending_launcher_is_reaped_by_a_daemon_thread(self):
+        with tempfile.TemporaryDirectory() as folder:
+            client = SimpleNamespace(
+                command=(sys.executable,),
+                workspace=Path(folder),
+                env={},
+                _pause_pending=False,
+                say=Mock(),
+                _wait=Mock(return_value=None),
+            )
+            with patch.object(chat_worker.polling, "READ_TIMEOUT", 0.05):
+                with self.assertRaisesRegex(actions.ClientGap, "receipt is pending"):
+                    chat_worker.launch_command(client, ["-c", "import time; time.sleep(1)"])
+            reaper = next(thread for thread in threading.enumerate() if thread.name == "autocode-chat-launch-reap")
+            reaper.join(10)  # the launcher exits on its own; the reaper must not outlive it
+        self.assertFalse(reaper.is_alive())

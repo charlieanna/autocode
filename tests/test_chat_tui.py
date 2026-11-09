@@ -1062,6 +1062,17 @@ class HistoryFileTests(unittest.TestCase):
             self.assertEqual(tui.HISTORY_LIMIT, len(kept))
             self.assertEqual(f"request {tui.HISTORY_LIMIT + 4}", kept[-1])
 
+    def test_a_save_that_cannot_finish_keeps_the_whole_earlier_history(self):
+        # The history lands by rename or not at all, so a chat killed mid-save (or a second
+        # chat in the same project) cannot leave another chat's replies half-written away.
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / tui.HISTORY_FILE
+            tui.keep_history(path, ["Fix the typo"])
+            with mock.patch("autocode_util.os.replace", side_effect=OSError("disk full")):
+                self.assertFalse(tui.keep_history(path, ["Add a flag"]))
+            self.assertEqual(["Fix the typo"], tui.read_history(path))
+            self.assertEqual([tui.HISTORY_FILE], sorted(entry.name for entry in path.parent.iterdir()))
+
     def test_the_chat_recalls_the_projects_earlier_requests(self):
         with tempfile.TemporaryDirectory() as folder:
             (Path(folder) / ".autocode").mkdir()

@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import autocode_chat_client as chat
@@ -117,6 +118,17 @@ class MenuTests(unittest.TestCase):
         own.enter()
         own.enter()
         self.assertEqual("Saved: the Builder runs c at its own default level in new chats.", own.note)
+
+    def test_a_one_row_body_draws_no_advice_over_the_status_row(self):
+        # bottom - first - 1 == 0 once meant below[-0:] — the whole advice block, drawn on the
+        # status row itself. A one-row conversation body must draw only the drawer's title.
+        menu = stages.Menu(view(), save=mock.Mock())
+        ui = SimpleNamespace(_stage_menu=menu, _stage_top=0, _put=mock.Mock(), _style=lambda role: 0)
+        layout = SimpleNamespace(body_start=3, status_start=4, width=40)
+        stages_panel.draw(ui, layout, tui.truncate)
+        self.assertTrue(menu.detail(), "the drawer has advice that no longer fits")
+        drawn = [call.args[0] for call in ui._put.call_args_list]
+        self.assertEqual({3}, set(drawn), "only the drawer's own row is drawn, never the status row")
 
     def test_a_refusal_or_an_unlisted_backend_is_said_in_the_drawer(self):
         menu = stages.Menu(view(), save=mock.Mock(side_effect=ValueError("the Tester runs a")))

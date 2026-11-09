@@ -209,6 +209,13 @@ class SpendDisplayTests(unittest.TestCase):
         self.assertNotIn("Spend", [section.title for section in panel.sections(public)])
         self.assertEqual("Nothing has been spent on models yet.", panel.text("/spend", public, panel.StageLog()))
 
+    def test_an_absurd_figure_is_unknown_not_a_crash(self):
+        # A JSON integer too large for a float once raised OverflowError in _number, killing /spend.
+        absurd = 10**400
+        self.assertEqual("unknown", spend._money(absurd))
+        self.assertEqual("?", spend._percent(absurd))
+        self.assertEqual("unknown", spend._tokens(absurd))
+
     def test_spend_is_a_run_command(self):
         self.assertIn("/spend", [command.name for command in panel.commands(asking=False)])
         self.assertIn("/spend", panel.RUN_COMMANDS)
