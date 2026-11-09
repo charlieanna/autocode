@@ -378,6 +378,28 @@ class ClientDecisionTests(unittest.TestCase):
             self.client.person_command(operational),
         )
 
+    def test_own_intervention_resumes_its_named_action_when_feedback_is_also_offered(self):
+        for status, own_pause, expected in (
+            ("PAUSED_INTERVENTION", True, [["--resume-paused"]]),
+            ("PAUSED_INTERVENTION", False, []),
+            ("PAUSED_ACCEPTANCE_TESTS", True, []),
+            ("PAUSED_COMPLETION_GATE", True, []),
+        ):
+            with self.subTest(status=status, own_pause=own_pause):
+                paused = view("resume", "autocode --resume-paused")
+                paused.update(status=status, chat={"input": {"kind": "feedback"}})
+                done = {**view("continue"), "done": True}
+                taken = []
+                self.client.person_paused = own_pause
+                with (
+                    mock.patch.object(self.client, "view", side_effect=[paused, done]),
+                    mock.patch.object(
+                        self.client, "take", side_effect=lambda _view, words, _env, _source: taken.append(words)
+                    ),
+                ):
+                    self.client.until_stopped()
+                self.assertEqual(expected, taken)
+
     def test_a_named_recovery_after_the_persons_interrupt_keeps_the_pause_theirs(self):
         # The core names setting aside the interrupted attempt as a continue; the abandoned stop
         # that follows is still the pause the person caused, so the client resumes it.
