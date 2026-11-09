@@ -1148,6 +1148,16 @@ class TabBarTests(unittest.TestCase):
         ui._tab_key("next", asking=True)
         self.assertEqual([("/tab", "next")], acted)
 
+    def test_ctrl_t_opens_a_new_tab_even_while_a_run_is_active(self):
+        """Ctrl-T opens a new tab; it never disturbs the current run, so it works at any time."""
+        ui = screen_ui()
+        acted = []
+        ui.bind(lambda name, argument: acted.append((name, argument)) or "ok")
+        ui.switch(Path("/p/project"), Path("/p/project/.autocode/runs/r1"))
+        ui._run_open = True
+        self.assertIsNone(ui._tab_key("new", asking=False))
+        self.assertEqual([("/new", "")], acted, "Ctrl-T opens a new tab even while a run works")
+
     def test_before_a_chat_ctrl_t_and_new_say_this_is_already_a_new_chat(self):
         """#1759: both used to answer as if /new could not run here, though the client has the reply."""
         for press in ("ctrl-t", "/new"):
@@ -2483,3 +2493,72 @@ class SidePanelWrapTests(unittest.TestCase):
         self.assertNotIn("Given the command", " ".join(panel_rows))
         ui._run("/plan", False)
         self.assertIn(self.VIEW["progress"]["requirements"]["items"][0]["label"], ui._transcript.blocks[-1][1])
+
+
+class TuiUxScreenTests(unittest.TestCase):
+    """The 2026-11-07/08 hands-on UX findings: status suffix, tab bar, placeholder, coalesce, help legend."""
+
+    def test_status_suffix_is_short_no_utc_clock(self):
+        import autocode_chat_observation as obs
+
+        receipt = obs.Read()
+        receipt.received = 100
+        receipt.snapshot = {"time": datetime(2026, 11, 8, 18, 14, 29, tzinfo=UTC), "token": "t"}
+        text = receipt.compact(107)
+        self.assertEqual("read 7s ago", text)
+        self.assertNotIn("UTC", text)
+        self.assertNotIn("run state at", text)
+
+    def test_tab_bar_keeps_the_active_tab_visible_with_many_tabs(self):
+        ui = screen_ui()
+        ui._tabs = [
+            {"number": 1, "title": "first task", "state": "done", "current": False},
+            {"number": 2, "title": "second task", "state": "working", "current": False},
+            {"number": 3, "title": "third task", "state": "needs you", "current": True},
+        ]
+        ui.set_context(Path("/p/project"), Path("/p/project/.autocode/runs/r"))
+        puts = drawn(ui, rows=30, cols=40)  # narrow: only ~2 tabs fit
+        tab_row = row_text(puts, 1)
+        self.assertIn("3", tab_row, "the active tab number must be visible")
+        self.assertIn("third", tab_row, "the active tab title must be visible")
+
+    def test_composer_placeholder_agrees_with_waiting_status(self):
+        ui = screen_ui()
+        ui.observe(
+            {
+                "status": "PAUSED",
+                "needs": {"kind": "answer"},
+                "progress": {"stage": "Requirements", "headline": "Requirements waiting", "needs_you": "your answer"},
+            }
+        )
+        ui._asking = False
+        ui._composer.reset()
+        puts = drawn(ui)
+        self.assertIn("Type / for commands. AutoCode asks here when it needs you.", " ".join(t for _, t in puts))
+
+    def test_repeated_refused_commands_show_once(self):
+        ui = screen_ui()
+        for _ in range(3):
+            ui._transcript.info("/tab", "Usage: /tab N (1 to 3).", coalesce=True)
+        info_blocks = [b for b in ui._transcript.blocks if b[0] == "info" and "Usage" in b[1]]
+        self.assertEqual(1, len(info_blocks), "identical refusals must coalesce")
+
+    def test_help_includes_tab_glyph_legend(self):
+        import autocode_chat_panel as panel
+
+        text = panel.text("/help", {}, None, available=panel.COMMANDS)
+        self.assertIn("●", text)
+        self.assertIn("!", text)
+        self.assertIn("✓", text)
+        self.assertIn("working", text)
+        self.assertIn("needs you", text)
+        self.assertIn("done", text)
+
+    def test_footer_says_chooses_not_history_while_menu_is_open(self):
+        ui = screen_ui()
+        ui._composer.insert("/")
+        ui._asking = True
+        puts = drawn(ui)
+        hints = row_text(puts, 29)
+        self.assertIn("↑↓ chooses", hints)
+        self.assertNotIn("↑↓ history", hints)

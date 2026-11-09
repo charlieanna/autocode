@@ -27,9 +27,17 @@ PR template asks for an entry here; a change without one is incomplete.
 - Active process supervision no longer repeatedly probes descendants already
   observed to have exited. Their receipts remain retained, while active workers,
   ownership leases and cleanup still receive fresh identity checks.
+- A review round already granted by the Investigator survives same-turn replanning,
+  retaining spent calls instead of falling back to a smaller limit and investigating again.
+  Explicit limit provenance and configured allowances for future turns remain unchanged.
 
 - Malformed report-edit schema regression coverage now verifies refusal through
   the planning provenance boundary, including invalid JSON and missing structure.
+
+- A fresh correction to an approved small plan can receive one bounded extra review round
+  from a proven built-in allowance. The runner retains review charges and historical failures,
+  accepts a correctly bound report repair, and still requires independent review and fresh
+  approval. Configured and legacy allowances without provenance remain protected.
 
 - An accepted bounded edit repair of a planning report retains its original execution witness.
   Its derived schema must still match the original validation schema, source report hash and stage;

@@ -198,7 +198,7 @@ except ImportError:
     import autocode_reviewer_fallback as reviewer_fallback  # noqa: F401 - compatibility API
     import autocode_role_launch as role_launch
     import autocode_planning_artifacts as planning_artifacts  # noqa: F401 - compatibility API
-    import autocode_budget_recovery as budget_recovery
+    import autocode_budget_recovery as budget_recovery  # noqa: F401 - compatibility API
     import autocode_recovery_limits as recovery_limits
     import autocode_recovery_grants as recovery_grants  # noqa: F401 - compatibility API
     import autocode_recovery_accounting as recovery_accounting  # noqa: F401 - compatibility API
@@ -286,47 +286,11 @@ def finish_human_action(state: RunState, published):
 
 def recover_default_budget(state: RunState, run_dir, workspace, kind):
     """AutoResolver may extend a proven internal default, never erase its usage."""
-    with interventions.serialized(run_dir):
-        if (
-            state.get(resolver_human.PRIVATE)
-            or resolver_human.current(state)
-            or (Path(run_dir) / "pause-requested").exists()
-            or interventions.pending(run_dir)
-        ):
-            return False
-        latest = next((row for row in reversed(state.get("stages", [])) if not row.get("runner_owned")), None)
-        if (
-            not latest
-            or latest.get("source_revision")
-            != source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
-        ):
-            return False
-        candidate = copy.deepcopy(state)
-        if not budget_recovery.recover(candidate, kind=kind, now=now()):
-            return False
-        extension = candidate["resolver"]["budget_extensions"][-1]
-        output = extension["evidence"].get("output")
-        if not output or not Path(output).is_file():
-            return False
-        if kind == "planning_review_call_limit":
-            state["planning"]["review_call_limit"] = candidate["planning"]["review_call_limit"]
-            state["planning"]["review_call_limit_origin"] = "runner_default"
-        elif kind == "milestone_max_seconds":
-            state["settings"]["milestone_checkpoints"]["max_seconds"] = extension["to"]
-        else:
-            state["settings"]["limits"][kind] = extension["to"]
-        state.setdefault("resolver", {})["budget_extensions"] = candidate["resolver"]["budget_extensions"]
-        receipt_id = resolver_runtime._operational_receipt(
-            state,
-            run_dir,
-            "extend_default_budget",
-            f"AutoResolver extended internal {kind} from {extension['from']} to {extension['to']} "
-            "once after verified progress; usage and failure history are retained.",
-            extension,
-        )
-        progressive_state.apply_recovery_limit(state, extension, receipt_id)
-        write_json(Path(run_dir) / "state.json", state)
-        return True
+    try:
+        from . import autocode_default_budget_runtime as default_budget_runtime
+    except ImportError:
+        import autocode_default_budget_runtime as default_budget_runtime
+    return default_budget_runtime.recover(sys.modules[__name__], state, run_dir, workspace, kind)
 
 
 slug = util.slug

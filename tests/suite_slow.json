@@ -1,4 +1,5 @@
 {
+  "tests.test_planning_correction_budget_cli": "Public adaptive approved-plan feedback retains review charges, accepts bound citation repair, grants one built-in review round and requires fresh exact approval without Investigator; 49.045 s on isolated supported Linux, 2026-11-08. Explicit planning and budget consumer mappings retain it for affected PR gates.",
   "tests.test_ready_capture_batch_cli": "Public CLI fake Tester executes four separately captured approved checks in one tool invocation through TASK_COMPLETE; 31.446 s on isolated Linux, 2026-11-07",
   "tests.test_build_graph_cli": "89.706 s in supported Linux aarch64 container, 2026-11-05: ten milestones across five waves with real CLI/worktree execution, repeated fan-out/joins and changed-source completion invalidation. Explicit dispatch/worker/milestone/fixture mappings retain this test for affected PR gates.",
   "tests.test_changed_code_evidence_cli": "132.9s supported-Linux public changed-line rework, independent reasons and bounded Investigator coverage (#2474)",

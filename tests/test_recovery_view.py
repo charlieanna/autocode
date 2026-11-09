@@ -671,3 +671,22 @@ class AuthenticationStopTests(unittest.TestCase):
     def test_another_stop_keeps_its_own_explanation(self):
         state = {"status": "PAUSED_PROVIDER_UNCERTAIN", "stop_reason": "requirements exited 1"}
         self.assertNotIn("credentials", recovery.project(state)["what_happened"])
+
+    def test_account_access_denial_does_not_claim_expired_credentials_or_grant_retry(self):
+        for stage in (
+            {"status": "PAUSED_PROVIDER_UNCERTAIN", "active_stage": {"stage": "glm_revise"}},
+            {"status": "PAUSED_AUTH"},
+        ):
+            with self.subTest(stage=stage):
+                state = {
+                    **stage,
+                    "stop_reason": "provider account access denied (HTTP 403); check the selected account's access",
+                }
+                before = copy.deepcopy(state)
+                what = recovery.project(state)["what_happened"]
+                self.assertIn("account or organization", what)
+                self.assertIn("HTTP 403", what)
+                self.assertIn("Any retained attempt", what)
+                self.assertNotIn("expired", what)
+                self.assertNotIn("HTTP 401", what)
+                self.assertEqual(before, state)

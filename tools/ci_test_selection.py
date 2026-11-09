@@ -81,6 +81,7 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("pyproject.toml", ("tests.test_repository_pytest",)),
     (".github/workflows/tests.yml", ("tests.test_ci_java",)),
     ("tools/dashboard/tests/test_shell_a11y_ui.js", ("tests.test_catalogue_t12",)),
     ("tools/dashboard/tests/test_m3_lifecycle_browser_ui.js", ("tests.test_catalogue_t12",)),
@@ -568,6 +569,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("tools/autocode_goals.py", "tools/autocode_adaptive_planning.py"),
         ("tests.test_intervention_plan_feedback_cli",),
+    ),
+    (
+        (
+            "tools/autocode_planning_cycle.py",
+            "tools/autocode_budget_recovery.py",
+            "tools/autocode_planning_correction_budget.py",
+            "tools/autocode_default_budget_runtime.py",
+        ),
+        ("tests.test_planning_correction_budget_cli",),
     ),
     (
         ("tools/autocode_requirement_retention.py", "tools/autocode_goals.py"),
