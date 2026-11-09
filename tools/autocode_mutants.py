@@ -95,6 +95,24 @@ OPERATORS = (
 STATEMENT_OPERATORS = frozenset(OPERATORS[OPERATORS.index("drop_call") :])
 WHOLE_STATEMENT = frozenset({"drop_import", "drop_raise"})  # the statement itself becomes ``pass``
 PER_FILE_LIMIT = 6
+# A wave with many changed lines needs more mutants per file (#2815). The limit
+# scales with changed lines up to a cap, so per-line decisions don't grow
+# unboundedly while the budget stays fixed.
+SCALED_PER_FILE_CAP = 24
+SCALED_PER_FILE_LINES = 20  # changed lines per additional mutant above the base
+
+
+def scaled_limit(changed_line_count: int) -> int:
+    """The per-file mutant limit for a file with ``changed_line_count`` changed lines (#2815).
+
+    A small change keeps PER_FILE_LIMIT; a large wave gets more, capped at SCALED_PER_FILE_CAP,
+    so the Tester's per-line decisions grow more slowly than the change itself."""
+    if changed_line_count <= SCALED_PER_FILE_LINES:
+        return PER_FILE_LIMIT
+    extra = (changed_line_count - SCALED_PER_FILE_LINES + SCALED_PER_FILE_LINES - 1) // SCALED_PER_FILE_LINES
+    return min(SCALED_PER_FILE_CAP, PER_FILE_LIMIT + extra)
+
+
 DISPLAY_CHARS = 60
 NEWLINE = re.compile(rb"\r\n|\r|\n")
 LONE_CR = re.compile(rb"\r(?!\n)")
@@ -165,10 +183,11 @@ def changed_lines(file_hunks) -> dict[str, frozenset[int]]:
 
 
 def python_mutants(
-    path: str, source_bytes: bytes, changed_lines: Iterable[int], limit: int = PER_FILE_LIMIT
+    path: str, source_bytes: bytes, changed_lines: Iterable[int], limit: int | None = None
 ) -> tuple[list[Mutant], list[str]]:
     """At most ``limit`` mutants of ``source_bytes`` (the file at ``path``) on ``changed_lines``, and notes.
 
+    When ``limit`` is None, the limit scales with the number of changed lines (#2815).
     Sites are ordered by position, then picked round-robin over the operators, each pick preferring a
     line no earlier pick used, so a small limit still spreads over operators and lines. A site whose
     splice does not parse or compile, changes the line count or changes more than intended, or that
@@ -179,6 +198,10 @@ def python_mutants(
         return [], [f"{path}: a type stub has no runtime behavior to mutate"]
     if not path.endswith(".py"):
         return [], [f"{path}: not a Python source file"]
+    if limit is None:
+        # Scale the limit with changed lines (#2815): a large wave needs more mutants
+        # so per-line decisions don't grow unboundedly.
+        limit = scaled_limit(len(set(changed_lines)))
     try:
         encoding = tokenize.detect_encoding(io.BytesIO(source_bytes).readline)[0]
     except SyntaxError:
