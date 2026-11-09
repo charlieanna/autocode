@@ -317,6 +317,18 @@ def reject_completed_stage(state: RunState, run_dir, record, error):
     error = stray_writes.undo(state, record, error)  # a read-only stage's writes are put back first
     failure = failures.record(state, record, error, now())
     originals = archive_rejected_stage(state, run_dir, record, error)
+    # A format repair that hit the output limit recovers automatically (#2836):
+    # queue another repair instead of asking the person about recovery or routing.
+    if (
+        record.get("report_only")
+        and output_cap.STATUS in str(getattr(error, "status", ""))
+        and report_repair_queue.queue(state, record, error, completed=lambda: stage_completed(state, record))
+    ):
+            run_status.running(state, "REPORT_REPAIR")
+            write_json(run_dir / "state.json", state)
+            for artifact in originals:
+                artifact.unlink(missing_ok=True)
+            raise ReportRepairQueued()
     asked = rejection_route.reroute(state, record, error, resolver_human.queue)
     if asked or report_repair_queue.queue(state, record, error, completed=lambda: stage_completed(state, record)):
         run_status.running(state, "REPORT_REPAIR") if not asked else None  # asked: autocode_rejection_route took it

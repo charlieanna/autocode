@@ -506,6 +506,18 @@ def observe_operational_recovery(runner, state: RunState, run_dir, workspace, re
     )
 
 
+def _is_format_repair(state) -> bool:
+    """Whether the last active stage was a format repair (report_only) (#2836)."""
+    active = state.get("active_stage") or {}
+    if active.get("report_only"):
+        return True
+    stages = state.get("stages") or []
+    if stages:
+        last = stages[-1] if isinstance(stages[-1], dict) else {}
+        return bool(last.get("report_only"))
+    return False
+
+
 def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, request=None):
     """Retain exhaustion and stage a resolver-owned, request-only escalation.
 
@@ -516,6 +528,10 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
     if error.status == "PAUSED_BUILDER_RETRY_LIMIT" and recovery.known_builder_pause(state):
         return False
     if progressive.retained_review_budget_pause(state, error.status):
+        return False
+    # A format repair that hit the output limit recovers automatically (#2836);
+    # never ask the person about recovery, routing or resolver tokens.
+    if error.status == "PAUSED_OUTPUT_CAP" and _is_format_repair(state):
         return False
     if (
         not pause_authority.operational(error.status)
