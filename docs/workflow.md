@@ -187,6 +187,19 @@ retry nor counts as a new experiment.
 
 ## When a stage stops making progress
 
+Before investigating a spent small-plan review allowance, the runner can grant one further
+review round when external feedback corrects an exactly approved plan and a fresh, materially
+changed draft has been accepted. A repaired report must retain its accepted original-source
+lineage. Only a recorded original built-in allowance qualifies: the limit changes from two
+to four, while all used calls, costs and failure history stay recorded. The normal independent
+review, finalization and exact plan approval still apply. A machine-only restart, a later
+reuse of the same feedback, an explicit or configured limit, or an unmarked legacy allowance
+does not qualify. Existing runs without the provenance record are not inferred to be defaults.
+Settled pre-feedback usage that was partial stays a lower bound, and unreported usage stays
+unknown. This narrow recovery can retain those historical observations only when the saved
+cost cap is explicitly zero (disabled); a finite or missing cap, current draft/repair usage
+gaps, and unresolved custody or billing holds still refuse it. No usage is zero-filled.
+
 Before the runner pauses because a stage is not converging, it sends the run to the
 read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of stopping at once:
 
