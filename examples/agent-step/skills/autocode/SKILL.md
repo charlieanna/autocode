@@ -98,9 +98,7 @@ $STEP start "Review the uncommitted change in this workspace (git diff HEAD). It
 ```
 
 A review changes nothing outside `review/` and needs no plan approval. Report
-`$STEP evidence --markdown` when it completes. To check a change against
-written acceptance criteria with runner-executed checks, the person can use
-`autocode verify` instead (docs/verify.md).
+`$STEP evidence --markdown` when it completes.
 
 ## Never
 

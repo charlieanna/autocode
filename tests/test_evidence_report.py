@@ -757,10 +757,7 @@ class ApprovalReportTests(unittest.TestCase):
         return report
 
     def test_a_review_or_discussion_report_lists_no_approvals_not_even_who_resumed_it(self):
-        # Neither workflow has an approval step, and review-pr --post publishes a review's report verbatim as a
-        # GitHub review on someone else's pull request.
-        import autocode_pr_review as pr_review
-
+        # Neither workflow has an approval step.
         for kind, saved in (
             ("review", {"review": {"verdict": "approve", "blocking": 0, "advisory": 0, "report_sha256": "c" * 64}}),
             ("discuss", {"answer": {"answer": "Yes.", "note_path": ""}}),
@@ -778,16 +775,6 @@ class ApprovalReportTests(unittest.TestCase):
                     UNVERIFIED_APPROVER,
                 ):
                     self.assertNotIn(absent, published)
-                if kind == "review":
-                    posted = pr_review.summary(
-                        {"verdict": "approve", "summary": "No defects."},
-                        report,
-                        "https://example.test/pull/7",
-                        "a" * 40,
-                    )
-                    self.assertIn(report["markdown"], posted)
-                    self.assertNotIn("## Approvals", posted)
-                    self.assertNotIn("ana@example.test", posted)
 
     def test_a_build_bug_fix_or_design_report_keeps_its_approvals(self):
         # Each can ask for an approval (a reproduced bug and a proposed design are planned and approved); a run

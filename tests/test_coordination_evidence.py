@@ -124,6 +124,26 @@ class CoordinationEvidenceTests(unittest.TestCase):
                 coordinator.require_joint_evidence(document)
             launch.assert_not_called()
 
+    def test_a_joint_run_without_its_own_proof_is_refused_without_launching_a_verifier(self):
+        # The standalone `autocode verify` that checked command-only joint plans was removed (#3010).
+        active = {"base": "baseline", "workspace": "/joint"}
+        with (
+            patch.object(coordinator, "handle", return_value=self.run),
+            patch.object(coordinator.tasks, "run_process") as launch,
+        ):
+            self.assertEqual("task_run", coordinator.verify_joint(active, self.view)["kind"])
+            self.view["evidence_report"]["document"]["regression_proof"] = None
+            with self.assertRaisesRegex(CoordinationError, "needs the joint run's own regression proof"):
+                coordinator.verify_joint(active, self.view)
+            launch.assert_not_called()
+
+    def test_a_saved_external_verification_no_longer_authorizes_publication(self):
+        document = {"joint": {"base": "baseline", "workspace": "/joint", "verification": {"record": "/external"}}}
+        with patch.object(coordinator.tasks, "run_process") as launch:
+            with self.assertRaisesRegex(CoordinationError, "removed standalone verifier"):
+                coordinator.require_joint_evidence(document)
+            launch.assert_not_called()
+
     def test_joint_native_cost_is_counted_once_and_legacy_external_review_is_retained(self):
         self.run.status.return_value = {"run_dir": "/joint/run", "cost": {"spent_usd": 3}}
         joint = {"started": True, "run_dir": "/joint/run", "verification": {"kind": "task_run"}}

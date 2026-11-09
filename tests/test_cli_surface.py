@@ -192,7 +192,6 @@ class CliSurfaceTests(unittest.TestCase):
             "`autocode wait`",
             "`autocode doctor`",
             "`autocode models`",
-            "`autocode verify`",
         ]
         for cmd in expected_subcommands:
             with self.subTest(command=cmd):

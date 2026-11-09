@@ -378,18 +378,13 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                 self.assertEqual(selected_profile["roles"], related["roles"])
                 for limit in ("max_seconds", "stage_timeout_seconds", "tool_timeout_seconds"):
                     self.assertEqual(selected_profile["limits"][limit], related["limits"][limit])
-            if self.env.get("COORDINATION_FIXTURE_MEMBER_CONTEXT"):
-                self.assertEqual("task_run", summary["verification"]["kind"])
-            # A joint run whose change owes the changed-line proof (#2474) is verified by its own native
-            # proof (#2339); only a command-only plan has an external verification record (#2495).
-            if summary["verification"].get("kind") == "task_run":
-                inspected = client.cli(
-                    ["--run-dir", summary["integration"]["run_dir"], "--status", "--inspect-evidence", "--json"]
-                )
-                self.assertEqual("current", json.loads(inspected.stdout)["view"]["evidence_report"]["availability"])
-            else:
-                inspected = client.cli(["verify", "--record", summary["verification"]["record"], "--json"])
-                self.assertEqual("PASS", json.loads(inspected.stdout)["verdict"])
+            # A joint run is verified by its own native proof (#2339); the external verifier for command-only
+            # plans, the standalone `autocode verify`, was removed (#3010).
+            self.assertEqual("task_run", summary["verification"]["kind"])
+            inspected = client.cli(
+                ["--run-dir", summary["integration"]["run_dir"], "--status", "--inspect-evidence", "--json"]
+            )
+            self.assertEqual("current", json.loads(inspected.stdout)["view"]["evidence_report"]["availability"])
             # Reopening the same TUI chat must reconcile delivery without a second publication.
             self.assertEqual(0, client.step())
             self.assertEqual(3, len(self.github.posts))
@@ -601,96 +596,6 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             self.assertNotIn("approval", summary)
             self.assertEqual([], self.github.posts)
             self.assertEqual([], self.questions, "Joint scope is machinery, not a request to narrow the task")
-
-    def test_combined_suite_preserves_existing_cases_and_proves_the_joint_regression(self):
-        from .coordination_provider import ASSERTIONS, JOINT_SETUP, JOINT_TEST, PRODUCT, TEST_PREAMBLE
-
-        combined = self.root / "combined"
-        combined.mkdir()
-        manifest = {}
-        for name, workspace in self.repos.items():
-            relative = "repos/" + name
-            shutil.copytree(workspace, combined / relative, ignore=shutil.ignore_patterns(".git"))
-            manifest[name] = {"path": relative}
-        (combined / "repositories.json").write_text(json.dumps(manifest))
-        (combined / ".gitignore").write_text(".autocode/\n__pycache__/\n.pytest_cache/\n")
-        for arguments in (
-            ["init", "-q"],
-            ["config", "user.name", "Fixture"],
-            ["config", "user.email", "fixture@example.test"],
-            ["add", "--all"],
-            ["-c", "commit.gpgsign=false", "commit", "-qm", "Original combined code and its existing tests"],
-        ):
-            subprocess.run(["git", "-C", str(combined), *arguments], check=True, capture_output=True)
-        base = subprocess.check_output(["git", "-C", str(combined), "rev-parse", "HEAD"], text=True).strip()
-        for name, (filename, contents) in PRODUCT.items():
-            (combined / "repos" / name / filename).write_text(contents)
-            (combined / "repos" / name / "tests/test_behavior.py").write_text(TEST_PREAMBLE + ASSERTIONS[name] + "\n")
-        (combined / "tests").mkdir()
-        (combined / "tests" / "test_joint.py").write_text(JOINT_TEST)
-        (combined / "conftest.py").write_text(JOINT_SETUP)
-        (combined / "pytest.ini").write_text("[pytest]\naddopts = --import-mode=importlib -p no:cacheprovider\n")
-        criteria = self.root / "criteria.json"
-        suite = "python3 -m pytest -q"
-        criteria.write_text(
-            json.dumps(
-                {
-                    "intended_outcome": "Fix checkout showing the wrong final total.",
-                    "proof_kind": "bugfix",
-                    "acceptance_criteria": [
-                        {
-                            "id": "C1",
-                            "criterion": "Actual checkout calls history and tax to display $110.00; existing boundary behavior is preserved",
-                            "verification_method": suite,
-                            "human_review": False,
-                        }
-                    ],
-                }
-            )
-        )
-        reply = subprocess.run(
-            [
-                sys.executable,
-                str(ROOT / "tools/autocode.py"),
-                "verify",
-                "--workspace",
-                str(combined),
-                "--base",
-                base,
-                "--criteria-file",
-                str(criteria),
-                "--suite-command",
-                suite,
-                "--out",
-                str(self.root / "proof"),
-                "--engine",
-                "codex",
-                "--model",
-                "gpt-5.6-sol",
-                "--evidence-provenance",
-                "fake",
-                "--json",
-            ],
-            env=self.env,
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        self.assertEqual(0, reply.returncode, reply.stderr + reply.stdout[-4000:])
-        result = json.loads(reply.stdout)
-        self.assertEqual("PASS", result["verdict"])
-        reread = subprocess.run(
-            [sys.executable, str(ROOT / "tools/autocode.py"), "verify", "--record", result["record"], "--json"],
-            env=self.env,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        self.assertEqual(0, reread.returncode, reread.stderr)
-        self.assertEqual("PASS", json.loads(reread.stdout)["verdict"])
-        proof = result["evidence_report"]["document"]["regression_proof"]
-        self.assertTrue(proof["fail_to_pass"])
-        self.assertEqual(7, len(proof["checks"]["suite_on_candidate"]["results"]["passed"]))
 
     def test_locally_green_contract_mismatch_is_repaired_before_any_pr(self):
         self.env["COORDINATION_FIXTURE_MISMATCH"] = "1"

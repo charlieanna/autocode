@@ -599,7 +599,7 @@ its next stage; resume it with `--accept-transport-change`.
 **Limits.** No kernel tool containment (Claude Code's permission flags and the workspace snapshot
 checks apply); no verified visual evidence; no `--task-preflight`; no hybrid split by stage; no replay
 of recorded Claude runs; no Investigator report adoption; `autocode models` lists nothing for the bare
-ids. `components` and `verify` take `--provider claude` rather than `--engine claude`;
+ids. `components` takes `--provider claude` rather than `--engine claude`;
 `tasks` has neither and runs its lanes on Claude Code through `AUTOCODE_PROVIDER=claude`,
 `default_provider = "claude"` or the project's `engine = "claude"`. Claude Code loads `CLAUDE.md` files of the workspace and its ancestors, so keep a
 scenario's `--out` outside this repository. In a root cloud container, the CLI drops the two

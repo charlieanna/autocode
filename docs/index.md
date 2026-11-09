@@ -16,8 +16,8 @@ These five guides cover the first day:
    and use the exact continuation command.
 4. **[Read completion evidence](execution.md#completion-gate)** — see what was
    checked, what was accepted and what remains unverified.
-5. **[Review a pull request](issues.md#reviewing-a-pull-request)** — check a change
-   or take a GitHub issue through a task run to a PR with evidence.
+5. **[Fix a GitHub issue](issues.md)** — take a GitHub issue through a task run to a
+   PR with evidence.
 
 Use the five navigation sections to find deeper guides. Search includes the full
 reference pages. The [stage names](roles.md) come from the same canonical list as

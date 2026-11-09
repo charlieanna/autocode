@@ -722,9 +722,8 @@ such line, but still lists any record the run saved, such as a resume from a pau
 The evidence report of a completed build, bug-fix or design run lists the same records under
 `approvals` in `evidence.json` and as an Approvals table in `evidence.md`, just after the
 intended outcome ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
-A review or discuss report has neither, not even a resume, because those workflows have no
-approval step and `autocode review-pr --post` publishes a review's report on someone else's pull
-request ([Issues](issues.md#reviewing-a-pull-request)). A report written before AutoCode listed
+A review or discuss report has neither, not even a resume, because a review's or an answer's
+report must not attribute approvals to the person who resumed it. A report written before AutoCode listed
 approvals has no such section either, until AutoCode saves the completed run again; reading its
 status does not. Each row gives the time, what was decided (the plan token approved, the criterion
 accepted, completion accepted, the draft an edit saved, or the pause a resume released), the Git
@@ -1638,9 +1637,9 @@ archives), `conversation-handoffs` (requirements conversation handoffs),
 `conversation-starts` (conversation start markers), `investigation` (bug
 investigation workspaces), `issues` (`autocode issue` worktrees and their runs),
 `programs` (state an `autocode program` left; that command is archived on the
-`archive/program` branch), `pull-reviews` (`autocode review-pr` checkouts and their runs),
+`archive/program` branch), `pull-reviews` (checkouts and runs the removed `autocode review-pr` left),
 `registry` (the run registry), `replay` (replay recordings), `task-flows`,
-`verification` (`autocode verify` checkouts and reports) and `worktrees` (task
+`verification` (checkouts and reports the removed `autocode verify` left) and `worktrees` (task
 worktrees, and any an archived program made). The list is not every place a run can be kept: a run kept
 elsewhere in the workspace (an `--out` or `--arena` directory outside these
 stores, or another `.autocode` directory) is not denied. Each store that exists
