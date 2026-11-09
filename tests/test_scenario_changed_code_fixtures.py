@@ -18,6 +18,65 @@ from tests import test_follow_up_acceptance_cli as follow_up
 REFERENCE = Path(__file__).resolve().parents[1] / "scenarios/catalog/feature-stock-refusals/reference"
 
 
+class TodoFixtureReviewTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name) / "project"
+        shutil.copytree(REFERENCE.parents[1] / "greenfield-todo-cli/reference", self.root)
+        source = (self.root / "todo.py").read_bytes()
+        digest = hashlib.sha256(source).hexdigest()
+        lines = source.decode().splitlines()
+        obligations = []
+        for statement in (
+            "import sys",
+            "from pathlib import Path",
+            "class StoreError(Exception):",
+            'if __name__ == "__main__":',
+            "    raise SystemExit(main(sys.argv[1:]))",
+        ):
+            line = lines.index(statement) + 1
+            identity = ["a" * 64, "b" * 64, "todo.py", digest, line]
+            gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+            obligations.append(
+                {
+                    "gap_id": gap,
+                    "path": "todo.py",
+                    "sha256": digest,
+                    "line": line,
+                    "status": "reason_required",
+                    "mutation_outcomes": [],
+                }
+            )
+        self.data = {
+            "regression_proof": {
+                "path": "current-proof.json",
+                "changed_code_evidence": {"obligations": obligations},
+            }
+        }
+
+    def test_current_reference_tests_authorize_only_the_exact_gap_explanations(self):
+        rows = fixture.judgments(self.data, self.root)
+        expected = self.data["regression_proof"]["changed_code_evidence"]["obligations"]
+        self.assertEqual([row["gap_id"] for row in expected], [row["gap_id"] for row in rows])
+        for row in rows:
+            self.assertEqual("instrumentation_unavailable", row["reason_kind"])
+            self.assertEqual(["current-proof.json", "todo.py"], row["evidence_refs"])
+
+    def test_changed_test_bytes_and_observed_mutants_cannot_borrow_these_reasons(self):
+        tests = self.root / "test_todo.py"
+        original = tests.read_bytes()
+        tests.write_bytes(original + b"\n# unknown tests\n")
+        self.assertEqual([], fixture.judgments(self.data, self.root))
+        tests.write_bytes(original)
+        for outcome in ("survived", "not_run", "killed"):
+            data = copy.deepcopy(self.data)
+            for row in data["regression_proof"]["changed_code_evidence"]["obligations"]:
+                row["mutation_outcomes"] = [outcome]
+            with self.subTest(outcome=outcome):
+                self.assertEqual([], fixture.judgments(data, self.root))
+
+
 class ByProjectFixtureReviewTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
