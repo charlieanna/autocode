@@ -45,7 +45,7 @@ class CommandDiagnosticTests(unittest.TestCase):
         child = SimpleNamespace(returncode=2, poll=Mock(return_value=2))
 
         def launch(*args, **kwargs):
-            kwargs["stdout"].write(json.dumps({"error": reason}))
+            kwargs["stdout"].write(json.dumps({"error": reason}).encode("utf-8"))
             kwargs["stdout"].flush()
             return child
 
@@ -65,7 +65,7 @@ class CommandDiagnosticTests(unittest.TestCase):
         child = SimpleNamespace(returncode=2, poll=Mock(return_value=2))
 
         def launch(*args, **kwargs):
-            kwargs["stdout"].write(reason)
+            kwargs["stdout"].write(reason.encode("utf-8"))
             kwargs["stdout"].flush()
             return child
 

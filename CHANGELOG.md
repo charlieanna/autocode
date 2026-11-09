@@ -14,6 +14,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - The agent-step review regression now exercises Requirements and exact plan
   approval, and checks current findings evidence while preserving the reviewed
   product files, matching the unified pipeline.
+- Validation-only tasks with unresolved changed-line evidence return for scope
+  review before Builder repair, preserving their read-only assignment and all
+  outstanding evidence and milestone obligations.
 - Clean verification-command timeouts remain failed checks instead of becoming
   an ownership pause that requires discarding the Tester's report. Missing or
   uncertain cleanup still blocks execution; timeouts never authorize proof reuse.
