@@ -348,9 +348,17 @@ class SelectedTestsTests(unittest.TestCase):
             },
         }
 
-    def test_a_narrowable_suite_is_preferred(self):
+    def test_observed_regression_tests_are_preferred_to_a_narrowable_suite(self):
         result = self.result(self.SUITE, self.REGRESSION, ["tests.test_greet.T.test_ada"], ["test_greet.T.test_ada"])
-        self.assertEqual((None, self.SUITE, ["tests.test_greet.T.test_ada"]), proof_policy.selected_tests(None, result))
+        self.assertEqual((None, self.REGRESSION, ["test_greet.T.test_ada"]), proof_policy.selected_tests(None, result))
+
+    def test_a_narrowable_suite_remains_the_fallback_for_unavailable_regression_selection(self):
+        for command, passed in ((self.REGRESSION, []), (self.GATE, ["test_greet.T.test_ada"]), (None, [])):
+            with self.subTest(command=command, passed=passed):
+                result = self.result(self.SUITE, command, ["tests.test_greet.T.test_ada"], passed)
+                self.assertEqual(
+                    (None, self.SUITE, ["tests.test_greet.T.test_ada"]), proof_policy.selected_tests(None, result)
+                )
 
     def test_a_project_gate_script_falls_back_to_the_regression_command(self):
         # A project's own gate (#2474 stall): the runner cannot name tests to `python project_gate.py`,

@@ -24,6 +24,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Changed-line mutation checks prefer independently observed regression tests, retaining suite
+  preservation and the fresh unmutated check while avoiding unrelated suite work for each mutant.
 - Capture emits its receipt attestation before and after a large display, retaining authentication
   when a native tool keeps only the beginning or end of a combined response; full output stays intact.
 - Ready check batches keep large receipt bodies in their files and emit only capture attestations
