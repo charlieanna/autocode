@@ -171,6 +171,10 @@ class BlockerNeedTests(unittest.TestCase):
                 lambda: self.state.update(uncertain_artifacts=["iterations/002/resolver-02.json"]),
                 recovery_limits.UNSETTLED_REFUSAL,
             ),
+            "different pending decision": (
+                lambda: self.state[human.PRIVATE].update(scope="blocker"),
+                "A different pending decision cannot grant a recovery retry",
+            ),
         }
         for name, (change, reason) in cases.items():
             with self.subTest(name):
@@ -178,6 +182,7 @@ class BlockerNeedTests(unittest.TestCase):
                 self.hold_before_publication()
                 change()
                 need = self.needs()
+                self.assertNotEqual("answer", need["kind"])
                 self.assertNotIn("retry_action", need)
                 self.assertNotEqual(recovery_limits.SCOPED_RETRY, need.get("action"))
                 self.assertEqual(reason, need["retry_unavailable"])
@@ -190,12 +195,14 @@ class BlockerNeedTests(unittest.TestCase):
 
     def test_a_different_pending_decision_is_shown_before_any_recovery_retry(self):
         self.hold_before_publication()
-        self.state[human.PRIVATE].update(scope="blocker")
+        # A contract contradiction is a person-owned plan decision. Merely
+        # relabeling the recovery-exhaustion request above is not one.
+        self.state[human.PRIVATE].update(scope="blocker", request=blocker_request())
         view = run_view.view(self.state)
         need = view["needs"]
         self.assertEqual("answer", need["kind"])
         self.assertEqual("blocker", need["resolver_scope"])
-        self.assertEqual(self.request()["decision_needed"], need["questions"][0]["question"])
+        self.assertEqual(blocker_request()["decision_needed"], need["questions"][0]["question"])
         self.assertNotIn("retry_action", need)
         self.assertNotEqual(recovery_limits.SCOPED_RETRY, need.get("action"))
         self.assertNotIn("retry_failed_stage", self.card_actions())
