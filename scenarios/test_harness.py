@@ -2513,6 +2513,96 @@ class PlanRoundTripTests(unittest.TestCase):
 class RunChecksTests(unittest.TestCase):
     """Run-level checks judge how AutoCode worked; without a run there is nothing to judge."""
 
+    def triaged_review(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name).resolve()
+        reports = [
+            {"ready": True, "open_questions": [], "requirements": [], "required_behaviors": [], "acceptance_tests": []},
+            {"job": "review", "requirements": [{"id": "R1", "text": "Review the patch"}]},
+        ]
+        attempts = []
+        for index, report in enumerate(reports):
+            path = root / f"requirements-{index}.json"
+            path.write_text(json.dumps(report))
+            attempts.append({"stage": "requirements_gather", "output": str(path), "exit_code": 0})
+        attempts.append({"stage": "review_change", "exit_code": 0})
+        return {
+            "view": {"workflow": "review", "run_dir": str(root), "usage": {"accounting": {"attempts": attempts}}},
+            "stages": [row["stage"] for row in attempts],
+        }
+
+    def check_triaged_review(self, record):
+        return {
+            row.name: row.ok for row in oracle.run_checks(record, workflow="review", after_requirements="review_change")
+        }
+
+    def test_documented_triage_then_full_requirements_precedes_review(self):
+        self.assertTrue(all(self.check_triaged_review(self.triaged_review()).values()))
+
+    def test_question_triage_and_runner_records_keep_the_same_order(self):
+        record = self.triaged_review()
+        attempts = record["view"]["usage"]["accounting"]["attempts"]
+        Path(attempts[0]["output"]).write_text(json.dumps({"ready": False, "open_questions": [{"id": "Q1"}]}))
+        attempts.insert(1, {"stage": "requirements_gather_report_repair", "report_only": True})
+        attempts.insert(2, {"stage": "regression_proof", "runner_owned": True})
+        record["stages"] = [row["stage"] for row in attempts]
+        record["model_stages"] = [row["stage"] for row in attempts if not row.get("runner_owned")]
+        self.assertTrue(all(self.check_triaged_review(record).values()))
+
+    def test_followup_cannot_borrow_the_earlier_turns_triage_report(self):
+        earlier = self.triaged_review()["view"]["usage"]["accounting"]["attempts"]
+        current = self.triaged_review()
+        attempts = current["view"]["usage"]["accounting"]["attempts"]
+        attempts[:0] = earlier
+        self.assertTrue(all(self.check_triaged_review(current).values()))
+        # Only the current turn's matching suffix is evidence for its extra call.
+        Path(attempts[-3]["output"]).write_text(json.dumps({"requirements": [{"id": "R1"}], "job": "review"}))
+        self.assertFalse(self.check_triaged_review(current)["requirements_first"])
+
+    def test_extra_requirements_needs_its_exact_public_successful_attempts(self):
+        for mutation in ("missing", "wrong_stage", "failed", "rejected", "active", "foreign_output", "missing_output"):
+            record = self.triaged_review()
+            attempts = record["view"]["usage"]["accounting"]["attempts"]
+            if mutation == "missing":
+                attempts.pop(0)
+            elif mutation == "wrong_stage":
+                attempts[0]["stage"] = "review_change"
+            elif mutation == "failed":
+                attempts[0]["exit_code"] = 1
+            elif mutation in ("rejected", "active"):
+                attempts[0][mutation] = True
+            elif mutation == "foreign_output":
+                attempts[0]["output"] = str(Path(record["view"]["run_dir"]).parent / "foreign.json")
+            else:
+                Path(attempts[0]["output"]).unlink()
+            with self.subTest(mutation=mutation):
+                self.assertFalse(self.check_triaged_review(record)["requirements_first"])
+
+    def test_extra_requirements_cannot_be_two_full_reports_or_two_triage_reports(self):
+        for first, second in (
+            ({"ready": True, "requirements": [{"id": "R1"}]}, {"job": "review", "requirements": [{"id": "R1"}]}),
+            ({"ready": False, "open_questions": []}, {"job": "review", "requirements": [{"id": "R1"}]}),
+            ({"ready": True}, {"ready": True}),
+        ):
+            record = self.triaged_review()
+            attempts = record["view"]["usage"]["accounting"]["attempts"]
+            for row, report in zip(attempts[:2], (first, second), strict=True):
+                Path(row["output"]).write_text(json.dumps(report))
+            with self.subTest(first=first, second=second):
+                self.assertFalse(self.check_triaged_review(record)["requirements_first"])
+
+    def test_triage_does_not_allow_repeated_or_late_requirements(self):
+        for stages in (
+            ["requirements_gather"] * 3 + ["review_change"],
+            ["requirements_gather", "review_change", "requirements_gather"],
+            ["review_change", "requirements_gather", "requirements_gather"],
+        ):
+            record = self.triaged_review()
+            record["stages"] = stages
+            with self.subTest(stages=stages):
+                self.assertFalse(self.check_triaged_review(record)["requirements_first"])
+
     def test_no_run_means_no_checks(self):
         self.assertEqual([], oracle.run_checks(None, workflow="review", no_build=True))
 
@@ -4457,7 +4547,9 @@ class FakeRunTests(unittest.TestCase):
         result = self.run_fake("reference", "review-clean-pr")
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual("review", result["workflow"])
-        self.assertEqual(["requirements_gather", "review_change"], result["metrics"]["stage_names"])
+        self.assertEqual(
+            ["requirements_gather", "requirements_gather", "review_change"], result["metrics"]["stage_names"]
+        )
 
     def test_tiny_jobs_do_not_quietly_take_more_steps(self):
         # Issue #15: small jobs already take many model calls. These are today's counts
@@ -4493,7 +4585,9 @@ class FakeRunTests(unittest.TestCase):
     def test_a_conversation_reviews_first_then_says_its_follow_up_in_the_same_run(self):
         result = self.run_fake("reference", "review-then-fix")
         self.assertEqual(2, len(result["turns"]), result["summary"])
-        self.assertEqual(["requirements_gather", "review_change"], result["turns"][0]["model_stage_names"])
+        self.assertEqual(
+            ["requirements_gather", "requirements_gather", "review_change"], result["turns"][0]["model_stage_names"]
+        )
         self.assertEqual("review", result["turns"][0]["workflow"])
         self.assertTrue(result["turns"][1]["say"].startswith("Fix them."))
 
@@ -6764,7 +6858,7 @@ class AdaptiveCompletionTests(unittest.TestCase):
 
     def test_review_and_discussion_keep_the_same_model_sequence(self):
         for id_, expected in (
-            ("review-clean-pr", ["requirements_gather", "review_change"]),
+            ("review-clean-pr", ["requirements_gather", "requirements_gather", "review_change"]),
             ("discuss-cache-choice", ["requirements_gather", "answer_question"]),
         ):
             with self.subTest(scenario=id_):
