@@ -137,7 +137,7 @@ def tolerant(full: dict) -> dict:
     return relaxed
 
 
-def validate_application(state, stage, value, checked, *, schema_for, validate):
+def validate_application(state: RunState, stage, value, checked, *, schema_for, validate):
     """Apply the existing report contract without putting triage policy in the controller.
 
     A small triage answer was already validated by the report loader; the handoff
