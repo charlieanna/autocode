@@ -150,6 +150,8 @@ def _attempt(row: dict, number: int) -> list[str]:
     worker = f" · worker {_label(row['worker_attempt'])}" if row.get("worker_attempt") else ""
     lines = [f"{label} · {job}{worker} · {', '.join(flags)}", "  " + _route(route)]
     choice = _mapping(row.get("effort_choice"))
+    if choice.get("raised") and isinstance(choice.get("saved"), str) and isinstance(choice.get("text"), str):
+        lines.append(f"  One level above your {_label(choice['saved'])}: {choice['text']}")
     if choice.get("lowered") and isinstance(choice.get("ceiling"), str):
         if choice.get("reason") == "small_clear":
             lines.append(f"  One level below your {_label(choice['ceiling'])}: the task is small and clear")

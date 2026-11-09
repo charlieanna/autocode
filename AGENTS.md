@@ -178,6 +178,13 @@ the ceiling (`tools/autocode_review_effort.py`). AutoCode decides this itself at
 records the decision and its reason as the stage's `effort_choice`; it is never a question for the
 person. A level typed as a flag stays exact, and every other stage runs at the saved level.
 
+**Hard plans get more reasoning, on the same model, owner decision 2026-11-09.** When the runner can
+show a plan is hard (a large draft, a draft touching `sensitive-paths`, a second block from the
+Plan Reviewer, or Requirements judging the request vague), the Planner and the Plan Reviewer run one
+level above their saved or default level, only at a level the model offers, never on another model
+(`tools/autocode_plan_difficulty.py`). A typed level stays exact. AutoCode decides this itself and
+records it as the stage's `effort_choice`; it is never a question for the person.
+
 **Terminal chat, approved 2026-10-19 (#1622), in `tools/autocode_chat_client.py`.**
 The same contract as the VS Code client, with the shared rules in
 `tools/autocode_client_actions.py`: it starts `autocode` as an argument array, reads

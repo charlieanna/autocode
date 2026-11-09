@@ -286,7 +286,8 @@ class ListingTests(unittest.TestCase):
         discover.assert_called_once()
         nobody = run_state()["settings"]
         del nobody["declared_variants"]
-        nobody["effort_origins"] = dict.fromkeys(nobody["effort_origins"], "runner_default")
+        # Typed levels are exact: neither a review ceiling nor a hard plan's raise reads a listing for them.
+        nobody["effort_origins"] = dict.fromkeys(nobody["effort_origins"], "user_explicit")
         with mock.patch("autocode_route_discovery.discover", side_effect=RuntimeError("no listing")) as discover:
             configure._list_review_ceilings(nobody, object(), "/fixture")
             self.assertNotIn("declared_variants", nobody)

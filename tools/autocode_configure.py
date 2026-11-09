@@ -38,6 +38,7 @@ try:
     from . import autocode_output_policy as output_policy
     from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_command as pause_command
+    from . import autocode_plan_difficulty as plan_difficulty
     from . import autocode_planner_routes as planner_routes
     from . import autocode_quota_route as quota_route
     from . import autocode_requirements_review as requirements_review
@@ -72,6 +73,7 @@ except ImportError:
     import autocode_output_policy as output_policy
     import autocode_pause_authority as pause_authority
     import autocode_pause_command as pause_command
+    import autocode_plan_difficulty as plan_difficulty
     import autocode_planner_routes as planner_routes
     import autocode_providers
     import autocode_quota_route as quota_route
@@ -198,14 +200,14 @@ def _list_review_ceilings(settings, provider_mod, workspace) -> None:
 
     A review stage's saved stage choice is a ceiling: on a small, clear task it runs one level below,
     and only at a level its model offers (autocode_review_effort). That needs the tool's own listing,
-    read once here and kept as ``declared_variants`` beside any single-model listing.
+    read once here and kept as ``declared_variants`` beside any single-model listing. A hard plan's
+    Planner and Plan Reviewer run one level above their saved or default level, also only at a level
+    the model offers (autocode_plan_difficulty, owner decision 2026-11-09), so their models are read too.
     """
     origins = settings.get("effort_origins") or {}
-    models = {
-        settings["roles"][role]["model"]
-        for role in set(review_effort.STAGES.values())
-        if origins.get(role) == role_route.STAGE_CHOICE and isinstance(settings["roles"].get(role), dict)
-    }
+    roles = {role for role in set(review_effort.STAGES.values()) if origins.get(role) == role_route.STAGE_CHOICE}
+    roles |= {role for role in set(plan_difficulty.STAGES.values()) if origins.get(role) in plan_difficulty.RAISABLE}
+    models = {settings["roles"][role]["model"] for role in roles if isinstance(settings["roles"].get(role), dict)}
     models = {model for model in models if isinstance(model, str)} - set(settings.get(route_fit.DECLARED) or {})
     if models and (listed := _listed_levels(provider_mod, workspace, models)):
         settings.setdefault(route_fit.DECLARED, {}).update(listed)

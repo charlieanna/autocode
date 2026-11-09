@@ -131,3 +131,42 @@ class ReviewerEffortCLI(unittest.TestCase):
 
     def test_fresh_default_reviewer_still_dispatches_reduced_effort(self):
         self.review(explicit=False)
+
+    def test_a_vague_requests_first_draft_runs_one_level_above_the_planners_level(self):
+        # Owner decision 2026-11-09: a hard plan gets more reasoning on the same model. Requirements judged
+        # the request vague, so the Planner's first draft runs one level above its saved level.
+        self.env["SCENARIO_FAKE_CLARITY"] = "vague"
+        run = taskrun.TaskRun.start(
+            self.project,
+            self.scenario.brief,
+            options=self.options,
+            start_options=("--pause-after-stage",),
+            env=self.env,
+            timeout=180,
+            cwd=self.root,
+        )
+        settings = self.public(run)["settings"]
+        planner = copy.deepcopy(settings["roles"]["glm"])
+        self.assertEqual("runner_default", settings["effort_origins"]["glm"])
+        self.assertFalse(any(row["stage"] == "astra_discovery" for row in self.calls()))
+        # Fixture setup only: the levels a real run reads from its tool's listing.
+        checkpoint = run.run_dir / "state.json"
+        owned = json.loads(checkpoint.read_text())
+        owned["settings"]["declared_variants"] = {planner["model"]: ["low", "medium", "high", "xhigh"]}
+        checkpoint.write_text(json.dumps(owned))
+        view = run.resume_paused()
+        if view["needs"]["kind"] == "continue":
+            view = run.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view["stop_reason"])
+        higher = route_fit.SCALE[route_fit.SCALE.index(planner["reasoning_effort"]) + 1]
+        drafts = [row for row in self.calls() if row["stage"] == "astra_discovery"]
+        self.assertTrue(drafts, self.calls())
+        for row in drafts:
+            self.assertIn(f'model_reasoning_effort="{higher}"', row["argv"])
+        self.assertEqual(planner, self.public(run)["settings"]["roles"]["glm"], "the saved level is not rewritten")
+        state = json.loads(checkpoint.read_text())
+        record = next(row for row in state["stages"] if row.get("stage") == "astra_discovery")
+        self.assertEqual(
+            (higher, True, "hard_plan", ["vague_request"]),
+            tuple(record["effort_choice"].get(key) for key in ("level", "raised", "reason", "signals")),
+        )

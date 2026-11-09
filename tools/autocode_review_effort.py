@@ -37,12 +37,14 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_light_builder as light_builder
+    from . import autocode_plan_difficulty as plan_difficulty
     from . import autocode_repair_effort as repair_effort
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_role_route as role_route
     from . import autocode_route_fit as route_fit
 except ImportError:
     import autocode_light_builder as light_builder
+    import autocode_plan_difficulty as plan_difficulty
     import autocode_repair_effort as repair_effort
     import autocode_requirements_triage as requirements_triage
     import autocode_role_route as role_route
@@ -126,14 +128,19 @@ def launch(state: RunState, stage, route_role, report_only, route: dict) -> tupl
     A small task's first Builder attempt runs low (autocode_light_builder, #1710); a review runs under
     its stage-choice ceiling (``decide``); a format repair runs below the configured level
     (autocode_repair_effort, #2868); the first Requirements pass asks its blocking questions from a
-    small prompt at the floor level (autocode_requirements_triage, #2940). ``decision`` is None when
-    no rule considered the launch.
+    small prompt at the floor level (autocode_requirements_triage, #2940); a hard plan's Planner and
+    Plan Reviewer run one level above their saved level (autocode_plan_difficulty, owner decision
+    2026-11-09). ``decision`` is None when no rule considered the launch.
     """
     configured = light_builder.effort(state, stage, report_only, route.get("reasoning_effort"))
     if report_only:
         decision = repair_effort.decide(state, configured, model=route.get("model"))
     else:
-        decision = decide(state, stage, route_role, report_only, configured, model=route.get("model"))
+        # A hard plan's Planner and Plan Reviewer run one level up (autocode_plan_difficulty); a raise
+        # wins over a small task's lowered review, so a small plan touching sensitive files is not cut.
+        raised = plan_difficulty.decide(state, stage, route_role, report_only, configured, model=route.get("model"))
+        lowered = decide(state, stage, route_role, report_only, configured, model=route.get("model"))
+        decision = raised if raised and (raised.get("raised") or not lowered) else lowered
     if triage_decision := requirements_triage.effort_decision(state, stage, configured):
         return triage_decision["level"], triage_decision
     return effort(decision, configured), decision
@@ -145,7 +152,9 @@ def effort(decision: dict | None, configured):
 
 
 def note(decision) -> str | None:
-    """One sentence for the live log when a launch runs below the person's level; None otherwise."""
+    """One sentence for the live log when a launch runs below or above the person's level; None otherwise."""
+    if isinstance(decision, dict) and decision.get("raised"):
+        return plan_difficulty.note(decision)
     if not isinstance(decision, dict) or not decision.get("lowered"):
         return None
     level, ceiling = decision.get("level"), decision.get("ceiling")
