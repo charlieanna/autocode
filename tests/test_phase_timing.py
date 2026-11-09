@@ -13,11 +13,33 @@ import autocode_phase_timing as phase_timing
 import autocode_regression as regression
 import autocode_support as support
 import autocode_unit_request as unit_request
+from providers import kilocode_probe
 
 from .test_efficiency import attempt
 
 
 class PhaseTimingTests(unittest.TestCase):
+    def test_setup_attempts_reach_public_efficiency_evidence_without_double_counting_time(self):
+        state = {}
+        clock = [0.0]
+
+        def run(seconds):
+            clock[0] += seconds
+            raise kilocode_probe.subprocess.TimeoutExpired(["kilo", "models", "--verbose"], seconds)
+
+        with (
+            patch.object(phase_timing.time, "monotonic", lambda: clock[0]),
+            patch.object(phase_timing.util, "now", side_effect=[0, 90]),
+            self.assertRaises(kilocode_probe.KiloProbeTimeout),
+        ):
+            with phase_timing.measure(state, "source_launcher_preparation", stage="terra"):
+                kilocode_probe.probe(["kilo", "models", "--verbose"], run)
+        result = efficiency.summary(state)
+        checks = result["observations"][0]["provenance"]["model_free_checks"]
+        self.assertEqual([1, 2], [row["attempt"] for row in checks])
+        self.assertEqual(["timed_out", "timed_out"], [row["outcome"] for row in checks])
+        self.assertEqual(90, result["time"]["known_summed_execution_seconds"])
+
     def measured(self, state, action=lambda: None):
         with (
             patch.object(

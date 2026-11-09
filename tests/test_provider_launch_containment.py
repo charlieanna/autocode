@@ -30,6 +30,33 @@ class LaunchContainment(unittest.TestCase):
             self.assertNotIn("sandbox", str(raised.exception))
             self.assertNotIn("Restore qualified", str(raised.exception))
 
+    def test_a_kilo_probe_that_only_ran_out_of_time_is_a_named_pause(self):
+        # #2959: a Builder stage asks for no shell boundary, so the probe's timeout escaped as a raw
+        # subprocess error and the controller died unnamed instead of pausing where the run can resume.
+        from providers.kilocode import KiloProvider
+        from providers.kilocode_probe import KiloProbeTimeout
+
+        refusal = KiloProbeTimeout(
+            "Kilo's debug agent code check exhausted its 90-second setup budget after 2 attempt(s); "
+            "no model request was launched"
+        )
+        cases = (
+            (True, "PAUSED_TRANSPORT_UNVERIFIED", "exhausted its 90-second setup budget"),
+            (False, "PAUSED_TOOL_CONTAINMENT", "Bounded setup retries were exhausted"),
+        )
+        for writing, status, named in cases:
+            kilo = object.__new__(KiloProvider)
+            kilo.launch = mock.Mock(side_effect=refusal)
+            with self.subTest(writing=writing):
+                with (
+                    mock.patch.object(launch.sys, "platform", "linux"),
+                    self.assertRaises(util.Paused) as raised,
+                ):
+                    launch.prepare(**{**self.options, "adapter": kilo, "allow_write": writing})
+                self.assertEqual(status, raised.exception.status)
+                self.assertIn(named, str(raised.exception))
+                self.assertNotIn("Restore qualified", str(raised.exception))
+
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
