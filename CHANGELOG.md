@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Ready check batches keep large receipt bodies in their files and emit only capture attestations
+  and check references, reducing tool-response size without losing full test output or receipt checks.
+
 - Active process supervision no longer repeatedly probes descendants already
   observed to have exited. Their receipts remain retained, while active workers,
   ownership leases and cleanup still receive fresh identity checks.
