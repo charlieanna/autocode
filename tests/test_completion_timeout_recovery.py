@@ -16,6 +16,7 @@ import unittest
 from pathlib import Path
 
 import autocode_changed_code_evidence as policy
+import autocode_python_test_roles as role_policy
 import autocode_regression as regression
 import autocode_run_records as records
 import autocode_source_scope as source_scope
@@ -130,7 +131,12 @@ class TimeoutArchivedCompletionTests(unittest.TestCase):
         }
         path = self.proof_dir / "verification.json"
         util.atomic_json(path, result)
-        state["regression_proof"] = dict(result, path=str(path), receipt_sha256=util.file_hash(path))
+        state["regression_proof"] = dict(
+            result,
+            path=str(path),
+            receipt_sha256=util.file_hash(path),
+            execution_context={"test_role_policy": role_policy.VERSION},
+        )
         return revision, assessment
 
     def archived_validation(self, state, revision, assessment):

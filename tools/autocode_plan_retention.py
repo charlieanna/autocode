@@ -20,10 +20,12 @@ if TYPE_CHECKING:
 try:
     from . import autocode_contract_identity as identity
     from . import autocode_plan_revision_reference as revision_reference
+    from . import autocode_python_test_roles as test_roles
     from . import autocode_util as util
 except ImportError:
     import autocode_contract_identity as identity
     import autocode_plan_revision_reference as revision_reference
+    import autocode_python_test_roles as test_roles
     import autocode_util as util
 
 # The default flow is affected by the incident. V2 keeps its separately sealed
@@ -499,7 +501,9 @@ def compact_final_packet(packet):
     # The latest human text and its source IDs are already in source_inventory;
     # keep receipt identities and authority, not duplicate display/approval prose.
     packet["user_events"] = [
-        {
+        test_roles.correction_summary(event)
+        if event.get("kind") == "protected_tests_roles_corrected"
+        else {
             key: value
             for key, value in event.items()
             if key in ("kind", "id", "actor", "answer_id", "contract_token", "token", "text")

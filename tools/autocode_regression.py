@@ -74,12 +74,14 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_package_writes as package_writes
     from . import autocode_pending_tests as pending_tests
+    from . import autocode_python_test_roles as role_policy
     from . import autocode_recovery_review as recovery_review
     from . import autocode_regression_selection as selection
     from . import autocode_run_base as run_base
     from . import autocode_runner_check as runner_check
     from . import autocode_status as status
     from . import autocode_test_cases as test_cases
+    from . import autocode_test_role_inventory as role_inventory
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
     from . import autocode_verify as verify
@@ -98,12 +100,14 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_package_writes as package_writes
     import autocode_pending_tests as pending_tests
+    import autocode_python_test_roles as role_policy
     import autocode_recovery_review as recovery_review
     import autocode_regression_selection as selection
     import autocode_run_base as run_base
     import autocode_runner_check as runner_check
     import autocode_status as status
     import autocode_test_cases as test_cases
+    import autocode_test_role_inventory as role_inventory
     import autocode_util as util
     import autocode_verification_schedule as schedule
     import autocode_verify as verify
@@ -472,9 +476,12 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         # detected suite and the regression derived from the changed tests, so a recorded proof
         # whose regression command was derived is compared with the replay's own derivation (#2500).
         changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
+        roles = role_inventory.from_git(workspace, base, verify.is_test_path, changes=changes)
+        if framework is not None:
+            framework.test_roles = roles
         commands = verify.select_commands(
             framework,
-            [path for path, status in changes.items() if verify.is_test_path(path) and status != "deleted"],
+            [path for path, status in changes.items() if roles.is_test(path) and status != "deleted"],
             suite_command=options.get("test_command"),
             regression_command=options.get("regression_command"),
         )
@@ -492,6 +499,8 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
     # even when the source and acceptance criteria have not changed.
     execution_context = {
         "changed_code_policy": changed_code.VERSION,
+        "test_role_policy": role_policy.VERSION,
+        "protected_test_binding": ((state.get("settings") or {}).get("protected_tests") or {}).get("binding_hash"),
         "python": python,
         "detected_framework": framework.to_dict() if framework else None,
         "test_command": options.get("test_command"),
@@ -655,14 +664,13 @@ def _proving(
         # its own authenticity check (autocode_changed_code_measurement.pinned).
         out = Path(run_dir).resolve() / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
         progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
+        changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
+        roles = role_inventory.from_git(workspace, base, verify.is_test_path, changes=changes)
         coverage = preserve_only(state, all_due=all_due)
         if coverage and goals.task_kind(state) == "bugfix":
             # Member preservation coverage authorizes tests alone. A product
             # change still needs the ordinary bugfix fail-before/pass-after proof.
-            coverage = not any(
-                not verify.is_test_path(path)
-                for path in verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
-            )
+            coverage = not any(roles.role(path) != role_policy.TEST for path in changes)
         due = cases(state, all_due=all_due)
         # A non-bugfix contract whose due cases are all test criteria may be a coverage
         # or characterization build: the product already implements the behavior and the
@@ -674,7 +682,7 @@ def _proving(
         if test_only and len(((state.get("goal_contract") or {}).get("body") or {}).get("milestones") or []) > 1:
             regression_command = selection.widen(
                 regression_command,
-                verify.changed_files(workspace, base, source_paths=source_scope.paths(state)),
+                {path: change for path, change in changes.items() if roles.role(path) == role_policy.TEST},
                 framework=framework.name if framework else None,
                 test_root=options.get("test_root"),
             )
@@ -688,6 +696,7 @@ def _proving(
             base,
             out,
             framework=framework,
+            roles=roles,
             suite_command=options.get("test_command"),
             regression_command=regression_command,
             reported=None,
@@ -1148,7 +1157,10 @@ def _review_needs_proof(state: RunState, workspace):
     saved = state.get("regression_proof") or {}
     context = saved.get("execution_context") or {}
     if (
-        saved.get("source_revision") != current
+        not role_policy.proof_current(
+            saved, ((state.get("settings") or {}).get("protected_tests") or {}).get("binding_hash")
+        )
+        or saved.get("source_revision") != current
         or context.get("contract_identity") != util.digest(state.get("goal_contract"))
         or context.get("cases_identity") != util.digest(cases(state))
         or bool(context.get("preserve_only")) != preserve_only(state)
@@ -1188,7 +1200,13 @@ def complete(state: RunState, current_revision, *, all_due=False, require_change
     if not required(state, all_due=all_due, include_changed_code=include_changed_code):
         return True
     proof = state.get("regression_proof") or {}
-    if proof.get("verdict") != verify.PASS or proof.get("source_revision") != current_revision:
+    if (
+        proof.get("verdict") != verify.PASS
+        or proof.get("source_revision") != current_revision
+        or not role_policy.proof_current(
+            proof, ((state.get("settings") or {}).get("protected_tests") or {}).get("binding_hash")
+        )
+    ):
         return False
     try:
         result = util.read(proof["path"])

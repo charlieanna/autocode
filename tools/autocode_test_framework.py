@@ -17,6 +17,8 @@ PYTHON_TEST_MODULE = python_tests.TEST_MODULE
 class Framework:
     """How to run the whole suite and a targeted subset for one project."""
 
+    test_roles: object
+
     def __init__(
         self, name, suite, *, python=None, runner=None, note="", node_files=(), invocation=None, test_root=None
     ):

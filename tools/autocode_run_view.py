@@ -66,6 +66,7 @@ try:
     from . import autocode_plan_retention as plan_retention
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_plan as progressive_rules
+    from . import autocode_python_test_roles as test_roles
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_history as recovery_history
     from . import autocode_recovery_limits as recovery_limits
@@ -120,6 +121,7 @@ except ImportError:
     import autocode_plan_retention as plan_retention
     import autocode_planning_review_usage as review_usage
     import autocode_progressive_plan as progressive_rules
+    import autocode_python_test_roles as test_roles
     import autocode_quota_route as quota_route
     import autocode_recovery_history as recovery_history
     import autocode_recovery_limits as recovery_limits
@@ -722,6 +724,7 @@ def evidence(state: RunState) -> dict:
             }
         )
     proof = state.get("regression_proof")
+    correction = test_roles.latest_correction(state.get("user_events"))
     replay = validation.get("check_replay")
     investigation = state.get("investigation")
     if not isinstance(investigation, dict):
@@ -754,20 +757,23 @@ def evidence(state: RunState) -> dict:
         ],
         **({"finding_scope_moves": moves} if moves else {}),
         "regression_proof": {
-            key: proof.get(key)
-            for key in (
-                "verdict",
-                "fail_to_pass",
-                "failures",
-                "unverified",
-                "commands",
-                "source_revision",
-                "case_tests",
-                "follow_up_baseline",
-                "unstable",
-                "changed_code_evidence",
-            )
-            if key != "changed_code_evidence" or proof.get(key) is not None
+            **{
+                key: proof.get(key)
+                for key in (
+                    "verdict",
+                    "fail_to_pass",
+                    "failures",
+                    "unverified",
+                    "commands",
+                    "source_revision",
+                    "case_tests",
+                    "follow_up_baseline",
+                    "unstable",
+                    "changed_code_evidence",
+                )
+                if key != "changed_code_evidence" or proof.get(key) is not None
+            },
+            **({"role_correction": correction} if correction else {}),
         }
         if isinstance(proof, dict)
         else None,

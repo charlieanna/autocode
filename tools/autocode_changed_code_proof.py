@@ -40,7 +40,8 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
     """Measure one exact candidate; keep gaps when a tool or attribution is absent."""
     source_revision = proof["source_revision"]
     context = util.digest(execution_context)
-    files = verify.product_files(result.get("changes") or {})
+    changes = result.get("changes") or {}
+    files = verify.product_files(changes, source_files=result.get("source_files"))
     diff = verify.product_diff(workspace, result["base"], files)
     inventory = measurement.inventory(tree, files, diff)
     coverage_report = proof.get("diff_coverage") or {}
