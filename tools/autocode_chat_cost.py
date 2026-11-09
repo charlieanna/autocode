@@ -260,11 +260,11 @@ def details(view: dict) -> str:
     if by_job := _rows(run_metrics.get("by_job")):
         lines.extend(["", "Cost by job"])
         for row in by_job:
-            attempts = _count(row.get("attempts"))
+            job_attempts = _count(row.get("attempts"))
             share = _number(row.get("share"))
             parts = [_money(row.get("spent_usd"))]
-            if attempts:
-                parts.append(f"{attempts} attempt{'s' if attempts != 1 else ''}")
+            if job_attempts:
+                parts.append(f"{job_attempts} attempt{'s' if job_attempts != 1 else ''}")
             if share:
                 parts.append(f"{share * 100:.0f}%")
             lines.append(f"{_label(row.get('job'), 'Unknown')}: " + ", ".join(parts))
@@ -278,12 +278,12 @@ def details(view: dict) -> str:
         lines.extend(["", "Per-stage turns and time"])
         for cat, data in sorted(by_cat.items()):
             tokens = _mapping(data.get("tokens"))
-            attempts = _count(data.get("attempts"))
+            stage_attempts = _count(data.get("attempts"))
             seconds = wall.get(cat)
             seconds = seconds if _number(seconds) else None
             parts = []
-            if attempts:
-                parts.append(f"{attempts} attempt{'s' if attempts != 1 else ''}")
+            if stage_attempts:
+                parts.append(f"{stage_attempts} attempt{'s' if stage_attempts != 1 else ''}")
             inp_raw = tokens.get("input_tokens")
             inp = (inp_raw.get("known") if isinstance(inp_raw, dict) else inp_raw) or 0
             out_raw = tokens.get("output_tokens")
