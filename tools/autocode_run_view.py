@@ -1257,12 +1257,26 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         if route:
             answer["route"] = _route(route)
         elif answer.get("resolver_scope") in ("blocker", "operational_exhaustion"):
-            # Not a requirements question: the CLI refuses --answer here and takes the
-            # operational response (#675). The route question above is the one exception.
-            answer["action"] = recovery_limits.RESPONSE_COMMAND
-            # A recovery novelty hold also admits one explicit scoped retry after inspection (#1012).
-            if answer.get("pause_origin") == "PAUSED_NO_PROGRESS" and (retry := recovery_limits.scoped_retry(state)):
-                answer["retry_action"] = retry
+            # A verification-command correction settles through configure_resume (#2973):
+            # the person changes the saved commands; the blocker is retired and the Tester reruns.
+            try:
+                from . import autocode_verification_config as verification_config
+            except ImportError:
+                import autocode_verification_config as verification_config
+
+            hold = verification_config.blocker_hold(state)
+            if hold and (hold[0] or {}).get("scope") == "blocker":
+                answer["action"] = "--resume-paused --test-command COMMAND --regression-command COMMAND"
+                answer["correction"] = "verification_commands"
+            else:
+                # Not a requirements question: the CLI refuses --answer here and takes the
+                # operational response (#675). The route question above is the one exception.
+                answer["action"] = recovery_limits.RESPONSE_COMMAND
+                # A recovery novelty hold also admits one explicit scoped retry after inspection (#1012).
+                if answer.get("pause_origin") == "PAUSED_NO_PROGRESS" and (
+                    retry := recovery_limits.scoped_retry(state)
+                ):
+                    answer["retry_action"] = retry
         return answer
     if status == "AWAITING_GOAL_APPROVAL":
         if (state.get("goal_contract") or {}).get("approval_status") == "draft" and diagnosis_refresh.conflicts(state):
