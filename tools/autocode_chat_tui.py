@@ -2293,13 +2293,18 @@ class ChatTUI:
         self._put(layout.status_start, 0, truncate(lead, layout.width), style)
         if reading:
             return
+        spend = self._spend()
         tail = (
             "ctrl-c cancel coordination after this step"
             if (self._view or {}).get("coordination")
             else "ctrl-c pause after this step"
         )
+        # Live cost counter on the status line (#3002): always visible while the run works.
+        right = f"{spend} · {tail}" if spend else tail
         room = layout.width - display_width(lead) - 2
-        if room >= display_width(tail):
+        if room >= display_width(right):
+            self._put(layout.status_start, layout.width - display_width(right), right, self._style("dim"))
+        elif room >= display_width(tail):
             self._put(layout.status_start, layout.width - display_width(tail), tail, self._style("dim"))
 
     def _composer_box(self, layout: Layout) -> None:
