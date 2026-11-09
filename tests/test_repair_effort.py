@@ -23,6 +23,42 @@ def key(choice):
     return choice["level"], choice["ceiling"], choice["lowered"], choice["reason"]
 
 
+class GroundTests(unittest.TestCase):
+    """The deterministic quote fix for dropped-markup mismatches (#2835)."""
+
+    def test_a_quote_that_dropped_backticks_resolves_to_the_source_span(self):
+        from autocode_requirement_quotes import ground
+
+        sources = ["The brief says `source_ref.kind == 'reference_solution'`; next sentence."]
+        # The quote dropped one backtick.
+        quote = "`source_ref.kind == 'reference_solution';"
+        result = ground(quote, sources)
+        self.assertIsNotNone(result, "the source span is found despite dropped markup")
+        self.assertIn("source_ref.kind", result)
+        self.assertIn("reference_solution", result)
+
+    def test_a_quote_with_exact_match_still_works(self):
+        from autocode_requirement_quotes import ground
+
+        sources = ["The brief says `source_ref.kind == 'reference_solution'`; next sentence."]
+        result = ground("`source_ref.kind == 'reference_solution'`", sources)
+        self.assertEqual("`source_ref.kind == 'reference_solution'`", result)
+
+    def test_an_unmatched_quote_still_returns_none(self):
+        from autocode_requirement_quotes import ground
+
+        sources = ["Something entirely different."]
+        self.assertIsNone(ground("No such text anywhere", sources))
+
+    def test_a_quote_that_dropped_quotes_resolves(self):
+        from autocode_requirement_quotes import ground
+
+        sources = ["The task says 'use Python standard library' and nothing else."]
+        result = ground("use Python standard library", sources)
+        self.assertIsNotNone(result)
+        self.assertIn("use Python standard library", result)
+
+
 class DecideTests(unittest.TestCase):
     def test_a_repair_takes_the_highest_offered_level_below_the_configured_one(self):
         # GLM 5.3 offers low, high and max: the live incident's repair runs low, not high.
