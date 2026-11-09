@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Active process supervision no longer repeatedly probes descendants already
+  observed to have exited. Their receipts remain retained, while active workers,
+  ownership leases and cleanup still receive fresh identity checks.
 - A review round already granted by the Investigator survives same-turn replanning,
   retaining spent calls instead of falling back to a smaller limit and investigating again.
   Explicit limit provenance and configured allowances for future turns remain unchanged.
