@@ -176,6 +176,7 @@ class RunViewTests(unittest.TestCase):
                 "escalation_outcomes",
                 "escalations",
                 "job_report_recovery",
+                "report_repair",
                 "pause",
                 "verification_obligation",
                 "evidence_report",

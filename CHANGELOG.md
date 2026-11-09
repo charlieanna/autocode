@@ -15,6 +15,8 @@ PR template asks for an entry here; a change without one is incomplete.
   the task workspace, so an isolated project environment can supply its exact
   identity even when the controller runs from another directory.
 
+- Public status now explains retained report repairs with typed original and current
+  rejection categories and hashes, without granting any recovery action.
 - Ask the Tester to supply an omitted changed-line decision before running clean
   verification commands for its incomplete report. Complete and repaired reports
   retain fresh verification, exact evidence binding and completion checks.

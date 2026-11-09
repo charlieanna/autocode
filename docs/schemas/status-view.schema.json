@@ -25,7 +25,7 @@
         "verification", "review_result", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
-        "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
+        "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery", "report_repair",
         "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "stage_policy", "pause", "package",
         "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention",
         "scope", "coordination", "related_profile", "proxied_requirements", "request_sources", "run_metrics"
@@ -506,6 +506,183 @@
         "information_review": {"type": ["object", "null"]},
         "tool_containment": {"type": ["string", "null"]},
         "job_report_recovery": {"type": ["object", "null"]},
+        "report_repair": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "stage",
+            "source_revision",
+            "freshness",
+            "active",
+            "attempts",
+            "limit",
+            "reason",
+            "original_reason"
+          ],
+          "properties": {
+            "stage": {
+              "type": "string",
+              "pattern": "^[a-z_]{1,64}$"
+            },
+            "source_revision": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "freshness": {
+              "type": "string",
+              "enum": [
+                "recorded",
+                "stale",
+                "unavailable"
+              ]
+            },
+            "active": {
+              "type": "boolean"
+            },
+            "attempts": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "limit": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "reason": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "category",
+                "error_sha256",
+                "command_sha256",
+                "timeout_seconds",
+                "exit_code",
+                "planned"
+              ],
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "unclassified",
+                    "replay_timeout",
+                    "replay_failed",
+                    "replay_receipt_incomplete",
+                    "replay_execution_error",
+                    "evidence_binding",
+                    "report_schema",
+                    "uncited_failed_check",
+                    "cited_failed_check"
+                  ]
+                },
+                "error_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "command_sha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "timeout_seconds": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "exit_code": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "planned": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "original_reason": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "category",
+                "error_sha256",
+                "command_sha256",
+                "timeout_seconds",
+                "exit_code",
+                "planned"
+              ],
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "unclassified",
+                    "replay_timeout",
+                    "replay_failed",
+                    "replay_receipt_incomplete",
+                    "replay_execution_error",
+                    "evidence_binding",
+                    "report_schema",
+                    "uncited_failed_check",
+                    "cited_failed_check"
+                  ]
+                },
+                "error_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "command_sha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "timeout_seconds": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "exit_code": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "planned": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        },
         "efficiency": {"type": ["object", "null"]},
         "run_metrics": {
           "type": "object",
