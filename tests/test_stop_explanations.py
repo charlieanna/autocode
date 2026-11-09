@@ -32,6 +32,23 @@ def named_pause_states(root: Path = TOOLS) -> set[str]:
 
 
 class StopExplanationTests(unittest.TestCase):
+    def test_an_automatic_saved_stop_does_not_ask_the_person_to_answer_it(self):
+        text = stop_explanations.explain("WAITING_FOR_USER", needs={"kind": "continue", "action": "--resume-paused"})
+        self.assertIn("internal question", text["what_happened"])
+        self.assertIn("automatically", text["what_it_means"])
+        self.assertIn("--resume-paused", text["what_the_command_does"])
+        self.assertNotIn("--answer", text["explanation"])
+        self.assertNotIn("person's decision", text["explanation"])
+        for need in (None, {}, {"kind": "answer"}, {"kind": "continue", "action": "--approve-goal"}):
+            with self.subTest(need=need):
+                question = stop_explanations.explain("WAITING_FOR_USER", needs=need)
+                self.assertIn("needs a person", question["what_it_means"])
+                self.assertIn("--answer", question["what_the_command_does"])
+        plan = stop_explanations.explain(
+            "AWAITING_GOAL_APPROVAL", needs={"kind": "continue", "action": "--resume-paused"}
+        )
+        self.assertIn("approve", plan["what_it_means"])
+
     def test_completed_views_explain_the_saved_outcome_without_recovery_or_freshness_claims(self):
         for status in ("TASK_COMPLETE", "COMPLETE"):
             for current in (None, False, True):

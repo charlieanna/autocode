@@ -618,8 +618,13 @@ def rebind_stale(state: RunState, request_id, request_token):
     return None
 
 
-def current(state: RunState):
-    """Read-only receipt verification; an issuer label alone grants nothing."""
+def retained(state: RunState):
+    """Authenticate the saved publication only; grants no current answer authority.
+
+    Recovery may retire an obsolete internal request after checking its current
+    cause itself. Readers and answer admission still use ``current`` below.
+    This check is pure: neither source files nor the current runtime are read.
+    """
     public = state.get(PUBLIC)
     if not isinstance(public, dict) or public.get("version") != VERSION or public.get("issuer") != "resolver":
         return None
@@ -639,12 +644,10 @@ def current(state: RunState):
             or entry["receipt_hash"] != key
             or state.get("status") != identity["proposal"]["status"]
             or public["receipt_hash"] != key
-            or identity["binding"] != _binding(state)
             or public["request_token"] != support.digest({"request_id": key, "binding": identity["binding"]})
             or public["scope"] != identity["proposal"]["scope"]
             or public["reason"] != identity["reason"]
             or public["request"] != identity["proposal"]["request"]
-            or not _evidence_valid(identity["proposal"])
             or public["questions"] != _questions(identity["proposal"], key, identity["reason"])
             or public["questions"] != state.get("pending_questions", [])
             or public["request"] != state.get("user_request", {})
@@ -653,6 +656,19 @@ def current(state: RunState):
     except (KeyError, TypeError, ValueError, AttributeError):
         return None
     return copy.deepcopy(public)
+
+
+def current(state: RunState):
+    """Read-only receipt and fresh frontier verification for answer authority."""
+    public = retained(state)
+    if public:
+        try:
+            identity = state["resolver"]["human_escalations"][public["request_id"]]["identity"]
+            if identity["binding"] == _binding(state) and _evidence_valid(identity["proposal"]):
+                return public
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return None
+    return None
 
 
 def projection(state: RunState):
