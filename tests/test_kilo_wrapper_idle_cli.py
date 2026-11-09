@@ -20,8 +20,27 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
     def test_completed_tools_then_silent_model_wait_uses_idle_and_cleans_the_wrapper(self):
         node = shutil.which("node")
         self.assertIsNotNone(node, "The supported Linux CLI fixture requires Node")
+        launcher = self.root / "node"
         native = self.root / ".kilo"
-        shutil.copy2("/bin/sleep", native)
+        # Pin both executable names: the supported wrapper edge is node ->
+        # .kilo, while a host's node command may itself resolve to another name.
+        shutil.copy2(node, launcher)
+        # Reuse the required native Node executable under the wrapper's child
+        # name. Copying sleep is not portable: multicall coreutils dispatches
+        # by its executable name and refuses an executable called .kilo.
+        shutil.copy2(node, native)
+        native_names = {
+            item.name: subprocess.check_output(
+                [
+                    str(item),
+                    "-p",
+                    "JSON.stringify({version:process.version,name:require('node:fs').readFileSync('/proc/self/comm','utf8').trim()})",
+                ],
+                text=True,
+                timeout=10,
+            ).strip()
+            for item in (launcher, native)
+        }
         probe = self.root / "calls.jsonl"
         native_outcome = self.root / "native-outcome.json"
         provider = self.root / "provider.cjs"
@@ -30,7 +49,7 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
             "const {spawn} = require('node:child_process');\n"
             "const native = process.argv[2], probe = process.argv[3], outcome = process.argv[4];\n"
             "const emit = row => process.stdout.write(JSON.stringify(row) + '\\n');\n"
-            "const child = spawn(native, ['60'], {stdio: 'ignore'});\n"
+            "const child = spawn(native, ['-e', 'setTimeout(()=>{},60000)'], {stdio: 'ignore'});\n"
             "const record = value => fs.writeFileSync(outcome, JSON.stringify({node:process.version,...value}));\n"
             "record({event:'spawned',pid:child.pid});\n"
             "child.once('exit', (code,signal) => record({event:'exit',pid:child.pid,code,signal}));\n"
@@ -44,7 +63,7 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         )
         config = Path(self.env["XDG_CONFIG_HOME"]) / "autocode/providers/wrapper_fixture.toml"
         config.parent.mkdir(parents=True)
-        command = [node, str(provider), str(native), str(probe), str(native_outcome)]
+        command = [str(launcher), str(provider), str(native), str(probe), str(native_outcome)]
         roles = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
         config.write_text(
             'name = "wrapper_fixture"\noutput = "opencode_events"\nprompt = "stdin"\nresume = ["--session", "{session}"]\ncommand = '
@@ -91,7 +110,17 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         envelope = json.loads(status.stdout)
         view = envelope["view"]
         self.assertEqual("PAUSED_JOB_FAILURE", view["status"], view.get("stop_reason"))
-        self.assertIn("No new provider activity", view["stop_reason"])
+        stop_diagnostic = view["stop_reason"] + "\nNative name probes: " + json.dumps(native_names)
+        if "No new provider activity" not in stop_diagnostic:
+            observed = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]
+            if observed:
+                event_path = Path(observed[-1]["events"])
+                receipt_path = event_path.parent.parent / event_path.with_suffix(".supervision.json").name
+                if receipt_path.is_file():
+                    stop_diagnostic += "\nNative process observations: " + json.dumps(
+                        json.loads(receipt_path.read_text()).get("processes")
+                    )
+        self.assertIn("No new provider activity", view["stop_reason"], stop_diagnostic)
         self.assertEqual("retry_job", view["needs"]["kind"])
         self.assertFalse(view["done"])
         self.assertIsNone(view.get("approved_contract"))
