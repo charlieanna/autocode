@@ -53,7 +53,7 @@ with ChatTUI() as ui:
                         and shown.count("Checking only the result mapping.") == 1
                         and "latest updates" not in shown
                         and "╰─" in shown
-                        and "Planner · $1.25+" in shown.splitlines()[-1]
+                        and "Planner · chat $1.25+" in shown.splitlines()[-1]
                         and "Planner working · Inspecting parser boundaries." in shown
                     ),
                     timeout=10,
