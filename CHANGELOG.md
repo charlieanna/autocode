@@ -14,6 +14,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - Clean verification-command timeouts remain failed checks instead of becoming
   an ownership pause that requires discarding the Tester's report. Missing or
   uncertain cleanup still blocks execution; timeouts never authorize proof reuse.
+- Public verification status now distinguishes a returned command's timeout or
+  error from missing cleanup evidence, without exposing report/output text or
+  granting recovery authority.
 
 ## [0.10.0] - 2026-11-09
 
