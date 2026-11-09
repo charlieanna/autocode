@@ -2740,6 +2740,15 @@ ownership remains held; status does not reconcile it, grant a retry or establish
 test success. Use the displayed supported recovery action and retain interrupted
 receipts separately from fresh verification.
 
+For an admitted execution worker, `verification_obligation.returned_check` exposes
+its returned command's bounded diagnostic fields: result hash, nullable exit code,
+timeout/interruption flags, whether an error was recorded, supervision-error count,
+and the phase/cause/error presence of its hash-bound cleanup receipt. Its `status`
+is `available`, `not_returned`, or `unavailable`; other preparation operations use
+null. Unbound answers expose no diagnostic fields. Command output, report text,
+error text and control tokens are never included. This observation does not
+reconcile the run, permit a retry or establish passing evidence.
+
 ## Connections for clients
 
 Connection setup is a core interface alongside task runs. A client may read

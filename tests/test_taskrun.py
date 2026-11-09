@@ -282,7 +282,11 @@ class RunViewTests(unittest.TestCase):
 
     def test_verification_obligation_is_additive_read_only_projection(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["verification_obligation"])
-        frontier = {"available": False, "reason": "Exact current custody is unavailable"}
+        frontier = {
+            "available": False,
+            "reason": "Exact current custody is unavailable",
+            "returned_check": {"status": "unavailable"},
+        }
         shown = run_view.view({"status": "RUNNING"}, verification_obligation=frontier)
         self.assertEqual(frontier, shown["verification_obligation"])
         frontier["reason"] = "Changed after projection"

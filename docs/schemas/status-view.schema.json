@@ -381,7 +381,36 @@
         },
         "verification": {"type": ["object", "null"]},
         "review_result": {"type": ["object", "null"], "description": "Read-time review inspection, separate from authenticated evidence.workflow_result; null until inspected. Includes recorded outcome/artifact/source binding, freshness and reasons."},
-        "verification_obligation": {"type": ["object", "null"]},
+        "verification_obligation": {
+            "type": ["object", "null"],
+            "properties": {
+                "returned_check": {
+                    "type": ["object", "null"],
+                    "required": ["status"],
+                    "properties": {
+                        "status": {"enum": ["available", "not_returned", "unavailable"]},
+                        "result_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                        "exit_code": {"type": ["integer", "null"]},
+                        "timed_out": {"type": ["boolean", "null"]},
+                        "interrupted": {"type": ["boolean", "null"]},
+                        "has_error": {"type": "boolean"},
+                        "supervision_error_count": {"type": ["integer", "null"], "minimum": 0},
+                        "cleanup": {
+                            "type": "object",
+                            "required": ["receipt_bound", "phase", "cause", "has_error"],
+                            "properties": {
+                                "receipt_bound": {"type": "boolean"},
+                                "phase": {"type": ["string", "null"]},
+                                "cause": {"type": ["string", "null"]},
+                                "has_error": {"type": ["boolean", "null"]}
+                            }
+                        }
+                    },
+                    "if": {"properties": {"status": {"const": "available"}}},
+                    "then": {"required": ["result_sha256", "exit_code", "timed_out", "interrupted", "has_error", "supervision_error_count", "cleanup"]}
+                }
+            }
+        },
         "code_checkpoints": {"type": ["object", "null"]},
         "runner": {"type": ["object", "null"]},
         "runner_check": {"type": ["object", "null"]},
