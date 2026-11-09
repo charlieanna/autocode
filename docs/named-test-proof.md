@@ -389,6 +389,11 @@ gap in another batch member first returns to the Completion Reviewer for
 reassignment within the approved plan. That scope review neither expands the
 Builder's permission nor consumes a Builder repair round; unresolved evidence
 continues to block acceptance.
+A validation-only task likewise returns to the Completion Reviewer when changed
+lines remain unverified: its read-only assignment cannot authorize a Builder
+repair. Review must assign any correction within the approved plan before a
+Builder runs. This handoff preserves the line evidence, milestone obligations,
+attempt history and no-progress counter; it grants no acceptance or new retry.
 Missing project coverage tooling uses demonstrated mutation evidence alone where
 available; otherwise the line remains open for independent judgment. No project
 dependency is installed. Blank/comment-only lines, Python declaration-only lines
