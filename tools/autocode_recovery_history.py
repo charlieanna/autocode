@@ -32,11 +32,16 @@ except ImportError:
 LIMIT = 20  # the newest entries a view carries
 TEXT = 400  # characters per sentence field
 DETAIL = 900  # characters of an Investigator's diagnosis
+_SCHEMA_SUMMARY = "The answer was not in the format AutoCode requires"
 # "Completed terra output was rejected (WHY); attempt archived. ..." keeps only WHY.
 _REJECTED = re.compile(r"^Completed \w+ output was rejected \((?P<why>.+)\)(?:;|\.|$)", re.S)
 # A sentence that tells someone to run something is machinery, not an explanation.
 _COMMAND = re.compile(r"\bautocode\s+[a-z-]+|(?:^|\s)--[a-z]")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+# Schema validation errors: "$: missing x", "$: unexpected fields: a, b", "$.path: reason".
+_SCHEMA_MISSING = re.compile(r"\bmissing\b")
+_SCHEMA_UNEXPECTED = re.compile(r"unexpected fields:\s*([^;]+)")
+_SCHEMA_MORE = re.compile(r"\band\s+(\d+)\s+more\b")
 # autocode_resolver.ACTIONS, as a person reads them.
 _RESOLVER_ACTIONS = {
     "continue": "carry on",
@@ -88,6 +93,40 @@ def _entry(
     return {"id": hashlib.sha256(identity.encode()).hexdigest()[:16], **body}
 
 
+def _summarize_schema(text: str) -> str | None:
+    """A person-readable count of what the schema rejected, never the raw ``$:`` clauses."""
+    items = [item.strip() for item in text.split(";") if item.strip()]
+    missing = 0
+    unexpected = 0
+    other = 0
+    for item in items:
+        more = _SCHEMA_MORE.search(item)
+        if more and not _SCHEMA_MISSING.search(item) and not _SCHEMA_UNEXPECTED.search(item):
+            other += int(more.group(1))
+        elif _SCHEMA_MISSING.search(item):
+            missing += 1
+        else:
+            fields = _SCHEMA_UNEXPECTED.search(item)
+            if fields:
+                unexpected += len([f for f in fields.group(1).split(",") if f.strip()])
+            else:
+                other += 1
+    if not (missing or unexpected or other):
+        return None
+    parts = []
+    if missing:
+        parts.append(f"{missing} required part{'s' if missing != 1 else ''} missing")
+    if unexpected:
+        parts.append(f"{unexpected} part{'s' if unexpected != 1 else ''} it does not take")
+    if other:
+        parts.append(f"{other} other mismatch{'es' if other != 1 else ''}")
+    return f"{_SCHEMA_SUMMARY}: {', '.join(parts)}."
+
+
+def _is_schema_rejection(text: str) -> bool:
+    return "$:" in text or "$." in text
+
+
 def _plain(text, limit=TEXT):
     """Redacted, bounded prose without a sentence that names an internal command."""
     if not isinstance(text, str) or not text.strip():
@@ -96,6 +135,10 @@ def _plain(text, limit=TEXT):
     match = _REJECTED.match(text)
     if match:
         text = match["why"]
+    if _is_schema_rejection(text):
+        summary = _summarize_schema(text)
+        if summary:
+            return summary
     kept = [sentence for sentence in _SENTENCE.split(text) if not _COMMAND.search(sentence)]
     text = util.redact(" ".join(kept).strip())
     if not text:
