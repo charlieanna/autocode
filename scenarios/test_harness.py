@@ -6470,7 +6470,8 @@ class PlanCompareTests(unittest.TestCase):
             "tiny-greeting": (["requirements_gather", plan, review], [plan, review]),
             "vague-refunds": (["requirements_gather", plan, review], [plan, review]),
             "diamond-four-milestones": (
-                ["requirements_gather", plan, review, revise, review],
+                # This larger brief takes the initial triage and then the full Requirements pass.
+                ["requirements_gather", "requirements_gather", plan, review, revise, review],
                 [plan, review, revise, review],
             ),
             # The Planner sends feedback that changes the product back to Requirements.
@@ -6501,7 +6502,11 @@ class PlanCompareTests(unittest.TestCase):
                     today["error"] or adaptive["error"],
                 )
                 self.assertEqual(first, adaptive["model_stages"])
-                self.assertEqual(5, today["model_calls"], today["model_stages"])
+                today_stages = ["requirements_gather", plan, review, revise, "astra_finalize"]
+                if case_id == "diamond-four-milestones":
+                    today_stages.insert(0, "requirements_gather")
+                self.assertEqual(today_stages, today["model_stages"])
+                self.assertEqual(len(today_stages), today["model_calls"])
                 self.assertTrue(adaptive["final_plan"])
                 self.assertEqual(after, adaptive["feedback_round"]["model_stages"])
                 self.assertEqual(
