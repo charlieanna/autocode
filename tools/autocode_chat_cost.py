@@ -261,11 +261,11 @@ def details(view: dict) -> str:
         lines.extend(["", "Cost by job"])
         for row in by_job:
             job_attempts = _count(row.get("attempts"))
-            share = _number(row.get("share"))
+            share = row.get("share")
             parts = [_money(row.get("spent_usd"))]
             if job_attempts:
                 parts.append(f"{job_attempts} attempt{'s' if job_attempts != 1 else ''}")
-            if share:
+            if share is not None and _number(share):
                 parts.append(f"{share * 100:.0f}%")
             lines.append(f"{_label(row.get('job'), 'Unknown')}: " + ", ".join(parts))
     # Turns and time per stage (#2996).
