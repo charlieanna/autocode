@@ -489,7 +489,11 @@ def plan_for_approval(view: dict) -> dict | None:
     # carries milestones or an end-to-end flow they must be showable, never silently dropped.
     milestones = plan.get("milestones", [])
     if not isinstance(milestones, list) or not all(
-        isinstance(row, dict) and isinstance(row.get("id"), str) and isinstance(row.get("objective"), str)
+        isinstance(row, dict)
+        and isinstance(row.get("id"), str)
+        and isinstance(row.get("objective"), str)
+        and isinstance(row.get("acceptance_criteria", []), list)
+        and all(isinstance(criterion, str) for criterion in row.get("acceptance_criteria", []))
         for row in milestones
     ):
         return None
