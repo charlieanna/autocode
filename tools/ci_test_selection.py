@@ -832,6 +832,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tools/autocode_configure.py", "tools/autocode_requirements_triage.py"),
         ("tests.test_requirements_triage",),
     ),
+    (("tools/autocode_requirements_triage.py",), ("tests.test_component_design",)),
     (
         (
             "tools/autocode_job_failure.py",
@@ -876,12 +877,13 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
             "tools/autocode_validation_exhaustion_recovery.py",
+            "tools/autocode_validation_scope_recovery.py",
             "tools/autocode_validation_rounds.py",
             "tools/autocode_resolver_human.py",
             "tools/autocode_action_authority.py",
             "tools/autocode_run_view.py",
         ),
-        ("tests.test_validation_recovery_cli",),
+        ("tests.test_validation_recovery_cli", "tests.test_validation_scope_recovery_cli"),
     ),
     (
         (

@@ -102,7 +102,8 @@ test("where the reference client answers for a person, this client asks one", ()
   assert.ok(item.expect.decidedTo?.includes("q-1=the existing lock"), "the reference filled the proposed default");
 
   const parsed = parseNamedCommand(item.nextCommand, { runDir: item.runDir, workspace: item.workspace });
-  assert.deepEqual(parsed.env, { AUTOCODE_RESOLVER_TOKEN: "r7:beef" });
+  // #2958: the named answer command reads this run's own token, so the client parses no credential.
+  assert.deepEqual(parsed.env, {});
   assert.deepEqual(openDecisions(parsed.argv), [{ questionId: "q-1", placeholder: "ANSWER", kind: "answer" }]);
   assert.throws(() => applyDecisions(parsed.argv, {}), /decision for a person/);
   assert.deepEqual(applyDecisions(parsed.argv, { "q-1": "the tenant lock" }), [

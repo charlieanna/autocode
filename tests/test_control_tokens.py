@@ -70,6 +70,33 @@ class ControlTokenTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     tokens.resolve_placeholders(argparse.Namespace(approve_goal="-"), argparse.ArgumentParser(), env)
 
+    def test_a_shown_resolver_selector_defers_to_the_run_it_names(self):
+        # #2958: the command a person is shown names the run, and autocode_run_actions reads the
+        # token back from that run, so parsing must not demand an environment value for `-`. An
+        # environment value, when there is one, still resolves.
+        args = argparse.Namespace(resolver_token="-", run_dir="/run")
+        tokens.resolve_placeholders(args, argparse.ArgumentParser(), {})
+        self.assertEqual("-", args.resolver_token)
+        args = argparse.Namespace(resolver_token="-", run_dir="/run")
+        tokens.resolve_placeholders(args, argparse.ArgumentParser(), {"AUTOCODE_RESOLVER_TOKEN": "digest"})
+        self.assertEqual("digest", args.resolver_token)
+
+    def test_the_deferral_never_reaches_another_token_field_or_a_command_without_a_run(self):
+        # Only the selector of a command that names a run is deferred; every other `-` still needs
+        # its environment value, so an absent token never becomes an implied approval.
+        for description, namespace, extra in (
+            ("no run named", argparse.Namespace(resolver_token="-", run_dir=None), {}),
+            (
+                "a field table of its own",
+                argparse.Namespace(resolver_token="-", run_dir="/run"),
+                {"fields": {"resolver_token": "AUTOCODE_RESOLVER_TOKEN"}},
+            ),
+            ("another token", argparse.Namespace(review_token="-", run_dir="/run"), {}),
+        ):
+            with self.subTest(why=description), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    tokens.resolve_placeholders(namespace, argparse.ArgumentParser(), {}, **extra)
+
     def test_only_actual_subcommands_use_generic_token_options(self):
         for cmd in (
             ["--feedback", "checkpoint", "--token", "text"],

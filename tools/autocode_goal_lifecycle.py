@@ -714,10 +714,9 @@ def render(state: RunState, run_dir=None, *, details=True):
                     lines.append("  Unissued proposal (not an actionable question):")
                 lines += [f"  [{question['id']}] {question['question']}", f"    Why: {question['why']}"]
             if public:
-                lines += [
-                    f"Resolver request ID: {public['request_id']}",
-                    f"Resolver request token: {public['request_token']}",
-                ]
+                # The request is named so it can be answered; its token is read back from the run
+                # by `--resolver-token -`, so no printed line carries the value (#2958).
+                lines.append(f"Resolver request ID: {public['request_id']}")
             return "\n".join(lines)
         return "No contract yet; resume to interview with the Requirements Gatherer."
     body = contract["body"]
@@ -727,7 +726,9 @@ def render(state: RunState, run_dir=None, *, details=True):
     if asks_approval:
         lines.append(approval_view.intro(contract["revision"]))
     if public:
-        lines += [f"AutoResolver request: {public['request_id']}", f"AutoResolver token: {public['request_token']}"]
+        # The request ID names what to answer; `--resolver-token -` reads the token from this run,
+        # so the brief screen never prints the value into a terminal or a log (#2958).
+        lines.append(f"AutoResolver request: {public['request_id']}")
     if asks_approval:
         lines += [f"Approval token: {token(contract)}", approval_view.token_note()]
     if workflows.approval_note(state):
@@ -902,7 +903,9 @@ def render(state: RunState, run_dir=None, *, details=True):
         elif public["request"]:
             lines += ["", "Decision needed:", json.dumps(public["request"], indent=2)]
         lines += [f"Answer ID: {q['id']} - {q['question']}" for q in public["questions"]]
-        lines += [f"Resolver request ID: {public['request_id']}", f"Resolver request token: {public['request_token']}"]
+        # `--resolver-token -` reads the token from this run, so the request ID names it and
+        # nothing printed here carries the value (#2958).
+        lines.append(f"Resolver request ID: {public['request_id']}")
     if state.get("planning"):
         total = state["planning"]["astra_calls"]
         recovered = state["planning"].get("recovery_review_calls_used", 0)

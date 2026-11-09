@@ -83,6 +83,8 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         checkpoint=False,
         no_site=False,
         repaired_review=False,
+        validation_only=False,
+        review_correction=True,
     ):
         temporary = tempfile.TemporaryDirectory(prefix="changed-code-cli-")
         self.addCleanup(temporary.cleanup)
@@ -130,6 +132,8 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
             "CHANGED_CODE_TRACE": str(self.trace),
             "CHANGED_CODE_STRONG": str(self.strong),
             "CHANGED_CODE_WAIT_FOR_INVESTIGATOR": "1" if wait_for_investigator else "0",
+            "CHANGED_CODE_VALIDATION_ONLY": "1" if validation_only else "0",
+            "CHANGED_CODE_REVIEW_CORRECTION": "1" if review_correction else "0",
         }
         paths = self.env["PATH"].split(os.pathsep)
         self.env["PATH"] = os.pathsep.join([paths[0], str(Path(sys.executable).parent), *paths[1:]])
@@ -142,10 +146,14 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
                 if stage == "investigate_stuck" and not data.get("report_repair"):
                     failure = data.get("builder_failure") or {}
                     changed = (failure.get("diagnosis") or {}).get("changed_code_evidence") or {}
-                    if changed.get("status") == "UNVERIFIED" and any(
+                    measured_gap = changed.get("status") == "UNVERIFIED" and any(
                         row.get("path") == "calc.py" and row.get("line") == 5
                         and row.get("status") == "reason_required"
-                        for row in changed.get("obligations", [])):
+                        for row in changed.get("obligations", []))
+                    validation_repair = os.environ["CHANGED_CODE_VALIDATION_ONLY"] == "1" and (
+                        (data.get("current_task") or {}).get("kind") == "validate"
+                        and "self.assertEqual(1, adjust(-1))" not in Path("tests/test_limits.py").read_text())
+                    if measured_gap or validation_repair:
                         return {
                             "diagnosis": "The saved mutation proof shows that the lower return at calc.py:5 "
                                          "can change without failing the selected regression test.",
@@ -168,7 +176,29 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
                         return {"validation": _ordinary_report_for(stage, data),
                                 "decision": _ordinary_report_for("astra_review", data),
                                 "consult_sol": {"requested": False, "question": "", "reason": ""}}
-                    return _ordinary_report_for(stage, data)
+                    result = _ordinary_report_for(stage, data)
+                    if os.environ["CHANGED_CODE_VALIDATION_ONLY"] == "1":
+                        contract = result.get("contract") or {}
+                        if contract.get("initial_task"):
+                            contract["initial_task"]["kind"] = "validate"
+                            contract["initial_task"]["requirements"] = [
+                                "Validate the retained implementation without changing any file."]
+                        reviewed = (data.get("regression_proof") or {}).get("changed_code_evidence") or {}
+                        correction = (stage == "astra_review" and reviewed.get("status") == "UNVERIFIED") or (
+                            stage == "astra_resolve" and (data.get("current_task") or {}).get("kind") == "validate")
+                        if correction and os.environ["CHANGED_CODE_REVIEW_CORRECTION"] == "1":
+                            result.update(status="REWORK", next_objective=FIXTURE_GUIDANCE,
+                                          affected_paths=["tests/test_limits.py"])
+                            if stage == "astra_resolve":
+                                result["diagnosis"] = (
+                                    "The retained implementation lacks lower-bound assertions; "
+                                    "assign the approved regression tests as implementation instead of read-only validation.")
+                            result["next_task"] = {
+                                "kind": "implement", "milestone_id": (data.get("current_task") or {}).get("milestone_id", ""),
+                                "requirements": [FIXTURE_GUIDANCE],
+                                "acceptance_criteria": [row["id"] for row in result["acceptance_criteria"]],
+                                "validation_plan": [CONFIG["check"]], "findings": []}
+                    return result
                 finally:
                     CONFIG["reference"] = original
         """).replace("GUIDANCE_LITERAL", repr(GUIDANCE))
@@ -269,6 +299,10 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.routes = view["routes"]
         self.run.approve_plan(self.approved_token)
         self.configure_execution_fixture()
+        if validation_only:
+            # Model a retained candidate awaiting its first independent review.
+            # The public plan assigns validation; no private run state is edited.
+            shutil.copytree(self.weak, self.workspace, dirs_exist_ok=True)
         return self.run.advance_until_input()
 
     def configure_execution_fixture(self):
@@ -395,6 +429,16 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertEqual([False, True], [row["repair"] for row in testers], self.diagnostic())
         self.assertIn("calc.py:2", testers[1]["error"])
         self.assertIn("no mutation outcome", testers[1]["error"])
+        # An incomplete report is already rejectable before any clean replay. Its
+        # repaired report must still execute that independent verification.
+        replay = self.run.run_dir / "check-replay"
+        original_stem = Path(testers[0]["output"]).stem
+        repaired_stem = Path(testers[1]["output"]).stem
+        self.assertFalse(list(replay.glob(original_stem + "-*")), "incomplete report spent a clean replay")
+        self.assertTrue(list(replay.glob(repaired_stem + "-*")), "repaired report bypassed clean verification")
+        self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
+        self.assertEqual(self.approved_token, view["approved_contract"]["token"])
+        self.assertEqual(self.routes, view["routes"])
         changed = view["verification"]["changed_code_evidence"]
         self.assertEqual("PASS", changed["status"], changed)
         settled = next(row for row in changed["obligations"] if row["line"] == 2)
@@ -404,6 +448,37 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
 
     def test_unexecuted_branch_returns_exact_line_to_builder_then_completes(self):
         self.assert_repaired(self.start())
+
+    def test_validation_only_evidence_gap_gets_a_reviewed_repair_before_a_builder(self):
+        view = self.start(validation_only=True)
+        attempts = [row for row in self.attempts() if not row["repair"]]
+        builders = [row for row in attempts if row["stage"] == "terra"]
+        self.assertTrue(builders, self.diagnostic())
+        self.assertEqual("implement", builders[0]["handoff"]["current_task"]["kind"], self.diagnostic())
+        before_builder = attempts[: attempts.index(builders[0])]
+        self.assertTrue(any(row["stage"] == "astra_review" for row in before_builder), self.diagnostic())
+        self.assertEqual(1, len(builders), self.diagnostic())
+        self.assertEqual("TASK_COMPLETE", view["status"], self.diagnostic())
+        self.assertEqual(self.approved_token, view["approved_contract"]["token"])
+        self.assertEqual(self.routes, {role: view["routes"][role] for role in self.routes})
+        # Resolver is a new session on the existing Planner route, not a change
+        # to any of the models or reasoning levels the run already selected.
+        for field in ("model", "engine", "reasoning_effort", "provider", "account"):
+            self.assertEqual(self.routes["astra"][field], view["routes"]["resolver"][field], field)
+        self.assertEqual("derived", view["routes"]["resolver"]["origin"])
+        self.assertEqual("PASS", view["verification"]["changed_code_evidence"]["status"])
+        self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
+        self.assertEqual(STRONG_TEST, (self.workspace / "tests/test_limits.py").read_text())
+
+    def test_scope_review_cannot_complete_with_unresolved_changed_lines(self):
+        view = self.start(validation_only=True, review_correction=False)
+        self.assertEqual("PAUSED_COMPLETION_GATE", view["status"], self.diagnostic())
+        self.assertFalse(view["done"])
+        self.assertEqual("UNVERIFIED", view["verification"]["changed_code_evidence"]["status"])
+        self.assertEqual(self.approved_token, view["approved_contract"]["token"])
+        self.assertEqual(self.routes, view["routes"])
+        self.assertFalse(any(row["stage"] == "terra" for row in self.attempts()), self.diagnostic())
+        self.assertEqual(WEAK_TEST, (self.workspace / "tests/test_limits.py").read_text())
 
     def test_executing_a_branch_without_asserting_its_result_is_not_proof(self):
         self.assert_repaired(self.start(ignored_result=True))

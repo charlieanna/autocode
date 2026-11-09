@@ -177,6 +177,72 @@ test("a revised plan is not the plan the token approves", () => {
   assert.equal(planForApproval({ ...current, displayed_plan: undefined }), null);
 });
 
+function approvalProjection(terms: Record<string, unknown> = {}) {
+  return readStatusPayload(envelope({
+    status: "AWAITING_GOAL_APPROVAL", done: false,
+    needs: { kind: "approve_plan", token: "plan-7" },
+    displayed_plan: {
+      token: "plan-7",
+      acceptance_criteria: [{ id: "AC1", criterion: "Print Hello", verification_method: "test: hello", human_review: false }],
+      constraints: [], permission_boundaries: [], scope_exclusions: [],
+      ...terms,
+    },
+  }));
+}
+
+test("approval retains allowed legacy and complete plan projections without dropping fields", () => {
+  for (const terms of [
+    {},
+    { milestones: [], end_to_end_flow: [] },
+    { milestones: [{ id: "M1", objective: "Print Hello" }] },
+    { end_to_end_flow: ["Run the tool"] },
+    { milestones: [{ id: "", objective: "", acceptance_criteria: [] }], end_to_end_flow: [""] },
+    {
+      milestones: [{ id: "M1", objective: "Print Hello", acceptance_criteria: ["AC1"], extra: { retained: true } }],
+      end_to_end_flow: ["Run the tool", "Read Hello"], extra: { retained: true },
+    },
+  ]) {
+    const current = approvalProjection(terms);
+    assert.equal(planForApproval(current), current.displayed_plan, JSON.stringify(terms));
+    assert.deepEqual(planForApproval(current), current.displayed_plan);
+  }
+});
+
+test("approval refuses present milestones that cannot describe the full plan", () => {
+  for (const milestones of [
+    null, false, "M1", {}, [null], ["M1"], [[]],
+    [{ id: "M1" }], [{ objective: "Print Hello" }],
+    [{ id: 1, objective: "Print Hello" }], [{ id: "M1", objective: false }],
+  ]) {
+    assert.equal(planForApproval(approvalProjection({ milestones })), null, JSON.stringify(milestones));
+  }
+});
+
+test("approval refuses malformed optional milestone criterion references", () => {
+  for (const acceptance_criteria of [null, false, "AC1", {}, [null], [1], [{}]]) {
+    const milestones = [{ id: "M1", objective: "Print Hello", acceptance_criteria }];
+    assert.equal(planForApproval(approvalProjection({ milestones })), null, JSON.stringify(acceptance_criteria));
+  }
+});
+
+test("approval refuses present end-to-end flows that cannot be displayed", () => {
+  for (const end_to_end_flow of [null, false, "Run the tool", {}, [null], [1], [{}], [[]]]) {
+    assert.equal(planForApproval(approvalProjection({ end_to_end_flow })), null, JSON.stringify(end_to_end_flow));
+  }
+});
+
+test("a complete plan still needs its exact displayed approval token", () => {
+  const complete = {
+    milestones: [{ id: "M1", objective: "Print Hello", acceptance_criteria: ["AC1"] }],
+    end_to_end_flow: ["Run the tool", "Read Hello"],
+  };
+  for (const token of [undefined, "", "plan-8"]) {
+    assert.equal(planForApproval(approvalProjection({ ...complete, token })), null);
+    const current = approvalProjection(complete);
+    current.needs = { kind: "approve_plan", token };
+    assert.equal(planForApproval(current), null);
+  }
+});
 
 test("the run-details usage line uses public cap accounting even without token usage", () => {
   const view = readStatusPayload(envelope({ status: "RUNNING", done: false,

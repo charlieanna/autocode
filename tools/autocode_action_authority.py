@@ -214,7 +214,7 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         )
     ):
         runner.write_json(state_path, state)
-        print(state["stop_reason"])
+        print(state.get("stop_reason") or state.get("next_action"))
         return 2
     if (
         args.resume_paused

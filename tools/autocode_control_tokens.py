@@ -26,12 +26,26 @@ CONTROL_TOKEN_ENV_VARS = frozenset(
 
 def resolve_placeholders(args, parser, environ: Mapping[str, str], *, fields=TOKEN_ENV_VARS) -> None:
     """Resolve explicit selectors only; ambient variables never select an action."""
+    # An AutoResolver token is the digest of the saved run's own request, so a `-` selector on a
+    # command that names the run needs no environment value: autocode_run_actions.handle reads it
+    # back after loading, and no shown command carries the value (#2958). An environment value,
+    # when there is one, still resolves here.
+    deferred = (
+        fields is TOKEN_ENV_VARS
+        and getattr(args, "resolver_token", None) == "-"
+        and not environ.get(TOKEN_ENV_VARS["resolver_token"])
+        and bool(getattr(args, "run_dir", None))
+    )
+    if deferred:
+        args.resolver_token = None
     for attribute, variable in fields.items():
         if getattr(args, attribute, None) == "-":
             value = environ.get(variable)
             if not value:
                 parser.error(f"token value `-` requires {variable} in the environment")
             setattr(args, attribute, value)
+    if deferred:
+        args.resolver_token = "-"
 
 
 def validate_recovery_selector(args, parser) -> None:

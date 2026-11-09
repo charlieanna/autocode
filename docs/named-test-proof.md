@@ -381,6 +381,12 @@ the runner maps to the same exact line, so a model never retypes 64-hex IDs. An 
 exception. Empty survivor lists and the old six-site sample never prove that
 all changed lines were tested.
 
+A PASS that omits an offered Tester decision for a line with no mutation
+outcome is returned for report repair before clean verification commands run.
+This early check uses the current source and offered gap bindings; missing or
+stale bindings cannot establish such an omission. Complete and repaired reports
+still take the fresh verification and exact evidence-admission gates.
+
 The core returns unresolved exact lines to Builder for two bounded repair rounds,
 then uses its existing Investigator path and saved run limits. It records those
 decisions and the fallback in the public verification view and final report.
@@ -389,6 +395,11 @@ gap in another batch member first returns to the Completion Reviewer for
 reassignment within the approved plan. That scope review neither expands the
 Builder's permission nor consumes a Builder repair round; unresolved evidence
 continues to block acceptance.
+A validation-only task likewise returns to the Completion Reviewer when changed
+lines remain unverified: its read-only assignment cannot authorize a Builder
+repair. Review must assign any correction within the approved plan before a
+Builder runs. This handoff preserves the line evidence, milestone obligations,
+attempt history and no-progress counter; it grants no acceptance or new retry.
 Missing project coverage tooling uses demonstrated mutation evidence alone where
 available; otherwise the line remains open for independent judgment. No project
 dependency is installed. Blank/comment-only lines, Python declaration-only lines
@@ -501,3 +512,13 @@ The correction remains in full historical custody. Planning packets and reviewer
 handoffs carry only bounded counts, reasons, binding hashes and archive references;
 they do not repeat entire original inventories. The public recovery history explains
 the correction, and the evidence report cites its original and corrected inventories.
+
+### Failed replay work
+
+When a reported or approved check fails, times out, cannot execute, or lacks
+complete owned-command evidence, its replay is rejected immediately. The saved
+FAIL receipt retains completed checks and lists later checks and acceptance
+observations under `not_run`; those observations remain unverified, not passed.
+A corrected report must still satisfy every prescribed check and independent
+acceptance gate. Deadlines, required repetitions and proof-reuse rules do not
+change. Work already completed before the failure remains retained.
