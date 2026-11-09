@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A failed verification replay stops before later checks and acceptance observations,
+  retaining the failure and listing the work not run. A passing replay still
+  requires every check and every acceptance gate.
+
 - The agent-step review regression now exercises Requirements and exact plan
   approval, and checks current findings evidence while preserving the reviewed
   product files, matching the unified pipeline.
