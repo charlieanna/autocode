@@ -1160,6 +1160,15 @@ class ChatClient:
                     "total": self._totals.get(run),
                 }
             )
+        # Same-brief chats share a title; append the run's short id so tabs are distinguishable.
+        seen: dict[str, int] = {}
+        for row in rows:
+            key = row["title"]
+            seen[key] = seen.get(key, 0) + 1
+        if any(count > 1 for count in seen.values()):
+            for row in rows:
+                if seen[row["title"]] > 1:
+                    row["title"] = f"{row['title']} ({Path(row['run']).name[-6:]})"
         return rows
 
     def show_tabs(self) -> None:

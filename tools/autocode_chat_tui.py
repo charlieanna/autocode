@@ -746,7 +746,8 @@ def window(text: str, cursor: int, width: int) -> tuple[str, int]:
 
 def composer_rows(text: str, cursor: int, width: int, most: int) -> tuple[list[str], int, int]:
     """``text`` as the reply box shows it: wrapped at ``width`` cells and at its own line breaks, at
-    most ``most`` rows kept around the cursor; with the cursor's row and column among those rows."""
+    most ``most`` rows kept around the cursor; with the cursor's row and column among those rows.
+    Breaks at spaces when possible, as ``wrap`` does, so words are not split mid-word."""
     width, most = max(1, width), max(1, most)
     rows: list[str] = []
     at_row = at_col = 0
@@ -763,10 +764,18 @@ def composer_rows(text: str, cursor: int, width: int, most: int) -> tuple[list[s
         else:
             cells = _char_width(char)
             if used + cells > width:
-                rows.append(row)
-                row, used = "", 0
+                # Break at the last space in this row if one exists, so words stay whole.
+                space = row.rfind(" ")
+                if space > 0:
+                    overflow = row[space:]  # keep the space at the start of the next row
+                    row = row[:space]
+                    rows.append(row)
+                    row, used = overflow, sum(_char_width(c) for c in overflow)
+                else:
+                    rows.append(row)
+                    row, used = "", 0
                 if index == cursor:
-                    at_row, at_col = len(rows), 0
+                    at_row, at_col = len(rows), used
             row += char
             used += cells
     if at_row >= len(rows):
@@ -1814,6 +1823,9 @@ class ChatTUI:
         if self._live_visible(rows, cols) and panel_end - header_rows >= 10:
             live_start = panel_end - max(4, int((panel_end - header_rows) * LIVE_SHARE))
         body_width = width - panel_width - (2 if panel_width else 0)
+        # A reading measure: prose is hard to scan past ~120 columns, so the transcript
+        # stays within a comfortable width and the screen uses the rest for the panel.
+        body_width = min(body_width, 120)
         notes = []
         notes_start = None
         room = panel_end - header_rows
@@ -1941,7 +1953,7 @@ class ChatTUI:
             return "task " + meter.total_text(task, show_pending=True)
         here = meter.run_total(self._view)
         if len(self._tabs) < 2:
-            return meter.total_text(here)
+            return "chat " + (meter.total_text(here) or "$0")
         totals = [here if row.get("current") else row.get("total") for row in self._tabs]
         session = meter.total_text(meter.session_total(totals))
         if not session:
