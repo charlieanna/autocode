@@ -74,7 +74,9 @@ def command_framework(command, *, test_report=None):
     """Recognize a plain runner invocation, never infer coverage from similar text."""
     if test_report is not None:
         return junit_tests.JUnitFramework(command, test_report)
-    invocation = python_tests.parse(command)
+    # Execution adds unittest verbosity so it can retain named outcomes. Choose
+    # that same collector before falling back to repository framework detection.
+    invocation = python_tests.parse(python_tests.verbose_unittest(command))
     if invocation:
         return Framework(invocation.kind, command, python=invocation.python, invocation=invocation)
     invocation = node_tests.parse(command)
