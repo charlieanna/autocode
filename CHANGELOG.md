@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Saved validation-only tasks misrouted to Builder can return to scope review
+  through the normal resume action, without asking a person to raise the
+  no-progress limit or changing retained counters, evidence or approved scope.
+
 - Python clients refuse malformed optional milestone criterion references in
   approval projections, preserving valid and legacy plans (#3026).
 - The independent conformance client refuses malformed named-action quoting and missing
