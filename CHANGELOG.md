@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Python clients refuse malformed optional milestone criterion references in
+  approval projections, preserving valid and legacy plans (#3026).
 - The independent conformance client refuses malformed named-action quoting and missing
   run/workspace paths as contract gaps before execution, preserving exact path binding (#2969).
 - VS Code refuses approval projections with malformed milestone or end-to-end

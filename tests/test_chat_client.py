@@ -355,6 +355,51 @@ class NamedActionTests(unittest.TestCase):
             with self.subTest(malformed=sorted(malformed)[:1]):
                 self.assertIsNone(actions.plan_for_approval(view | {"displayed_plan": malformed}))
 
+    def test_milestone_criterion_references_refuse_malformed_present_values(self):
+        plan = {
+            "token": "r2:h",
+            "acceptance_criteria": [{"id": "C1", "criterion": "c", "verification_method": "m", "human_review": False}],
+            "constraints": [],
+            "permission_boundaries": [],
+        }
+        for references in (None, False, "C1", {}, [None], [1], [{}], ["C1", 7]):
+            with self.subTest(references=references):
+                shown = plan | {
+                    "milestones": [{"id": "M1", "objective": "Finish local gates", "acceptance_criteria": references}]
+                }
+                view = {"needs": {"kind": "approve_plan", "token": "r2:h"}, "displayed_plan": shown}
+                self.assertIsNone(actions.plan_for_approval(view))
+
+    def test_optional_milestone_references_preserve_the_plan_and_exact_token(self):
+        for terms in ({}, {"acceptance_criteria": []}, {"acceptance_criteria": [""]}, {"acceptance_criteria": ["C1"]}):
+            with self.subTest(terms=terms):
+                plan = {
+                    "token": "r2:h",
+                    "acceptance_criteria": [
+                        {"id": "C1", "criterion": "c", "verification_method": "m", "human_review": False}
+                    ],
+                    "constraints": [],
+                    "permission_boundaries": [],
+                    "milestones": [{"id": "", "objective": "", "future": {"keep": True}, **terms}],
+                    "end_to_end_flow": [],
+                    "future": {"keep": True},
+                }
+                original = json.loads(json.dumps(plan))
+                view = {"needs": {"kind": "approve_plan", "token": "r2:h"}, "displayed_plan": plan}
+                self.assertIs(plan, actions.plan_for_approval(view))
+                self.assertEqual(original, plan)
+                for token in (None, "", "r3:h"):
+                    self.assertIsNone(
+                        actions.plan_for_approval(view | {"needs": {"kind": "approve_plan", "token": token}})
+                    )
+                    self.assertIsNone(actions.plan_for_approval(view | {"displayed_plan": plan | {"token": token}}))
+                self.assertIsNone(actions.plan_for_approval(view | {"needs": {"kind": "approve_plan"}}))
+                self.assertIsNone(
+                    actions.plan_for_approval(
+                        view | {"displayed_plan": {key: value for key, value in plan.items() if key != "token"}}
+                    )
+                )
+
     def test_render_plan_shows_the_completion_order_not_only_criteria(self):
         plan = {
             "token": "r2:h",
