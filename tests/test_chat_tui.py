@@ -1148,6 +1148,16 @@ class TabBarTests(unittest.TestCase):
         ui._tab_key("next", asking=True)
         self.assertEqual([("/tab", "next")], acted)
 
+    def test_ctrl_t_opens_a_new_tab_even_while_a_run_is_active(self):
+        """Ctrl-T opens a new tab; it never disturbs the current run, so it works at any time."""
+        ui = screen_ui()
+        acted = []
+        ui.bind(lambda name, argument: acted.append((name, argument)) or "ok")
+        ui.switch(Path("/p/project"), Path("/p/project/.autocode/runs/r1"))
+        ui._run_open = True
+        self.assertIsNone(ui._tab_key("new", asking=False))
+        self.assertEqual([("/new", "")], acted, "Ctrl-T opens a new tab even while a run works")
+
     def test_before_a_chat_ctrl_t_and_new_say_this_is_already_a_new_chat(self):
         """#1759: both used to answer as if /new could not run here, though the client has the reply."""
         for press in ("ctrl-t", "/new"):
