@@ -60,10 +60,13 @@ class KiloProbeTests(unittest.TestCase):
         self.assertIn("after 1 attempt(s)", str(caught.exception))
 
     def test_a_smaller_outer_budget_is_preserved(self):
-        with probe.capture() as rows, self.assertRaises(probe.KiloProbeTimeout):
-            probe.probe(self.command, self.timeout, seconds=15)
-        self.assertEqual(15, self.clock)
-        self.assertEqual([15], [row["timeout_seconds"] for row in rows])
+        for budget in (0.5, 15):
+            with self.subTest(budget=budget):
+                self.clock = 0
+                with probe.capture() as rows, self.assertRaises(probe.KiloProbeTimeout):
+                    probe.probe(self.command, self.timeout, seconds=budget)
+                self.assertEqual(budget, self.clock)
+                self.assertEqual([budget], [row["timeout_seconds"] for row in rows])
 
     def test_os_errors_and_nonzero_exits_are_never_retried(self):
         missing = FileNotFoundError("missing executable")

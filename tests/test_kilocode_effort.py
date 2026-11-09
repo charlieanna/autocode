@@ -76,11 +76,14 @@ class KiloEffortTests(unittest.TestCase):
                     kilocode.command.env_prep,
                     "preflight_run",
                     return_value=subprocess.CompletedProcess([], 0, self.listing({effort: {}}), ""),
-                ),
+                ) as checked,
             ):
                 argv, _, _ = self.launch(effort)
                 self.assertEqual(effort, argv[argv.index("--variant") + 1])
                 self.assertEqual("fixture/model", argv[argv.index("--model") + 1])
+                self.assertEqual(self.root, checked.call_args.kwargs["cwd"])
+                self.assertEqual(self.env, checked.call_args.args[1])
+                self.assertTrue(checked.call_args.kwargs["require_executable"])
 
     def test_stock_kilo_profile_glm_flags_pass_launch_admission_unchanged(self):
         flags = profiles.flags(profiles.resolve("glm-mimo-kilo"))
