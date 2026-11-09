@@ -67,7 +67,8 @@ def draw(ui, layout, truncate):
         details += " · inventory unavailable; last saved items"
     if summary.get("overflow"):
         details += f" · {summary['overflow']} more; /runs lists all"
-    ui._put(first + 1, 0, truncate(details, width), ui._style("dim"))
+    if bottom > first + 1:
+        ui._put(first + 1, 0, truncate(details, width), ui._style("dim"))
     room = max(0, bottom - first - 4)
     ui._attention_top = min(ui._attention_top, menu.selected)
     if room and menu.selected >= ui._attention_top + room:
@@ -82,10 +83,20 @@ def draw(ui, layout, truncate):
             ui._style("brand" if number == menu.selected else "plain"),
         )
     if not menu.rows:
+        if bottom > first + 2:
+            ui._put(
+                first + 2,
+                0,
+                truncate("No current saved alerts. Discovery continues in the background.", width),
+                ui._style("dim"),
+            )
+    elif not room and bottom > first + 2:
+        # Alerts exist but the conversation area is too short to show even one: say so,
+        # instead of an empty drawer whose badge still counts them.
         ui._put(
             first + 2,
             0,
-            truncate("No current saved alerts. Discovery continues in the background.", width),
+            truncate("Screen too short to show the alerts; r refreshes, Esc returns to the draft.", width),
             ui._style("dim"),
         )
     if bottom > first + 2:

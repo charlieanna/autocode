@@ -54,5 +54,6 @@ def draw(ui, layout, truncate):
         prefix = "> " if number == menu.selected else "  "
         style = "brand" if number == menu.selected else ("plain" if available else "dim")
         ui._put(first + 1 + offset, 0, truncate(prefix + label, width), ui._style(style))
-    for offset, line in enumerate(below[-max(0, bottom - first - 1) :]):
-        ui._put(max(first + 1, bottom - len(below)) + offset, 0, truncate(line, width), ui._style("dim"))
+    shown = below[-(bottom - first - 1) :] if bottom - first > 1 else []  # -0 would keep the whole block
+    for offset, line in enumerate(shown):
+        ui._put(bottom - len(shown) + offset, 0, truncate(line, width), ui._style("dim"))

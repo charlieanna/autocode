@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_chat_setup as setup
 
@@ -118,6 +119,19 @@ class SavedChoiceTests(unittest.TestCase):
             (Path(folder) / ".autocode").mkdir()
             (Path(folder) / ".autocode" / setup.SETTINGS_FILE).write_text('{"options": "--engine claude"}')
             self.assertEqual(setup.NewChat(), setup.NewChat.load(Path(folder)))
+
+    def test_a_save_that_cannot_finish_leaves_the_saved_choice_whole(self):
+        # The choice lands by rename or not at all: a crash mid-save (or two chats in one
+        # project) must not leave the project's saved mode and engine half-written or gone.
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / ".autocode").mkdir()
+            setup.NewChat("plan", ["--engine", "claude"]).save(Path(folder))
+            with mock.patch("autocode_util.os.replace", side_effect=OSError("disk full")):
+                self.assertFalse(setup.NewChat("other", []).save(Path(folder)))
+            self.assertEqual(setup.NewChat("plan", ["--engine", "claude"]), setup.NewChat.load(Path(folder)))
+            self.assertEqual(
+                [setup.SETTINGS_FILE], sorted(path.name for path in (Path(folder) / ".autocode").iterdir())
+            )
 
 
 class ListingTests(unittest.TestCase):

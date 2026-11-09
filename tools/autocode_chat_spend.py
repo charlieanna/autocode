@@ -21,7 +21,10 @@ def _rows(value) -> list[dict]:
 
 
 def _number(value) -> bool:
-    return type(value) in (int, float) and math.isfinite(value) and value >= 0
+    try:
+        return type(value) in (int, float) and math.isfinite(value) and value >= 0
+    except OverflowError:  # an integer too large for a float, as autocode_chat_cost._number guards
+        return False
 
 
 def _money(value) -> str:
