@@ -19,7 +19,7 @@ except ImportError:
     import autocode_python_packaging as packaging
     import autocode_python_tests as python_tests
 
-VERSION = 1
+VERSION = 2
 PRODUCT, TEST, AMBIGUOUS = "product", "test", "ambiguous"
 TEST_DIRS = frozenset({"tests", "__tests__", "__snapshots__", "testdata", "test_data"})
 
@@ -34,16 +34,23 @@ def _declares(source):
         nodes = ast.parse(source).body
     except (SyntaxError, TypeError, ValueError):
         return False
-    return python_tests.unittest_package(source) or any(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test")
-        or isinstance(node, ast.ClassDef)
-        and node.name.startswith("Test")
-        and any(
-            isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name.startswith("test")
-            for child in node.body
+    assertion_oracle = any(
+        isinstance(node, ast.Import) and any(alias.name == "unittest" for alias in node.names) for node in nodes
+    ) and any(isinstance(node, ast.Assert) for node in nodes)
+    return (
+        assertion_oracle
+        or python_tests.unittest_package(source)
+        or any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test")
+            or isinstance(node, ast.ClassDef)
+            and node.name.startswith("Test")
+            and any(
+                isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name.startswith("test")
+                for child in node.body
+            )
+            for node in nodes
         )
-        for node in nodes
     )
 
 

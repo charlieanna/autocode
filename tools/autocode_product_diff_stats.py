@@ -26,8 +26,12 @@ def summarize(workspace, base, changes, roles, *, staged, git, is_code, binary_l
             else:
                 lines[path] = (len(data.splitlines()), 0)
     tests, source, ambiguous = roles.partition(changes)
-    if ambiguous and not allow_ambiguous:
-        roles.is_test(ambiguous[0])
+    # A directory/non-code inventory entry needs summary accounting, not a
+    # product/test grant. Leave the role map used by proof admission unchanged.
+    source += [path for path in ambiguous if not is_code(path)]
+    unresolved_code = [path for path in ambiguous if is_code(path)]
+    if unresolved_code and not allow_ambiguous:
+        roles.is_test(unresolved_code[0])
     return {
         "files": len(changes),
         "source_files": len(source),

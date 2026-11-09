@@ -35,6 +35,8 @@ PR template asks for an entry here; a change without one is incomplete.
   regression proofs and changed-code checks. Literal original packaging and imports bind
   that role; ambiguous changed files refuse proof. Saved oracle corrections retain genuine
   original test bytes and commands, preserve history, and require fresh proof.
+  Original assertion-only unittest oracles remain protected, while non-code directory
+  summaries cannot grant proof authority; earlier role-policy proofs require refresh.
 
 - Malformed report-edit schema regression coverage now verifies refusal through
   the planning provenance boundary, including invalid JSON and missing structure.

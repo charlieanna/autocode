@@ -67,6 +67,22 @@ class PythonPathRoleTests(unittest.TestCase):
         self.assertEqual(0, stats["test_files"])
         self.assertGreater(stats["source_lines_changed"], 0)
 
+    def test_noncode_directory_statistics_do_not_grant_unknown_python_authority(self):
+        (self.root / "unowned").mkdir()
+        (self.root / "mystery_tests.py").write_text("VALUE=1\n")
+        changes = {"unowned/": "added", "mystery_tests.py": "added"}
+        roles = role_inventory.from_git(self.root, self.base, verify.is_test_path, changes=changes)
+        before = roles.partition(changes)
+        stats = verify.diff_stats(self.root, self.base, changes, roles=roles, allow_ambiguous=True)
+        self.assertEqual(2, stats["files"])
+        self.assertEqual(1, stats["source_files"])
+        self.assertEqual(0, stats["test_files"])
+        self.assertEqual(["unowned/"], stats["non_code_files"])
+        self.assertEqual(before, roles.partition(changes))
+        self.assertEqual(role_policy.AMBIGUOUS, roles.role("mystery_tests.py"))
+        with self.assertRaisesRegex(ValueError, "mystery_tests.py"):
+            verify.diff_stats(self.root, self.base, changes, roles=roles)
+
     def legacy_binding(self):
         run_dir = self.root.parent / "run"
         files = protected_paths.collect(
@@ -251,6 +267,7 @@ class PinnedRolePolicyTests(unittest.TestCase):
     CASE = (
         "import unittest\nclass Checks(unittest.TestCase):\n    def test_value(self):\n        self.assertTrue(True)\n"
     )
+    ASSERTION = "import unittest\nassert 2 + 2 == 4\n"
 
     def roles(self, sources, *, candidates=None, links=None):
         return role_policy.build(sources, sources.__getitem__, verify.is_test_path, candidates=candidates, links=links)
@@ -300,6 +317,25 @@ class PinnedRolePolicyTests(unittest.TestCase):
             self.assertEqual(role_policy.TEST, result.role(path))
             self.assertTrue(result.protected(path))
 
+    def test_original_root_assertion_oracles_keep_their_identity_when_assertions_are_removed(self):
+        result = self.roles({"checks_tests.py": self.ASSERTION}, candidates={"checks_tests.py": "import unittest\n"})
+        self.assertEqual(role_policy.TEST, result.role("checks_tests.py"))
+        self.assertTrue(result.protected("checks_tests.py"))
+        for source in ("assert 2 + 2 == 4\n", "import unittest\nVALUE=1\n"):
+            with self.subTest(source=source):
+                self.assertEqual(role_policy.AMBIGUOUS, self.roles({"checks_tests.py": source}).role("checks_tests.py"))
+
+    def test_assertion_oracles_with_original_runtime_ownership_remain_ambiguous(self):
+        for sources in (
+            {"pyproject.toml": '[tool.setuptools]\npy-modules=["checks_tests"]\n'},
+            {"service.py": "import checks_tests\n"},
+        ):
+            with self.subTest(sources=sources):
+                result = self.roles({**sources, "checks_tests.py": self.ASSERTION})
+                self.assertTrue(result.protected("checks_tests.py"))
+                with self.assertRaisesRegex(ValueError, "ambiguous"):
+                    result.is_test("checks_tests.py")
+
     def test_candidate_metadata_cannot_relabel_original_runtime_as_tests(self):
         path = "pkg/billing_tests.py"
         original = {"pyproject.toml": '[tool.setuptools]\npackages=["pkg"]\n', path: "VALUE=1\n"}
@@ -334,9 +370,10 @@ class PinnedRolePolicyTests(unittest.TestCase):
             {"pyproject.toml": '[tool.setuptools]\npackages=["pkg"]\n', "pkg/billing_tests.py": "VALUE=1\n"},
             {"pkg/billing_tests.py": "VALUE=1\n"},
         ):
-            with self.subTest(packaged="pyproject.toml" in original):
-                result = self.roles(original, candidates={"pkg/billing_tests.py": self.CASE})
-                self.assertEqual(role_policy.AMBIGUOUS, result.role("pkg/billing_tests.py"))
+            for declaration in (self.CASE, self.ASSERTION):
+                with self.subTest(packaged="pyproject.toml" in original, declaration=declaration):
+                    result = self.roles(original, candidates={"pkg/billing_tests.py": declaration})
+                    self.assertEqual(role_policy.AMBIGUOUS, result.role("pkg/billing_tests.py"))
 
     def test_deleted_test_declarations_keep_original_oracle_identity(self):
         result = self.roles({"checks_tests.py": self.CASE}, candidates={"checks_tests.py": "# removed tests\n"})
@@ -393,6 +430,8 @@ class RoleProofFreshnessTests(unittest.TestCase):
             mock.patch.object(regression.schedule, "proof_intact", return_value=True),
             mock.patch.object(regression.changed_code, "ready", return_value=True),
         ):
+            self.assertFalse(regression.complete(state, "current"))
+            proof["execution_context"] = {"test_role_policy": 1}
             self.assertFalse(regression.complete(state, "current"))
             proof["execution_context"] = {"test_role_policy": role_policy.VERSION}
             self.assertTrue(regression.complete(state, "current"))

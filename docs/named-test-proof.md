@@ -474,7 +474,10 @@ Original product ownership keeps those bytes on the base side of a regression pr
 Dedicated test roots and supported test declarations keep test authority; mixed or
 unresolved changed roles remain unverified without executing proof commands. Dynamic
 build configuration is not interpreted, and candidate packaging cannot relabel the
-original product. Unknown unchanged oracle entries remain protected conservatively.
+original product. Original top-level assertions with a literal `import unittest`
+also declare an oracle; packaging or runtime import ownership still makes that mixed
+role ambiguous. Unknown unchanged oracle entries remain protected conservatively.
+Proofs from an earlier role policy require fresh execution before advancing.
 
 At an idle saved pause before independent validation, an explicit resume can remove
 positively proven original product entries from an old protected inventory. The runner
