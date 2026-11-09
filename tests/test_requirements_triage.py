@@ -128,6 +128,31 @@ class DueTests(unittest.TestCase):
                 self.assertFalse(triage.due(state(settings=settings)))
 
 
+class PromptTests(unittest.TestCase):
+    def test_the_accepted_design_reference_remains_a_read_only_triage_input(self):
+        reference = "https://www.figma.com/design/Alpha123/Alpha?node-id=1-2"
+        current = state(workspace="/project")
+        current["task"] += "\nAccepted UI brief: blue navigation and a compact message card."
+        current["settings"]["figma_file"] = reference
+        before = json.loads(json.dumps(current))
+        rendered = triage.prompt(current, {"files": ["README.md"]}, "codex")
+        packet = json.loads(rendered.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertIn("figma_file", packet)
+        self.assertEqual(reference, packet["figma_file"])
+        self.assertEqual(current["task"], packet["task"])
+        self.assertIn("Do not\ninspect repository files for this pass", rendered)
+        self.assertEqual(before, current)
+
+    def test_components_without_an_accepted_reference_receive_none(self):
+        for reference in (None, ""):
+            with self.subTest(reference=reference):
+                current = state(workspace="/project")
+                current["settings"]["figma_file"] = reference
+                rendered = triage.prompt(current, {}, "codex")
+                packet = json.loads(rendered.split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertNotIn("figma_file", packet)
+
+
 class SchemaTests(unittest.TestCase):
     def test_the_triage_request_schema_accepts_both_answer_shapes(self):
         full = {
