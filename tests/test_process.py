@@ -326,6 +326,7 @@ class ProcessTests(unittest.TestCase):
     def test_optional_native_name_failure_retains_owned_identity(self):
         for error in (
             processes.psutil.AccessDenied(101),
+            processes.psutil.ZombieProcess(101),
             PermissionError("native name denied"),
             SystemError("proc_cmdline returned a result with an exception set"),
         ):
@@ -342,7 +343,9 @@ class ProcessTests(unittest.TestCase):
                     patch.object(processes.os, "getpgid", return_value=101),
                     patch.object(processes.os, "getsid", return_value=101),
                 ):
-                    row = processes.process_table({101})[101]
+                    observed = processes.process_table({101})
+                    self.assertIn(101, observed, "Missing optional executable metadata must retain birth ownership")
+                    row = observed[101]
                 self.assertIsNone(row["executable"])
                 self.assertFalse(ActivityMonitor._mcp_helper(row))
                 self.assertEqual([row], processes.live_processes([processes.identity(row)], {101: row}))
