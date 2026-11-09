@@ -1594,7 +1594,9 @@ class ChatTUI:
                 return self._run(word, asking, argument.strip())
             known = any(command.name == word for command in panel.COMMANDS)
             why = "is not available right now" if known else "is not a command"
-            self._transcript.info(word, f"{word} {why}. Type / to see the commands; // sends text that starts with /.")
+            self._transcript.info(
+                word, f"{word} {why}. Type / to see the commands; // sends text that starts with /.", coalesce=True
+            )
             if " " not in text.strip():
                 self._composer.clear()  # a mistyped command; a sentence stays, to fix with //
             return None
@@ -1664,7 +1666,7 @@ class ChatTUI:
                 self._transcript.info(name, result.text)
                 self._pending = result
             else:
-                self._transcript.info(name, result)
+                self._transcript.info(name, result, coalesce=True)
             self._scroll, self._anchored = 0, False
             return None
         if name == "/quit":
@@ -1983,10 +1985,30 @@ class ChatTUI:
             self._put(1, 0, self._glyphs.rule * layout.width, self._style("dim"))
             return
         col = 0
-        for row in self._tabs:  # the tab bar: number, title and a mark for what it waits on
+        current_index = next((i for i, row in enumerate(self._tabs) if row.get("current")), 0)
+        # Scroll the tab window so the active tab is always visible: tabs before it are
+        # dropped when the bar is full, and "…" marks the hidden ones on each side.
+        start = 0
+        labels = []
+        for row in self._tabs:
             state = str(row.get("state") or "")
             mark = (TAB_MARKS if self._glyphs.unicode else ASCII_TAB_MARKS).get(state, "")
-            label = f" {row['number']} {row['title']} {mark} ".replace("  ", " ")
+            title = truncate(row["title"], max(8, layout.width // (len(self._tabs) + 1)))
+            label = f" {row['number']} {title} {mark} ".replace("  ", " ")
+            labels.append(label)
+        # Find the window that includes current_index and fills the bar.
+        widths = [display_width(label) for label in labels]
+        used_before = sum(widths[i] + 1 for i in range(current_index))
+        if used_before + widths[current_index] + 2 > layout.width:
+            # Drop leading tabs until the current one fits.
+            start = current_index
+            while start > 0 and sum(widths[i] + 1 for i in range(start, current_index + 1)) + 2 > layout.width:
+                start -= 1
+        if start > 0:
+            self._put(1, col, "…", self._style("dim"))
+            col += 2
+        for index in range(start, len(self._tabs)):
+            label = labels[index]
             if col + display_width(label) > layout.width:
                 self._put(1, col, "…", self._style("dim"))
                 break
@@ -1994,7 +2016,8 @@ class ChatTUI:
                 1,
                 col,
                 label,
-                self._style("brand" if row.get("current") else "dim") | (curses.A_REVERSE if row.get("current") else 0),
+                self._style("brand" if self._tabs[index].get("current") else "dim")
+                | (curses.A_REVERSE if self._tabs[index].get("current") else 0),
             )
             col += display_width(label) + 1
 
@@ -2002,6 +2025,8 @@ class ChatTUI:
         height = max(0, layout.body_end - layout.body_start)
         width = layout.body_width or layout.width
         lines = self._transcript.lines(width)
+        if self._view is not None and not self._new_chat():
+            lines = [(role, text) for role, text in lines if not text.startswith("New chats:")]
         if not lines:
             self._hero(layout, height)
             return
@@ -2281,6 +2306,7 @@ class ChatTUI:
         inner = max(1, width - 6)
         self._put(layout.box_text, 2, glyphs.prompt, self._style("prompt" if active else "dim"))
         if not active and not self._composer.text:
+            waiting = self._view and panel.needs_you(self._view)
             placeholder = (
                 "Type / for commands while the run starts"
                 if self._view is None and self._launched
@@ -2288,6 +2314,8 @@ class ChatTUI:
                 if self._view is None
                 else "Type a message, then Enter; work is saved before the reply"
                 if self._can_message()
+                else "Type / for commands. AutoCode asks here when it needs you."
+                if waiting
                 else WORKING_PLACEHOLDER
             )
             self._put(layout.box_text, 4, truncate(placeholder, inner), self._style("placeholder"))
@@ -2313,9 +2341,10 @@ class ChatTUI:
 
     def _hints(self, layout: Layout) -> None:
         asking_segments: list[str] = []
+        menu_open = bool(self._menu(self._asking)) and self._composer.text.startswith("/")
         if self._asking:
             newline = "\\⏎ newline" if self._glyphs.unicode else "\\enter newline"
-            history = "↑↓ history" if self._glyphs.unicode else "up/down history"
+            history = "↑↓ chooses" if menu_open else ("↑↓ history" if self._glyphs.unicode else "up/down history")
             # The optional hints give way first, in this order, when the row is short of room:
             # "ctrl-d quit" is the way out of the full screen and "/ commands" the menu, so a
             # stage and cost prefix must never push them off the edge of the footer.

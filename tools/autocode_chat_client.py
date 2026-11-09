@@ -1174,8 +1174,8 @@ class ChatClient:
         steps = {"next": here % len(rows) + 1, "previous": (here - 2) % len(rows) + 1}
         number = steps.get(argument) or (int(argument) if argument.isdigit() else 0)
         if not 1 <= number <= len(rows):
-            return f"There is no tab {argument or 'to switch to'}. " + (
-                f"Choose 1 to {len(rows)}." if len(rows) > 1 else "Ctrl-T opens another chat."
+            return f"Usage: /tab N (1 to {len(rows)}), or /tab next or /tab previous." + (
+                "" if len(rows) > 1 else " Ctrl-T opens another chat."
             )
         row = rows[number - 1]
         if row["current"]:
