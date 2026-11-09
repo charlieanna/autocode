@@ -290,14 +290,39 @@ class CostDisplayTests(unittest.TestCase):
         self.assertIn("$3.50", text)
         self.assertIn("$1.25", text)
         self.assertIn("Cost by job", text)
-        self.assertIn("Builder", text)
-        self.assertIn("Tester", text)
+        self.assertIn("Builder: $15.00, 3 attempts, 53%", text)
+        self.assertIn("Tester: $8.00, 2 attempts, 28%", text)
         self.assertIn("Per-stage turns and time", text)
         self.assertIn("planning", text)
         self.assertIn("2 attempts", text)
         self.assertIn("25m", text)  # 1500 seconds = 25m
         self.assertIn("Total execution time", text)
         self.assertIn("35m", text)  # 2100 seconds = 35m
+
+    def test_job_cost_share_preserves_the_public_fraction_and_omits_invalid_values(self):
+        for share, percentage in (
+            (0, "0%"),
+            (0.25, "25%"),
+            (0.53, "53%"),
+            (1, "100%"),
+            (None, None),
+            (True, None),
+            (False, None),
+            (-0.25, None),
+            (float("nan"), None),
+            (float("inf"), None),
+            ("0.25", None),
+        ):
+            with self.subTest(share=share):
+                current = public_view()
+                current["run_metrics"] = {
+                    "by_job": [{"job": "Builder", "attempts": 1, "spent_usd": 1.0, "share": share}]
+                }
+                line = next(line for line in details(current).splitlines() if line.startswith("Builder:"))
+                expected = "Builder: $1.00, 1 attempt"
+                if percentage is not None:
+                    expected += ", " + percentage
+                self.assertEqual(expected, line)
 
     def test_long_route_ids_are_readable_through_details_at_80_columns(self):
         import autocode_chat_tui as tui
