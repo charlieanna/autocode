@@ -55,7 +55,7 @@ class BriefCliTests(unittest.TestCase):
             timeout=180,
             cwd=self.root,
         )
-        return run, self.drive(run) if drive else run.status()
+        return run, self.drive(run, approve=drive)
 
     def test_hash_bound_final_review_completes_without_copying_or_report_repair(self):
         run, view = self.start(
@@ -72,7 +72,7 @@ class BriefCliTests(unittest.TestCase):
             {"retain_contract", "initial_task", "open_blocking_questions", "acceptance_criteria"},
             set(report["contract"]),
         )
-        self.assertTrue(view["approvals"])
+        self.assert_plan_approvals(view, 1)
 
     def test_final_review_corrects_one_proof_through_the_criteria_delta_without_another_planning_cycle(self):
         # The revision binds C1 to a wrong command; the final review's reference corrects that one proof (#1991).
@@ -85,7 +85,7 @@ class BriefCliTests(unittest.TestCase):
         self.assertFalse(any(row.get("report_only") for row in attempts))
         planning = [row for row in attempts if row["stage"] in ("glm_revise", "astra_finalize")]
         self.assertEqual(["glm_revise", "astra_finalize"], [row["stage"] for row in planning])
-        self.assertEqual(1, len(view["approvals"]))
+        self.assert_plan_approvals(view, 1)
         revised = json.loads(Path(planning[0]["output"]).read_text())["contract"]["acceptance_criteria"]
         self.assertTrue(revised[0]["verification_method"].endswith("--planted-by-the-revision"), revised[0])
         delta = json.loads(Path(planning[1]["output"]).read_text())["contract"]["acceptance_criteria"]
@@ -219,7 +219,7 @@ class BriefCliTests(unittest.TestCase):
         fixture["reference"] = str(second_solution)
         config.write_text(json.dumps(fixture))
         run.follow_up(feedback)
-        view = run.advance_until_input()
+        view = self.drive(run, approve=False)
         repair_error = self.root / "feedback-interpretation-repair-error.txt"
         self.assertFalse(repair_error.exists(), repair_error.read_text() if repair_error.exists() else "")
         self.assertEqual("approve_plan", view["needs"]["kind"], self.details(view))
@@ -240,7 +240,17 @@ class BriefCliTests(unittest.TestCase):
         self.assertIn(corrected, [row["text"] for row in body["accepted_assumptions"]])
         self.assertNotIn(invented, [row["text"] for row in body["accepted_assumptions"]])
         self.assertEqual(["C1", "C2"], [row["id"] for row in body["acceptance_criteria"]])
-        self.assertEqual(2, len(complete["approvals"]))
+        self.assert_plan_approvals(complete, 2)
+
+    def assert_plan_approvals(self, view, expected):
+        plans = []
+        for row in view["approvals"]:
+            if row["kind"] == "resume":
+                self.assertEqual("PAUSED_REQUESTED", row["pause_status"])
+            else:
+                self.assertEqual("plan", row["kind"])
+                plans.append(row)
+        self.assertEqual(expected, len(plans))
 
     def test_period_separated_commands_complete_without_a_phantom_add_observation(self):
         self.assertIn("exits 0. `todo.py list`", self.scenario.brief)
@@ -249,7 +259,7 @@ class BriefCliTests(unittest.TestCase):
         rows = view["approved_contract"]["body"]["brief_acceptance"]["manifest"]["observations"]
         self.assertEqual([["list"]], [row["declaration"]["observe_argv"] for row in rows])
 
-    def drive(self, run):
+    def drive(self, run, *, approve=True):
         """Serve approvals and saved stage boundaries through the task-run API."""
         # Proof, Builder and review work each retain the original per-call
         # deadline, including when subprocess coverage measures the entire core.
@@ -258,6 +268,8 @@ class BriefCliTests(unittest.TestCase):
             if view["done"]:
                 return view
             need = view.get("needs") or {}
+            if not approve and need.get("kind") in ("approve_plan", "review"):
+                return view
             if need.get("kind") == "approve_plan":
                 run.approve_plan(need["token"])
             elif need.get("kind") == "review":
