@@ -13,9 +13,26 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Python clients refuse malformed optional milestone criterion references in
   approval projections, preserving valid and legacy plans (#3026).
+- The independent conformance client refuses malformed named-action quoting and missing
+  run/workspace paths as contract gaps before execution, preserving exact path binding (#2969).
+- VS Code refuses approval projections with malformed milestone or end-to-end
+  flow fields while retaining valid and legacy plans (#2970).
+- A failed verification replay stops before later checks and acceptance observations,
+  retaining the failure and listing the work not run. A passing replay still
+  requires every check and every acceptance gate.
+
+- The agent-step review regression now exercises Requirements and exact plan
+  approval, and checks current findings evidence while preserving the reviewed
+  product files, matching the unified pipeline.
+- Validation-only tasks with unresolved changed-line evidence return for scope
+  review before Builder repair, preserving their read-only assignment and all
+  outstanding evidence and milestone obligations.
 - Clean verification-command timeouts remain failed checks instead of becoming
   an ownership pause that requires discarding the Tester's report. Missing or
   uncertain cleanup still blocks execution; timeouts never authorize proof reuse.
+- Public verification status now distinguishes a returned command's timeout or
+  error from missing cleanup evidence, without exposing report/output text or
+  granting recovery authority.
 
 ## [0.10.0] - 2026-11-09
 
@@ -79,6 +96,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A command AutoCode shows a person no longer carries the live AutoResolver token value. The
+  answer, recovery and reply commands name `--resolver-token -`, which reads the request the
+  named run already holds, so a terminal, a log or a relayed channel message cannot leak it and
+  the command stays runnable exactly as printed (#2958).
 - Request-level cost subtotals stay marked incomplete when any request price or request
   coverage is missing, even when aggregate token counts are complete (#3000).
 - Run metrics exclude unrun mutation candidates from the number of mutants tried,
@@ -87,7 +108,6 @@ PR template asks for an entry here; a change without one is incomplete.
 - Kilo policy and model-catalog setup checks retry one timeout within a shared
   90-second budget, retain attempt evidence, and distinguish setup exhaustion from
   an invalid model, failed command or missing executable (#2959).
-
 - Corrected verification commands at an idle paused Tester checkpoint can retire an
   obsolete report repair that has not launched. The rejected report, counters and usage
   stay archived, the approved plan stays exact, and fresh proof and testing remain required.

@@ -171,6 +171,8 @@ def prompt(state: RunState, inventory, engine) -> str:
         "saved_answers": state.get("answers") or {},
         "workspace_inventory": inventory,
     }
+    if reference := (state.get("settings") or {}).get("figma_file"):
+        packet["figma_file"] = reference
     return (
         prompts.get("requirements-triage.md")
         + prompts.get("fragments/autoplanner/context-03.md")

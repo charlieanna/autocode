@@ -1029,6 +1029,94 @@ class SettledTimeoutTests(unittest.TestCase):
                     self._launch()
 
 
+class ReturnedCheckObservationTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.fixture = PublicationFixture(Path(temporary.name).resolve() / "obligations")
+        self.fixture.active.update(phase="executing", current_check=deepcopy(self.fixture.check))
+        self.fixture.write()
+        observed = patch.object(preparation.supervision, "observe", return_value={})
+        observed.start()
+        self.addCleanup(observed.stop)
+
+    def observe(self):
+        return preparation.frontier(self.fixture.root)["returned_check"]
+
+    def test_returned_timeout_is_visible_without_mutation_or_authority(self):
+        fixture = self.fixture
+        fixture.result.update(exit_code=None, timed_out=True, error="private diagnostic")
+        fixture.inner_terminal["cause"] = "stage_deadline"
+        util.atomic_json(fixture.inner_path, fixture.inner_terminal)
+        fixture.result["supervision_sha256"] = util.file_hash(fixture.inner_path)
+        util.atomic_json(fixture.request["result"], fixture.answer)
+        before = {str(p): p.read_bytes() for p in fixture.root.rglob("*") if p.is_file()}
+        frontier = preparation.frontier(fixture.root)
+        returned = frontier["returned_check"]
+        self.assertEqual(
+            {
+                "status": "available",
+                "result_sha256": util.file_hash(fixture.request["result"]),
+                "exit_code": None,
+                "timed_out": True,
+                "interrupted": None,
+                "has_error": True,
+                "supervision_error_count": 0,
+                "cleanup": {"receipt_bound": True, "phase": "stopped", "cause": "stage_deadline", "has_error": False},
+            },
+            returned,
+        )
+        shown = run_view.view({"status": "PAUSED_VERIFICATION_UNCERTAIN"}, verification_obligation=frontier)
+        self.assertEqual(returned, shown["verification_obligation"]["returned_check"])
+        self.assertFalse(frontier["recovery_authorized"])
+        self.assertNotIn("private diagnostic", json.dumps(frontier))
+        self.assertEqual(before, {str(p): p.read_bytes() for p in fixture.root.rglob("*") if p.is_file()})
+
+    def test_unbound_answer_is_not_projected(self):
+        for key in ("nonce", "request_sha256", "operation", "receipt"):
+            with self.subTest(key=key):
+                answer = {**self.fixture.answer, key: "wrong"}
+                util.atomic_json(self.fixture.request["result"], answer)
+                self.assertEqual({"status": "unavailable"}, self.observe())
+
+    def test_missing_and_symlinked_answer_stay_read_only(self):
+        path = Path(self.fixture.request["result"])
+        original = path.read_bytes()
+        path.unlink()
+        self.assertEqual({"status": "not_returned"}, self.observe())
+        target = path.with_name("target.json")
+        target.write_bytes(original)
+        path.symlink_to(target)
+        self.assertEqual({"status": "unavailable"}, self.observe())
+        self.assertEqual(original, target.read_bytes())
+
+    def test_unbound_inner_cleanup_is_reported_without_trusting_its_fields(self):
+        self.fixture.result["supervision_sha256"] = "0" * 64
+        util.atomic_json(self.fixture.request["result"], self.fixture.answer)
+        returned = self.observe()
+        self.assertEqual("available", returned["status"])
+        self.assertEqual({"receipt_bound": False, "phase": None, "cause": None, "has_error": None}, returned["cleanup"])
+
+    def test_normal_result_and_unknown_fields_keep_their_types(self):
+        normal = self.observe()
+        self.assertEqual(0, normal["exit_code"])
+        self.assertIs(False, normal["timed_out"])
+        self.assertIs(False, normal["has_error"])
+        self.fixture.result.update(exit_code=True, timed_out=1, interrupted=True, supervision_errors=None)
+        self.fixture.result.pop("supervision_sha256")
+        util.atomic_json(self.fixture.request["result"], self.fixture.answer)
+        unknown = self.observe()
+        self.assertIsNone(unknown["exit_code"])
+        self.assertIsNone(unknown["timed_out"])
+        self.assertTrue(unknown["interrupted"])
+        self.assertIsNone(unknown["supervision_error_count"])
+        self.assertFalse(unknown["cleanup"]["receipt_bound"])
+
+    def test_preparation_without_an_inner_command_has_no_returned_check(self):
+        fixture = PreparationFixture(self.fixture.root.parent / "preparing")
+        self.assertIsNone(preparation.frontier(fixture.root)["returned_check"])
+
+
 class CompletedWorkerRecoveryTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

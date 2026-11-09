@@ -219,9 +219,15 @@ class ConformanceDriver(Driver):
         needs none, ``retry_action`` (one explicit scoped retry).
         """
         need = view["needs"]
-        if need["kind"] == "resume" and ((view.get("chat") or {}).get("input") or {}).get("kind") == "feedback":
+        if (
+            need["kind"] == "resume"
+            and view.get("status") != "PAUSED_INTERVENTION"
+            and ((view.get("chat") or {}).get("input") or {}).get("kind") == "feedback"
+        ):
             # The pause offers plan feedback (the Tester's, #1869); a resume reruns the same stage on the
             # same plan, and the feedback text is the person's, so the client stops rather than resume.
+            # An intervention the client itself requested still has its named resume;
+            # optional feedback there does not withdraw that control or the person's intent.
             return None
         if need["kind"] in ("resume", "retry_job"):
             return self.named_command(view)
@@ -240,7 +246,10 @@ class ConformanceDriver(Driver):
             return ["--no-chat"], {}, "needs.kind"
         if not text:
             raise ConformanceGap(f"needs {view['needs']['kind']!r} at {view['status']!r} names no next_command")
-        words = shlex.split(text)
+        try:
+            words = shlex.split(text)
+        except ValueError as error:
+            raise ConformanceGap(f"next_command has invalid quoting: {error}") from error
         env = {}
         while words and words[0] != "autocode" and "=" in words[0]:
             name, value = words.pop(0).split("=", 1)
@@ -251,6 +260,8 @@ class ConformanceDriver(Driver):
         for flag, expected in (("--run-dir", self.run_dir), ("--workspace", self.project)):
             if flag in words:
                 index = words.index(flag)
+                if index + 1 == len(words):
+                    raise ConformanceGap(f"next_command names {flag} without a path")
                 named = words[index + 1]
                 del words[index : index + 2]
                 if Path(named).resolve() != Path(expected).resolve():
@@ -363,9 +374,11 @@ class ConformanceDriver(Driver):
                 and need.get("resolver_request_id")
                 and need.get("resolver_token")
                 and words == expected
-                and env == {"AUTOCODE_RESOLVER_TOKEN": need["resolver_token"]}
+                # #2958: the named command carries the selector, never the token value, so the
+                # headless client runs it as shown and holds no credential of its own.
+                and not env
             ):
-                return [*words[:-1], text], env, "chat.input.next_command"
+                return [*words[:-1], text], {}, "chat.input.next_command"
         if not flag or words != [flag, "MESSAGE"] or env:
             raise ConformanceGap("Unsupported chat message command")
         return [flag, text], {}, "chat.input.next_command"

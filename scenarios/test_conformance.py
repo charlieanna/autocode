@@ -235,6 +235,59 @@ class ClientDecisionTests(unittest.TestCase):
         self.assertEqual((["--approve-goal", "-"], {"AUTOCODE_APPROVE_GOAL_TOKEN": "r2:abc"}), (words, env))
         self.assertEqual("next_command", source)
 
+    def test_malformed_named_command_quoting_is_a_gap(self):
+        for command in (
+            f"autocode --run-dir '{self.client.run_dir} --resume-paused",
+            f'autocode --workspace "{self.client.project} --resume-paused',
+            "autocode --resume-paused \\",
+        ):
+            with self.subTest(command=command), self.assertRaises(ConformanceGap):
+                self.named(command, "resume")
+
+    def test_named_path_flags_require_a_value(self):
+        for flag in ("--run-dir", "--workspace"):
+            for suffix in ("", " --resume-paused"):
+                with self.subTest(flag=flag, suffix=suffix), self.assertRaises(ConformanceGap):
+                    self.named(f"autocode --resume-paused {flag}{suffix}", "resume")
+
+    def test_well_formed_quoted_paths_preserve_the_named_action(self):
+        self.client.project = self.client.project / "project with 'quotes'"
+        self.client.run_dir = self.client.project / ".autocode/runs/run with spaces"
+        command = shlex.join(
+            [
+                "autocode",
+                "--workspace",
+                str(self.client.project),
+                "--run-dir",
+                str(self.client.run_dir),
+                "--resume-paused",
+            ]
+        )
+        self.assertEqual((["--resume-paused"], {}, "next_command"), self.named(command, "resume"))
+        for path in (self.client.project, self.client.run_dir):
+            with self.subTest(path=path), self.assertRaisesRegex(ConformanceGap, "not this run"):
+                self.named(command.replace(shlex.quote(str(path)), shlex.quote(str(path / "other"))), "resume")
+
+    def test_malformed_named_commands_stop_before_execution(self):
+        self.client.person_paused = True
+        for command in (
+            "autocode --resume-paused --run-dir",
+            "autocode --resume-paused --workspace",
+            "autocode --run-dir --resume-paused",
+            "autocode --workspace --resume-paused",
+            f"autocode --run-dir '{self.client.run_dir} --resume-paused",
+        ):
+            with (
+                self.subTest(command=command),
+                mock.patch.object(self.client, "view", return_value=view("resume", command)),
+                mock.patch.object(self.client, "call") as call,
+                self.assertRaises(ConformanceGap),
+            ):
+                try:
+                    self.client.until_stopped()
+                finally:
+                    call.assert_not_called()
+
     def test_operational_message_fills_only_bound_person_reply(self):
         need = {
             "kind": "answer",
@@ -242,7 +295,9 @@ class ClientDecisionTests(unittest.TestCase):
             "resolver_request_id": "req-1",
             "resolver_token": "current-token",
         }
-        command = "AUTOCODE_RESOLVER_TOKEN=current-token autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE"
+        # #2958: the named reply command carries the selector and no token value, so nothing the
+        # headless client relays or logs can hold the credential.
+        command = "autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE"
         public = view(**need)
         public["chat"] = {"input": {"kind": "resolver_response", "next_command": command}}
         args, env, source = self.client.message_command(public, "I corrected the fixture")
@@ -259,11 +314,11 @@ class ClientDecisionTests(unittest.TestCase):
             ],
             args,
         )
-        self.assertEqual({"AUTOCODE_RESOLVER_TOKEN": "current-token"}, env)
+        self.assertEqual({}, env)
         self.assertEqual("chat.input.next_command", source)
         for bad in (
             command.replace("req-1", "req-old"),
-            command.replace("current-token", "old-token"),
+            f"AUTOCODE_RESOLVER_TOKEN=current-token {command}",
             command + " --resume-paused",
             command.replace("provide_information", "retry"),
         ):
@@ -377,6 +432,28 @@ class ClientDecisionTests(unittest.TestCase):
             (["--resume-paused", "--retry-failed-stage"], {}, "needs.retry_action"),
             self.client.person_command(operational),
         )
+
+    def test_own_intervention_resumes_its_named_action_when_feedback_is_also_offered(self):
+        for status, own_pause, expected in (
+            ("PAUSED_INTERVENTION", True, [["--resume-paused"]]),
+            ("PAUSED_INTERVENTION", False, []),
+            ("PAUSED_ACCEPTANCE_TESTS", True, []),
+            ("PAUSED_COMPLETION_GATE", True, []),
+        ):
+            with self.subTest(status=status, own_pause=own_pause):
+                paused = view("resume", "autocode --resume-paused")
+                paused.update(status=status, chat={"input": {"kind": "feedback"}})
+                done = {**view("continue"), "done": True}
+                taken = []
+                self.client.person_paused = own_pause
+                with (
+                    mock.patch.object(self.client, "view", side_effect=[paused, done]),
+                    mock.patch.object(
+                        self.client, "take", side_effect=lambda _view, words, _env, _source: taken.append(words)
+                    ),
+                ):
+                    self.client.until_stopped()
+                self.assertEqual(expected, taken)
 
     def test_a_named_recovery_after_the_persons_interrupt_keeps_the_pause_theirs(self):
         # The core names setting aside the interrupted attempt as a continue; the abandoned stop

@@ -332,7 +332,6 @@ class ChatViewTests(unittest.TestCase):
         self.assertIn("Leave blocked", result["messages"][-1]["text"])
         self.assertEqual(
             [
-                "AUTOCODE_RESOLVER_TOKEN=current-token",
                 "autocode",
                 "--workspace",
                 "/ws",
@@ -349,6 +348,9 @@ class ChatViewTests(unittest.TestCase):
             ],
             shlex.split(result["input"]["next_command"]),
         )
+        # #2958: the named command reads this run's own request, so the relayed text carries no value.
+        self.assertNotIn("current-token", result["input"]["next_command"])
+        self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", result["input"]["next_command"])
         for missing in ("resolver_request_id", "resolver_token"):
             invalid = {**public, "needs": {k: v for k, v in need.items() if k != missing}}
             self.assertIsNone(chat.project(state, invalid, workspace="/ws", run_dir="/run")["input"])
@@ -416,7 +418,11 @@ class ChatViewTests(unittest.TestCase):
                 else:
                     self.assertIn("What changed?", text)
                 self.assertEqual("resolver_response", result["input"]["kind"])
-                self.assertIn("AUTOCODE_RESOLVER_TOKEN=current-token", result["input"]["next_command"])
+                self.assertNotIn("AUTOCODE_RESOLVER_TOKEN=current-token", result["input"]["next_command"])
+                self.assertNotIn("current-token", result["input"]["next_command"])
+                # No projected field carries the value: relaying or logging this view text is safe.
+                self.assertNotIn("current-token", json.dumps(result))
+                self.assertIn("--resolver-token -", result["input"]["next_command"])
                 self.assertIn("--resolver-response provide_information", result["input"]["next_command"])
                 self.assertEqual(before, (state, public))
 

@@ -333,7 +333,8 @@ export class RunController {
       && ["blocker", "operational_exhaustion"].includes(need.resolver_scope ?? "") && !need.route
       && !!need.resolver_request_id && !!need.resolver_token
       && JSON.stringify(parsed.argv) === JSON.stringify(expected)
-      && Object.keys(parsed.env).length === 1 && parsed.env.AUTOCODE_RESOLVER_TOKEN === need.resolver_token;
+      // #2958: the named reply reads this run's own token, so the client holds no credential.
+      && Object.keys(parsed.env).length === 0;
     // Fill only the advertised text. Operational replies carry the current
     // request binding; they cannot grant a retry or resume a pause themselves.
     if (!operational && (!flag || parsed.argv.length !== 2 || parsed.argv[0] !== flag || parsed.argv[1] !== "MESSAGE"
