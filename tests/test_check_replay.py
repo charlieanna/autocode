@@ -240,6 +240,31 @@ class ReplayFailureBoundaryTests(unittest.TestCase):
         self.assertEqual("FAIL", saved["verdict"])
         self.assertEqual(required[1:], [r["command"] for r in saved["not_run"]["checks"]])
 
+    def test_passing_commands_still_preserve_and_reject_a_failed_risk_observation(self):
+        checks = [{"command": "python -m unittest first", "exit_code": 0, "evidence_ref": "event:first"}]
+        risk_result = {"verdict": "FAIL", "checks": [{"error": "lifecycle observation failed"}]}
+        failure = check_replay.LifecycleFailure("lifecycle observation failed", risk_result)
+        with (
+            patch.object(check_replay.brief_evidence, "replay", return_value={"verdict": "PASS"}),
+            patch.object(check_replay.risk_evidence, "replay", side_effect=failure),
+        ):
+            for keep in (False, True):
+                record = {**self.record, "output": f"risk-{keep}.json"}
+                args = (checks, "/ws", self.run_dir, record, lambda *args, **kwargs: receipt())
+                if keep:
+                    result = check_replay.replay(*args, keep_lifecycle_failure=True)
+                    self.assertEqual("FAIL", result["verdict"])
+                else:
+                    with self.assertRaises(check_replay.LifecycleFailure) as rejected:
+                        check_replay.replay(*args)
+                    self.assertIs(failure, rejected.exception)
+                saved = json.loads(next((self.run_dir / "check-replay").glob(f"risk-{keep}-*/replay.json")).read_text())
+                self.assertEqual("FAIL", saved["verdict"])
+                self.assertEqual([0], [row["exit_code"] for row in saved["checks"]])
+                self.assertEqual(risk_result, saved["risk_acceptance"])
+                self.assertEqual({"verdict": "PASS"}, saved["brief_acceptance"])
+                self.assertNotIn("not_run", saved)
+
 
 class ReceiptCollisionTests(unittest.TestCase):
     """A later iteration's replay never overwrites an earlier cited receipt (issue #341).
