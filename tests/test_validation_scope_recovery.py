@@ -178,6 +178,10 @@ class ValidationScopeRecoveryTests(unittest.TestCase):
             "rejected",
             "active",
             "nonmilestone",
+            "workspace",
+            "run_dir",
+            "task_id",
+            "conversation_id",
         ):
             with self.subTest(variant=variant):
                 state = self.fixture(
@@ -209,6 +213,8 @@ class ValidationScopeRecoveryTests(unittest.TestCase):
                     state["active_runner_check"] = {"running": True}
                 elif variant == "nonmilestone":
                     state["settings"]["milestone_checkpoints"]["enabled"] = False
+                elif variant in ("workspace", "run_dir", "task_id", "conversation_id"):
+                    state[variant] = "different-run-identity"
                 before = deepcopy(state)
                 self.assertIsNone(recovery.pending(state))
                 self.assertFalse(recovery.settle(state, "rev", at="now"))
