@@ -2,8 +2,10 @@
 
 This formats existing controls; it grants no permission and never changes state.
 Controller tokens use the CLI's private environment channel, so copying a shown
-command does not put them in the launched process's argv. ANSWER, MODEL, EFFORT and N
-remain values a person must supply rather than decisions made by presentation.
+command does not put them in the launched process's argv; the AutoResolver token is
+read back from the run a shown command names, so its value is never shown at all.
+ANSWER, MODEL, EFFORT and N remain values a person must supply rather than decisions
+made by presentation.
 """
 
 from __future__ import annotations
@@ -128,13 +130,17 @@ def _action_flags(action, need):
 def _display(words, *, private=None):
     public, extracted = private_command(words, argument_offset=1)
     private = {**extracted, **(private or {})}
+    # The AutoResolver token is the digest of the run's own saved request, so the command that
+    # names the run names it: `-` reads it back after the run loads (#2958). Its value never
+    # reaches a shown command, a terminal, a log or a relayed channel message.
+    private.pop(TOKEN_ENV_VARS["resolver_token"], None)
     assignments = " ".join(f"{name}={shlex.quote(value)}" for name, value in private.items())
     return (assignments + " " if assignments else "") + shlex.join(public)
 
 
 def recovery(need, *, run_dir=None, workspace=None, terminal=False) -> str:
-    """The #909 recovery suffix: the exact copy-pasteable command with the live
-    token, refreshed at render time from the caller's current need. Empty when
+    """The #909 recovery suffix: the exact copy-pasteable command, refreshed at
+    render time from the caller's current need and executable as shown. Empty when
     no recovery exists (no need, terminal, a dependency without its producer) —
     a pause never emits a command its own CLI would reject."""
     rendered = command(need, run_dir=run_dir, workspace=workspace, terminal=terminal)

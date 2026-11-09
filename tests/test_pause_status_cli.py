@@ -1,4 +1,4 @@
-"""A real CLI pause exposes an actionable category and current private token."""
+"""A real CLI pause exposes an actionable category and a command a person can run as printed."""
 
 import json
 import shlex
@@ -43,6 +43,10 @@ class PauseStatusCLITests(unittest.TestCase):
         result = self.invoke(run, *flags)
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
         self.assertIn("Next command: " + before["next_command"], result.stderr)
+        token = (before.get("needs") or {}).get("resolver_token")
+        # #2958: the recovery line a person copies must not carry the AutoResolver token value.
+        if token:
+            self.assertNotIn(token, result.stdout + result.stderr)
         self.assertEqual(saved, (run.run_dir / "state.json").read_bytes())
         self.assertEqual(
             provider_outputs,
@@ -103,7 +107,7 @@ class PauseStatusCLITests(unittest.TestCase):
         self.assertNotIn("--accept-transport-change", view["next_command"])
         self.assert_refusal_retains_current_command(run, "--resume-paused", "--accept-transport-change")
 
-    def test_the_printed_question_command_is_accepted_without_bypassing_approval(self):
+    def test_the_printed_question_command_is_accepted_exactly_as_printed(self):
         run = TaskRun.start(
             self.project,
             "Build a greeting tool",
@@ -121,20 +125,20 @@ class PauseStatusCLITests(unittest.TestCase):
         need = view["needs"]
         self.assertEqual("answer", need["kind"])
         words = shlex.split(view["next_command"])
-        private = {}
-        while words[0] != "autocode":
-            name, value = words.pop(0).split("=", 1)
-            private[name] = value
-        words.pop(0)
-        self.assertNotIn(need["resolver_token"], words)
-        self.assertEqual(need["resolver_token"], private["AUTOCODE_RESOLVER_TOKEN"])
+        # #2958: the command names the run and reads that run's own request back, so it shows no
+        # AutoResolver token value and a person can run it exactly as it appears on screen.
+        self.assertNotIn(need["resolver_token"], view["next_command"])
+        self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", view["next_command"])
+        self.assertEqual("autocode", words.pop(0))
+        selector = words.index("--resolver-token")
+        self.assertEqual(["--resolver-token", "-"], words[selector : selector + 2])
         answer = words.index("--answer") + 1
         self.assertEqual(need["questions"][0]["id"] + "=ANSWER", words[answer])
         words[answer] = need["questions"][0]["id"] + "=CLI"
         proc = subprocess.run(
             [*self.entry, *words],
             cwd=self.root,
-            env={**self.env, **private},
+            env=self.env,
             text=True,
             capture_output=True,
             timeout=240,
@@ -142,6 +146,5 @@ class PauseStatusCLITests(unittest.TestCase):
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         after = run.status()
         self.assertFalse(after["done"])
-        self.assertNotEqual(need.get("resolver_token"), (after["needs"] or {}).get("resolver_token"))
         self.assertNotEqual("answer", (after["needs"] or {}).get("kind"))
         self.assertFalse(any(self.project.glob("greet*.py")), "An answer is not plan approval or build authority")

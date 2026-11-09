@@ -129,7 +129,9 @@ KIND_STATES = {
 KIND_ACCEPTANCE = {
     "approve_plan": lambda args: args.approve_goal == "plan-token",
     "continue": lambda args: args.chat is False,  # --no-chat relaunch
-    "answer": lambda args: args.answer == ["Q1=ANSWER"] and args.resolver_token == "resolver-token",
+    # #2958: the shown answer command names this run and reads back its own request, so it carries
+    # the selector rather than the token value; every other token is still passed privately.
+    "answer": lambda args: args.answer == ["Q1=ANSWER"] and args.resolver_token == "-",
     "review": lambda args: args.approve_review == ["AC1"] and args.review_token == "review-token",
     "planning_budget": lambda args: args.resume_paused and args.planning_review_call_limit == 10,
     "resume": lambda args: args.resume_paused,

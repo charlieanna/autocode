@@ -173,7 +173,7 @@ function heldCostView(token = 'cost:current', operational = false) {
     next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` };
   if (!operational) return view;
   // AutoResolver's operational request for the same bound: the conversation takes a reply, the row the raise.
-  const reply = 'AUTOCODE_RESOLVER_TOKEN=resolver autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE';
+  const reply = 'autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE';
   return { ...view, status: 'WAITING_FOR_USER', needs: { ...view.needs, kind: 'answer', resolver_scope: 'operational_exhaustion',
     resolver_request_id: 'req-1', resolver_token: 'resolver' }, next_command: reply.replace('MESSAGE', '"WHAT CHANGED"'),
     chat: { context: 'chat-1', messages: [], input: { kind: 'resolver_response', label: 'Send recovery reply', next_command: reply } } };
@@ -1786,7 +1786,7 @@ function requirementsModelQuestion(token = 'model-question:current') {
     needs: { kind: 'answer', resolver_token: token,
       questions: [{ id: 'route-glm', question: "Requirements's response exhausted its output limit; name another model to continue on", options: [] }],
       route: { question_id: 'route-glm', role: 'glm', candidates: [] } },
-    next_command: `AUTOCODE_RESOLVER_TOKEN=${token} autocode --answer route-glm=MODEL --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    next_command: `autocode --answer route-glm=MODEL --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
     chat: { phase: 'requirements', context: 'requirements-model-choice', input: null, review: null,
       messages: [{ id: 'request', role: 'user', text: 'Fix the queue ordering bug' }] },
   };
@@ -1808,7 +1808,7 @@ test('requirements model-choice renders a blank decision and sends only the name
   assert.equal(launch.mock.callCount(), 1);
   const [, args, env] = launch.mock.calls[0].arguments;
   assert.deepEqual(args, ['--answer', 'route-glm=fixture/alternate', '--resolver-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
-  assert.deepEqual(env, { AUTOCODE_RESOLVER_TOKEN: 'model-question:current' });
+  assert.deepEqual(env, {}, 'the named answer command reads its token from the run (#2958)');
   const take = ui.sent.find((message) => message.type === 'take');
   assert.equal(take.runKey, `${run.workspace}\n${run.runDir}`);
   assert.ok(take.decisionContext, 'the answer retains the displayed question binding');
@@ -2005,15 +2005,15 @@ test('operational chat reply uses only the current named Resolver binding', asyn
   const view = chatView({ status: 'WAITING_FOR_USER', needs: {
     kind: 'answer', resolver_scope: 'blocker', resolver_request_id: 'req-1', resolver_token: 'current-token',
   } });
-  const command = 'AUTOCODE_RESOLVER_TOKEN=current-token autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE';
+  const command = 'autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE';
   view.chat.input = { kind: 'resolver_response', label: 'Send recovery reply', next_command: command };
   await controller.sendMessage(view, run, 'I corrected the fixture', 'chat-1');
   assert.deepEqual(launch.mock.calls[0].arguments[1], [
     '--resolver-request', 'req-1', '--resolver-token', '-', '--resolver-response', 'provide_information',
     '--resolver-message', 'I corrected the fixture', '--workspace', run.workspace, '--run-dir', run.runDir,
   ]);
-  assert.equal(launch.mock.calls[0].arguments[2].AUTOCODE_RESOLVER_TOKEN, 'current-token');
-  for (const bad of [command.replace('req-1', 'req-old'), command.replace('current-token', 'old-token'),
+  assert.deepEqual(launch.mock.calls[0].arguments[2], {}, 'the client holds no token value (#2958)');
+  for (const bad of [command.replace('req-1', 'req-old'), `AUTOCODE_RESOLVER_TOKEN=current-token ${command}`,
     command + ' --resume-paused', command.replace('provide_information', 'retry')]) {
     view.chat.input.next_command = bad;
     await assert.rejects(controller.sendMessage(view, run, 'reply', 'chat-1'), /Unsupported message action/);
@@ -2024,9 +2024,9 @@ test('operational chat reply uses only the current named Resolver binding', asyn
 test('Run details points to the bound operational reply instead of claiming no action exists', async (t) => {
   const view = chatView({ status: 'WAITING_FOR_USER', done: false, needs: {
     kind: 'answer', resolver_scope: 'operational_exhaustion', resolver_request_id: 'req-1', resolver_token: 'current-token',
-  }, next_command: 'AUTOCODE_RESOLVER_TOKEN=current-token autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message "WHAT CHANGED"' });
+  }, next_command: 'autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message "WHAT CHANGED"' });
   view.chat.input = { kind: 'resolver_response', label: 'Send recovery reply',
-    next_command: 'AUTOCODE_RESOLVER_TOKEN=current-token autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE' };
+    next_command: 'autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE' };
   const ui = await openPanel(t, view);
   const text = ui.document.querySelector('#app').textContent;
   assert.ok(text.includes('conversation can accept a recovery reply'));

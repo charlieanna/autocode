@@ -204,9 +204,11 @@ These options accept `-` to read their paired environment variable:
 Prefer this on shared machines: Linux exposes `/proc/<pid>/cmdline` to every local user, while
 `/proc/<pid>/environ` is readable only by the owner, and a typed token also lands in shell
 history. The environment variable alone never authorizes anything — the flag must still be
-present. `TaskRun`, dashboard actions and the trial driver pass these tokens through
-each CLI child's environment. Their process arguments and saved command records contain
-`-`. Literal CLI tokens remain supported. The controller always removes all eight
+present. For the AutoResolver token specifically, `-` on a saved run reads the request that run
+already holds, so a status screen or recovery hint never has to print the value: the printed
+`--resolver-token -` works on its own (#2958). `TaskRun`, dashboard actions and the trial driver
+pass these tokens through each CLI child's environment; their process arguments and saved command
+records contain `-`. Literal CLI tokens remain supported. The controller always removes all eight
 variables before launching a provider or test command, even if named in `AUTOCODE_PASS_ENV`.
 Programmatic command builders require full token option names; abbreviated token
 options are refused before recording or launch.
@@ -223,21 +225,23 @@ a new run instead; `autocode resume` never does.
 ### Conversation and approval
 
 `--status` keeps its JSON document on stdout and prints a short pending-question
-list and the current Resolver token on stderr. After a successful `--answer`,
-stderr shows the questions still open and their new token, or says there are no
-questions left to answer. Use that new token for the next answer; answering does
+list and the exact `--answer` command on stderr. After a successful `--answer`,
+stderr shows the questions still open and their command, or says there are no
+questions left to answer. The printed command carries `--resolver-token -`, which
+reads the current token from that run, so paste it as shown and no value appears
+in your terminal or logs (#2958); answering does
 not approve a plan or start a model.
 
 | Flag | Meaning |
 | --- | --- |
 | `--chat` | Interactive chat mode (default in a terminal). |
 | `--no-chat` | One command per turn (default for non-interactive). |
-| `--answer 'Q1=…'` | Answer a question the run is waiting on (repeatable; the status view's `needs.kind` is `answer`). Requires the current `--resolver-token` shown by Resolver. A finished run waits on none: the questions in its report take `--follow-up` (see [Waiting or finished](#waiting-or-finished)). |
+| `--answer 'Q1=…'` | Answer a question the run is waiting on (repeatable; the status view's `needs.kind` is `answer`). Requires `--resolver-token`; `-` reads this run's current token (#2958). A finished run waits on none: the questions in its report take `--follow-up` (see [Waiting or finished](#waiting-or-finished)). |
 | `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`), a content-filter refusal (`PAUSED_CONTENT_FILTER`), an authenticated output-limit stop (`PAUSED_OUTPUT_CAP`) or a context-window stop (`PAUSED_CONTEXT_WINDOW`: the request no longer fit, or the provider compacted the conversation), name the model the stopped role continues on. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. A stopped workflow job (`needs.kind` `retry_job` with `needs.route`) takes `--answer route-ROLE=MODEL --job-retry-token TOKEN` instead: no resolver token, no `--abandon-stage`, no `--ROLE-model` flag; it issues a new job retry token, so continue with `--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN` ([Waiting or finished](#waiting-or-finished)). See [Models](models.md#when-a-roles-quota-runs-out). |
 | `--answer effort-ROLE=EFFORT` | At `PAUSED_EFFORT_UNSUPPORTED`, a reasoning effort you named that the role's model does not declare: name one of the variants the stop lists (the status view's `needs.effort.declared`). No attempt or issued token is involved, as for a cross-model stop. Saves the level as your own choice (origin `user_explicit`) and records an `effort_assignment`; the run waits at the same pause, and `--resume-paused` then continues. A variant the model does not declare is refused with nothing saved. See [Reasoning effort](models.md#reasoning-effort). |
 | `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. At a clean requested pause it saves the correction and keeps the run paused until explicit resume. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). |
 | `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run starts at Requirements again, which names the new job, and continues in the same run directory. Finished runs only (`TASK_COMPLETE`); any other run exits 2 unchanged. After a design review, the reply revises that review: the Architect keeps every concern under its id, keeps a settled one as resolved with what settled it, and adds the revision to `revisions` in `review/design-review.json` ([Replying to a design review](#replying-to-a-design-review)). After a design turn, "Build it." builds that design as approved: it is checked against the code first (`check_design`). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
-| `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
+| `--delegate Q1` | Accept a question's proposed default. Requires `--resolver-token`; `-` reads this run's current token (#2958). |
 | `--delegate-all --review-token 'r3:<hash>'` | Delegate every pending question marked `delegable` with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval. |
 | `--reject-assumption A1 --review-token 'r3:<hash>'` | Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval. |
 | `--show-goal` | Display the current contract/revision. At the approval stop it also says what approving authorizes and what the token locks, and ends with a summary of the decision (outcome, permissions, criteria and how each is checked, what passing proves), the limits in effect and the exact approve command ([sample](workflow.md#conversation-and-approval)). |

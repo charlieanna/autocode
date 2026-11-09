@@ -24,6 +24,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A command AutoCode shows a person no longer carries the live AutoResolver token value. The
+  answer, recovery and reply commands name `--resolver-token -`, which reads the request the
+  named run already holds, so a terminal, a log or a relayed channel message cannot leak it and
+  the command stays runnable exactly as printed (#2958).
+
 - Malformed report-edit schema regression coverage now verifies refusal through
   the planning provenance boundary, including invalid JSON and missing structure.
 

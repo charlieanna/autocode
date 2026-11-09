@@ -504,7 +504,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--resolver-token",
         help="Exact current AutoResolver token for a human response; `-` reads AUTOCODE_RESOLVER_TOKEN "
-        "so the secret stays out of argv and shell history",
+        "or, for a saved run, the request that run already holds, so no shown command carries the value",
     )
     parser.add_argument(
         "--resolver-response",

@@ -78,14 +78,41 @@ class PauseCommandTests(unittest.TestCase):
             args, _ = autocode_args.parse(None, words, autocode_configure.DEFAULT_ROLE_MODELS)
         return args, words
 
-    def test_question_command_carries_the_current_token_privately(self):
+    def test_question_command_shows_the_token_selector_but_never_its_value(self):
+        """#2958: a shown command answers with `-`, which the named run resolves; no value is displayed."""
         token = "request token 'with quotes'"
         text = self.command({"kind": "answer", "resolver_token": token, "questions": [{"id": "Q1"}]})
         args, argv = self.parse(text)
         self.assertEqual(["Q1=ANSWER"], args.answer)
-        self.assertEqual(token, args.resolver_token)
+        self.assertEqual("-", args.resolver_token)
+        self.assertNotIn(token, text)
         self.assertNotIn(token, argv)
+        self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", text)
         self.assertEqual(Path("/tmp/run with spaces"), args.run_dir)
+
+    def test_an_operational_command_also_shows_only_the_selector(self):
+        token = "operational token 'with spaces'"
+        text = self.command(
+            {
+                "kind": "answer",
+                "resolver_scope": "operational_exhaustion",
+                "resolver_request_id": "request-7",
+                "resolver_token": token,
+            }
+        )
+        self.assertNotIn(token, text)
+        self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", text)
+        args, _ = self.parse(text)
+        self.assertEqual("request-7", args.resolver_request)
+        self.assertEqual("-", args.resolver_token)
+
+    def test_an_approval_command_still_shows_the_exact_plan_token_to_authorize(self):
+        """A plan token is the decision a person binds to, so its assignment stays (#2958 withholds only the resolver value)."""
+        text = self.command({"kind": "approve_plan", "token": "plan-token"})
+        self.assertIn("AUTOCODE_APPROVE_GOAL_TOKEN=plan-token", text)
+        args, argv = self.parse(text)
+        self.assertEqual("plan-token", args.approve_goal)
+        self.assertNotIn("plan-token", argv)
 
     def test_core_named_deterministic_recovery_is_a_continue_action(self):
         text = self.command(
@@ -241,20 +268,20 @@ class PauseCommandTests(unittest.TestCase):
 
 
 class RecoverySuffixTests(unittest.TestCase):
-    """#909: pause/rejection messages end with the exact recovery command and
-    its live token, refreshed at render time; nothing when no recovery exists."""
+    """#909: pause/rejection messages end with the exact recovery command, refreshed at render
+    time; #2958: that command is runnable as printed but never carries the resolver token value."""
 
     def recovery(self, need, **kwargs):
         import autocode_pause_command
 
         return autocode_pause_command.recovery(need, run_dir=Path("/tmp/run"), **kwargs)
 
-    def test_the_suffix_carries_the_live_token_and_the_answer_command(self):
+    def test_the_suffix_names_the_answer_command_without_its_token_value(self):
         suffix = self.recovery({"kind": "answer", "resolver_token": "live-token", "questions": [{"id": "Q1"}]})
-        self.assertIn("live-token", suffix)
+        self.assertNotIn("live-token", suffix)
         self.assertIn("--answer", suffix)
         self.assertIn("Q1=", suffix)
-        self.assertIn("--resolver-token", suffix)
+        self.assertIn("--resolver-token -", suffix)
 
     def test_no_recovery_never_emits_an_impossible_command(self):
         cases = (
@@ -271,10 +298,16 @@ class RecoverySuffixTests(unittest.TestCase):
         suffix = self.recovery({"kind": "dependency", "producer_run": "/tmp/producer"})
         self.assertIn("-- recovery: autocode wait --run-dir /tmp/producer", suffix)
 
-    def test_a_changed_token_is_rendered_fresh_not_from_a_stale_copy(self):
+    def test_a_changed_request_is_rendered_fresh_not_from_a_stale_copy(self):
         stale = {"kind": "answer", "resolver_token": "stale-token", "questions": [{"id": "Q1"}]}
-        fresh = {"kind": "answer", "resolver_token": "fresh-token", "questions": [{"id": "Q1"}]}
-        self.assertIn("stale-token", self.recovery(stale))
+        fresh = {
+            "kind": "answer",
+            "resolver_token": "fresh-token",
+            "resolver_scope": "operational_exhaustion",
+            "resolver_request_id": "request-2",
+        }
         rendered = self.recovery(fresh)
-        self.assertIn("fresh-token", rendered)
-        self.assertNotIn("stale-token", rendered)
+        self.assertIn("request-2", rendered)
+        self.assertNotIn("Q1", rendered)
+        self.assertNotIn("stale-token", self.recovery(stale) + rendered)
+        self.assertIn("Q1", self.recovery(stale))

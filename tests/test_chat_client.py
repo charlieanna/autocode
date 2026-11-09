@@ -102,7 +102,7 @@ def answer_view(**need):
             "questions": [{"id": "Q1", "question": "Which?", "options": ["A", "B"], "proposed_default": "A"}],
             **need,
         },
-        "next_command": f"AUTOCODE_RESOLVER_TOKEN=t1 autocode {PLACE} --answer Q1=ANSWER --resolver-token -",
+        "next_command": f"autocode {PLACE} --answer Q1=ANSWER --resolver-token -",
         "chat": {
             "context": "c1",
             "input": {"kind": "feedback", "next_command": f"autocode {PLACE} --feedback MESSAGE"},
@@ -136,10 +136,11 @@ class NamedActionTests(unittest.TestCase):
         self.assertIsNone(actions.option_mentioned(letters, "A different approach"))
         self.assertIsNone(actions.option_mentioned({}, "Option 1"))
 
-    def test_a_named_command_keeps_its_token_out_of_argv_and_leaves_the_run_to_the_caller(self):
+    def test_a_named_command_carries_no_token_value_and_leaves_the_run_to_the_caller(self):
+        """#2958: the named command reads this run's own request, so a client never holds the token."""
         command = actions.named(answer_view(), WORKSPACE, RUN)
         self.assertEqual(["--answer", "Q1=ANSWER", "--resolver-token", "-"], command.argv)
-        self.assertEqual({"AUTOCODE_RESOLVER_TOKEN": "t1"}, command.env)
+        self.assertEqual({}, command.env)
 
     def test_a_cross_model_stop_asks_for_the_verifier_model_without_a_token(self):
         view = {
@@ -280,15 +281,30 @@ class NamedActionTests(unittest.TestCase):
         flags = "--resolver-request R1 --resolver-token - --resolver-response provide_information"
         view["chat"]["input"] = {
             "kind": "resolver_response",
-            "next_command": f"AUTOCODE_RESOLVER_TOKEN=t1 autocode {PLACE} {flags} --resolver-message MESSAGE",
+            "next_command": f"autocode {PLACE} {flags} --resolver-message MESSAGE",
         }
         command = actions.message(view, "The disk is free now", "c1", WORKSPACE, RUN)
         self.assertEqual("The disk is free now", command.argv[-1])
-        self.assertEqual({"AUTOCODE_RESOLVER_TOKEN": "t1"}, command.env)
+        self.assertEqual({}, command.env)
+        self.assertNotIn("t1", command.argv)
         self.assertTrue(actions.leaves_for_person(view["needs"]))
         view["chat"]["input"]["next_command"] += " --resume-paused"
         with self.assertRaisesRegex(actions.ClientGap, "Unsupported message"):
             actions.message(view, "x", "c1", WORKSPACE, RUN)
+
+    def test_a_named_reply_that_still_carries_the_token_value_is_a_gap(self):
+        """#2958: a client runs only the command AutoCode names now, and one holding a value isn't it."""
+        view = answer_view(resolver_scope="blocker", resolver_request_id="R1", resolver_token="t1")
+        view["chat"]["input"] = {
+            "kind": "resolver_response",
+            "next_command": (
+                f"AUTOCODE_RESOLVER_TOKEN=t1 autocode {PLACE} "
+                "--resolver-request R1 --resolver-token - --resolver-response provide_information "
+                "--resolver-message MESSAGE"
+            ),
+        }
+        with self.assertRaisesRegex(actions.ClientGap, "Unsupported message"):
+            actions.message(view, "The disk is free now", "c1", WORKSPACE, RUN)
 
     def test_the_pause_is_the_offered_one_with_this_request_id(self):
         command = ["intervention", "submit", "--workspace", str(WORKSPACE), "--run-dir", str(RUN)]
@@ -1014,7 +1030,7 @@ class ConversationTests(unittest.TestCase):
         """#2607's shape: AutoResolver published its request for a time limit the person set."""
         view = self.held_time_pause()
         flags = "--resolver-request R1 --resolver-token - --resolver-response provide_information"
-        reply = f"AUTOCODE_RESOLVER_TOKEN=t1 autocode {PLACE} {flags} --resolver-message MESSAGE"
+        reply = f"autocode {PLACE} {flags} --resolver-message MESSAGE"
         view["status"] = "WAITING_FOR_USER"
         view["needs"] = {
             "kind": "answer",
@@ -1095,9 +1111,7 @@ class ConversationTests(unittest.TestCase):
             questions=[{"id": "route-sol", "question": "The Tester's quota ran out. Which model now?"}],
             route={"candidates": ["model-a", "model-b"], "stopped_model": "model-x", "cause": "quota", "job": "Tester"},
         )
-        view["next_command"] = (
-            f"AUTOCODE_RESOLVER_TOKEN=t1 autocode {PLACE} --answer route-sol=MODEL --resolver-token -"
-        )
+        view["next_command"] = f"autocode {PLACE} --answer route-sol=MODEL --resolver-token -"
         client = ScriptedChat(view, DONE, replies=["model-b"])
         self.assertEqual(0, client.converse())
         out = client.text()

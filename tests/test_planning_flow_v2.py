@@ -120,7 +120,12 @@ class V2FlowTests(unittest.TestCase):
         ]
         lifecycle.apply_requirements(state, value, artifact_sha256="abc")
         self.assertEqual("escalate", human.evaluate(state))
-        self.assertIn("Q1", lifecycle.render(state))
+        screen = lifecycle.render(state)
+        self.assertIn("Q1", screen)
+        # #2958: the screen names the request so it can be answered, and `--resolver-token -` reads
+        # the value back from this run, so nothing printed here carries it.
+        self.assertIn("Resolver request ID: " + human.current(state)["request_id"], screen)
+        self.assertNotIn(human.current(state)["request_token"], screen)
         goals.answer(state, "Q1", "CLI")
         self.assertEqual("requirements:abc", state["answers"]["Q1"]["contract_token"])
         goals.feedback(state, "Clarify output")

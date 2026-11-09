@@ -671,6 +671,28 @@ def current(state: RunState):
     return None
 
 
+def cli_token(state: RunState, token, request_id=None):
+    """Read the CLI's ``-`` token selector back out of the run it names (#2958).
+
+    The token is the digest of this run's own saved request identity, so naming the run already
+    names its value: the secret never has to appear in a shown command, a terminal, a log or a
+    relayed channel message. The option still has to be present to ask, which is what keeps an
+    ambient value from authorizing anything, and reading it back grants nothing the saved run
+    does not already hold. A named request resolves only from an authentic ledger entry;
+    anything else leaves the selector untouched so the caller's own refusal still names the gap.
+    """
+    if token != "-":
+        return token
+    if request_id:
+        entry = (cast(dict, state.get("resolver", {}) or {}).get("human_escalations") or {}).get(request_id) or {}
+        identity = entry.get("identity") or {}
+        if identity.get("issuer") == "resolver" and support.digest(identity) == request_id:
+            return support.digest({"request_id": request_id, "binding": identity["binding"]})
+        return token
+    public = current(state)
+    return public["request_token"] if public else token
+
+
 def projection(state: RunState):
     public = current(state)
     saved_status = state.get("status")
