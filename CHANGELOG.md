@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Corrected verification commands at an idle paused Tester checkpoint can retire an
+  obsolete report repair that has not launched. The rejected report, counters and usage
+  stay archived, the approved plan stays exact, and fresh proof and testing remain required.
 - Changed-line mutation checks prefer independently observed regression tests, retaining suite
   preservation and the fresh unmutated check while avoiding unrelated suite work for each mutant.
 - Capture emits its receipt attestation before and after a large display, retaining authentication

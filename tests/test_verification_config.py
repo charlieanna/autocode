@@ -1,6 +1,7 @@
 """Verification command repairs through the CLI, using only offline providers."""
 
 import copy
+import hashlib
 import json
 import shlex
 import shutil
@@ -20,6 +21,7 @@ import autocode_support as support
 import autocode_verification_config as configuration
 
 from . import test_bugfix_workflow as bugfix
+from . import test_verification_repair_retirement as repair_fixture
 
 
 class VerificationCommandRecovery(unittest.TestCase):
@@ -119,6 +121,54 @@ class VerificationCommandRecovery(unittest.TestCase):
         self.assertEqual(before["settings"], after["settings"])
         self.assertEqual(before["contract_token"], after["contract_token"])
         self.assertEqual(before["next_stage"], after["next_stage"])
+
+    def test_corrected_commands_retire_unlaunched_rejected_report_and_run_a_fresh_tester(self):
+        run = self.stopped_before_validation()
+        seeded = repair_fixture.queue_owned_saved_tester_rejection(run, self.project)
+        pending = copy.deepcopy(seeded["pending_report_repair"])
+        retained = {path: Path(path).read_bytes() for path in pending["pins"]}
+        state_path = run / "state.json"
+        before_hash = hashlib.sha256(state_path.read_bytes()).hexdigest()
+        before = self.status(run)
+        self.assertEqual(before_hash, hashlib.sha256(state_path.read_bytes()).hexdigest())
+        self.launch(["--run-dir", str(run), "--resume-paused", "--test-command", " "], 2)
+        self.assertEqual(before_hash, hashlib.sha256(state_path.read_bytes()).hexdigest())
+        regression = f"{shlex.quote(sys.executable)} -m unittest -v test_greet.py"
+        self.launch(
+            [
+                "--run-dir",
+                str(run),
+                "--resume-paused",
+                "--no-chat",
+                "--pause-after-stage",
+                "--test-command",
+                self.gate,
+                "--regression-command",
+                regression,
+            ],
+            2,
+        )
+        after = self.status(run)
+        final = self.saved()[1]
+        self.assertEqual("astra_review", after["next_stage"])
+        self.assertEqual(before["contract_token"], after["contract_token"])
+        for key in ("roles", "limits", "builder_retry"):
+            self.assertEqual(before["settings"][key], after["settings"][key])
+        self.assertEqual(seeded["stages"], final["stages"][: len(seeded["stages"])])
+        self.assertNotIn("pending_report_repair", final)
+        archived = final["report_repair_archive"][-1]
+        self.assertEqual(pending, archived["repair"])
+        self.assertEqual(seeded["regression_proof"], archived["regression_proof"])
+        self.assertEqual(retained, {path: Path(path).read_bytes() for path in retained})
+        self.assertEqual("PASS", final["regression_proof"]["verdict"])
+        self.assertNotEqual(seeded["regression_proof"]["path"], final["regression_proof"]["path"])
+        self.assertEqual(self.gate, final["regression_proof"]["commands"]["suite"])
+        fresh = final["stages"][len(seeded["stages"]) :]
+        providers = [row for row in fresh if not row.get("runner_owned")]
+        self.assertEqual(["sol"], [row["stage"] for row in providers])
+        self.assertTrue(any(row.get("runner_owned") and row["stage"] == "regression_proof" for row in fresh))
+        self.assertFalse(providers[0].get("report_only") or providers[0].get("rejected"))
+        self.assertTrue(any(row["kind"] == "report_repair_retired" for row in after["view"]["recoveries"]))
 
     def test_command_change_after_validation_cannot_reuse_the_previous_pass(self):
         run = self.stopped_before_validation()

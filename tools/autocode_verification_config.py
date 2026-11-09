@@ -12,10 +12,12 @@ try:
     from . import autocode_junit as junit
     from . import autocode_run_status as run_status
     from . import autocode_util as util
+    from . import autocode_verification_repair as verification_repair
 except ImportError:
     import autocode_junit as junit
     import autocode_run_status as run_status
     import autocode_util as util
+    import autocode_verification_repair as verification_repair
 
 # The names autocode_resolver_human.PRIVATE and PUBLIC hold; that module sits above this one.
 BLOCKER_PROPOSAL: Final = "resolver_human_proposal"
@@ -154,7 +156,6 @@ def configure_resume(state: RunState, settings, args):
         state.get(key)
         for key in (
             "active_stage",
-            "pending_report_repair",
             "uncertain_artifacts",
             "active_runner_check",
             "runner_check",
@@ -162,6 +163,11 @@ def configure_resume(state: RunState, settings, args):
     ):
         raise ValueError("Reconcile the active or uncertain attempt before changing verification commands")
     current = validate({**previous, **changed})
+    if state.get("pending_report_repair"):
+        prepared = verification_repair.prepare(state, previous, current)
+        if prepared is None:
+            raise ValueError("Reconcile the active or uncertain attempt before changing verification commands")
+        args._verification_repair_retirement = prepared
     if hold:
         mode = (settings.get("workflow") or {}).get("mode")
         paused = _retire_blocker(
