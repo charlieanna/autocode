@@ -506,3 +506,13 @@ The correction remains in full historical custody. Planning packets and reviewer
 handoffs carry only bounded counts, reasons, binding hashes and archive references;
 they do not repeat entire original inventories. The public recovery history explains
 the correction, and the evidence report cites its original and corrected inventories.
+
+### Failed replay work
+
+When a reported or approved check fails, times out, cannot execute, or lacks
+complete owned-command evidence, its replay is rejected immediately. The saved
+FAIL receipt retains completed checks and lists later checks and acceptance
+observations under `not_run`; those observations remain unverified, not passed.
+A corrected report must still satisfy every prescribed check and independent
+acceptance gate. Deadlines, required repetitions and proof-reuse rules do not
+change. Work already completed before the failure remains retained.

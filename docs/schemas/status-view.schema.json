@@ -108,7 +108,7 @@
           "description": "Whose action a stopped run needs; null for an active or completed run."
         },
         "pause_category_label": {"type": ["string", "null"], "description": "pause_category in words."},
-        "next_command": {"type": ["string", "null"], "description": "The command that answers `needs`, with issued tokens passed through their environment variables; placeholders such as ANSWER are left for a person. Null for an active or completed run."},
+        "next_command": {"type": ["string", "null"], "description": "The command that answers `needs`, with issued tokens passed through their environment variables and the AutoResolver token read back from the run the command names (#2958); placeholders such as ANSWER are left for a person. Null for an active or completed run."},
         "phase": {"type": ["string", "null"]},
         "next_stage": {"type": ["string", "null"]},
         "iteration": {"type": ["integer", "null"]},
