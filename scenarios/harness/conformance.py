@@ -368,9 +368,11 @@ class ConformanceDriver(Driver):
                 and need.get("resolver_request_id")
                 and need.get("resolver_token")
                 and words == expected
-                and env == {"AUTOCODE_RESOLVER_TOKEN": need["resolver_token"]}
+                # #2958: the named command carries the selector, never the token value, so the
+                # headless client runs it as shown and holds no credential of its own.
+                and not env
             ):
-                return [*words[:-1], text], env, "chat.input.next_command"
+                return [*words[:-1], text], {}, "chat.input.next_command"
         if not flag or words != [flag, "MESSAGE"] or env:
             raise ConformanceGap("Unsupported chat message command")
         return [flag, text], {}, "chat.input.next_command"

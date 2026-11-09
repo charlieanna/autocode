@@ -295,7 +295,9 @@ class ClientDecisionTests(unittest.TestCase):
             "resolver_request_id": "req-1",
             "resolver_token": "current-token",
         }
-        command = "AUTOCODE_RESOLVER_TOKEN=current-token autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE"
+        # #2958: the named reply command carries the selector and no token value, so nothing the
+        # headless client relays or logs can hold the credential.
+        command = "autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE"
         public = view(**need)
         public["chat"] = {"input": {"kind": "resolver_response", "next_command": command}}
         args, env, source = self.client.message_command(public, "I corrected the fixture")
@@ -312,11 +314,11 @@ class ClientDecisionTests(unittest.TestCase):
             ],
             args,
         )
-        self.assertEqual({"AUTOCODE_RESOLVER_TOKEN": "current-token"}, env)
+        self.assertEqual({}, env)
         self.assertEqual("chat.input.next_command", source)
         for bad in (
             command.replace("req-1", "req-old"),
-            command.replace("current-token", "old-token"),
+            f"AUTOCODE_RESOLVER_TOKEN=current-token {command}",
             command + " --resume-paused",
             command.replace("provide_information", "retry"),
         ):

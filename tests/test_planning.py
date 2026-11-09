@@ -1452,7 +1452,9 @@ class JointFlow(unittest.TestCase):
         run, state = self.saved()
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.assertIn("Answer ID: Q1", result.stdout)
-        self.assertIn("AutoResolver token:", result.stdout)
+        self.assertIn("--resolver-token -", result.stdout)
+        # #2958: the route a person copies names the run; its token is read back, never printed.
+        self.assertNotIn(state["resolver_human_request"]["request_token"], result.stdout)
 
     def test_opencode_planning_approval_then_implementation_and_validation(self):
         run, state = self.draft()

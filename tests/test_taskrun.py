@@ -282,7 +282,11 @@ class RunViewTests(unittest.TestCase):
 
     def test_verification_obligation_is_additive_read_only_projection(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["verification_obligation"])
-        frontier = {"available": False, "reason": "Exact current custody is unavailable"}
+        frontier = {
+            "available": False,
+            "reason": "Exact current custody is unavailable",
+            "returned_check": {"status": "unavailable"},
+        }
         shown = run_view.view({"status": "RUNNING"}, verification_obligation=frontier)
         self.assertEqual(frontier, shown["verification_obligation"])
         frontier["reason"] = "Changed after projection"
@@ -1279,7 +1283,7 @@ class TaskRunTests(unittest.TestCase):
             view = run.answer(question["id"], question["options"][0])
         self.assertEqual("continue", view["needs"]["kind"], view)
 
-    def test_two_answers_use_printed_rotated_token_and_status_stays_json(self):
+    def test_two_answers_use_the_rotated_token_and_status_stays_json(self):
         self.use_question_preserving_planner(genuine_questions=2)
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=60)
         processes = []
@@ -1290,15 +1294,6 @@ class TaskRunTests(unittest.TestCase):
             processes.append((argv, process))
             return process
 
-        def printed_token(process):
-            tokens = [
-                line.removeprefix("Resolver token: ")
-                for line in process.stderr.splitlines()
-                if line.startswith("Resolver token: ")
-            ]
-            self.assertEqual(1, len(tokens), process.stderr)
-            return tokens[0]
-
         with patch.object(taskrun, "run_process", side_effect=capture):
             before_status = self.footprint()
             initial = run.status()
@@ -1307,14 +1302,17 @@ class TaskRunTests(unittest.TestCase):
             self.assertEqual(initial, json.loads(status.stdout)["view"])
             self.assertIn("readme-audience:", status.stderr)
             self.assertIn("greeting-punctuation:", status.stderr)
-            first_token = printed_token(status)
-            self.assertEqual(initial["needs"]["resolver_token"], first_token)
+            # #2958: the hints name the questions; the token value stays in the JSON a client reads.
+            first_token = initial["needs"]["resolver_token"]
+            self.assertTrue(first_token)
+            self.assertNotIn(first_token, status.stderr)
+            self.assertNotIn("Resolver token:", status.stderr)
             first = initial["needs"]["questions"][0]
             remaining = run.answer(first["id"], first["options"][0], resolver_token=first_token)
             answer = next(process for argv, process in reversed(processes) if "--answer" in argv)
-            next_token = printed_token(answer)
+            next_token = remaining["needs"]["resolver_token"]
             self.assertNotEqual(first_token, next_token)
-            self.assertEqual(remaining["needs"]["resolver_token"], next_token)
+            self.assertNotIn(next_token, answer.stderr)
             self.assertIn("greeting-punctuation:", answer.stderr)
             self.assertNotIn("readme-audience:", answer.stderr)
             second = remaining["needs"]["questions"][0]

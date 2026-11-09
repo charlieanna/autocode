@@ -197,14 +197,36 @@ class VerifyChangeCommandLineTests(StepCommandLine):
         self.workspace, self.env, self.flags = review_workspace(self)
 
     def test_a_review_of_the_agents_change_reports_its_recorded_evidence(self):
-        brief = "Review the uncommitted change in this workspace (git diff HEAD). It should add retry policies."
-        reviewed = self.summary("start", brief, "--workflow", "review", "--", *self.flags)
+        files = (
+            subprocess.check_output(
+                ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=self.workspace
+            )
+            .decode()
+            .split("\0")
+        )
+        before = {name: (self.workspace / name).read_bytes() for name in files if name}
+        brief = catalog.load("review-planted-defects").brief.replace(
+            "Review pr-184.patch before I merge it.",
+            "Review the uncommitted change in this workspace (git diff HEAD) before I merge it.",
+        )
+        config_path = Path(self.env["SCENARIO_FAKE_CONFIG"])
+        config = json.loads(config_path.read_text())
+        config["brief"] = brief
+        config_path.write_text(json.dumps(config))
+        planned = self.summary("start", brief, "--workflow", "review", "--", *self.flags)
+        self.assertEqual("approve_plan", planned["needs"]["kind"], planned)
+        self.assertIn("Approval token: " + planned["needs"]["token"], planned["plan"])
+        reviewed = self.summary("approve", "-", env={"AUTOCODE_APPROVE_GOAL_TOKEN": planned["needs"]["token"]})
         self.assertEqual(
             ("TASK_COMPLETE", True, "review"), (reviewed["status"], reviewed["done"], reviewed["workflow"]), reviewed
         )
-        # A review delivers no build to keep current: its authenticated report as recorded is the evidence.
+        self.assertEqual(before, {name: (self.workspace / name).read_bytes() for name in before})
+        findings = json.loads((self.workspace / "review/findings.json").read_text())
+        self.assertEqual("request_changes", findings["verdict"])
+        self.assertEqual({"F1", "F2"}, {row["id"] for row in findings["findings"] if row["severity"] == "blocking"})
+        # Reviews now use the full pipeline; its delivered findings have current evidence.
         report = self.summary("evidence")
-        self.assertEqual("recorded", report["availability"], report)
+        self.assertEqual("current", report["availability"], report)
         self.assertTrue(report["markdown"].startswith("## AutoCode evidence"))
         self.assertEqual(report["markdown"], self.step("evidence", "--markdown").stdout.removesuffix("\n"))
         self.assertEqual({"agent-step"}, callers(reviewed["run_dir"]))

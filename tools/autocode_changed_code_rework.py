@@ -32,12 +32,18 @@ def _contains(parent, path):
 
 
 def _scope_conflict(task, contract, rejected):
-    """Detect a batch member whose tests the narrowed assignment cannot repair.
+    """Detect an assignment that cannot authorize the required test repairs.
 
     Compare approved ownership areas, not the product file directly with test-only
     task paths. This only requests review; no model citation grants write scope.
     Legacy tasks without those declarations retain their existing bounded route.
     """
+    if task.get("kind") == "validate":
+        return (
+            "The current task is validation-only, so the Builder cannot repair its unresolved changed-line evidence. "
+            "Review the evidence and assign a correction within the approved plan before dispatching the Builder; "
+            "retain the unverified lines and all outstanding milestone obligations."
+        )
     members, assigned = task.get("milestone_ids") or [], task.get("affected_paths") or []
     if len(members) < 2 or not assigned:
         return None
