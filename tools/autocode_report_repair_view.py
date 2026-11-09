@@ -84,7 +84,9 @@ def project(state: RunState, *, stale=False):
     if not isinstance(pending, dict):
         return None
     original = pending.get("original")
-    stage = original.get("stage") if isinstance(original, dict) else None
+    if not isinstance(original, dict):
+        return None
+    stage = original.get("stage")
     if not isinstance(stage, str) or not re.fullmatch(r"[a-z_]{1,64}", stage):
         return None
     source = _digest(original.get("source_revision"))
