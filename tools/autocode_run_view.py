@@ -1166,7 +1166,10 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         }
     # A Resolver proposal at RESOLVER_PENDING carries decisions for the person;
     # surface them so the view names an answerable action (#2896).
-    if status == "RESOLVER_PENDING":
+    if (
+        status == "RESOLVER_PENDING"
+        and (state.get("resolver_human_proposal") or {}).get("scope") != "operational_exhaustion"
+    ):
         proposal = state.get("resolver_human_proposal") or {}
         proposal_questions = proposal.get("questions") or []
         if not proposal_questions and (proposal.get("request") or {}).get("decision_needed"):
