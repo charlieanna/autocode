@@ -202,15 +202,41 @@ def _list_review_ceilings(settings, provider_mod, workspace) -> None:
     and only at a level its model offers (autocode_review_effort). That needs the tool's own listing,
     read once here and kept as ``declared_variants`` beside any single-model listing. A hard plan's
     Planner and Plan Reviewer run one level above their saved or default level, also only at a level
-    the model offers (autocode_plan_difficulty, owner decision 2026-11-09), so their models are read too.
+    the model offers (autocode_plan_difficulty, owner decision 2026-11-09). Their stage-choice models are
+    read here too; an automatically selected route's levels come from the listing selection already read,
+    and a fixed default route reads nothing, so a run that opted out of selection makes no listing call.
     """
     origins = settings.get("effort_origins") or {}
-    roles = {role for role in set(review_effort.STAGES.values()) if origins.get(role) == role_route.STAGE_CHOICE}
-    roles |= {role for role in set(plan_difficulty.STAGES.values()) if origins.get(role) in plan_difficulty.RAISABLE}
-    models = {settings["roles"][role]["model"] for role in roles if isinstance(settings["roles"].get(role), dict)}
-    models = {model for model in models if isinstance(model, str)} - set(settings.get(route_fit.DECLARED) or {})
+    plan_roles = set(plan_difficulty.STAGES.values())
+    roles = {
+        role for role in set(review_effort.STAGES.values()) | plan_roles if origins.get(role) == role_route.STAGE_CHOICE
+    }
+    selected = {role for role in plan_roles if origins.get(role) == role_route.AUTO_SELECTED}
+    if selected_levels := _selection_levels(settings, _models(settings, selected)):
+        settings.setdefault(route_fit.DECLARED, {}).update(selected_levels)
+    models = _models(settings, roles) - set(settings.get(route_fit.DECLARED) or {})
     if models and (listed := _listed_levels(provider_mod, workspace, models)):
         settings.setdefault(route_fit.DECLARED, {}).update(listed)
+
+
+def _models(settings, roles) -> set:
+    """The models ``roles`` run on, as saved in ``settings``."""
+    routes = settings.get("roles") or {}
+    models = {(routes.get(role) or {}).get("model") for role in roles if isinstance(routes.get(role), dict)}
+    return {model for model in models if isinstance(model, str)}
+
+
+def _selection_levels(settings, models) -> dict:
+    """``{model: levels}`` for each of ``models`` that route selection's saved listing names; no new read."""
+    found: dict = {}
+    if not models:
+        return found
+    candidates = ((settings.get("route_selection") or {}).get("candidates")) or {}
+    for rows in candidates.values() if isinstance(candidates, dict) else ():
+        for row in rows or ():
+            if isinstance(row, dict) and row.get("model") in models and isinstance(row.get("levels"), list):
+                found.setdefault(row["model"], list(row["levels"]))
+    return found
 
 
 def _auto_select(

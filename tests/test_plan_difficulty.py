@@ -133,26 +133,34 @@ class DecideTests(unittest.TestCase):
 
 
 class ListingTests(unittest.TestCase):
-    def test_a_new_run_reads_the_levels_of_the_planner_and_plan_reviewer_it_may_raise(self):
+    LISTING = {
+        "candidates": [
+            {"model": MIMO, "levels": ["low", "high", "xhigh"]},
+            {"model": GLM, "levels": ["high", "max"]},
+        ]
+    }
+
+    def listed(self, origins, **settings_changes):
         settings = run_state()["settings"]
         del settings["declared_variants"]
-        settings["effort_origins"] = {"glm": "runner_default", "plan_reviewer": "stage_choice", "terra": "stage_choice"}
-        listing = {
-            "candidates": [
-                {"model": MIMO, "levels": ["low", "high", "xhigh"]},
-                {"model": GLM, "levels": ["high", "max"]},
-            ]
-        }
-        with mock.patch("autocode_route_discovery.discover", return_value=listing) as discover:
+        settings["effort_origins"] = origins
+        settings.update(settings_changes)
+        with mock.patch("autocode_route_discovery.discover", return_value=self.LISTING) as discover:
             configure._list_review_ceilings(settings, object(), "/fixture")
-        discover.assert_called_once()
-        self.assertEqual({MIMO: ["low", "high", "xhigh"], GLM: ["high", "max"]}, settings["declared_variants"])
-        typed = run_state()["settings"]
-        del typed["declared_variants"]
-        typed["effort_origins"] = dict.fromkeys(typed["effort_origins"], "user_explicit")
-        with mock.patch("autocode_route_discovery.discover", return_value=listing) as discover:
-            configure._list_review_ceilings(typed, object(), "/fixture")
-        discover.assert_not_called()
+        return settings.get("declared_variants"), discover.call_count
+
+    def test_a_new_run_reads_the_levels_of_a_stage_choice_planner_and_plan_reviewer(self):
+        declared, calls = self.listed({"glm": "stage_choice", "plan_reviewer": "stage_choice", "terra": "stage_choice"})
+        self.assertEqual(({MIMO: ["low", "high", "xhigh"], GLM: ["high", "max"]}, 1), (declared, calls))
+
+    def test_selected_routes_reuse_the_selection_listing_and_fixed_or_typed_routes_read_nothing(self):
+        selection = {"candidates": {"glm": [{"model": MIMO, "levels": ["high", "xhigh"]}], "terra": []}}
+        origins = {"glm": "auto_selected", "plan_reviewer": "runner_default", "terra": "user_explicit"}
+        declared, calls = self.listed(origins, route_selection=selection)
+        self.assertEqual(({MIMO: ["high", "xhigh"]}, 0), (declared, calls))
+        # A run that opted out of selection keeps its fixed routes and makes no listing call.
+        self.assertEqual((None, 0), self.listed({"glm": "runner_default", "plan_reviewer": "runner_default"}))
+        self.assertEqual((None, 0), self.listed(dict.fromkeys(("glm", "plan_reviewer", "terra"), "user_explicit")))
 
 
 class LaunchTests(unittest.TestCase):

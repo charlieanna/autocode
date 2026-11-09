@@ -593,9 +593,11 @@ each launch from facts it checks itself, never from a model's own rating of the 
 - Requirements judged the request vague. This is the only signal for the Planner's first draft,
   since no plan exists yet.
 
-The level above must be one the model offers. A new run reads the Planner's and Plan Reviewer's
-levels from the tool's listing when it starts; a model already at its strongest level, or one
-whose levels the run cannot list (Codex, today), stays where it is. The raise applies to your
+The level above must be one the model offers. A new run reads the levels of a stage choice's
+model from the tool's listing when it starts, and an automatically selected route's levels from
+the listing selection already read; a fixed default route (`--no-auto-select`) reads no listing.
+A model already at its strongest level, or one whose levels the run does not know (Codex today,
+or a fixed default route), stays where it is and the stage records why. The raise applies to your
 stage choice and to the runner's default level. A level typed as a flag or given as an answer is
 exact, and a route that climbed the effort ladder is left where the climb put it. The launch
 records the raise as the stage's `effort_choice` (`raised`, `reason: "hard_plan"`, the `signals`
