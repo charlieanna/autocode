@@ -1,17 +1,17 @@
 """The first Requirements pass asks its blocking questions early (#2940).
 
-The unit tests cover the due rule, the new-run setting, the triage answer's routing through the
-ordinary questions-only acceptance and the floor effort decision. The CLI tests drive a real run
-through the task-run interface with the scenario harness's fake provider, as
-tests/test_requirements_review does; the public status view, the pause and the retained stage
-artifacts are the oracles. Without the harness fault the fake answers the small triage prompt
-with its usual full report, which acceptance routes through the ordinary path: that fall-through
-keeps every existing fake run's stage sequence unchanged.
+The unit tests cover brief sizing, explicit and saved choices, ordinary questions-only
+acceptance and the floor effort decision. Linux CLI tests drive the task-run interface
+with the scenario fake provider. Small briefs produce one ordinary handoff; explicitly
+enabled triage still asks or returns ready before the full pass. Both paths retain the
+clarification and exact-plan approval boundaries.
 """
 
 from __future__ import annotations
 
+import argparse
 import dataclasses
+import importlib
 import json
 import os
 import sys
@@ -44,6 +44,7 @@ QUESTION = {
     "category": "requested_outcome",
     "delegable": False,
 }
+LARGE_BRIEF = "Build a greeting CLI. " + "Keep the supplied behavior. " * 31
 
 
 def state(**extra):
@@ -57,15 +58,40 @@ def state(**extra):
 
 
 class SettingTests(unittest.TestCase):
-    def test_on_by_default_for_a_new_joint_default_flow_run(self):
-        self.assertTrue(triage.new_run_setting(None, True, False))
+    def test_the_cli_preserves_explicit_choices_and_explains_the_size_default(self):
+        parser = argparse.ArgumentParser()
+        triage.add_argument(parser)
+        self.assertIsNone(parser.parse_args([]).requirements_triage)
+        self.assertTrue(parser.parse_args(["--requirements-triage"]).requirements_triage)
+        self.assertFalse(parser.parse_args(["--no-requirements-triage"]).requirements_triage)
+        help_text = " ".join(parser.format_help().split())
+        self.assertIn("small briefs run the ordinary Requirements pass directly", help_text)
+        self.assertIn("Defaults to larger briefs", help_text)
+
+    def test_packaged_imports_use_the_same_default(self):
+        packaged = importlib.import_module("tools.autocode_requirements_triage")
+        self.assertFalse(packaged.new_run_setting(None, True, False, task="Fix the greeting punctuation"))
+
+    def test_on_by_default_for_a_larger_new_joint_default_flow_run(self):
+        self.assertTrue(triage.new_run_setting(None, True, False), "an unknown brief retains the existing default")
+        self.assertTrue(triage.new_run_setting(None, True, False, task=LARGE_BRIEF))
         for joint, v2 in ((False, False), (True, True)):
             with self.subTest(joint=joint, v2=v2):
-                self.assertFalse(triage.new_run_setting(None, joint, v2))
-        self.assertFalse(triage.new_run_setting(False, True, False))
+                self.assertFalse(triage.new_run_setting(None, joint, v2, task=LARGE_BRIEF))
+        self.assertFalse(triage.new_run_setting(False, True, False, task=LARGE_BRIEF))
         for joint, v2 in ((False, False), (False, True), (True, True)):
             with self.subTest(requested=True, joint=joint, v2=v2):
-                self.assertRaises(ValueError, triage.new_run_setting, True, joint, v2)
+                self.assertRaises(ValueError, triage.new_run_setting, True, joint, v2, task=LARGE_BRIEF)
+
+    def test_small_briefs_default_to_one_full_pass_and_explicit_choices_win(self):
+        for task in ("Fix the greeting punctuation", "word " * 120, "1. task\n" * 8):
+            with self.subTest(task=task):
+                self.assertFalse(triage.new_run_setting(None, True, False, task=task))
+                self.assertTrue(triage.new_run_setting(True, True, False, task=task))
+        for task in ("word " * 121, "1. task\n" * 9):
+            with self.subTest(task=task):
+                self.assertTrue(triage.new_run_setting(None, True, False, task=task))
+                self.assertFalse(triage.new_run_setting(False, True, False, task=task))
 
     def test_a_resume_cannot_change_the_saved_flow(self):
         saved = {"requirements_triage": True}
@@ -240,6 +266,7 @@ class EffortTests(unittest.TestCase):
         self.assertIsNone(self.decision("medium", ["low", "high"], stage="astra_discovery"))
 
 
+@unittest.skipUnless(sys.platform == "linux", "supervised fake providers require supported Linux")
 class TriageCliTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="requirements-triage-cli-")
@@ -275,7 +302,7 @@ class TriageCliTests(unittest.TestCase):
         return json.loads((Path(run.run_dir) / "state.json").read_text(encoding="utf-8"))
 
     def test_the_triage_pass_asks_before_the_full_report_and_the_answer_funds_it(self):
-        run, view = self.start(*JOINT, fault="clarifying_requirements")
+        run, view = self.start(*JOINT, "--requirements-triage", fault="clarifying_requirements")
         need = view.get("needs") or {}
         self.assertEqual("answer", need.get("kind"), {key: view.get(key) for key in ("status", "next_stage", "needs")})
         self.assertEqual([clarifying.QUESTION_ID], [row["id"] for row in need["questions"]])
@@ -293,8 +320,31 @@ class TriageCliTests(unittest.TestCase):
     def test_a_fresh_fake_run_with_no_blocking_question_runs_the_full_report_at_once(self):
         run, view = self.start(*JOINT)
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
-        self.assertEqual(2, self.stages(run).count("requirements_gather"), "the ready triage pass, then the full report")
+        self.assertEqual(1, self.stages(run).count("requirements_gather"), "one ordinary validated handoff")
+        self.assertNotIn(triage.SETTING, self.saved(run))
+        self.assertFalse(view["done"])
+        self.assertNotIn("builder", self.stages(run), "implementation still needs exact plan approval")
+
+    def test_an_explicit_triage_choice_keeps_the_ready_then_full_flow(self):
+        run, view = self.start(*JOINT, "--requirements-triage")
+        self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
+        self.assertEqual(
+            2, self.stages(run).count("requirements_gather"), "the ready triage pass, then the full report"
+        )
         self.assertEqual("ready", self.saved(run)[triage.SETTING]["outcome"])
+
+    def test_a_small_ambiguous_brief_still_asks_and_uses_the_answer(self):
+        run, view = self.start(*JOINT, fault="clarifying_requirements")
+        need = view.get("needs") or {}
+        self.assertEqual("answer", need.get("kind"), view.get("stop_reason"))
+        self.assertEqual([clarifying.QUESTION_ID], [row["id"] for row in need["questions"]])
+        self.assertEqual(["requirements_gather"], self.stages(run))
+        self.assertNotIn(triage.SETTING, self.saved(run))
+        run.answer(clarifying.QUESTION_ID, "Both", resolver_token=need["resolver_token"])
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
+        self.assertEqual(2, self.stages(run).count("requirements_gather"))
+        self.assertFalse(view["done"])
 
     def test_the_opt_out_keeps_the_single_full_dispatch(self):
         run, view = self.start(*JOINT, "--no-requirements-triage", fault="clarifying_requirements")

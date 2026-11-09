@@ -403,14 +403,14 @@ def _refuse_new_run_flags(args, state: RunState, *, started, single_model):
         raise ValueError("--requirements-triage is a new-run policy; a saved run keeps its Requirements flow")
 
 
-def _new_run_policy_settings(settings, args, joint: bool, v2: bool) -> None:
+def _new_run_policy_settings(settings, args, joint: bool, v2: bool, *, task: str | None) -> None:
     """The Requirements-flow policy settings a new run starts with: spec-first (opt-in) and the
-    first-pass triage (on by default, #2940). A resumed run keeps its saved settings instead."""
+    first-pass triage (default for larger briefs, #2940). A resumed run keeps its saved settings instead."""
     if requirements_review.new_run_setting(getattr(args, "spec_first", None), joint, v2):
         settings[requirements_review.SETTING] = True
     # Written True or False so the saved run keeps the flow it started with.
     settings[requirements_triage.SETTING] = requirements_triage.new_run_setting(
-        getattr(args, "requirements_triage", None), joint, v2
+        getattr(args, "requirements_triage", None), joint, v2, task=task
     )
 
 
@@ -989,7 +989,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         if limit is not None:
             settings["planning_review_call_limit"] = limit
             settings["planning_review_call_limit_origin"] = source
-    _new_run_policy_settings(settings, args, joint, role_names.planning_flow(settings) == "v2")
+    _new_run_policy_settings(settings, args, joint, role_names.planning_flow(settings) == "v2", task=state.get("task"))
     if acceptance_tests.new_run_setting(getattr(args, "blind_tests", None), joint):
         settings[acceptance_tests.SETTING_BLIND] = True
     if getattr(args, "unlimited_iterations", False):

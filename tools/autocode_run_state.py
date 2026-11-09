@@ -50,6 +50,9 @@ class StageObservationMetadata(TypedDict, total=False):
     """Optional subset of the existing dictionary stage records, with ownership above."""
 
     requirements_observations: RequirementsObservationSeal
+    # report_source writes a trailing-comma normalization receipt; response_text retains
+    # its exact source. Ordinary schema/evidence admission still owns acceptance.
+    syntax_corrections: dict
 
 
 # Every key tools/ reads or writes on a run state dict.

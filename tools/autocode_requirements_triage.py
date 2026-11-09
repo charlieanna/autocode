@@ -1,8 +1,8 @@
-"""The first Requirements pass asks its blocking questions early (#2940).
+"""A larger brief's first Requirements pass asks its blocking questions early (#2940).
 
-On a fresh joint-planning run on the default flow, the first ``requirements_gather``
-dispatch is a *triage pass*: a small prompt (the task and a workspace inventory, no
-criteria contract) at the lowest reasoning level the requirements model serves, whose
+When triage is enabled on a fresh joint-planning run on the default flow, the first
+``requirements_gather`` dispatch is a *triage pass*: a small prompt (the task and a
+workspace inventory, no criteria contract) at the lowest reasoning level the requirements model serves, whose
 only outputs are the genuinely blocking questions — or ``ready`` when nothing blocks.
 Today the first question a person sees waits on the one full-weight Requirements call
 (291 s of the 360 s first-interaction target, docs/bugs/2026-10-10-first-interaction-latency.md),
@@ -19,12 +19,14 @@ does, and a live model told a smaller contract may still answer fully — change
 the report carries no ``ready`` field, so acceptance falls through to the ordinary path
 and the run proceeds exactly as before. Saved runs keep their saved setting; spec-first,
 planning-v2, follow-up and mid-conversation turns never triage. Pure functions over run
-state; imports only lower layers.
+state; imports only lower layers. New small briefs use the ordinary Requirements
+pass directly, at the saved level: a questions-only probe would add a model call
+before the same validated handoff. Explicit choices and saved flows stay exact.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -38,13 +40,15 @@ try:
     from . import autocode_roles as role_names
     from . import autocode_route_fit as route_fit
     from . import autocode_util as util
+    from . import autocode_workflows as workflows
 except ImportError:
     import autocode_prompts as prompts
     import autocode_roles as role_names
     import autocode_route_fit as route_fit
     import autocode_util as util
+    import autocode_workflows as workflows
 
-SETTING = "requirements_triage"
+SETTING: Final = "requirements_triage"
 # requirements_review.SETTING by value: that module registers this flag beside its own, so it
 # imports this one and this one must not import it back.
 SPEC_FIRST = "spec_first"
@@ -58,18 +62,18 @@ def add_argument(parser) -> None:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="First Requirements pass asks its blocking questions from a small prompt at the lowest "
-        "level before the full report (#2940). New runs with joint planning on the default flow; on "
-        "by default",
+        "level before the full report (#2940). Defaults to larger briefs in new joint default-flow runs; "
+        "small briefs run the ordinary Requirements pass directly",
     )
 
 
-def new_run_setting(requested, joint: bool, v2: bool) -> bool:
-    """On by default for a new joint default-flow run; refused where that flow does not run."""
+def new_run_setting(requested, joint: bool, v2: bool, *, task: str | None = None) -> bool:
+    """Default larger briefs to triage; retain explicit choices and the ordinary handoff gates."""
     if requested is True and (not joint or v2):
         raise ValueError("--requirements-triage needs joint planning and the default planning flow")
     if requested is not None:
         return requested is True
-    return joint and not v2
+    return joint and not v2 and (task is None or workflows.brief_size(task) != "small")
 
 
 def resume_refused(saved_settings: dict, requested) -> bool:

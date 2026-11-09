@@ -114,6 +114,15 @@ assistant text as `.response.txt` before parsing and the parsed report as `.json
 before schema/evidence validation. These are rejected artifacts, not accepted results.
 Tool output and earlier assistant messages are not substitutes for the terminal report.
 
+Before launching a model repair, an initial completed report with only trailing commas
+can be normalized locally. The runner removes at most 32 commas immediately before a
+closing object or array delimiter, outside strings, and accepts no duplicate keys or
+nonfinite constants in the reconstructed object. It retains the exact original bytes
+as `.response.txt` and records their SHA-256 and removed Unicode character offsets in
+the stage's `syntax_corrections`. Every ordinary schema, source, provenance, contract
+and execution-evidence check still runs. Missing content, other syntax errors,
+incomplete attempts and report-only repair responses retain the existing repair path.
+
 The rejected artifacts are archived and hash-pinned. Repair receives the complete
 report/text inline, its stable path and hash, the exact validation error, and mappings
 for artifact paths moved by archival. It must not reconstruct the report by searching
