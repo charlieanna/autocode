@@ -87,6 +87,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A command AutoCode shows a person no longer carries the live AutoResolver token value. The
+  answer, recovery and reply commands name `--resolver-token -`, which reads the request the
+  named run already holds, so a terminal, a log or a relayed channel message cannot leak it and
+  the command stays runnable exactly as printed (#2958).
 - Request-level cost subtotals stay marked incomplete when any request price or request
   coverage is missing, even when aggregate token counts are complete (#3000).
 - Run metrics exclude unrun mutation candidates from the number of mutants tried,
@@ -95,7 +99,6 @@ PR template asks for an entry here; a change without one is incomplete.
 - Kilo policy and model-catalog setup checks retry one timeout within a shared
   90-second budget, retain attempt evidence, and distinguish setup exhaustion from
   an invalid model, failed command or missing executable (#2959).
-
 - Corrected verification commands at an idle paused Tester checkpoint can retire an
   obsolete report repair that has not launched. The rejected report, counters and usage
   stay archived, the approved plan stays exact, and fresh proof and testing remain required.

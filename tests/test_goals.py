@@ -2146,7 +2146,7 @@ class GoalTests(unittest.TestCase):
 
     def test_approval_stop_leads_with_the_decision_and_keeps_the_machinery_behind_details(self):
         # Issue #2535: the stop a plain run prints starts with the summary in plain words; the contract
-        # diff, file hashes and request tokens wait behind --details, which prints the full brief as before.
+        # diff and file hashes wait behind --details; Resolver controls stay in the structured channel.
         self.draft(human=True)
         self.state["contract_history"] = [copy.deepcopy(self.state["goal_contract"])]
         self.state["contract_history"][0]["body"]["intended_outcome"] = "An earlier outcome"
@@ -2158,7 +2158,8 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(2, self.invoke("--no-chat"))
         shown, contract = self.stdout, self.state["goal_contract"]
         selected, revision = g.token(contract), contract["revision"]
-        published = self.state["resolver_human_request"]
+        published = copy.deepcopy(resolver_human.current(self.state))
+        self.assertIsNotNone(published)
         blocks = shown[shown.index("Before you approve") :].split("\n\n")
         self.assertTrue(blocks[0].startswith(f"Before you approve r{revision}:\nWhat it will do:\n"))
         self.assertIn("Done when:\n  [C1] Contract holds\n    Checked by: ", blocks[0])
@@ -2176,13 +2177,17 @@ class GoalTests(unittest.TestCase):
             selected.split(":")[1],
             "Approval token:",
             published["request_id"],
-            published["request_token"],
             "Verification obligations",
         ):
             self.assertNotIn(machinery, before)
             self.assertIn(machinery, full)
         for machinery in ("Contract delta:", published["request_token"], "Approval token:"):
             self.assertNotIn(machinery, shown)
+        self.assertNotIn(published["request_token"], full)
+        self.assertEqual(published, resolver_human.current(self.state))
+        self.assertEqual(0, self.invoke("--status", "--json"))
+        self.assertEqual(selected, json.loads(self.stdout)["view"]["needs"]["token"])
+        self.assertEqual(published, resolver_human.current(self.state))
         # Approval still binds to the exact plan shown: the one approve command names its token.
         commands = re.findall(r"^To approve this plan: (.*)$", shown, re.MULTILINE)
         self.assertEqual([f"autocode --run-dir {shlex.quote(str(self.run))} --approve-goal {selected}"], commands)

@@ -78,14 +78,47 @@ class PauseCommandTests(unittest.TestCase):
             args, _ = autocode_args.parse(None, words, autocode_configure.DEFAULT_ROLE_MODELS)
         return args, words
 
-    def test_question_command_masks_the_live_token(self):
+    def test_question_command_shows_the_token_selector_but_never_its_value(self):
+        """#2958: a shown command answers with `-`, which the named run resolves; no value is displayed."""
         token = "request token 'with quotes'"
         text = self.command({"kind": "answer", "resolver_token": token, "questions": [{"id": "Q1"}]})
-        self.assertNotIn(token, text, "the live token is never written to a stream (#2958)")
-        self.assertIn("AUTOCODE_RESOLVER_TOKEN=-", text)
+        args, argv = self.parse(text)
+        self.assertEqual(["Q1=ANSWER"], args.answer)
+        self.assertEqual("-", args.resolver_token)
+        self.assertNotIn(token, text)
+        self.assertNotIn(token, argv)
+        # #2995 masked the assignment to `-`; #2958 needs no assignment at all, so a copied or
+        # relayed line cannot carry a value for any token the read-back covers.
+        self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", text)
         self.assertIn("--resolver-token -", text)
-        self.assertIn("--answer", text)
-        self.assertIn("Q1=", text)
+        self.assertEqual(Path("/tmp/run with spaces"), args.run_dir)
+
+    def test_an_operational_command_also_shows_only_the_selector(self):
+        token = "operational token 'with spaces'"
+        text = self.command(
+            {
+                "kind": "answer",
+                "resolver_scope": "operational_exhaustion",
+                "resolver_request_id": "request-7",
+                "resolver_token": token,
+            }
+        )
+        self.assertNotIn(token, text)
+        self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", text)
+        args, _ = self.parse(text)
+        self.assertEqual("request-7", args.resolver_request)
+        self.assertEqual("-", args.resolver_token)
+
+    def test_an_approval_command_keeps_the_exact_plan_token_in_the_named_action(self):
+        """A plan token is the decision a person binds to, so the named action still carries it
+        (#2995); only its human display masks it. #2958 withholds just the resolver value."""
+        need = {"kind": "approve_plan", "token": "plan-token"}
+        self.assertIn("AUTOCODE_APPROVE_GOAL_TOKEN=-", self.command(need))
+        text = self.command(need, for_client=True)
+        self.assertIn("AUTOCODE_APPROVE_GOAL_TOKEN=plan-token", text)
+        args, argv = self.parse(text)
+        self.assertEqual("plan-token", args.approve_goal)
+        self.assertNotIn("plan-token", argv)
 
     def test_core_named_deterministic_recovery_is_a_continue_action(self):
         text = self.command(
@@ -250,25 +283,31 @@ class PauseCommandTests(unittest.TestCase):
             with self.subTest(kind=need.get("kind")):
                 text = self.command(need)
                 self.assertNotIn(token, text, f"live token leaked in {need.get('kind')} command")
-                self.assertIn("=- ", text + " ", "the placeholder replaces every token value")
+                if "resolver_token" in need:
+                    # #2958 goes further than the placeholder here: the selector reads the named
+                    # run's own request, so this command carries no assignment for it at all.
+                    self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", text)
+                else:
+                    self.assertIn("=- ", text + " ", "the placeholder replaces every token value")
 
 
 class RecoverySuffixTests(unittest.TestCase):
-    """#909: pause/rejection messages end with the exact recovery command and
-    its live token, refreshed at render time; nothing when no recovery exists."""
+    """#909: pause/rejection messages end with the exact recovery command, refreshed at render
+    time; #2958: that command is runnable as printed but never carries the resolver token value."""
 
     def recovery(self, need, **kwargs):
         import autocode_pause_command
 
         return autocode_pause_command.recovery(need, run_dir=Path("/tmp/run"), **kwargs)
 
-    def test_the_suffix_carries_the_answer_command_without_the_live_token(self):
+    def test_the_suffix_names_the_answer_command_without_its_token_value(self):
         suffix = self.recovery({"kind": "answer", "resolver_token": "live-token", "questions": [{"id": "Q1"}]})
         self.assertNotIn("live-token", suffix, "the live token is never written to a stream (#2958)")
-        self.assertIn("AUTOCODE_RESOLVER_TOKEN=-", suffix)
+        # #2995 masked the assignment to `-`; the read-back needs no assignment at all.
+        self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", suffix)
         self.assertIn("--answer", suffix)
         self.assertIn("Q1=", suffix)
-        self.assertIn("--resolver-token", suffix)
+        self.assertIn("--resolver-token -", suffix)
 
     def test_no_recovery_never_emits_an_impossible_command(self):
         cases = (
@@ -285,12 +324,20 @@ class RecoverySuffixTests(unittest.TestCase):
         suffix = self.recovery({"kind": "dependency", "producer_run": "/tmp/producer"})
         self.assertIn("-- recovery: autocode wait --run-dir /tmp/producer", suffix)
 
-    def test_a_changed_token_is_rendered_fresh_not_from_a_stale_copy(self):
+    def test_a_changed_request_is_rendered_fresh_not_from_a_stale_copy(self):
         stale = {"kind": "answer", "resolver_token": "stale-token", "questions": [{"id": "Q1"}]}
-        fresh = {"kind": "answer", "resolver_token": "fresh-token", "questions": [{"id": "Q1"}]}
-        stale_rendered = self.recovery(stale)
-        fresh_rendered = self.recovery(fresh)
-        # The live token values are masked; both renders show the placeholder (#2958).
-        self.assertNotIn("stale-token", stale_rendered)
-        self.assertNotIn("fresh-token", fresh_rendered)
-        self.assertIn("AUTOCODE_RESOLVER_TOKEN=-", fresh_rendered)
+        fresh = {
+            "kind": "answer",
+            "resolver_token": "fresh-token",
+            "resolver_scope": "operational_exhaustion",
+            "resolver_request_id": "request-2",
+        }
+        rendered = self.recovery(fresh)
+        self.assertIn("request-2", rendered)
+        self.assertNotIn("Q1", rendered)
+        self.assertNotIn("stale-token", self.recovery(stale) + rendered)
+        self.assertIn("Q1", self.recovery(stale))
+        # A fresh render names its own request and neither render carries the value or an
+        # assignment for it: `--resolver-token -` reads the token from the run named (#2958).
+        self.assertNotIn("fresh-token", rendered)
+        self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", self.recovery(stale) + rendered)

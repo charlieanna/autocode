@@ -1380,7 +1380,9 @@ apart from surrounding spaces (#1013). Any other text is rejected with the valid
 current, and something the options do not cover goes in `--feedback` (`/feedback` in
 `--chat`, which asks again after a rejected answer). A question without options takes any
 nonempty text. The terminal CLI also shows the remaining question IDs and
-current Resolver token on stderr after each successful answer and on `--status`, and `--status`
+the exact `--answer` command on stderr after each successful answer and on `--status`; that
+command names `--resolver-token -`, which reads the current token from the run it names, so the
+value never appears in a terminal, a log or a relayed message (#2958). `--status`
 also prints the run's cost line there (`Cost: ...`, from the view's `cost`), then, when the run has
 escalated, one `Escalations: ...` line and a line per escalation (from the view's `escalations`);
 the status JSON on stdout and the returned TaskRun view keep their existing shape.
@@ -1581,7 +1583,9 @@ that cause.
 
 `next_command` formats the current `needs` and existing recovery controls. It
 contains the owned run/workspace paths, and issued tokens travel through their
-paired environment variables with the `-` selector. Replace `ANSWER`, `MODEL`,
+paired environment variables with the `-` selector; the AutoResolver token needs no
+assignment at all, because `--resolver-token -` reads it back from the run the command
+names (#2958). Replace `ANSWER`, `MODEL`,
 `N` or `GOAL_FILE` with a decision; presentation never chooses one or grants
 approval. An uncertain attempt offers abandonment first; inspect status again
 before resuming. Missing issued tokens offer a noninteractive display, and a
