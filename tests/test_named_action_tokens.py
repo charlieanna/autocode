@@ -2,6 +2,7 @@
 
 import copy
 import shlex
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +17,40 @@ import autocode_run_view as run_view
 class NamedActionTokenTests(unittest.TestCase):
     workspace = Path("/tmp/project with spaces")
     run_dir = Path("/tmp/run with spaces")
+
+    def test_queued_operational_limit_keeps_its_numeric_offer_instead_of_an_unissued_question(self):
+        import autocode as runner
+        import autocode_support as support
+
+        with tempfile.TemporaryDirectory() as folder:
+            run = Path(folder).resolve()
+            state = {
+                "status": "PAUSED_COST_LIMIT",
+                "stop_reason": "Saved limit reached",
+                "run_dir": str(run),
+                "stages": [],
+                "history": [],
+                "iteration": 2,
+                "next_stage": "terra",
+                "phase": "EXECUTING",
+                "settings": {
+                    "limits": {"max_cost_usd": 2.0},
+                    "budget_origins": {"max_cost_usd": "user_explicit"},
+                    "roles": {},
+                },
+                "resolver": {},
+            }
+            self.assertTrue(
+                runner.resolver_runtime.record_operational_exhaustion(
+                    runner, state, run, support.Paused(state["status"], state["stop_reason"])
+                )
+            )
+            view = run_view.view(state, workspace=self.workspace, run_dir=run)
+            self.assertEqual("resume", view["needs"]["kind"])
+            row, command = actions.bound_offer(view, self.workspace, run)
+            filled = actions.fill_offer(view, row, command, "3")
+            self.assertEqual({"AUTOCODE_EXPECTED_RECOVERY_TOKEN": view["recovery"]["token"]}, filled.env)
+            self.assertEqual(["--resume-paused", "--max-cost-usd", "3", "--expected-recovery-token", "-"], filled.argv)
 
     def test_a_separate_numeric_offer_keeps_its_own_recovery_binding(self):
         state = {"status": "PAUSED_TIME_LIMIT", "active_seconds": 5, "settings": {"limits": {"max_seconds": 3}}}
