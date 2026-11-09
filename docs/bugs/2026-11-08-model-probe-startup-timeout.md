@@ -1,5 +1,9 @@
 # Record model-probe startup timeouts before provider launch
 
+Follow-up: [bounded startup recovery and the completed live run](2026-11-09-startup-cost-live-confirmation.md)
+are recorded separately. The incomplete-delivery status below belongs to the
+earlier revision.
+
 The live overhead qualification reached one successful Requirements stage, then
 stopped during Kilo startup. Its bounded resume timed out in `kilo debug config`
 after 30 seconds. The access-probe transport only classified a Kilo effort

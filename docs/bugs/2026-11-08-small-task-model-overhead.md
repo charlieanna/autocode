@@ -1,5 +1,9 @@
 # Small-task Requirements and report-repair overhead
 
+Follow-up: the [2026-11-09 live qualification](2026-11-09-startup-cost-live-confirmation.md)
+completed the requested bug-fix flow after the startup and cost fixes. The failed
+attempts and limitations below describe the earlier revisions.
+
 Requested on 2026-11-08: remove redundant Requirements work first, then reduce
 report-repair overhead, retaining the existing verification strength. Starting
 revision: `c168a495f3d04496b669f7c36951b6089f144350` (#2940). Implementation is
