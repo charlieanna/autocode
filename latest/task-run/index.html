@@ -2372,7 +2372,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a491f42ba58ba430865ef1f7f07e6b725a270079/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/66a29d807e970d8f5559657cc1a7f6d686499a6c/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3559,7 +3559,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/a491f42ba58ba430865ef1f7f07e6b725a270079/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/66a29d807e970d8f5559657cc1a7f6d686499a6c/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3827,7 +3827,9 @@ apart from surrounding spaces (#1013). Any other text is rejected with the valid
 current, and something the options do not cover goes in <code>--feedback</code> (<code>/feedback</code> in
 <code>--chat</code>, which asks again after a rejected answer). A question without options takes any
 nonempty text. The terminal CLI also shows the remaining question IDs and
-current Resolver token on stderr after each successful answer and on <code>--status</code>, and <code>--status</code>
+the exact <code>--answer</code> command on stderr after each successful answer and on <code>--status</code>; that
+command names <code>--resolver-token -</code>, which reads the current token from the run it names, so the
+value never appears in a terminal, a log or a relayed message (#2958). <code>--status</code>
 also prints the run's cost line there (<code>Cost: ...</code>, from the view's <code>cost</code>), then, when the run has
 escalated, one <code>Escalations: ...</code> line and a line per escalation (from the view's <code>escalations</code>);
 the status JSON on stdout and the returned TaskRun view keep their existing shape.
@@ -4038,7 +4040,9 @@ request uses the additive <code>needs.pause_origin</code> when its published req
 that cause.</p>
 <p><code>next_command</code> formats the current <code>needs</code> and existing recovery controls. It
 contains the owned run/workspace paths, and issued tokens travel through their
-paired environment variables with the <code>-</code> selector. Replace <code>ANSWER</code>, <code>MODEL</code>,
+paired environment variables with the <code>-</code> selector; the AutoResolver token needs no
+assignment at all, because <code>--resolver-token -</code> reads it back from the run the command
+names (#2958). Replace <code>ANSWER</code>, <code>MODEL</code>,
 <code>N</code> or <code>GOAL_FILE</code> with a decision; presentation never chooses one or grants
 approval. An uncertain attempt offers abandonment first; inspect status again
 before resuming. Missing issued tokens offer a noninteractive display, and a
@@ -4254,7 +4258,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/a491f42ba58ba430865ef1f7f07e6b725a270079/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/66a29d807e970d8f5559657cc1a7f6d686499a6c/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
