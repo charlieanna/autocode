@@ -36,7 +36,7 @@ def trailing_commas(text: str) -> tuple[dict, list[int]] | None:
     """Return one complete object and removed Unicode offsets, or decline the correction."""
     if len(text.encode("utf-8")) > MAX_REPORT_BYTES:
         return None
-    offsets = []
+    offsets: list[int] = []
     for match in TOKENS.finditer(text):
         if match.group("comma") is None:
             continue

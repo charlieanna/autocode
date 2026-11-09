@@ -26,7 +26,7 @@ before the same validated handoff. Explicit choices and saved flows stay exact.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -48,7 +48,7 @@ except ImportError:
     import autocode_util as util
     import autocode_workflows as workflows
 
-SETTING = "requirements_triage"
+SETTING: Final = "requirements_triage"
 # requirements_review.SETTING by value: that module registers this flag beside its own, so it
 # imports this one and this one must not import it back.
 SPEC_FIRST = "spec_first"
