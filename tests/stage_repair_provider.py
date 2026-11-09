@@ -152,6 +152,16 @@ def main():
     data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     repair = bool(data.get("report_repair"))
     stage = data["original"]["stage"] if repair else data["stage"]
+    if repair and stage == "astra_discovery" and os.environ["STAGE_REPAIR_CASE"] == "discovery-trailing-comma":
+        text = data["rejected_report"]["content"]
+        assert text.endswith(",}")
+        value = json.loads(text[:-2] + "}")
+        output = Path(sys.argv[sys.argv.index("-o") + 1])
+        output.write_text(json.dumps(value))
+        append_trace({"stage": stage, "repair": True, "output": str(output)})
+        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
+        return 0
     if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"].startswith("empty-planning-repair"):
         case = os.environ["STAGE_REPAIR_CASE"]
         previous = traced(stage, True)
@@ -677,6 +687,8 @@ def main():
             value["contract"]["contract_changes_placeholder"] = None
         row["discovery_fault"] = True
     text = json.dumps(value)
+    if stage == "astra_discovery" and case == "discovery-trailing-comma" and not repair:
+        text = text[:-1] + ",}"
     if row.get("discovery_fault") and "-text" in case:
         assert ', "summary":' in text
         text = text.replace(', "summary":', '"summary":', 1)
