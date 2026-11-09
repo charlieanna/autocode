@@ -334,8 +334,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         message_input = {
             "kind": "resolver_response",
             "label": "Send recovery reply",
-            "next_command": shlex.join(["AUTOCODE_RESOLVER_TOKEN=" + need["resolver_token"]])
-            + " "
+            "next_command": "AUTOCODE_RESOLVER_TOKEN=- "
             + shlex.join(
                 [
                     "autocode",

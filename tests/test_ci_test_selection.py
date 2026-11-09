@@ -7,6 +7,14 @@ import ci_test_selection as dependencies
 import run_suite
 
 
+class AccessTransportConsumerTests(unittest.TestCase):
+    def test_transport_changes_keep_the_public_startup_failure_regression_when_slow(self):
+        consumer = "tests.test_model_preflight_budgets"
+        selected = run_suite.select_tests(["tools/provider_conformance_transport.py"], {consumer: ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertIn(consumer, kept)
+
+
 class DynamicDependenciesTests(unittest.TestCase):
     def test_repository_pytest_policy_keeps_its_execution_consumer_when_slow(self):
         consumer = "tests.test_repository_pytest"
@@ -1146,6 +1154,16 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {name: "30s" for name in expected})
                 self.assertTrue(expected <= set(kept))
                 self.assertNotIn("tests.test_unrelated", kept)
+
+    def test_native_protection_changes_keep_same_owner_repair_even_when_slow(self):
+        consumer = "tests.test_native_rework_transport"
+        selected = run_suite.select_tests(
+            ["tools/autocode_visual_protection.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, skipped = run_suite.drop_slow(selected, {consumer: "60 seconds"})
+        self.assertIn(consumer, kept)
+        self.assertNotIn(consumer, skipped)
+        self.assertNotIn("tests.test_unrelated", kept)
 
     def test_explicit_registry_never_silently_refers_to_missing_test_modules(self):
         declared = {
