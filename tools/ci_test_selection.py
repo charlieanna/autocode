@@ -570,6 +570,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_intervention_plan_feedback_cli",),
     ),
     (
+        (
+            "tools/autocode_planning_cycle.py",
+            "tools/autocode_budget_recovery.py",
+            "tools/autocode_planning_correction_budget.py",
+            "tools/autocode_default_budget_runtime.py",
+        ),
+        ("tests.test_planning_correction_budget_cli",),
+    ),
+    (
         ("tools/autocode_requirement_retention.py", "tools/autocode_goals.py"),
         ("tests.test_requirement_retention_cli",),
     ),
