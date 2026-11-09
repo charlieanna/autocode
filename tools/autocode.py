@@ -324,11 +324,11 @@ def reject_completed_stage(state: RunState, run_dir, record, error):
         and output_cap.STATUS in str(getattr(error, "status", ""))
         and report_repair_queue.queue(state, record, error, completed=lambda: stage_completed(state, record))
     ):
-            run_status.running(state, "REPORT_REPAIR")
-            write_json(run_dir / "state.json", state)
-            for artifact in originals:
-                artifact.unlink(missing_ok=True)
-            raise ReportRepairQueued()
+        run_status.running(state, "REPORT_REPAIR")
+        write_json(run_dir / "state.json", state)
+        for artifact in originals:
+            artifact.unlink(missing_ok=True)
+        raise ReportRepairQueued()
     asked = rejection_route.reroute(state, record, error, resolver_human.queue)
     if asked or report_repair_queue.queue(state, record, error, completed=lambda: stage_completed(state, record)):
         run_status.running(state, "REPORT_REPAIR") if not asked else None  # asked: autocode_rejection_route took it

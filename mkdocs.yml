@@ -61,9 +61,8 @@ nav:
   - Review and approve:
       - Pauses and commands: cli.md
       - Interventions: interventions.md
-      - GitHub issues and PR review: issues.md
+      - GitHub issues: issues.md
       - Channel bridge: channels.md
-      - Verify an existing change: verify.md
       - Dashboard: dashboard.md
       - macOS app: macos-app.md
   - Proof and evidence:

@@ -9,6 +9,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Removed
+
+- `autocode verify` and `autocode review-pr` (with its `autocode issue review-pr` alias), with
+  their documentation and tests (#3010). Every new task goes through the full pipeline, so the
+  review run each command launched stopped at plan approval and neither could produce a verdict.
+  A multi-repository joint check now needs the joint run's own regression proof; a command-only
+  joint plan, and a saved external verification record, are refused instead of being sent to the
+  removed verifier.
+
 ### Fixed
 
 - Python verification resolves relative interpreter paths and PATH entries from

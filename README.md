@@ -91,10 +91,6 @@ exact candidate trees. Separate green repository tests cannot finish this flow.
 PRs are never merged automatically. See [TUI setup](docs/multi-repo.md#automatic-bug-fixes-from-terminal-chat)
 and [verification limits](docs/multi-repo.md#verification-and-current-limits).
 
-To check a change made by another coding tool, supply its comparison base and
-your acceptance criteria to `autocode verify`. It checks the existing change
-and retains a canonical evidence report. See [Standalone verification](docs/verify.md).
-
 ## Reliability
 
 AutoCode does not report completion without evidence. Live sweeps on the

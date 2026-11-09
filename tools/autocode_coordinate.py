@@ -913,6 +913,18 @@ def resume_cancelled(run_dir, token, amount, *, command=tasks.AUTOCODE):
     return status(run_dir, command=command)
 
 
+def verify_joint(active, view, *, command=tasks.AUTOCODE):
+    """The joint run's own authenticated regression proof, captured as its verification receipt."""
+    if not joint_evidence.uses_native_proof(view):
+        # A plan with command-only checks has no regression proof, and its independent verifier, the
+        # standalone ``autocode verify``, was removed with the unified pipeline (#3010).
+        raise store.CoordinationError(
+            "Joint verification needs the joint run's own regression proof; "
+            "plan the joint check with named tests so the run proves it"
+        )
+    return joint_evidence.capture(handle(active, command=command), active["base"])
+
+
 def require_joint_evidence(document, *, command=tasks.AUTOCODE):
     active = document["joint"]
     if active["verification"].get("kind") == "task_run":
@@ -920,13 +932,11 @@ def require_joint_evidence(document, *, command=tasks.AUTOCODE):
         if joint.mismatches(document, active["workspace"]):
             raise store.CoordinationError("Joint evidence is stale; publication is not authorized")
         return
-    reply = tasks.run_process([*command, "verify", "--record", active["verification"]["record"], "--json"])
-    if (
-        reply.returncode
-        or json.loads(reply.stdout).get("verdict") != "PASS"
-        or joint.mismatches(document, active["workspace"])
-    ):
-        raise store.CoordinationError("Joint evidence is stale; publication is not authorized")
+    # A saved external verification record was rechecked by the standalone ``autocode verify``, which
+    # was removed (#3010): such a record no longer authorizes publication.
+    raise store.CoordinationError(
+        "Joint evidence comes from the removed standalone verifier; run the joint check again before publishing"
+    )
 
 
 def finish_rework_step(document, target):
@@ -1186,45 +1196,7 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
         elif kind == "verify":
             active = document["joint"]
             view = handle(active, command=command).status(inspect_evidence=True)
-            if joint_evidence.uses_native_proof(view):
-                active["verification"] = joint_evidence.capture(handle(active, command=command), active["base"])
-            else:
-                # Older command-only plans still need the independent external proof.
-                contract = joint.criteria(document, view)
-                directory = store.root(run_dir)
-                criteria = directory / f"joint-criteria-{len(document['joint_attempts'])}.json"
-                util.atomic_json(criteria, contract)
-                output = directory / f"verification-{len(document['joint_attempts'])}"
-                limits = json.loads(Path(document["profile"]).read_text())["settings"]["limits"]
-                argv = [
-                    *command,
-                    "verify",
-                    "--workspace",
-                    active["workspace"],
-                    "--base",
-                    active["base"],
-                    "--criteria-file",
-                    str(criteria),
-                    "--suite-command",
-                    contract["acceptance_criteria"][0]["verification_method"],
-                    "--out",
-                    str(output),
-                    *options(document),
-                    *budget_options(document, views, command=command),
-                    "--max-seconds",
-                    str(limits.get("max_seconds") or 900),
-                    "--max-stage-seconds",
-                    str(limits.get("stage_timeout_seconds") or 600),
-                    "--check-timeout",
-                    str(min(limits.get("tool_timeout_seconds") or 900, limits.get("max_seconds") or 900)),
-                    "--json",
-                ]
-                reply = tasks.run_process(argv, advancing=True)
-                if reply.returncode not in (0, 2):
-                    raise store.CoordinationError(
-                        "Joint verification refused: " + (reply.stderr or reply.stdout)[-2000:]
-                    )
-                active["verification"] = json.loads(reply.stdout)
+            active["verification"] = verify_joint(active, view, command=command)
             if active["verification"].get("verdict") == "PASS":
                 if joint.mismatches(document, active["workspace"]):
                     raise store.CoordinationError("Member code changed during joint verification")

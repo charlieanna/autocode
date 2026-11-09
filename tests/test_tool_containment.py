@@ -398,10 +398,11 @@ class PolicyTests(unittest.TestCase):
         # test instead of leaving the new directory readable to a native planning shell. Only
         # autocode_issue names its store as a constant; the others build the path inline, so their
         # code is read for it. A store no module makes any longer stays denied, since older runs may
-        # have left it: `autocode program` (archived on branch archive/program) made .autocode/programs.
+        # have left it: `autocode program` (archived on branch archive/program) made .autocode/programs,
+        # and the removed `autocode review-pr` and `autocode verify` (#3010) made pull-reviews and verification.
         import autocode_issue
 
-        retired = {"programs"}
+        retired = {"programs", "pull-reviews", "verification"}
 
         owners = {
             "archive": ("autocode_worktrees",),  # clean-worktrees keeps a removed task worktree's runs
@@ -412,11 +413,9 @@ class PolicyTests(unittest.TestCase):
             "conversation-starts": ("autocode_conversation_session",),
             "investigation": ("autocode_investigation_workspace",),
             "issues": ("autocode_issue",),
-            "pull-reviews": ("autocode_review_pr",),
             "registry": ("autocode_registry",),
             "replay": ("autocode_replay_cli", "autocode_replay_checks"),
             "task-flows": ("autocode_tasks",),
-            "verification": ("autocode_verify_task",),
             "worktrees": ("autocode_workspaces", "autocode_checkpoint_cli"),
         }
         self.assertEqual(sorted({*owners, *retired}), sorted(containment.PRIVATE_STORES))

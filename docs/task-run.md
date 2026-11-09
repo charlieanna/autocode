@@ -218,9 +218,10 @@ prose methods and named `test:`/`guard:` bindings remain unchanged. A native
 verification receipt has `kind: task_run`; its `record` names the canonical report,
 and its binding and digests are rechecked through TaskRun's inspected status before
 publication and on reopen. Its model costs are already counted in the joint run.
-Older completed plans without a native regression-proof record still use standalone
-`verify`; their records retain the existing freshness reader. A present but stale
-or failing native proof is refused rather than falling back.
+A completed plan without a native regression-proof record is refused: its external
+verifier, the standalone `autocode verify`, was removed (#3010), so a joint check
+must be planned with named tests. A present but stale or failing native proof is
+refused rather than falling back.
 The coordinator owns durable publication intent and reconciles branch/PR identity
 before any retry. It never merges. Manual change-set completion alone is not
 automatic coordination completion.
