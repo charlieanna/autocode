@@ -120,7 +120,7 @@ def process_table(pids=None):
                     # Darwin keeps the native backend name: public name() may
                     # query cmdline and raise SystemError. Optional metadata
                     # must not discard verified birth identity.
-                    executable = process.exe() if sys.platform == "linux" else process._proc.name()
+                    executable = process._proc.exe() if sys.platform == "linux" else process._proc.name()
                 except (psutil.AccessDenied, OSError, SystemError, AttributeError):
                     executable = None
             table[pid] = {

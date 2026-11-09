@@ -132,7 +132,7 @@ class ProcessTests(unittest.TestCase):
         process.ppid.return_value = 90
         process.status.return_value = "sleeping"
         process._proc.name.return_value = "mcp-server-darw"
-        process.exe.return_value = "mcp-server-darw"
+        process._proc.exe.return_value = "mcp-server-darw"
         with (
             patch.object(processes.psutil, "Process", return_value=process),
             patch.object(processes.os, "getpgid", return_value=101),
@@ -166,7 +166,8 @@ class ProcessTests(unittest.TestCase):
             process.ppid.return_value = parent
             process.status.return_value = "sleeping"
             process._proc.name.return_value = "MainThread"
-            process.exe.return_value = executable
+            process._proc.exe.return_value = executable
+            process.exe.side_effect = AssertionError("Public exe() may guess from arguments")
         with (
             patch.object(processes.sys, "platform", "linux"),
             patch.object(processes.psutil, "Process", side_effect=lambda pid: {101: root, 102: child}[pid]),
@@ -180,7 +181,8 @@ class ProcessTests(unittest.TestCase):
         for process in (root, child):
             process.cmdline.assert_not_called()
             process._proc.name.assert_not_called()
-            process.exe.assert_called_once_with()
+            process._proc.exe.assert_called_once_with()
+            process.exe.assert_not_called()
         self.assertFalse(ActivityMonitor._kilo_wrapper({**rows[102], "executable": "/fixture/tool"}, rows[101]))
 
     def test_stable_identity_ignores_display_time_but_never_falls_back_on_mismatch(self):
@@ -334,7 +336,7 @@ class ProcessTests(unittest.TestCase):
                 process.ppid.return_value = 90
                 process.status.return_value = "sleeping"
                 process._proc.name.side_effect = error
-                process.exe.side_effect = error
+                process._proc.exe.side_effect = error
                 with (
                     patch.object(processes.psutil, "Process", return_value=process),
                     patch.object(processes.os, "getpgid", return_value=101),
