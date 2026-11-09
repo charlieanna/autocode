@@ -16,7 +16,7 @@ import autocode_output_cap as output_cap
 import autocode_provider_launch as launch
 import autocode_tool_containment as containment
 import autocode_toolchain as toolchain
-from providers import kilocode
+from providers import kilocode, kilocode_probe
 from providers import kilocode_policy as policy
 
 from tests import test_kilo_progress as progress_tests
@@ -136,12 +136,14 @@ class KiloPolicyTests(unittest.TestCase):
 
         child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
         argv = [sys.executable, "run", "--model", "zai-coding-plan/glm-5.3"]
-        with patch.object(policy.subprocess, "run", side_effect=debug) as run:
+        with patch.object(policy.subprocess, "run", side_effect=debug) as run, kilocode_probe.capture() as checks:
             _, env = policy.restrict(argv, child, Path.cwd(), role="sol")
         (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
         self.assertEqual({"*": "allow"}, agent["permission"]["read"])
         self.assertEqual(3, agent["steps"])
         self.assertEqual(2, run.call_count)
+        self.assertCountEqual(["debug config", "debug agent"], [row["check"] for row in checks])
+        self.assertTrue(all(row["outcome"] == "completed" for row in checks))
 
     def test_another_default_agent_never_gets_the_usual_agents_grants(self):
         allow_all = [{"permission": "*", "pattern": "*", "action": "allow"}]

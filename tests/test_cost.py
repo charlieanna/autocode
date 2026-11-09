@@ -4,6 +4,7 @@ import unittest
 
 import autocode_cost as cost
 import autocode_prices as prices
+import autocode_usage as usage
 
 TOKENS = {"input_tokens": 1000, "output_tokens": 200}
 
@@ -15,6 +16,73 @@ def stage(model="gpt-5.6-sol", tokens=TOKENS, **fields):
 def run(*stages, cap=None, **fields):
     limits = {} if cap is None else {"max_cost_usd": cap}
     return {"settings": {"limits": limits}, "stages": list(stages), **fields}
+
+
+class RequestCostCompletenessTests(unittest.TestCase):
+    def record(self, costs, complete=True):
+        record = stage("unknown/model")
+        record["metrics"]["request_context"] = {
+            "accounting": {
+                "complete": complete,
+                "requests": [
+                    {
+                        "identity": ["session", str(index)],
+                        "reported_cost_usd": amount,
+                        "tokens": dict.fromkeys(usage.request_usage.TOKEN_KEYS, 1),
+                    }
+                    for index, amount in enumerate(costs)
+                ],
+            }
+        }
+        return record
+
+    def test_missing_request_price_keeps_the_known_subtotal_but_never_claims_a_complete_bill(self):
+        state = run(self.record([1.25, None]), cap=1)
+        view = cost.view(state)
+        self.assertEqual(1.25, view["spent_usd"])
+        self.assertEqual(1.25, view["reported_usd"])
+        self.assertFalse(view["complete"])
+        self.assertIn("at least $1.25", cost.line(view))
+        self.assertEqual((1.25, 1), cost.exceeded(state))
+        self.assertEqual(1, cost.carried(state)["partial_stages"])
+        totals = usage.summary(state)
+        self.assertFalse(totals["cost_usd"]["complete"])
+        self.assertEqual(1, totals["partial_stages"])
+        self.assertFalse(view["breakdown"]["by_stage"][0]["complete"])
+
+    def test_missing_request_coverage_is_partial_even_with_complete_aggregate_tokens(self):
+        for complete in (False, None):
+            with self.subTest(complete=complete):
+                state = run(self.record([1.25, 0.75], complete=complete))
+                view = cost.view(state)
+                self.assertEqual(2, view["spent_usd"])
+                self.assertFalse(view["complete"])
+                self.assertEqual(1, usage.summary(state)["partial_stages"])
+
+    def test_all_prices_and_request_coverage_produce_a_complete_total(self):
+        state = run(self.record([1.25, 0.75]))
+        view = cost.view(state)
+        self.assertEqual(2, view["spent_usd"])
+        self.assertTrue(view["complete"])
+        self.assertEqual(0, usage.summary(state)["partial_stages"])
+
+    def test_an_authoritative_attempt_amount_supersedes_incomplete_request_costs(self):
+        for observation in (
+            {"provider_cost_usd": 3.0},
+            {"cost_state": {"session_id": "session", "total_cost_usd": 3.0}},
+        ):
+            with self.subTest(observation=observation):
+                record = self.record([1.25, None], complete=False)
+                record["metrics"].update(observation)
+                view = cost.view(run(record))
+                self.assertEqual(3, view["spent_usd"])
+                self.assertTrue(view["complete"])
+
+    def test_no_request_price_remains_unknown(self):
+        view = cost.view(run(self.record([None, None])))
+        self.assertIsNone(view["spent_usd"])
+        self.assertFalse(view["complete"])
+        self.assertEqual(1, view["unpriced_stages"])
 
 
 class CostProjectionTests(unittest.TestCase):

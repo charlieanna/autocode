@@ -113,8 +113,10 @@ def prepare(
     native_launch = enforce_tool_boundary
     try:
         from .providers.kilocode import KiloEffortError, KiloProvider
+        from .providers.kilocode_probe import KiloProbeTimeout
     except ImportError:
         from providers.kilocode import KiloEffortError, KiloProvider
+        from providers.kilocode_probe import KiloProbeTimeout
     # A planning stage gets the same shell as a read-only checker (owner decision 2026-10-21): Planners compute the
     # exact literals the example rule asks for instead of working them out by hand. Report recovery keeps no tools.
     shell = tool_admission.shell_policy(
@@ -255,6 +257,13 @@ def prepare(
             )
         except KiloEffortError as error:
             raise util.Paused("PAUSED_TRANSPORT_UNVERIFIED", str(error)) from error
+        except KiloProbeTimeout as error:
+            # A pre-launch check that only ran out of time must reach the caller as a pause it can act on,
+            # never as a controller exit (#2959): a contained stage names the boundary it could not read,
+            # any other stage names the check and resumes to run it again.
+            if not containment:
+                raise util.Paused("PAUSED_TRANSPORT_UNVERIFIED", str(error)) from error
+            raise tool_admission.failure(error, kilo_readonly=kilo_readonly, isolation=native_role_isolation) from error
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             if not containment:
                 if type(adapter) is KiloProvider and (planning or not allow_write):

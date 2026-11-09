@@ -6,11 +6,10 @@ Native support is not a configuration flag and cannot fall back to that path.
 
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
-from . import command, kilocode_policy
+from . import command, kilocode_policy, kilocode_probe
 
 try:
     from .. import autocode_output_cap as output_cap
@@ -154,25 +153,40 @@ class KiloProvider(command.CommandProvider):
         """Validate the exact native variant; an unknown name otherwise silently becomes the model default."""
         if not effort:
             return
+        words = [self._config["command"][0], "models", "--verbose"]
         try:
             # The whole verbose listing, not just this model's provider: route discovery reads the same
             # listing at the start of a task, so within a run this is answered from that check.
-            result = command.env_prep.preflight_run(
-                [self._config["command"][0], "models", "--verbose"],
-                self._preflight_environment(env),
-                cwd=workspace,
-                require_executable=env is not None,
-                capture_output=True,
-                text=True,
-                timeout=30,
+            result = kilocode_probe.probe(
+                words,
+                lambda seconds: command.env_prep.preflight_run(
+                    words,
+                    self._preflight_environment(env),
+                    cwd=workspace,
+                    require_executable=env is not None,
+                    capture_output=True,
+                    text=True,
+                    timeout=seconds,
+                ),
             )
-        except (OSError, subprocess.TimeoutExpired) as error:
+        # Every way this can fail gets its own sentence: one message for four causes left a stopped run
+        # unable to say which happened (#2959).
+        except kilocode_probe.KiloProbeTimeout as error:
+            raise KiloEffortError(str(error)) from error
+        except OSError as error:
             raise KiloEffortError(
-                f"Cannot verify Kilo reasoning variants for {model}; no model request was launched"
+                f"Kilo's reasoning-variant listing could not start: {error}; no model request was launched"
             ) from error
-        levels = route_levels.parse(result.stdout) if result.returncode == 0 else {}
+        if result.returncode:
+            raise KiloEffortError(
+                f"Kilo's reasoning-variant listing failed (exit {result.returncode}); no model request was launched"
+            )
+        levels = route_levels.parse(result.stdout)
         if model not in levels:
-            raise KiloEffortError(f"Cannot verify Kilo reasoning variants for {model}; no model request was launched")
+            raise KiloEffortError(
+                f"Kilo's reasoning-variant listing has no variants for {model}; "
+                "name the model as Kilo lists it; no model request was launched"
+            )
         if effort not in levels[model]:
             supported = ", ".join(levels[model]) or "none (omit the explicit effort)"
             fit = route_fit.nearest(effort, levels[model])

@@ -2446,6 +2446,46 @@ class AdvancingDiagnosticTests(unittest.TestCase):
         self.assertEqual([], client.taken)
 
 
+class ChildOutputTests(unittest.TestCase):
+    def test_a_child_log_with_invalid_bytes_is_replaced_not_fatal(self):
+        """One undecodable byte in a child's output once raised UnicodeDecodeError out of advance,
+        killing the chat; the log is decoded the tolerant way the poller decodes child bytes."""
+        with tempfile.TemporaryDirectory() as folder:
+            client = ScriptedChat({"status": "RUNNING"})
+            self.addCleanup(client.close)
+            client.workspace = Path(folder)
+            client.viewed.add(str(client.run_dir))
+            client.command = (sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\xff bad\\n'); sys.exit(3)")
+            with mock.patch.object(client, "show"), mock.patch.object(client, "check_others"):
+                with self.assertRaises(actions.ClientGap) as caught:
+                    client.advance(["--no-chat"])
+            self.assertIn("AutoCode exited 3", str(caught.exception))
+            self.assertIn("\ufffd", str(caught.exception))
+
+
+class ListingTimeoutTests(unittest.TestCase):
+    """The chat's direct listings once waited forever on a wedged core process; they are bounded
+    like every poller read (READ_TIMEOUT), and the gap names the listing."""
+
+    SLEEPING = (sys.executable, "-c", "import time; time.sleep(5)")
+
+    def test_a_history_listing_that_never_answers_is_a_gap_not_a_hang(self):
+        with tempfile.TemporaryDirectory() as folder:
+            history = chat.History(Path(folder), command=self.SLEEPING)
+            with mock.patch.object(chat.polling, "READ_TIMEOUT", 0.2):
+                with self.assertRaisesRegex(actions.ClientGap, "timed out"):
+                    history.read(["modes", "list", "--json"])
+
+    def test_the_startup_mode_and_run_listings_are_bounded_too(self):
+        with mock.patch.object(chat.polling, "READ_TIMEOUT", 0.2):
+            with self.assertRaisesRegex(actions.ClientGap, "could not list run modes"):
+                chat.mode_row(None, command=self.SLEEPING)
+            with self.assertRaisesRegex(actions.ClientGap, "could not list this project's runs"):
+                chat.project_runs(WORKSPACE, command=self.SLEEPING)
+            with self.assertRaisesRegex(actions.ClientGap, "could not list the projects' runs"):
+                chat.every_project_runs(command=self.SLEEPING)
+
+
 class RunChildInputTests(unittest.TestCase):
     def test_the_run_child_never_reads_the_chat_terminal(self):
         """The full-screen chat runs AutoCode in a background process group. A child that touches the

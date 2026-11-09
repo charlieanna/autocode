@@ -20,6 +20,11 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    from .autocode_util import replace_text
+except ImportError:
+    from autocode_util import replace_text
+
 ENGINES = ("opencode", "codex", "claude")  # the engines the core's --engine accepts (tools/autocode_args.py)
 ENGINE_LABELS = {"opencode": "OpenCode", "codex": "Codex", "claude": "Claude Code"}
 SETTINGS_FILE = "chat-settings.json"  # in the project's .autocode directory
@@ -99,8 +104,8 @@ class NewChat:
         if not folder.is_dir():
             return False
         with contextlib.suppress(OSError):
-            (folder / SETTINGS_FILE).write_text(
-                json.dumps({"mode": self.mode, "options": self.options}, indent=2) + "\n", encoding="utf-8"
+            replace_text(
+                folder / SETTINGS_FILE, json.dumps({"mode": self.mode, "options": self.options}, indent=2) + "\n"
             )
             return True
         return False
