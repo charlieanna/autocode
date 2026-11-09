@@ -28,6 +28,23 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
                 self.assertEqual([consumer], list(kept))
 
+    def test_requirements_and_report_optimizations_keep_their_cli_regressions_when_slow(self):
+        for consumer, paths in (
+            (
+                "tests.test_requirements_triage",
+                ("tools/autocode_configure.py", "tools/autocode_requirements_triage.py"),
+            ),
+            (
+                "tests.test_report_syntax_cli",
+                ("tools/autocode_report_source.py", "tools/autocode_report_syntax.py", "tools/providers/opencode.py"),
+            ),
+        ):
+            for path in paths:
+                with self.subTest(path=path):
+                    selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                    kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                    self.assertEqual([consumer], list(kept))
+
     def test_requirements_prompt_resources_keep_the_render_and_existing_public_consumers_when_slow(self):
         consumers = {
             "tests.test_schema_prompt_formatting",

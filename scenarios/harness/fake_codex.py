@@ -2131,6 +2131,17 @@ def report_for(stage: str, data: dict) -> dict:
             return scripted_fault("project_memory_provider.py")["requirements"](report, data)
         if CONFIG.get("fault") == "clarifying_requirements":
             report = scripted_fault("clarifying_requirements_provider.py")["requirements"](report, data)
+        if "ready" in OUTPUT_SCHEMA.get("properties", {}):
+            # The triage pass's small contract (#2940): the wire schema asks only for the blocking
+            # questions or ready, so the report this scripted provider would hand over answers it —
+            # the clarifying fault's question included, before any drafting. The full report runs on
+            # the ordinary schema once the answers are saved.
+            return {
+                "summary": report["summary"],
+                "intended_outcome": report["intended_outcome"],
+                "ready": not report["open_questions"],
+                "open_questions": report["open_questions"],
+            }
         if "job" in OUTPUT_SCHEMA.get("properties", {}):
             # Requirements names the job by the recognizer's keyword rules (#1846, #1860); a follow-up's
             # job is judged from its new message, with the earlier turn as context. Behaviors and

@@ -38,11 +38,13 @@ if TYPE_CHECKING:
 try:
     from . import autocode_light_builder as light_builder
     from . import autocode_repair_effort as repair_effort
+    from . import autocode_requirements_triage as requirements_triage
     from . import autocode_role_route as role_route
     from . import autocode_route_fit as route_fit
 except ImportError:
     import autocode_light_builder as light_builder
     import autocode_repair_effort as repair_effort
+    import autocode_requirements_triage as requirements_triage
     import autocode_role_route as role_route
     import autocode_route_fit as route_fit
 
@@ -123,13 +125,17 @@ def launch(state: RunState, stage, route_role, report_only, route: dict) -> tupl
 
     A small task's first Builder attempt runs low (autocode_light_builder, #1710); a review runs under
     its stage-choice ceiling (``decide``); a format repair runs below the configured level
-    (autocode_repair_effort, #2868). ``decision`` is None when no rule considered the launch.
+    (autocode_repair_effort, #2868); the first Requirements pass asks its blocking questions from a
+    small prompt at the floor level (autocode_requirements_triage, #2940). ``decision`` is None when
+    no rule considered the launch.
     """
     configured = light_builder.effort(state, stage, report_only, route.get("reasoning_effort"))
     if report_only:
         decision = repair_effort.decide(state, configured, model=route.get("model"))
     else:
         decision = decide(state, stage, route_role, report_only, configured, model=route.get("model"))
+    if triage_decision := requirements_triage.effort_decision(state, stage, configured):
+        return triage_decision["level"], triage_decision
     return effort(decision, configured), decision
 
 

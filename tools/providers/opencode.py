@@ -741,7 +741,7 @@ def final_report(path, *, recover_wrapped=False, response_path=None):
     report = None
     try:
         report = json.loads(final)
-    except ValueError:
+    except ValueError as parse_error:
         report = _duplicate_empty_machine_resolutions(final)
         if report is not None:
             return report  # Raw terminal response was captured above; ordinary runner validation still follows.
@@ -772,6 +772,10 @@ def final_report(path, *, recover_wrapped=False, response_path=None):
                 continue
         if report is None:
             report = _trailing_report(final, copies=2 if recover_wrapped else 1)
+        if not isinstance(report, dict):
+            raise RuntimeError(
+                "OpenCode final message is not a JSON report; inspect the saved raw events"
+            ) from parse_error
     if not isinstance(report, dict):
         raise RuntimeError("OpenCode final message is not a JSON report; inspect the saved raw events")
     return report

@@ -41,6 +41,7 @@ try:
     from . import autocode_planner_routes as planner_routes
     from . import autocode_quota_route as quota_route
     from . import autocode_requirements_review as requirements_review
+    from . import autocode_requirements_triage as requirements_triage
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_review_effort as review_effort
     from . import autocode_review_routing as review_routing
@@ -75,6 +76,7 @@ except ImportError:
     import autocode_providers
     import autocode_quota_route as quota_route
     import autocode_requirements_review as requirements_review
+    import autocode_requirements_triage as requirements_triage
     import autocode_retired_token_budget as retired_token_budget
     import autocode_review_effort as review_effort
     import autocode_review_routing as review_routing
@@ -395,6 +397,21 @@ def _refuse_new_run_flags(args, state: RunState, *, started, single_model):
         )
     if started and requirements_review.resume_refused(state.get("settings") or {}, getattr(args, "spec_first", None)):
         raise ValueError("--spec-first is a new-run policy; a saved run keeps its planning flow")
+    if started and requirements_triage.resume_refused(
+        state.get("settings") or {}, getattr(args, "requirements_triage", None)
+    ):
+        raise ValueError("--requirements-triage is a new-run policy; a saved run keeps its Requirements flow")
+
+
+def _new_run_policy_settings(settings, args, joint: bool, v2: bool, *, task: str | None) -> None:
+    """The Requirements-flow policy settings a new run starts with: spec-first (opt-in) and the
+    first-pass triage (default for larger briefs, #2940). A resumed run keeps its saved settings instead."""
+    if requirements_review.new_run_setting(getattr(args, "spec_first", None), joint, v2):
+        settings[requirements_review.SETTING] = True
+    # Written True or False so the saved run keeps the flow it started with.
+    settings[requirements_triage.SETTING] = requirements_triage.new_run_setting(
+        getattr(args, "requirements_triage", None), joint, v2, task=task
+    )
 
 
 def _check_figma(args, *, manifest_input, figma_file, saved_figma, engine, started):
@@ -972,10 +989,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         if limit is not None:
             settings["planning_review_call_limit"] = limit
             settings["planning_review_call_limit_origin"] = source
-    if requirements_review.new_run_setting(
-        getattr(args, "spec_first", None), joint, role_names.planning_flow(settings) == "v2"
-    ):
-        settings[requirements_review.SETTING] = True
+    _new_run_policy_settings(settings, args, joint, role_names.planning_flow(settings) == "v2", task=state.get("task"))
     if acceptance_tests.new_run_setting(getattr(args, "blind_tests", None), joint):
         settings[acceptance_tests.SETTING_BLIND] = True
     if getattr(args, "unlimited_iterations", False):

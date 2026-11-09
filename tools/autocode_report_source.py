@@ -9,6 +9,7 @@ except ImportError:
 
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 try:
     from . import autocode_cmd_only_report as cmd_only
     from . import autocode_opencode as opencode
+    from . import autocode_report_syntax as report_syntax
+    from . import autocode_requirements_triage as requirements_triage
     from . import autocode_support as support
     from .autocode_report_bounds import MAX_REPORT_BYTES
     from .autocode_util import read as read_json
@@ -26,6 +29,8 @@ try:
 except ImportError:
     import autocode_cmd_only_report as cmd_only
     import autocode_opencode as opencode
+    import autocode_report_syntax as report_syntax
+    import autocode_requirements_triage as requirements_triage
     import autocode_support as support
     from autocode_report_bounds import MAX_REPORT_BYTES
     from autocode_util import read as read_json
@@ -57,6 +62,52 @@ def _event_facade(record):
 
 def completed_provider_report(record, *, opencode_report, read_object, persist):
     """Extract provider output using the caller's original report and persistence callbacks."""
+    try:
+        return _completed_provider_report(
+            record, opencode_report=opencode_report, read_object=read_object, persist=persist
+        )
+    except RuntimeError as error:
+        value = syntax_report(record, error, persist=persist)
+        if value is None:
+            raise
+        return value
+
+
+def syntax_report(record, error, *, persist):
+    """Normalize only an initial, completed parser failure, preserving its exact source and receipt."""
+    cause = error.__cause__
+    if (
+        not isinstance(cause, json.JSONDecodeError)
+        or record.get("exit_code") != 0
+        or any(record.get(key) for key in ("report_only", "truncated_output", "timed_out", "interrupted", "abandoned"))
+    ):
+        return None
+    corrected = report_syntax.trailing_commas(cause.doc)
+    if corrected is None:
+        return None
+    output = Path(record["output"])
+    source = Path(record.get("response_text") or output)
+    response = output.with_suffix(".response.txt")
+    try:
+        raw = source.read_bytes()
+        if raw.decode("utf-8") != cause.doc or response.exists() and response.read_bytes() != raw:
+            return None
+    except (OSError, UnicodeError):
+        return None
+    value, offsets = corrected
+    response.write_bytes(raw)
+    record["response_text"] = str(response)
+    record["syntax_corrections"] = {
+        "kind": "trailing_commas",
+        "source_sha256": hashlib.sha256(raw).hexdigest(),
+        "removed_offsets": offsets,
+    }
+    persist(output, value)
+    return value
+
+
+def _completed_provider_report(record, *, opencode_report, read_object, persist):
+    """Provider extraction before the narrowly scoped syntax fallback."""
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
         if record.get("output_mode") != "report_file":
@@ -292,6 +343,15 @@ def load_stage_report(runtime, record, workspace=None, evidence_record=None, sta
         runtime.report_edits.validation_schema(runtime.read_json(Path(record["schema"]))), state, record, value
     )
     value = runtime.support.normalize_loaded_report(value, schema, record)
+    if (
+        state is not None
+        and requirements_triage.due(state)
+        and str(record.get("stage", "")).removesuffix("_report_repair") == requirements_triage.STAGE
+    ):
+        # The triage dispatch (#2940) answers a small contract; the strict wire schema a transport
+        # demands (every property required) must not refuse it here. Only the two summary lines are
+        # required, exactly as the request promised; a full report keeps the schema below.
+        schema = requirements_triage.answer_schema(schema)
     # finding_dispositions may be present in reports validated against schemas
     # saved before the field was introduced. Strip it before validation rather
     # than rejecting a correct report.
