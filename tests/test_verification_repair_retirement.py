@@ -183,6 +183,26 @@ class VerificationRepairRetirementTests(unittest.TestCase):
             self.prepare(initial)
         self.assertEqual(before, initial)
 
+    def test_supervised_rejection_requires_every_recorded_owner_to_be_positively_ended(self):
+        initial = self.rejected_tester()
+        initial["pending_report_repair"]["original"]["supervision"] = {"schema": 1}
+        initial["stages"][-1]["supervision"] = {"schema": 1}
+        ended = {role: {"checked": True, "alive": False} for role in ("owner", "keeper", "provider")}
+        with mock.patch.object(retirement.supervision, "observe", return_value=ended):
+            _, prepared = self.prepare(copy.deepcopy(initial))
+            self.assertIsNotNone(prepared)
+        for role in ended:
+            for observation in ({"checked": True, "alive": True}, {"checked": False, "alive": None}):
+                with self.subTest(role=role, observation=observation):
+                    state = copy.deepcopy(initial)
+                    before = copy.deepcopy(state)
+                    with mock.patch.object(
+                        retirement.supervision, "observe", return_value={**ended, role: observation}
+                    ):
+                        with self.assertRaises(ValueError):
+                            self.prepare(state)
+                    self.assertEqual(before, state)
+
     def test_commit_is_bound_and_never_erases_repair_on_a_refused_settings_write(self):
         state = self.rejected_tester()
         settings, prepared = self.prepare(state)
