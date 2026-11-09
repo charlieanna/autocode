@@ -622,7 +622,7 @@ class CoordinatedMeterTests(unittest.TestCase):
         ui.observe(source)
         self.assertEqual("task $3.00+ · 300+ tokens", ui._spend())
         ui.observe(ledger("/unrelated", 7, 700))
-        self.assertEqual("$7.00 · 700 tokens", ui._spend())
+        self.assertEqual("chat $7.00 · 700 tokens", ui._spend())
 
     def test_side_panel_labels_task_usage_separately_from_current_work(self):
         from tests.test_coordination_usage import ledger
@@ -1012,7 +1012,7 @@ class StallAndWorkedTests(unittest.TestCase):
         self.assertIn("ctrl-d quit", footer)
         self.assertIn("enter send", footer)
         self.assertNotIn("worked", footer)
-        self.assertIn("Builder · $0.42 · 184k tokens · ", footer)
+        self.assertIn("Builder · chat $0.42 · 184k tokens · ", footer)
         self.assertLessEqual(tui.display_width(footer), 98)
 
     def test_the_working_time_gives_way_before_the_footers_actions_do(self):
@@ -1032,11 +1032,11 @@ class StallAndWorkedTests(unittest.TestCase):
         footer = next(text for text in puts if "/ commands" in text)
         self.assertIn("ctrl-d quit", footer)
         self.assertNotIn("worked", footer)
-        self.assertIn("Builder · $0.42 · 184k tokens · ", footer)
+        self.assertIn("Builder · chat $0.42 · 184k tokens · ", footer)
         self.assertLessEqual(tui.display_width(footer), 118)
         puts.clear()
         ui._hints(ui._layout(40, 160))
-        self.assertIn("Builder · worked 10m30s · $0.42", next(text for text in puts if "/ commands" in text))
+        self.assertIn("Builder · worked 10m30s · chat $0.42", next(text for text in puts if "/ commands" in text))
 
 
 class HistoryFileTests(unittest.TestCase):
@@ -2200,7 +2200,7 @@ class MeterScreenTests(unittest.TestCase):
     def test_the_footer_shows_the_runs_cost_and_tokens(self):
         ui = screen_ui()
         ui.observe(SPENDING_VIEW)
-        self.assertIn("$0.42 · 184k tokens", row_text(drawn(ui), 29))
+        self.assertIn("chat $0.42 · 184k tokens", row_text(drawn(ui), 29))
         self.assertNotIn("$0.42", row_text(drawn(ui), 0))
 
     def test_with_two_chats_the_footer_adds_the_session_total(self):
@@ -2228,7 +2228,7 @@ class MeterScreenTests(unittest.TestCase):
         puts = drawn(ui)
         status = next(text for _, text in puts if "attempt 2" in text and "Builder" in text and "exit 1" in text)
         self.assertIn("last one exit 1", status)
-        self.assertIn("$0.42 · 184k tokens", row_text(puts, 29))
+        self.assertIn("chat $0.42 · 184k tokens", row_text(puts, 29))
 
     def test_stage_meter_and_input_stay_at_bottom_across_terminal_sizes(self):
         ui = screen_ui()
@@ -2239,9 +2239,9 @@ class MeterScreenTests(unittest.TestCase):
                 puts = drawn(ui, rows=rows, cols=cols)
                 self.assertIn("my unsent draft", row_text(puts, rows - 3))
                 footer = row_text(puts, rows - 1)
-                self.assertIn("$0.42 · 184k tokens", footer)
+                self.assertIn("chat $0.42 · 184k tokens", footer)
                 # The working time shows where the whole footer fits, and gives way where it does not.
-                self.assertEqual(cols >= 121, "Planner · worked 1m00s · $0.42" in footer, footer)
+                self.assertEqual(cols >= 121, "Planner · worked 1m00s · chat $0.42" in footer, footer)
                 self.assertIsNone(ui._layout(rows, cols).panel_col)
                 self.assertEqual(cols - 1, ui._layout(rows, cols).body_width)
 
@@ -2562,3 +2562,46 @@ class TuiUxScreenTests(unittest.TestCase):
         hints = row_text(puts, 29)
         self.assertIn("↑↓ chooses", hints)
         self.assertNotIn("↑↓ history", hints)
+
+    def test_cost_meter_is_labeled_with_a_single_chat(self):
+        ui = screen_ui()
+        ui.observe({"status": "RUNNING", "progress": {"stage": "Builder", "headline": "Working"}})
+        ui._tabs = [{"number": 1, "title": "task", "state": "working", "current": True, "total": {"usd": 7.0}}]
+        self.assertIn("chat $", ui._spend(), "the cost is labeled even with one chat open")
+
+    def test_composer_wraps_at_spaces_not_mid_word(self):
+        shown, _, _ = tui.composer_rows("hello world foo bar", 19, 11, 10)
+        joined = "".join(shown)
+        self.assertEqual("hello world foo bar", joined.replace("\n", ""), "no characters are lost")
+        for row in shown:
+            self.assertFalse(row.endswith(" "), f"row {row!r} should not end with a dangling space")
+        # No row splits a word: each row starts at a word boundary or is a single long word.
+        for i, row in enumerate(shown):
+            if i > 0 and len(row) > 1:
+                self.assertTrue(row.startswith(" ") or " " not in shown[i - 1], f"row {i} {row!r} splits a word")
+
+    def test_transcript_body_respects_a_reading_measure(self):
+        ui = screen_ui()
+        ui._composer.insert("")
+        drawn(ui, rows=30, cols=180)
+        # The transcript body must not run the full 180 columns.
+        layout = ui._layout(30, 180)
+        self.assertLessEqual(layout.body_width, 120, "the reading measure caps the body width")
+
+    def test_same_brief_tabs_are_disambiguated(self):
+        import autocode_chat_client as client_mod
+
+        client = client_mod.ChatClient.__new__(client_mod.ChatClient)
+        client.tab_order = ["/p/runs/aaaa11", "/p/runs/bbbb22"]
+        client.titles = {"/p/runs/aaaa11": "Fix the bug", "/p/runs/bbbb22": "Fix the bug"}
+        client.run_dir = Path("/p/runs/bbbb22")
+        client.identity = ("", ("working",))
+        client.others = {
+            "/p/runs/aaaa11": ("/p", ("done",)),
+        }
+        client._read_errors = {}
+        client._totals = {}
+        rows = client.tabs()
+        self.assertNotEqual(rows[0]["title"], rows[1]["title"], "same-brief tabs must be distinguishable")
+        self.assertIn("Fix the bug", rows[0]["title"])
+        self.assertIn("Fix the bug", rows[1]["title"])
