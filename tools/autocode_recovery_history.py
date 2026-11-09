@@ -200,6 +200,20 @@ def _report_repairs(state: RunState):
             problem=None,
             action=f"Its work stood; only the report was rewritten.{took} {done}",
         )
+    for row in state.get("report_repair_archive") or []:
+        if not isinstance(row, dict) or row.get("kind") != "verification_inputs_changed":
+            continue
+        original = (row.get("repair") or {}).get("original") or {}
+        yield _entry(
+            "report_repair_retired",
+            row.get("at"),
+            original.get("stage"),
+            state,
+            headline="Obsolete report repair retired",
+            problem=row.get("reason"),
+            action="The rejected report remains archived. Fresh checks and an independent Tester attempt are required.",
+            by="AutoCode",
+        )
 
 
 def _lines(obligations):
