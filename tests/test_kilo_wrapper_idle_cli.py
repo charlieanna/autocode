@@ -23,13 +23,17 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         native = self.root / ".kilo"
         shutil.copy2("/bin/sleep", native)
         probe = self.root / "calls.jsonl"
+        native_outcome = self.root / "native-outcome.json"
         provider = self.root / "provider.cjs"
         provider.write_text(
             "const fs = require('node:fs');\n"
             "const {spawn} = require('node:child_process');\n"
-            "const native = process.argv[2], probe = process.argv[3];\n"
+            "const native = process.argv[2], probe = process.argv[3], outcome = process.argv[4];\n"
             "const emit = row => process.stdout.write(JSON.stringify(row) + '\\n');\n"
             "const child = spawn(native, ['60'], {stdio: 'ignore'});\n"
+            "const record = value => fs.writeFileSync(outcome, JSON.stringify({node:process.version,...value}));\n"
+            "record({event:'spawned',pid:child.pid});\n"
+            "child.once('exit', (code,signal) => record({event:'exit',pid:child.pid,code,signal}));\n"
             "fs.appendFileSync(probe, JSON.stringify({root:process.pid, child:child.pid}) + '\\n');\n"
             "emit({type:'step_start',sessionID:'fixture',part:{id:'first-step'}});\n"
             "for(let i=0;i<3;i++) emit({type:'tool_use',sessionID:'fixture',part:{\n"
@@ -40,7 +44,7 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         )
         config = Path(self.env["XDG_CONFIG_HOME"]) / "autocode/providers/wrapper_fixture.toml"
         config.parent.mkdir(parents=True)
-        command = [node, str(provider), str(native), str(probe)]
+        command = [node, str(provider), str(native), str(probe), str(native_outcome)]
         roles = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
         config.write_text(
             'name = "wrapper_fixture"\noutput = "opencode_events"\nprompt = "stdin"\nresume = ["--session", "{session}"]\ncommand = '
@@ -115,7 +119,14 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         # the original iteration-level artifact path named by that event stem.
         receipt = json.loads((events.parent.parent / events.with_suffix(".supervision.json").name).read_text())
         launched = json.loads(probe.read_text().splitlines()[0])
-        self.assertLessEqual(set(launched.values()), {row["pid"] for row in receipt["processes"]})
+        self.assertLessEqual(
+            set(launched.values()),
+            {row["pid"] for row in receipt["processes"]},
+            {
+                "native_outcome": json.loads(native_outcome.read_text()) if native_outcome.exists() else None,
+                "keeper_stop_timing": receipt.get("stop_timing"),
+            },
+        )
         self.assertEqual("stopped", receipt["phase"])
         self.assertIsNone(receipt["cleanup_error"])
         self.assertEqual([], processes.live_processes(receipt["processes"]))
