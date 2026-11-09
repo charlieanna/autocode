@@ -37,6 +37,12 @@ class DecisionFlagTests(unittest.TestCase):
         for flag in ("--max-seconds", "--unlimited-iterations", "--no-progress-limit", "--terra-model"):
             self.assertIn(flag, flags.START_FLAGS)
 
+    def test_triage_flow_switches_configure_start_without_recording_a_decision(self):
+        for flag in ("--requirements-triage", "--no-requirements-triage"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, flags.START_FLAGS)
+                self.assertNotIn(flag, flags.DECISION_FLAGS)
+
 
 if __name__ == "__main__":
     unittest.main()
