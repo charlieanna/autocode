@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Validation-only tasks with unresolved changed-line evidence return for scope
+  review before Builder repair, preserving their read-only assignment and all
+  outstanding evidence and milestone obligations.
 - Clean verification-command timeouts remain failed checks instead of becoming
   an ownership pause that requires discarding the Tester's report. Missing or
   uncertain cleanup still blocks execution; timeouts never authorize proof reuse.

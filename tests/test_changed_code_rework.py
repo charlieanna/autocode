@@ -4,7 +4,10 @@ import copy
 import unittest
 
 import autocode_changed_code_rework as rework
+import autocode_findings as findings
 import autocode_recovery_history as history
+
+from .test_findings import astra, resolved, sol
 
 
 class ChangedCodeRepairScopeTests(unittest.TestCase):
@@ -41,6 +44,68 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
         record = {"stage": "sol", "role": "sol", "source_revision": "source-one", "output": "/run/tester.json"}
         rejected = [{"path": "app/evaluate/core.py", "line": 136, "reason": "Assert unequal values for <=."}]
         return state, record, rejected
+
+    def test_validation_only_task_returns_to_review_with_evidence_and_counters_intact(self):
+        for stage, role in (("sol", "sol"), ("astra_checkpoint", "astra")):
+            with self.subTest(stage=stage):
+                state, record, _ = self.fixture()
+                state["current_task"] = {"id": "validate-retained", "kind": "validate", "milestone_id": "D"}
+                state["no_progress_batches"] = 3
+                record.update(stage=stage, role=role)
+                preserved = copy.deepcopy(state)
+                self.assertTrue(rework.route(state, record, investigation_enabled=True))
+                self.assertEqual("astra_review", state["next_stage"])
+                self.assertIn("validation-only", state["next_action"])
+                self.assertIn("within the approved plan", state["next_action"])
+                self.assertIn("retain the unverified lines and all outstanding milestone obligations", state["next_action"])
+                for key in ("current_task", "goal_contract", "regression_proof", "iteration", "no_progress_batches"):
+                    self.assertEqual(preserved[key], state[key], key)
+                event = state["regression_proofs"][-1]
+                self.assertEqual("reviewer", event["action"])
+                self.assertNotIn("round", event)
+                self.assertFalse(rework.queued(state, record))
+                self.assertTrue(rework.route(state, record, investigation_enabled=True))
+                self.assertEqual(1, len(state["regression_proofs"]))
+
+    def test_validation_only_scope_review_still_requires_independent_current_failed_line_evidence(self):
+        for variant in ("builder", "failed_proof", "settled_lines", "stale_source"):
+            with self.subTest(variant=variant):
+                state, record, _ = self.fixture()
+                state["current_task"]["kind"] = "validate"
+                if variant == "builder":
+                    record.update(stage="terra", role="terra")
+                elif variant == "failed_proof":
+                    state["regression_proof"]["verdict"] = "FAIL"
+                elif variant == "settled_lines":
+                    state["regression_proof"]["changed_code_evidence"]["status"] = "PASS"
+                else:
+                    record["source_revision"] = "stale-source"
+                before = copy.deepcopy(state)
+                if variant == "stale_source":
+                    with self.assertRaisesRegex(ValueError, "exact source"):
+                        rework.route(state, record, investigation_enabled=True)
+                else:
+                    self.assertFalse(rework.route(state, record, investigation_enabled=True))
+                self.assertEqual(before, state)
+
+    def test_scope_handoff_leaves_a_tester_finding_for_its_fresh_owner_review(self):
+        state, record, _ = self.fixture()
+        state["current_task"] = {"id": "validate-retained", "kind": "validate"}
+        state["goal_contract"]["body"] = {"acceptance_criteria": [{"id": "C1"}]}
+        findings.record_validation(state, sol("Lower return has no assertion"), {"output": "tester-first"})
+        ident = findings.open_entries(state, "sol")[0]["id"]
+        rework.route(state, record, investigation_enabled=True)
+        findings.record_decision(state, astra("CONTINUE", dispositions=[resolved(ident)]), {"output": "scope-review"})
+        self.assertEqual([ident], [row["id"] for row in findings.open_entries(state, "sol")])
+        repaired = sol(dispositions=[resolved(ident)])
+        with self.assertRaisesRegex(ValueError, "report-only repair"):
+            findings.record_validation(state, repaired, {"output": "tester-repair", "report_repaired": True})
+        self.assertEqual([ident], [row["id"] for row in findings.open_entries(state, "sol")])
+        repaired.update(
+            verdict="PASS", criterion_results=[{"id": "C1", "status": "PASS", "evidence_refs": ["event:fresh"]}]
+        )
+        findings.record_validation(state, repaired, {"output": "tester-fresh"})
+        self.assertEqual([], findings.open_entries(state, "sol"))
 
     def test_narrowed_batch_assignment_returns_to_review_without_spending_builder_round(self):
         state, record, rejected = self.fixture()
