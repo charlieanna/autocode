@@ -298,9 +298,20 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
     return None
 
 
+def read_shown_tokens(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    """Read a shown command's ``-`` AutoResolver selector back out of the run it names (#2958).
+
+    The token is the digest of this run's own saved request, so no command a person is shown, no
+    terminal line, log or relayed channel message has to carry its value to stay executable.
+    """
+    args.resolver_token = resolver_human.cli_token(state, args.resolver_token, args.resolver_request)
+    return None
+
+
 # handle()'s steps, in the order they take precedence. Each returns an exit code to end the
 # invocation, or None to go on; one that sets decided.dispatch sends the run straight to the build.
 STEPS = (
+    read_shown_tokens,  # the shown command's token selector resolves from this run, before any step reads it
     action_recovery.reconcile_checkpoint,  # metadata-only ownership inspection, before configuration/decisions
     honor_stops,  # an applied or pending stop, and a bound retry mixed with other actions
     action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt

@@ -263,10 +263,10 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
                 follow_up.refuse_on_finished(args)  # only --follow-up reopens a finished run
             if args.answer or args.delegate:
                 if not published or not args.resolver_token:
-                    # #909: name the exact command with the live token, refreshed
-                    # from the current need — the shown token supersedes stale ones.
+                    # #909: name the exact command, refreshed from the current need and runnable
+                    # as shown: its selector reads this run's own token, so nothing prints a value.
                     raise ValueError(
-                        "Answers require the current --resolver-token shown by AutoResolver"
+                        "Answers require the current --resolver-token; --resolver-token - reads it from this run"
                         + pause_command.recovery(candidate.get("needs"), run_dir=run_dir, workspace=workspace)
                     )
                 try:

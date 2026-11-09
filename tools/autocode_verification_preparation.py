@@ -6,6 +6,7 @@ the script entry supplies existing tree operations to the owned worker.
 
 import json
 import os
+import re
 import shlex
 import sys
 import tempfile
@@ -245,6 +246,51 @@ def launch(operation, workspace, out, parameters, *, timeout, env):
     return None
 
 
+def _returned_check(bound):
+    """Project bounded worker diagnostics, never report text or recovery authority."""
+    request = bound.get("request")
+    if not request or request.get("operation") != "execute" or request.get("parameters", {}).get("review_mutation"):
+        return None
+    try:
+        path = Path(request["result"])
+        if not path.exists() and not path.is_symlink():
+            return {"status": "not_returned"}
+        answer, digest = recovery.read_regular(path, bound["out"])
+        if (
+            answer.get("request_sha256") != bound["check"]["request_sha256"]
+            or answer.get("operation") != "execute"
+            or answer.get("nonce") != bound["preparation"]["nonce"]
+            or not isinstance(answer.get("receipt"), dict)
+        ):
+            return {"status": "unavailable"}
+        inner = answer["receipt"]
+        pin = inner.get("supervision_sha256")
+        terminal = (
+            recovery.receipts.load(inner.get("supervision"), root=bound["out"], pin=pin)
+            if isinstance(pin, str) and re.fullmatch("[0-9a-f]{64}", pin)
+            else None
+        )
+        return {
+            "status": "available",
+            "result_sha256": digest,
+            "exit_code": inner.get("exit_code") if type(inner.get("exit_code")) is int else None,
+            "timed_out": inner.get("timed_out") if type(inner.get("timed_out")) is bool else None,
+            "interrupted": inner.get("interrupted") if type(inner.get("interrupted")) is bool else None,
+            "has_error": bool(inner.get("error")),
+            "supervision_error_count": len(inner["supervision_errors"])
+            if isinstance(inner.get("supervision_errors"), list)
+            else None,
+            "cleanup": {
+                "receipt_bound": terminal is not None,
+                "phase": terminal["phase"] if terminal else None,
+                "cause": terminal["cause"] if terminal else None,
+                "has_error": bool(terminal["cleanup_error"]) if terminal else None,
+            },
+        }
+    except (OSError, ValueError, KeyError, TypeError, recovery.receipts.OwnershipUncertain):
+        return {"status": "unavailable"}
+
+
 def frontier(root, runner_check=None):
     """Read exact current obligation metadata; never reconcile or grant retry."""
     root = Path(root)
@@ -278,6 +324,7 @@ def frontier(root, runner_check=None):
         }
         if reference:
             result["owner"] = bound.get("owner") or check["supervision"]["owner"]
+            result["returned_check"] = _returned_check(bound)
             if check:
                 result["liveness"] = supervision.observe(bound["metadata"])
         else:

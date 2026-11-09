@@ -489,7 +489,11 @@ def plan_for_approval(view: dict) -> dict | None:
     # carries milestones or an end-to-end flow they must be showable, never silently dropped.
     milestones = plan.get("milestones", [])
     if not isinstance(milestones, list) or not all(
-        isinstance(row, dict) and isinstance(row.get("id"), str) and isinstance(row.get("objective"), str)
+        isinstance(row, dict)
+        and isinstance(row.get("id"), str)
+        and isinstance(row.get("objective"), str)
+        and isinstance(row.get("acceptance_criteria", []), list)
+        and all(isinstance(criterion, str) for criterion in row.get("acceptance_criteria", []))
         for row in milestones
     ):
         return None
@@ -598,9 +602,11 @@ def message(
             and need.get("resolver_request_id")
             and need.get("resolver_token")
             and command.argv == expected
-            and command.env == {"AUTOCODE_RESOLVER_TOKEN": need["resolver_token"]}
+            # The named command carries no token value: `--resolver-token -` reads it from the run
+            # this client already names, so nothing here ever holds the credential (#2958).
+            and not command.env
         ):
-            return NamedCommand([*command.argv[:-1], text], command.env)
+            return NamedCommand([*command.argv[:-1], text], {})
         raise ClientGap("Unsupported message action from AutoCode")
     flag = {"feedback": "--feedback", "follow_up": "--follow-up"}.get(str(offered.get("kind")))
     if not flag or command.argv != [flag, "MESSAGE"] or command.env:

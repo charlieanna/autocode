@@ -60,6 +60,10 @@ class DynamicDependenciesTests(unittest.TestCase):
                 ("tools/autocode_configure.py", "tools/autocode_requirements_triage.py"),
             ),
             (
+                "tests.test_component_design",
+                ("tools/autocode_requirements_triage.py",),
+            ),
+            (
                 "tests.test_report_syntax_cli",
                 ("tools/autocode_report_source.py", "tools/autocode_report_syntax.py", "tools/providers/opencode.py"),
             ),
