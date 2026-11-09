@@ -29,6 +29,8 @@ VARIABLE = "OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"
 KILO_VARIABLE = "KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX"
 OPENCODE_DEFAULT = 32000
 DEFAULT_TOKENS = 64000
+# A format repair changes one string or field; it never needs the full output budget (#2835).
+REPAIR_TOKENS = 16000
 # How a provider's length stop starts; explain() adds the cap to exactly these reasons.
 LENGTH_STOP = "The response exhausted its output token limit (finish reason: length)"
 SET_BY = {
@@ -46,11 +48,19 @@ def configured(env: Mapping[str, str], variable: str = VARIABLE) -> int | None:
     return int(value) if _WHOLE_NUMBER.fullmatch(value) and int(value) > 0 else None
 
 
-def apply(child: MutableMapping[str, str], variable: str = VARIABLE) -> None:
-    """Use the native setting; preserve the legacy OpenCode override for Kilo callers."""
+def apply(child: MutableMapping[str, str], variable: str = VARIABLE, *, bounded: bool = False) -> None:
+    """Use the native setting; preserve the legacy OpenCode override for Kilo callers.
+
+    A format repair (``bounded``) uses REPAIR_TOKENS instead of DEFAULT_TOKENS (#2835):
+    a repair that changes one string should not reason for 64k tokens. ``AUTOCODE_REPAIR``
+    in the environment also sets bounded, so a provider that receives the env from the
+    launcher gets the reduced cap without a new parameter."""
     if configured(child, variable) is None:
+        if not bounded and child.get("AUTOCODE_REPAIR"):
+            bounded = True
         legacy = configured(child) if variable == KILO_VARIABLE else None
-        child[variable] = str(legacy or DEFAULT_TOKENS)
+        default = REPAIR_TOKENS if bounded else DEFAULT_TOKENS
+        child[variable] = str(legacy or default)
 
 
 def recorded(operator: Mapping[str, str], child: Mapping[str, str], variable: str = VARIABLE) -> dict:

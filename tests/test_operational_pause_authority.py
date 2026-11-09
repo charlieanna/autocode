@@ -654,7 +654,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                     self.answer(state)
                     state = self.saved()
                 answer_refusal = (
-                    "Answers require the current --resolver-token shown by AutoResolver"
+                    "Answers require the current --resolver-token; --resolver-token - reads it from this run"
                     if answered
                     else "Use --resolver-response for this operational request; it is not a requirements answer"
                 )

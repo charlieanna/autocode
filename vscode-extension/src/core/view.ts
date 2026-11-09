@@ -128,6 +128,8 @@ export interface DisplayedPlan {
   constraints?: string[];
   permission_boundaries?: string[];
   scope_exclusions?: string[];
+  milestones?: { id: string; objective: string; acceptance_criteria?: string[] }[];
+  end_to_end_flow?: string[];
   git_delivery?: { kind: "atomic_commit"; message: string } | null;
 }
 
@@ -449,6 +451,14 @@ export function planForApproval(view: StatusView): DisplayedPlan | null {
   if (![plan.constraints, plan.permission_boundaries, plan.scope_exclusions === undefined ? [] : plan.scope_exclusions].every((rows) =>
     Array.isArray(rows) && rows.every((row) => typeof row === "string")
   )) return null;
+  const milestones = plan.milestones === undefined ? [] : plan.milestones;
+  if (!Array.isArray(milestones) || !milestones.every((row) =>
+    row && typeof row.id === "string" && typeof row.objective === "string"
+      && (row.acceptance_criteria === undefined || (Array.isArray(row.acceptance_criteria)
+        && row.acceptance_criteria.every((id) => typeof id === "string")))
+  )) return null;
+  const flow = plan.end_to_end_flow === undefined ? [] : plan.end_to_end_flow;
+  if (!Array.isArray(flow) || !flow.every((step) => typeof step === "string")) return null;
   return plan;
 }
 

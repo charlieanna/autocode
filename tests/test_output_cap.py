@@ -99,6 +99,39 @@ class CapTests(unittest.TestCase):
         self.assertIsNone(output_cap.explain(None, {"tokens": 64000, "set_by": "autocode"}))
 
 
+class BoundedRepairCapTests(unittest.TestCase):
+    """A format repair gets a bounded output cap (#2835)."""
+
+    def test_repair_uses_repair_tokens_not_default(self):
+        import autocode_output_cap as cap
+
+        child = {}
+        cap.apply(child, bounded=True)
+        self.assertEqual(str(cap.REPAIR_TOKENS), child[cap.VARIABLE])
+        self.assertLess(cap.REPAIR_TOKENS, cap.DEFAULT_TOKENS, "a repair is smaller than the default")
+
+    def test_env_marker_sets_bounded(self):
+        import autocode_output_cap as cap
+
+        child = {"AUTOCODE_REPAIR": "1"}
+        cap.apply(child)
+        self.assertEqual(str(cap.REPAIR_TOKENS), child[cap.VARIABLE])
+
+    def test_explicit_operator_setting_wins_over_bounded(self):
+        import autocode_output_cap as cap
+
+        child = {cap.VARIABLE: "50000", "AUTOCODE_REPAIR": "1"}
+        cap.apply(child)
+        self.assertEqual("50000", child[cap.VARIABLE], "an explicit operator setting is preserved")
+
+    def test_normal_launch_uses_default_tokens(self):
+        import autocode_output_cap as cap
+
+        child = {}
+        cap.apply(child)
+        self.assertEqual(str(cap.DEFAULT_TOKENS), child[cap.VARIABLE])
+
+
 class LaunchTests(unittest.TestCase):
     def launch(self, environment):
         with patch.dict(os.environ, environment, clear=True):
