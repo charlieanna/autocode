@@ -16,8 +16,14 @@ except ImportError:
     from autocode_control_tokens import TOKEN_ENV_VARS, private_command
 
 
-def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=False, recovery_token=None):
-    """One action, or None when no recovery is offered; all paths/values are shell quoted."""
+def command(
+    need, *, run_dir=None, workspace=None, resume_flags=None, terminal=False, recovery_token=None, for_client=False
+):
+    """One action, or None; the status contract keeps issued tokens for private launch.
+
+    Human-facing text masks them by default. Only machine-readable named actions
+    opt into ``for_client``; clients extract the assignments into the child's env.
+    """
     if not need or terminal:
         return None
     if need.get("kind") == "dependency":
@@ -100,7 +106,7 @@ def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=F
         # carries only the selector, never the recovery token's value.
         flags.extend(("--expected-recovery-token", "-"))
         private[TOKEN_ENV_VARS["expected_recovery_token"]] = recovery_token
-    return _display([*prefix, *flags], private=private)
+    return _display([*prefix, *flags], private=private, for_client=for_client)
 
 
 def _action_flags(action, need):
@@ -125,19 +131,28 @@ def _action_flags(action, need):
     return words
 
 
-def _display(words, *, private=None):
+def _display(words, *, private=None, for_client=False):
     public, extracted = private_command(words, argument_offset=1)
     private = {**extracted, **(private or {})}
-    # Never write a live control token to a stream a log or client can capture (#2958).
-    # The command keeps its shape; the ``-`` placeholder reads the token from the
-    # private environment channel when the command is actually launched.
-    assignments = " ".join(f"{name}=-" for name in private)
+    # The machine-readable contract supplies the launch env. A displayed copy
+    # carries no token, while argv always uses the private-channel selector.
+    assignments = " ".join(f"{name}={shlex.quote(value) if for_client else '-'}" for name, value in private.items())
     return (assignments + " " if assignments else "") + shlex.join(public)
 
 
+def display(text):
+    """Mask a core-issued command before writing its human-readable copy."""
+    words = shlex.split(text)
+    private = {}
+    while words and words[0].partition("=")[0] in TOKEN_ENV_VARS.values():
+        name, _, value = words.pop(0).partition("=")
+        private[name] = value
+    return _display(words, private=private)
+
+
 def recovery(need, *, run_dir=None, workspace=None, terminal=False) -> str:
-    """The #909 recovery suffix: the exact copy-pasteable command with the live
-    token, refreshed at render time from the caller's current need. Empty when
+    """The #909 recovery suffix: the current action with control tokens masked.
+    Executable bindings remain in the structured status contract. Empty when
     no recovery exists (no need, terminal, a dependency without its producer) —
     a pause never emits a command its own CLI would reject."""
     rendered = command(need, run_dir=run_dir, workspace=workspace, terminal=terminal)
@@ -150,7 +165,7 @@ def summary(view):
         return ""
     lines = [view["pause_category_label"], f"State: {view['status']}"]
     if view.get("next_command"):
-        lines.append("Next command: " + view["next_command"])
+        lines.append("Next command: " + display(view["next_command"]))
     return "\n".join(lines)
 
 
@@ -167,6 +182,7 @@ def trailer(view, rendered):
     lines = rendered.splitlines()
     if not command or not view.get("pause_category") or len(lines) <= SCREEN:
         return ""
+    command = display(command)
     if command in "\n".join(lines[-SCREEN:]):
         return ""
     return "Next command: " + command

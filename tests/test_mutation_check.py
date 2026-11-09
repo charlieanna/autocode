@@ -6,6 +6,7 @@ goes through regression.prove on a small project. The catalog proofs are in test
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -506,6 +507,42 @@ class ProofTests(unittest.TestCase):
             "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [], "milestones": [{"id": "M1"}]}},
             "investigation": {"outcome": "reproduced", "test_cases": [case]},
         }
+
+    def test_distinct_regression_tests_mutate_the_changed_branch_without_repeating_preservation(self):
+        self.state["investigation"]["test_cases"][0]["then"] = "returns 9"
+        source = "def limit(n):\n    if n > 10:\n        return 9\n    return n\n"
+        (self.root / "calc.py").write_text(source)
+        test = WEAK_TEST.replace("self.assertEqual(10, limit(50))", "self.assertEqual(9, limit(50))")
+        test += "        self.assertEqual(9, limit(11))\n        self.assertEqual(10, limit(10))\n"
+        (self.root / "tests/test_calc.py").write_text(test)
+        suite = shlex.join([sys.executable, "-m", "unittest", "-v", "tests.test_small"])
+        targeted = shlex.join([sys.executable, "-m", "unittest", "-v", "tests.test_calc"])
+        self.state["settings"]["regression"] = {"test_command": suite, "regression_command": targeted}
+
+        proof = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        saved = json.loads(Path(proof["path"]).read_text())
+        self.assertEqual(suite, saved["commands"]["suite"])
+        self.assertEqual(targeted, saved["commands"]["regression"])
+        self.assertEqual(suite, saved["checks"]["suite_on_candidate"]["command"])
+        baseline = json.loads(Path(self.state["regression_baseline"]["path"]).read_text())
+        self.assertEqual(suite, baseline["receipt"]["command"])
+        self.assertEqual(0, baseline["receipt"]["exit_code"])
+        self.assertEqual(0, saved["checks"]["suite_on_candidate"]["exit_code"])
+        report = proof["mutation_check"]
+        selected = ["tests.test_calc.LimitTests.test_t1_caps_large_values"]
+        self.assertEqual(selected, report["selected_tests"])
+        receipts = saved["changed_code_receipts"]
+        reference = next(row for row in receipts if row["output"] == report["reference_output"])
+        self.assertEqual(selected, reference["results"]["passed"])
+        self.assertNotEqual(saved["checks"]["regression_on_candidate"]["output"], reference["output"])
+        rows = [row for file in report["files"] for row in file["mutants"]]
+        self.assertTrue(any(row["line"] == 2 and row["outcome"] == "killed" for row in rows))
+        for row in receipts:
+            if row["output"] == reference["output"] or any(row["output"] in mutant["evidence"] for mutant in rows):
+                self.assertNotIn("tests.test_small", row["command"])
+        self.assertEqual("PASS", proof["changed_code_evidence"]["status"], proof["changed_code_evidence"])
+        self.assertEqual(source, (self.root / "calc.py").read_text())
 
     def test_generated_test_output_does_not_invalidate_unchanged_product_inputs(self):
         self.state["investigation"]["test_cases"][0]["then"] = "returns 9"

@@ -338,12 +338,15 @@ from `tools/autocode_mutants.py`).
   The older advisory collector and standalone review study retain their six-site
   sample per file. The same source and selection give the same sites.
 - **How long.** One 900-second budget, the same limit as a check replay, covers
-  one unmutated run and every mutant. Current task proofs select the independently
-  observed passing candidate-suite tests by exact ID; when the suite is a command
-  the runner cannot narrow to those tests (a project's own gate script, such as
-  `python project_gate.py`), they select the proof's regression command and the
-  tests it passed on the candidate instead, so a project gate does not leave every
-  changed line without evidence. Older advisory collectors
+  one unmutated run and every mutant. Current task proofs prefer the independently
+  observed passing regression tests by exact ID. When the regression command cannot
+  select observed tests, they use the passing candidate-suite tests instead. Suite
+  preservation still runs unchanged on the original and candidate code. The selected
+  tests must pass a fresh, complete unmutated run before any mutant runs; an earlier
+  suite or regression receipt cannot replace it. This preference does not itself
+  refresh a saved measurement at Completion Review; normal validation requests proof
+  under the current runtime identity, while previously qualified evidence stays valid.
+  Older advisory collectors
   select only the named proving tests. Each mutant uses its own empty
   bytecode cache and its own modification time, so a compile cached by a Python
   the tests start themselves is never reused. A mutant may take ten times the
@@ -468,3 +471,33 @@ corrected production source, while the original suite baseline keeps its origina
 inputs. Compilation failures never establish a bug reproduction. Other dependency
 changes remain on the ordinary proof path and are not overlaid onto the original
 source as test prerequisites.
+
+
+### Python product and test roles
+
+A test-like filename alone does not make a shipped Python module an oracle. The runner
+uses the original Git tree, including its launch commit's dirty and untracked inputs,
+to read literal setuptools package and module lists and ordinary literal imports.
+Original product ownership keeps those bytes on the base side of a regression proof.
+Dedicated test roots and supported test declarations keep test authority; mixed or
+unresolved changed roles remain unverified without executing proof commands. Dynamic
+build configuration is not interpreted, and candidate packaging cannot relabel the
+original product. Original top-level assertions with a literal `import unittest`
+also declare an oracle; packaging or runtime import ownership still makes that mixed
+role ambiguous. Unknown unchanged oracle entries remain protected conservatively.
+Proofs from an earlier role policy require fresh execution before advancing.
+An original internal test link also retains a declared oracle outside test roots
+when packaging, runtime imports and dynamic uncertainty do not give it a conflicting
+role. A candidate-added link cannot promote an original product or unknown endpoint.
+
+At an idle saved pause before independent validation, an explicit resume can remove
+positively proven original product entries from an old protected inventory. The runner
+checks their bytes and modes against the original Git pin and authenticated archive,
+retains every remaining original file and the same command, records both bindings and
+the retired proof, and requires fresh proof. Status reads and terminal stops cannot
+perform this correction. Ignored launch-source overlays leave the correction refused.
+
+The correction remains in full historical custody. Planning packets and reviewer
+handoffs carry only bounded counts, reasons, binding hashes and archive references;
+they do not repeat entire original inventories. The public recovery history explains
+the correction, and the evidence report cites its original and corrected inventories.

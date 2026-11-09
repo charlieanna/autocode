@@ -13,6 +13,11 @@ and points to where the full record is. Nothing that is not an exact copy is rem
 
 from __future__ import annotations
 
+try:
+    from . import autocode_python_test_roles as test_roles
+except ImportError:
+    import autocode_python_test_roles as test_roles
+
 IDENTITY = ("kind", "id", "question_id", "actor", "at", "contract_token", "gate_kind", "gate_token", "intent")
 
 
@@ -29,6 +34,8 @@ def reference_repeats(events, brief_feedback, saved_answers) -> list:
     for event in events or []:
         if not isinstance(event, dict):
             result.append(event)
+        elif event.get("kind") == "protected_tests_roles_corrected":
+            result.append(test_roles.correction_summary(event))
         elif event in feedback:
             result.append(_stub(event, "brief_feedback"))
         elif (qid := event.get("question_id")) in answers and answers[qid] == event:

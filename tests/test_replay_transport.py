@@ -25,6 +25,7 @@ import autocode_evidence_export as evidence_export
 import autocode_evidence_provenance as provenance
 import autocode_model_inventory as model_inventory
 import autocode_provider_launch as provider_launch
+import autocode_python_test_roles as role_policy
 import autocode_regression as regression
 import autocode_replay_checks as checks
 import autocode_replay_recording as recording
@@ -2443,10 +2444,11 @@ class CurrentProofRefusalTests(unittest.TestCase):
         self.state["investigation"] = {"outcome": "reproduced", "test_cases": [{"id": "C1", "text": "Contract holds"}]}
         self.state["regression_proof"] = {
             **proof,
+            "execution_context": {"test_role_policy": role_policy.VERSION},
             "path": str(proof_path),
             "receipt_sha256": util.file_hash(proof_path),
         }
-        # This handcrafted legacy receipt covers ordinary proof authentication,
+        # This handcrafted current receipt covers ordinary proof authentication,
         # not the new independently measured changed-line completion gate.
         self.assertTrue(
             regression.complete(self.state, self.current["revision"], all_due=True, require_changed_code=False)

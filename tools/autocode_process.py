@@ -6,6 +6,7 @@ import math
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from contextlib import contextmanager, suppress
@@ -114,13 +115,13 @@ def process_table(pids=None):
                 group = os.getpgid(pid)
                 session = os.getsid(pid)
                 try:
-                    # psutil's public name() may expand a truncated POSIX name
-                    # by reading cmdline(). On macOS that optional query can
-                    # raise a raw SystemError when sysctl denies access. The
-                    # pinned psutil 7 backend reads the native name directly;
-                    # a missing name must not discard verified birth identity.
-                    executable = process._proc.name()
-                except (psutil.AccessDenied, OSError, SystemError, AttributeError):
+                    # Linux comm is a mutable thread name (Node 24 uses
+                    # MainThread); exe reads the kernel link without arguments.
+                    # Darwin keeps the native backend name: public name() may
+                    # query cmdline and raise SystemError. Optional metadata
+                    # must not discard verified birth identity.
+                    executable = process._proc.exe() if sys.platform == "linux" else process._proc.name()
+                except (psutil.AccessDenied, psutil.ZombieProcess, OSError, SystemError, AttributeError):
                     executable = None
             table[pid] = {
                 "pid": pid,

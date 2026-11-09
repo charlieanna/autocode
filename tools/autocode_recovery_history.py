@@ -23,9 +23,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_python_test_roles as test_roles
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
+    import autocode_python_test_roles as test_roles
     import autocode_roles as roles
     import autocode_util as util
 
@@ -58,6 +60,7 @@ def project(state: RunState) -> list[dict[str, Any]]:
     entries = [
         *(row for row in _rejections(state) if (row["job"], row["problem"]) not in explained),
         *_report_repairs(state),
+        *_test_role_corrections(state),
         *_sent_back(state),
         *investigations,
         *_resolver(state),
@@ -337,3 +340,20 @@ def _resolver(state: RunState):
             action=f"{who} to {choice}" + (f": {reason}" if reason else "."),
             by="Resolver",
         )
+
+
+def _test_role_corrections(state: RunState):
+    for event in state.get("user_events") or []:
+        if isinstance(event, dict) and event.get("kind") == "protected_tests_roles_corrected":
+            summary = test_roles.correction_summary(event)
+            yield _entry(
+                "protected_tests_roles_corrected",
+                summary["at"],
+                None,
+                state,
+                headline="Original test inventory corrected",
+                problem="A filename hint had included runtime product code as a protected test.",
+                action="AutoCode retained the original tests and command, excluded proven product entries, and retired the old proof. Fresh verification remains required.",
+                by="AutoCode",
+                detail=summary["reason"],
+            )

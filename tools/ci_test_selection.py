@@ -560,6 +560,22 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_workspace_inventory.py",), ("tests.test_review_attribution_cli",)),
     (
+        (
+            "tools/autocode_python_packaging.py",
+            "tools/autocode_python_test_roles.py",
+            "tools/autocode_test_role_inventory.py",
+            "tools/autocode_test_role_correction.py",
+            "tools/autocode_run_setup.py",
+            "tools/autocode_verify.py",
+            "tools/autocode_protected_oracles.py",
+        ),
+        ("tests.test_python_test_roles_cli",),
+    ),
+    (
+        ("tools/autocode_regression.py", "tools/autocode_test_role_correction.py"),
+        ("tests.test_saved_run_replay_cli",),
+    ),
+    (
         ("tools/autocode_protected_oracles.py", "tools/autocode_protected_commands.py"),
         ("tests.test_protected_oracles_cli",),
     ),
@@ -694,6 +710,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ),
     ),
     (("tools/autocode_transport_recovery.py",), ("tests.test_transport_recovery", "tests.test_pause_status_cli")),
+    (
+        ("tools/autocode_pause_command.py", "tools/autocode_run_view.py"),
+        ("tests.test_pause_status_cli", "tests.test_checkpoint_reconciliation", "tests.test_worker_flow"),
+    ),
     (("tools/autocode_stop_explanations.py",), ("tests.test_completion_status",)),
     (
         (
@@ -1154,6 +1174,8 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_tool_admission_cli",),
     ),
     (("tools/autocode_model_preflight",), ("tests.test_provider_credentials",)),
+    # The CLI reaches access transport through model_preflight, beyond the direct import selector.
+    (("tools/provider_conformance_transport.py",), ("tests.test_model_preflight_budgets",)),
     (
         ("tools/autocode_access_identity", "tools/autocode_access_evidence", "tools/autocode_model_preflight"),
         ("tests.test_preflight_relocation_cli", "tests.test_model_preflight"),

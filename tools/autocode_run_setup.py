@@ -196,6 +196,7 @@ def _protected_test_settings(state: RunState, settings, args, workspace, run_dir
         run_dir,
         is_test_path=verify.is_test_path,
         discover_command=discover_command,
+        original_inputs=lambda: launch_inputs.guard(state, workspace, run_dir),
     )
     if not args.run_dir:
         project_memory_lifecycle.capture_suite(state, discovered, settings.get("protected_tests"))
