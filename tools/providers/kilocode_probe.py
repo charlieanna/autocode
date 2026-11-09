@@ -6,8 +6,8 @@ import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-PROBE_SECONDS = 90.0
-FIRST_ATTEMPT_SECONDS = 30.0
+PROBE_SECONDS = 120.0
+FIRST_ATTEMPT_SECONDS = 60.0
 _observer = ContextVar("kilo_setup_observer", default=None)
 
 

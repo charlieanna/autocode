@@ -32,9 +32,9 @@ class KiloProbeTests(unittest.TestCase):
 
         with probe.capture() as rows:
             self.assertIs(result, probe.probe(self.command, run))
-        self.assertEqual([30, 60], calls)
+        self.assertEqual([60, 60], calls)
         self.assertEqual(["timed_out", "completed"], [row["outcome"] for row in rows])
-        self.assertEqual([30, 12], [row["duration_seconds"] for row in rows])
+        self.assertEqual([60, 12], [row["duration_seconds"] for row in rows])
         self.assertEqual([1, 2], [row["attempt"] for row in rows])
         self.assertEqual("model_free_timeout_retry", rows[1]["reason"])
         self.assertNotIn("private native config", str(rows))
@@ -43,9 +43,9 @@ class KiloProbeTests(unittest.TestCase):
     def test_exhaustion_reports_actual_attempt_count_and_retains_the_timeout_cause(self):
         with probe.capture() as rows, self.assertRaises(probe.KiloProbeTimeout) as caught:
             probe.probe(self.command, self.timeout)
-        self.assertEqual(90, self.clock)
-        self.assertEqual([30, 60], [row["timeout_seconds"] for row in rows])
-        self.assertIn("90-second setup budget after 2 attempt(s)", str(caught.exception))
+        self.assertEqual(120, self.clock)
+        self.assertEqual([60, 60], [row["timeout_seconds"] for row in rows])
+        self.assertIn("120-second setup budget after 2 attempt(s)", str(caught.exception))
         self.assertIn("no model request was launched", str(caught.exception))
         self.assertIsInstance(caught.exception.__cause__, subprocess.TimeoutExpired)
 
@@ -74,13 +74,13 @@ class KiloProbeTests(unittest.TestCase):
         with probe.capture() as rows, self.assertRaises(FileNotFoundError) as caught:
             probe.probe(self.command, run)
         self.assertIs(missing, caught.exception)
-        run.assert_called_once_with(30)
+        run.assert_called_once_with(60)
         self.assertEqual("exception", rows[0]["outcome"])
         result = subprocess.CompletedProcess(self.command, 1, "private output", "private error")
         run = Mock(return_value=result)
         with probe.capture() as rows:
             self.assertIs(result, probe.probe(self.command, run))
-        run.assert_called_once_with(30)
+        run.assert_called_once_with(60)
         self.assertEqual(("failed", 1), (rows[0]["outcome"], rows[0]["exit_code"]))
         self.assertNotIn("private", str(rows))
 
