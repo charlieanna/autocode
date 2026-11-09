@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-10-30",
+  "as_of": "2026-11-09",
   "currency": "USD",
   "basis": "Standard list price per million text tokens for metered API use, read from each provider's own pricing pages. Not an invoice: a subscription or coding-plan route is billed by its plan, so its row is the metered API price of the same model. Updated by pull request.",
   "models": {
@@ -193,6 +193,38 @@
       "source": "https://caas-gocode-prod.caas-prod.prod.onkatana.net/v1/models",
       "retrieved": "2026-10-30",
       "note": "GoCode catalog, gocode models --filter gpt-6.1-sol. The route publishes input_usd_per_mtok=2 and output_usd_per_mtok=10; no cache discount is assumed. This is a conservative route estimate, not an invoice."
+    },
+    "anthropic/claude-fable-5-1": {
+      "input": 3.0,
+      "output": 15.0,
+      "cached_input": 0.15,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-11-09",
+      "note": "Claude Fable 5.1 (mid-tier, between Sonnet and Opus)"
+    },
+    "openai/gpt-6.1-sol": {
+      "input": 2.0,
+      "output": 10.0,
+      "cached_input": 0.2,
+      "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "retrieved": "2026-11-09",
+      "note": "GPT-6.1 Sol (same rate as gpt-6.1-sol without prefix)"
+    },
+    "claude-fable-5-1": {
+      "input": 3.0,
+      "output": 15.0,
+      "cached_input": 0.15,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-11-09",
+      "note": "Claude Fable 5.1 (mid-tier, between Sonnet and Opus)"
+    },
+    "kilo/anthropic/claude-fable-5-1": {
+      "input": 3.0,
+      "output": 15.0,
+      "cached_input": 0.15,
+      "source": "https://kilo.ai/models/anthropic-claude-fable-5-1",
+      "retrieved": "2026-11-09",
+      "note": "Claude Fable 5.1 via Kilo gateway"
     }
   }
 }
