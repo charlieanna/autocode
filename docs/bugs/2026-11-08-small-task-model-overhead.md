@@ -6,6 +6,14 @@ revision: `c168a495f3d04496b669f7c36951b6089f144350` (#2940). Implementation is
 isolated on `codex/requirements-report-overhead`; the original checkout's local
 documentation changes are untouched.
 
+Publication is a stacked pull request against `codex/requirements-report-base`.
+That base retains the other session's unpublished #2940 implementation at
+`c168a495f`, merged with master `6786822c4`, without editing its behavior. The
+optimization branch was rebased onto it; the only conflict was in CI-selection
+tests, where both sides' regressions were retained. The PR must be retargeted to
+master after the triage dependency lands. It does not close the broader #2940
+latency issue, and the dependency branch is not itself a proposed merge.
+
 ## Changes
 
 - New small briefs use one ordinary Requirements pass at the configured effort.
