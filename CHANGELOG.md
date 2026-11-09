@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Ask the Tester to supply an omitted changed-line decision before running clean
+  verification commands for its incomplete report. Complete and repaired reports
+  retain fresh verification, exact evidence binding and completion checks.
+
 - Saved validation-only tasks misrouted to Builder can return to scope review
   through the normal resume action, without asking a person to raise the
   no-progress limit or changing retained counters, evidence or approved scope.

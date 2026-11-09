@@ -363,6 +363,45 @@ class TesterOnlyGapTests(unittest.TestCase):
                     {**self.record, "report_repaired": mark},
                 )
 
+    def test_missing_or_stale_bindings_do_not_establish_an_omitted_current_decision(self):
+        import autocode_changed_code_review_application as application
+
+        new_proof = evidence.assess(
+            [{"path": "calc.py", "sha256": "a" * 64, "lines": [3]}],
+            None,
+            None,
+            source_revision="source-one",
+            proof_context="new-proof-context",
+        )
+        for state, record in (
+            ({}, self.record),
+            (self.state, {**self.record, "schema": None}),
+            (self.state, {**self.record, "source_revision": "different-source"}),
+            ({"regression_proof": {"changed_code_evidence": new_proof}}, self.record),
+        ):
+            with self.subTest(state=state, record=record):
+                # This is no acceptance: the existing fresh checks and exact
+                # evidence binder must still establish their own prerequisites.
+                self.assertIsNone(application.require_tester_decisions(state, {"verdict": "PASS"}, record))
+
+    def test_preflight_requires_executed_checks_before_requesting_gap_decisions(self):
+        import autocode_changed_code_review_application as application
+
+        value = {"verdict": "PASS", "checks": []}
+        with self.assertRaisesRegex(ValueError, "lacks successful executed checks"):
+            application.preflight(self.state, value, self.record, passing_claim=True)
+        value["checks"] = [{"exit_code": 0, "evidence_ref": "check-output"}]
+        with self.assertRaisesRegex(ValueError, "no mutation outcome"):
+            application.preflight(self.state, value, self.record, passing_claim=True)
+        value[review.FIELD] = [{"gap_id": self.no_site["gap_id"], "decision": "reject"}]
+        before = copy.deepcopy((self.state, value, self.record))
+        application.preflight(self.state, value, self.record, passing_claim=True)
+        self.assertEqual(before, (self.state, value, self.record))
+        # Supplying a decision only makes the report complete enough to replay;
+        # no accepted changed-line decision or validation is installed here.
+        self.assertNotIn("validation", self.state)
+        self.assertNotIn("changed_code_decisions", value)
+
     def test_the_proof_file_binds_by_its_workspace_relative_path_too(self):
         """A live Tester cited the proof as .autocode/runs/<run>/regression/<proof>/verification.json."""
         import autocode_changed_code_review_application as application

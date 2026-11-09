@@ -1,7 +1,7 @@
 """Admission and routing of an independent changed-line evidence review.
 
-The controller calls this after ordinary review/check/source admission. Files
-are pinned through its existing evidence boundary; the domain binder never
+Preflight rejects incomplete reports before clean check replay. Admission then
+pins files through the existing evidence boundary; the domain binder never
 grants authority from an unverified model citation.
 """
 
@@ -17,11 +17,13 @@ try:
     from . import autocode_changed_code_proof as proof_policy
     from . import autocode_changed_code_review as review
     from . import autocode_changed_code_rework as rework
+    from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_util as util
 except ImportError:
     import autocode_changed_code_proof as proof_policy
     import autocode_changed_code_review as review
     import autocode_changed_code_rework as rework
+    import autocode_report_repair_queue as report_repair_queue
     import autocode_util as util
 
 
@@ -41,6 +43,16 @@ def _spellings(ref, workspace):
         if relative and all(part not in ("", ".", "..") for part in Path(relative).parts):
             spellings.append(relative)
     return spellings
+
+
+def preflight(state: RunState, validation, record, *, passing_claim):
+    """Require executed checks and offered decisions before spending clean replay.
+
+    This establishes no acceptance: complete reports still need fresh executions
+    and the post-replay evidence binding in ``accept``.
+    """
+    report_repair_queue.require_executed_passes(validation, passing_claim=passing_claim)
+    require_tester_decisions(state, validation, record)
 
 
 def accept(state: RunState, validation, record, workspace=None, *, pin):

@@ -429,6 +429,16 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertEqual([False, True], [row["repair"] for row in testers], self.diagnostic())
         self.assertIn("calc.py:2", testers[1]["error"])
         self.assertIn("no mutation outcome", testers[1]["error"])
+        # An incomplete report is already rejectable before any clean replay. Its
+        # repaired report must still execute that independent verification.
+        replay = self.run.run_dir / "check-replay"
+        original_stem = Path(testers[0]["output"]).stem
+        repaired_stem = Path(testers[1]["output"]).stem
+        self.assertFalse(list(replay.glob(original_stem + "-*")), "incomplete report spent a clean replay")
+        self.assertTrue(list(replay.glob(repaired_stem + "-*")), "repaired report bypassed clean verification")
+        self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
+        self.assertEqual(self.approved_token, view["approved_contract"]["token"])
+        self.assertEqual(self.routes, view["routes"])
         changed = view["verification"]["changed_code_evidence"]
         self.assertEqual("PASS", changed["status"], changed)
         settled = next(row for row in changed["obligations"] if row["line"] == 2)
