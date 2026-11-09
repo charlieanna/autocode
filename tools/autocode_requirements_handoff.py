@@ -3,8 +3,8 @@
 Checks the report, archives the previous handoff to ``requirements_history``, binds its local source
 references (the caller's ``check_code_refs``, autopilot's source-inspection gate) and hands the run to
 Discovery. A spec-first run, or a handoff that has only questions so far, stops for the user first
-(autocode_requirements_review, #1200), except a question Requirements understood, which the Analyst
-answers at once (autocode_requirements_chat.answer_now, #1846). With no stop, the job the report
+(autocode_requirements_review, #1200), except a discussion with nothing to write, which Requirements' own
+reply answers at once (autocode_requirements_chat.answer_now). With no stop, the job the report
 names starts (autocode_requirements_chat.start_named_job, #1860).
 
 Moved out of autopilot.apply_planning, so the controller does not grow; besides that stop, the only

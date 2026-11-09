@@ -2,8 +2,9 @@
 
 The existing task controller owns dispatch and sessions. Requirements is the first
 stage of every run and follow-up turn that has it (#1860), and its report names the
-job (#1846): a question goes straight to the Analyst on every flow, and any other job
-starts once nothing stands in front of it (``start_named_job``). In a chat run
+job (#1846): a discussion with nothing to write is answered by Requirements itself and
+ends the turn (``answer_now``), and any other job starts once nothing stands in front of
+it (``start_named_job``). In a chat run
 (spec-first) Requirements answers every message first, whatever it says; until
 it finds work to do, the person's newest reply becomes the run's task, and a job
 other than a question starts once the person approves what Requirements understood.
@@ -24,11 +25,13 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_plan_chat as plan_chat
+    from . import autocode_requirements_answer as requirements_answer
     from . import autocode_requirements_review as requirements_review
     from . import autocode_task_input as task_input
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_plan_chat as plan_chat
+    import autocode_requirements_answer as requirements_answer
     import autocode_requirements_review as requirements_review
     import autocode_task_input as task_input
     import autocode_workflows as workflows
@@ -124,11 +127,31 @@ def recognize_after_approval(state: RunState):
 
 
 def answer_now(state: RunState, record: dict) -> bool:
-    """Every task goes through the full pipeline (#3010). No shortcut to the Analyst.
+    """Requirements answers a discussion itself and the turn ends there (owner request, 2026-11-09).
 
-    Previously a clear question skipped planning and went straight to the Analyst. Now
-    everything follows Requirements → Planner → Builder → Tester → Completion."""
-    return False
+    Every task that changes something goes through the full pipeline (#3010). A discussion changes
+    nothing: a question, a tradeoff, "why does this happen", with no file to write
+    (requirements_answer.conversational). Planning, approving and building it spent a plan, a Builder and two
+    reviews on a reply, so Requirements' own reply is recorded as the answer
+    (requirements_answer.answer_from_requirements) and the run finishes the turn; the person's next message is
+    a follow-up turn that starts at Requirements again, and may ask for a change. Unanswered open
+    questions still stop the run first, and a discussion whose answer is to be written down is planned
+    like any other change."""
+    if "workflow" not in state:
+        return False
+    report = (state.get("requirements_handoff") or {}).get("report") or {}
+    known = (state.get("workflow") or {}).get("kind")
+    if known not in (None, "discuss") or not requirements_answer.conversational(
+        {**report, "job": known or report.get("job")}
+    ):
+        return False
+    answered = state.get("answers") or {}
+    if any(row.get("id") not in answered for row in report.get("open_questions") or []):
+        return False
+    if known is None:
+        workflows.from_requirements(state, report, record)
+    requirements_answer.answer_from_requirements(state, report, record)
+    return True
 
 
 def start_named_job(state: RunState, record: dict) -> bool:

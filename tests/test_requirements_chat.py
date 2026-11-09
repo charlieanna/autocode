@@ -243,11 +243,77 @@ class RequirementsChatTests(unittest.TestCase):
                 chat.recognize_after_approval(state)
                 self.assertEqual("astra_discovery", state["next_stage"])
 
-    def test_no_shortcut_to_the_analyst(self):
-        """#3010: every task goes through the full pipeline; answer_now is always False."""
-        state = self.named("discuss")
-        state.pop("answers")
-        self.assertFalse(chat.answer_now(state, {"output": None}))
+    @staticmethod
+    def discussion(**report):
+        """A handoff that names a discussion: a question with nothing to write, unless ``report`` says so."""
+        return {
+            "task": "Why is the metadata cache in-process?",
+            "settings": {"spec_first": True},
+            "workflow": {"kind": None, "then": "astra_discovery"},
+            "next_stage": "astra_discovery",
+            "status": "RUNNING",
+            "pending_questions": [],
+            "user_events": [{"id": "feedback-1"}],
+            "requirements_handoff": {
+                "report": {
+                    "job": "discuss",
+                    "design_document": "",
+                    "summary": "The user wants to know why the cache is in-process.",
+                    "intended_outcome": "An explanation of the cache choice",
+                    "assistant_reply": "It is in-process because each worker owns its own copy (app/metadata.py).",
+                    "required_behaviors": [],
+                    "acceptance_tests": [],
+                    "source_refs": ["task", "feedback-1", "app/metadata.py", "app/metadata.py", "https://x.test"],
+                    "open_questions": [],
+                    **report,
+                },
+                "output": "/run/requirements-gather-01.json",
+            },
+        }
+
+    def test_requirements_answers_a_discussion_and_finishes_the_turn(self):
+        state = self.discussion()
+        self.assertTrue(chat.answer_now(state, {"output": "/run/requirements-gather-01.json"}))
+        self.assertEqual(("TASK_COMPLETE", "COMPLETE", None), (state["status"], state["phase"], state["next_stage"]))
+        self.assertEqual(("discuss", "requirements_gather"), (state["workflow"]["kind"], state["workflow"]["named_by"]))
+        answer = state["answer"]
+        self.assertEqual("It is in-process because each worker owns its own copy (app/metadata.py).", answer["answer"])
+        self.assertEqual("requirements_gather", answer["answered_by"])
+        # The person's own messages and web links are not where the answer was read from; repeats count once.
+        self.assertEqual(["app/metadata.py"], [row["source"] for row in answer["evidence"]])
+        self.assertEqual(("", []), (answer["note_path"], answer["questions"]))
+        self.assertIn("It is in-process because", history.response(state))
+        # Without a chat, the summary carries the answer.
+        plain = self.discussion(assistant_reply="")
+        self.assertTrue(chat.answer_now(plain, {"output": None}))
+        self.assertEqual("The user wants to know why the cache is in-process.", plain["answer"]["answer"])
+        # A pinned discussion is answered the same way and keeps its pin.
+        pinned = self.discussion()
+        pinned["workflow"].update(kind="discuss", source="user")
+        self.assertTrue(chat.answer_now(pinned, {"output": None}))
+        self.assertEqual(("user", "TASK_COMPLETE"), (pinned["workflow"]["source"], pinned["status"]))
+
+    def test_a_discussion_that_writes_a_file_or_waits_on_a_question_is_not_answered_at_once(self):
+        cases = {
+            "writes a note": self.discussion(required_behaviors=["Write docs/notes/caches.json"]),
+            "tests a note": self.discussion(acceptance_tests=["docs/notes/caches.json parses"]),
+            "open question": self.discussion(open_questions=[{"id": "Q1", "question": "Which host?"}]),
+            "a build": self.discussion(job="build"),
+            "no job yet": self.discussion(job="none"),
+        }
+        recognized = self.discussion()
+        recognized["workflow"]["kind"] = "build"
+        cases["already a build"] = recognized
+        cases["no workflow record"] = {**self.discussion(), "workflow": None}
+        cases["no workflow record"].pop("workflow")
+        for name, state in cases.items():
+            with self.subTest(name):
+                before = copy.deepcopy(state)
+                self.assertFalse(chat.answer_now(state, {"output": None}))
+                self.assertEqual(before, state)
+        answered = self.discussion(open_questions=[{"id": "Q1", "question": "Which host?"}])
+        answered["answers"] = {"Q1": {"text": "One host"}}
+        self.assertTrue(chat.answer_now(answered, {"output": None}))
 
     def test_only_jobs_that_build_code_need_behaviors_and_acceptance_tests(self):
         self.assertEqual(
