@@ -166,6 +166,14 @@ class RepairSchemaWitnessTests(unittest.TestCase):
                     self.witness()
                 self.original[key] = previous
 
+    def test_malformed_schema_files_refuse_through_the_provenance_boundary(self):
+        offered = self.offer()
+        for content in ("{", "[]", '{"properties": {}}'):
+            with self.subTest(content=content):
+                offered.write_text(content)
+                with self.assertRaisesRegex(ValueError, "planning report lacks matching original provenance"):
+                    self.witness()
+
     def test_full_report_or_unrelated_schema_path_does_not_gain_edit_authority(self):
         unrelated = self.root / "unrelated.schema.json"
         util.atomic_json(unrelated, self.validation)
