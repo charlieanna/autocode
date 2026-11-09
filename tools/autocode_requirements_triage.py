@@ -137,6 +137,20 @@ def tolerant(full: dict) -> dict:
     return relaxed
 
 
+def validate_application(state, stage, value, checked, *, schema_for, validate):
+    """Apply the existing report contract without putting triage policy in the controller.
+
+    A small triage answer was already validated by the report loader; the handoff
+    still rejects one that is neither ready nor a question. A drafted report keeps
+    the full contract, allowing only the optional ready field during triage.
+    """
+    triaging = stage == STAGE and due(state)
+    if triaging and is_answer(value):
+        return
+    schema = schema_for(state, stage)
+    validate(checked, tolerant(schema) if triaging else schema)
+
+
 def prompt(state: RunState, inventory, engine) -> str:
     """The triage prompt: instruction, the shared packet framing, a small packet.
 
