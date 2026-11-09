@@ -13,6 +13,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Public status now explains retained report repairs with typed original and current
   rejection categories and hashes, without granting any recovery action.
+- Ask the Tester to supply an omitted changed-line decision before running clean
+  verification commands for its incomplete report. Complete and repaired reports
+  retain fresh verification, exact evidence binding and completion checks.
+
+- Saved validation-only tasks misrouted to Builder can return to scope review
+  through the normal resume action, without asking a person to raise the
+  no-progress limit or changing retained counters, evidence or approved scope.
+
 - Python clients refuse malformed optional milestone criterion references in
   approval projections, preserving valid and legacy plans (#3026).
 - The independent conformance client refuses malformed named-action quoting and missing

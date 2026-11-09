@@ -182,6 +182,7 @@ class BlockerNeedTests(unittest.TestCase):
                 self.hold_before_publication()
                 change()
                 need = self.needs()
+                self.assertNotEqual("answer", need["kind"])
                 self.assertNotIn("retry_action", need)
                 self.assertNotEqual(recovery_limits.SCOPED_RETRY, need.get("action"))
                 self.assertEqual(reason, need["retry_unavailable"])
@@ -191,6 +192,20 @@ class BlockerNeedTests(unittest.TestCase):
         need = self.needs()
         self.assertNotIn("retry_action", need)
         self.assertNotIn("retry_unavailable", need)
+
+    def test_a_different_pending_decision_is_shown_before_any_recovery_retry(self):
+        self.hold_before_publication()
+        # A contract contradiction is a person-owned plan decision. Merely
+        # relabeling the recovery-exhaustion request above is not one.
+        self.state[human.PRIVATE].update(scope="blocker", request=blocker_request())
+        view = run_view.view(self.state)
+        need = view["needs"]
+        self.assertEqual("answer", need["kind"])
+        self.assertEqual("blocker", need["resolver_scope"])
+        self.assertEqual(blocker_request()["decision_needed"], need["questions"][0]["question"])
+        self.assertNotIn("retry_action", need)
+        self.assertNotEqual(recovery_limits.SCOPED_RETRY, need.get("action"))
+        self.assertNotIn("retry_failed_stage", self.card_actions())
 
     def test_the_view_and_the_cli_share_one_admission_rule(self):
         # A published request of another kind refuses in both, with the same reason.

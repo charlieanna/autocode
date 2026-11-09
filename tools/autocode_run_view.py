@@ -210,7 +210,7 @@ def view(
         completion_current = False
     status = state.get("status", "")
     next_action = action(state, run_dir=run_dir, workspace=workspace, stale_report_repair=stale_report_repair)
-    stop_reason = validation_recovery.NOTICE if validation_recovery.pending(state) else state.get("stop_reason")
+    stop_reason = validation_recovery.notice(state) if validation_recovery.pending(state) else state.get("stop_reason")
     try:
         from . import autocode_checkpoint_reconciliation as reconciliation
     except ImportError:
