@@ -133,16 +133,66 @@ class RiskCliTests(unittest.TestCase):
         self.assertTrue(any(expected_reason in row.get("error", "") for row in observed), observed)
         self.assertEqual(0, view["efficiency"]["delivery"]["verified_deliveries"])
 
-    def mutant_restart(self, scenario_id, solution, reason, tests):
-        scenario, run, view = self.start(scenario_id, solution=solution, planning=("--no-adaptive-planning",))
+    def advance_stages(self, run, view, *, testers=None):
+        # Keep each public call bounded to a saved stage, with regression proof
+        # and actual rework observed through their own public receipts.
+        for _ in range(32):
+            attempts = view["usage"]["accounting"]["attempts"]
+            self.assertFalse(
+                any(
+                    (row.get("original_stage") or row.get("stage")) == "sol"
+                    and (row.get("report_only") or row.get("rejected"))
+                    for row in attempts
+                ),
+                "The lifecycle finding must drive rework, not an unrelated Tester evidence repair",
+            )
+            self.assertFalse(
+                any(row.get("stage") == "investigate_stuck" and row.get("rejected") for row in attempts),
+                "An unknown scripted diagnosis must still cite its pinned Builder failure",
+            )
+            if testers is None and view["done"]:
+                return view
+            if testers is not None and sum(row.get("stage") == "sol" for row in attempts) >= testers:
+                builders = [row for row in attempts if row.get("stage") == "terra" and not row.get("rejected")]
+                self.assertGreaterEqual(len(builders), testers)
+                return view
+            need = view.get("needs") or {}
+            if need.get("kind") == "approve_plan":
+                view = run.approve_plan(need["token"])
+            elif need.get("kind") == "resume":
+                self.assertEqual("PAUSED_REQUESTED", view["status"], self.details(view))
+                view = run.resume_paused()
+            else:
+                self.assertEqual("continue", need.get("kind"), self.details(view))
+                view = run.advance()
+        self.fail("The scripted lifecycle task did not reach its expected result within 32 public stages")
+
+    def mutant_restart(self, scenario_id, solution, reason, tests, *, reword=()):
+        scenario, run, view = self.start(
+            scenario_id,
+            solution=solution,
+            planning=("--no-adaptive-planning", "--pause-after-stage"),
+            reword=reword,
+            drive=False,
+        )
+        view = self.advance_stages(run, view, testers=1)
         self.assert_mutant(scenario, run, view, reason, tests)
+        runner = [row for row in view["evidence"]["findings"] if row["source"] == "runner"]
+        self.assertEqual(["open"], [row["status"] for row in runner], view["evidence"]["findings"])
+        self.assertIn(reason, runner[0]["finding"])
         again = self.reattach(run)
-        self.assertFalse(again.status()["done"])
-        try:
-            again.resume_paused()
-        except taskrun.TaskRunError as error:
-            self.assertIsNotNone(error.process, str(error))
-        self.assert_mutant(scenario, again, self.drive(again), reason, tests)
+        restored = again.status()
+        self.assertFalse(restored["done"])
+        self.assertEqual(view["usage"]["accounting"], restored["usage"]["accounting"])
+        self.assertEqual(runner, [row for row in restored["evidence"]["findings"] if row["source"] == "runner"])
+        after = self.advance_stages(again, restored, testers=2)
+        self.assert_mutant(scenario, again, after, reason, tests)
+        self.assertEqual(view["evidence"]["validator_source_revision"], after["evidence"]["validator_source_revision"])
+        self.assertEqual(
+            [(runner[0]["id"], "open")],
+            [(row["id"], row["status"]) for row in after["evidence"]["findings"] if row["source"] == "runner"],
+        )
+        return scenario, again, after
 
     def test_adaptive_queue_reference_has_hard_death_proof_and_tamper_invalidates_delivery(self):
         scenario, run, view = self.start("ladder-18-durable-lease-queue", planning=("--adaptive-planning",))
@@ -170,7 +220,7 @@ class RiskCliTests(unittest.TestCase):
 
     def test_process_local_lease_tokens_cannot_complete_after_restart(self):
         self.mutant_restart(
-            "ladder-18-durable-lease-queue", "broken/process-local-tokens", "Restart reused a lease token", 5
+            "ladder-18-durable-lease-queue", "broken/process-local-tokens", "Restart reused a lease token", 6
         )
 
     def test_exception_only_outbox_rollback_cannot_complete_after_restart(self):
@@ -178,7 +228,7 @@ class RiskCliTests(unittest.TestCase):
             "ladder-19-transactional-outbox",
             "broken/ack-with-exception-rollback",
             "Hard-kill lost the unacknowledged event",
-            3,
+            5,
         )
 
     def test_failed_lifecycle_observation_reaches_the_builder_and_its_correction_completes(self):
@@ -188,9 +238,11 @@ class RiskCliTests(unittest.TestCase):
         scenario, run, view = self.start(
             "ladder-18-durable-lease-queue",
             solution="broken/process-local-tokens",
-            planning=("--no-adaptive-planning",),
+            planning=("--no-adaptive-planning", "--pause-after-stage"),
             env={"SCENARIO_FAKE_REWORK_SOLUTION": str(scenario.dir / "reference")},
+            drive=False,
         )
+        view = self.advance_stages(run, view)
         self.assertEqual("TASK_COMPLETE", view["status"], self.details(view))
         self.assertTrue(verdict.evaluate(scenario, run.workspace).passed)
         attempts = view["usage"]["accounting"]["attempts"]
@@ -348,24 +400,15 @@ raise SystemExit(runner.cli())
     def test_reworded_constructor_still_proves_lifecycle_and_an_uncorrected_mutant_stops_on_it(self):
         # #451: with LeaseQueue(db_path) the token mutant used to reach TASK_COMPLETE with no lifecycle
         # record. The scripted Builder reapplies the same mutant for the rework, so the finding stays open.
-        scenario, run, view = self.start(
+        scenario, run, view = self.mutant_restart(
             "ladder-18-durable-lease-queue",
-            solution="broken/process-local-tokens",
-            planning=("--no-adaptive-planning",),
+            "broken/process-local-tokens",
+            "Restart reused a lease token",
+            6,
             reword=[("LeaseQueue(path)", "LeaseQueue(db_path)")],
         )
-        self.assertNotEqual("TASK_COMPLETE", view["status"], self.details(view))
-        self.assertFalse(verdict.evaluate(scenario, run.workspace).passed)
-        state = json.loads((run.run_dir / "state.json").read_text())
-        observation = state["goal_contract"]["body"]["risk_acceptance"]["manifest"]["observations"][0]
-        self.assertEqual(
-            ("LeaseQueue", "LeaseQueue"),
-            (observation["declaration"]["constructor"], observation["target"]["class_name"]),
-        )
         runner = [row for row in view["evidence"]["findings"] if row["source"] == "runner"]
-        self.assertEqual(["open"], [row["status"] for row in runner], view["evidence"]["findings"])
-        self.assertIn("Restart reused a lease token", runner[0]["finding"])
-        self.assertEqual(0, view["efficiency"]["delivery"]["verified_deliveries"])
+        self.assertIn("leasequeue.LeaseQueue", runner[0]["finding"])
 
     def test_held_out_paraphrase_of_the_honest_queue_brief_completes_with_proof(self):
         # #451: rewording one promise used to mark the declaration unsupported, so the plan could

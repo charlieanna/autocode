@@ -81,6 +81,7 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("pyproject.toml", ("tests.test_repository_pytest",)),
     (".github/workflows/tests.yml", ("tests.test_ci_java",)),
     ("tools/dashboard/tests/test_shell_a11y_ui.js", ("tests.test_catalogue_t12",)),
     ("tools/dashboard/tests/test_m3_lifecycle_browser_ui.js", ("tests.test_catalogue_t12",)),
@@ -125,6 +126,14 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "scenarios/catalog/ladder-18-durable-lease-queue/broken/non-atomic-claim/",
+        ("tests.test_risk_cli",),
+    ),
+    (
+        "scenarios/catalog/ladder-18-durable-lease-queue/broken/process-local-tokens/",
+        ("tests.test_risk_cli",),
+    ),
+    (
+        "scenarios/catalog/ladder-19-transactional-outbox/broken/ack-with-exception-rollback/",
         ("tests.test_risk_cli",),
     ),
     (
@@ -562,6 +571,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_intervention_plan_feedback_cli",),
     ),
     (
+        (
+            "tools/autocode_planning_cycle.py",
+            "tools/autocode_budget_recovery.py",
+            "tools/autocode_planning_correction_budget.py",
+            "tools/autocode_default_budget_runtime.py",
+        ),
+        ("tests.test_planning_correction_budget_cli",),
+    ),
+    (
         ("tools/autocode_requirement_retention.py", "tools/autocode_goals.py"),
         ("tests.test_requirement_retention_cli",),
     ),
@@ -814,6 +832,16 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_cost", "tools/autocode_usage.py"), ("tests.test_cost_cap",)),
     (("tools/autocode_handoff_dedup.py",), ("tests.test_handoff_dedup",)),
+    (
+        (
+            "tools/autocode_validation_exhaustion_recovery.py",
+            "tools/autocode_validation_rounds.py",
+            "tools/autocode_resolver_human.py",
+            "tools/autocode_action_authority.py",
+            "tools/autocode_run_view.py",
+        ),
+        ("tests.test_validation_recovery_cli",),
+    ),
     (
         (
             "tools/autocode_recovery_accounting.py",

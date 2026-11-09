@@ -8,6 +8,26 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_repository_pytest_policy_keeps_its_execution_consumer_when_slow(self):
+        consumer = "tests.test_repository_pytest"
+        selected = run_suite.select_tests(["pyproject.toml"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
+    def test_retained_validation_limit_keeps_the_public_upgrade_consumer_when_slow(self):
+        consumer = "tests.test_validation_recovery_cli"
+        for source in (
+            "tools/autocode_validation_exhaustion_recovery.py",
+            "tools/autocode_validation_rounds.py",
+            "tools/autocode_resolver_human.py",
+            "tools/autocode_action_authority.py",
+            "tools/autocode_run_view.py",
+        ):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_requirements_prompt_resources_keep_the_render_and_existing_public_consumers_when_slow(self):
         consumers = {
             "tests.test_schema_prompt_formatting",
@@ -70,6 +90,8 @@ class DynamicDependenciesTests(unittest.TestCase):
         for source in (
             "scenarios/harness/fake_changed_code.py",
             "scenarios/catalog/ladder-18-durable-lease-queue/broken/non-atomic-claim/tests/test_behavior.py",
+            "scenarios/catalog/ladder-18-durable-lease-queue/broken/process-local-tokens/tests/test_behavior.py",
+            "scenarios/catalog/ladder-19-transactional-outbox/broken/ack-with-exception-rollback/tests/test_behavior.py",
         ):
             with self.subTest(source=source):
                 selected = run_suite.select_tests([source], {consumer: "", "tests.test_unrelated": ""})

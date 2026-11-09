@@ -555,6 +555,21 @@ def explain(status: str, *, stop_reason: str = "", needs=None, held_cause: str =
     """
     stop_reason = stop_reason.strip().rstrip(".")
     held_cause = held_cause.strip().rstrip(".")
+    if (
+        status == "WAITING_FOR_USER"
+        and isinstance(needs, dict)
+        and needs.get("kind") == "continue"
+        and needs.get("action") == "--resume-paused"
+    ):
+        happened = "An older run saved an internal question that AutoCode can now re-evaluate."
+        means = "AutoCode checks this stop automatically against current evidence; no new decision is needed."
+        does = "--resume-paused rechecks the saved stop without approving work or granting another attempt."
+        return {
+            "what_happened": happened,
+            "what_it_means": means,
+            "what_the_command_does": does,
+            "explanation": f"{happened} {means} {does}",
+        }
     if status == "PAUSED_INTERVENTION" and stop_reason.startswith(run_status.ENDED_PREFIX):
         # AutoCode ended the run itself with a recorded outcome (autocode_stop.end, #2485): a finished,
         # failed run, not a person's intervention, and no command continues it.

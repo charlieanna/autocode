@@ -48,8 +48,7 @@ class Read:
     def compact(self, now):
         if self.received is None:
             return "status not read yet"
-        sampled = f", run state at {self.snapshot['time'].strftime('%H:%M:%S %Z')}" if self.snapshot else ""
-        return f"status read {self.age(now)}{sampled}"
+        return f"read {self.age(now)}"
 
     def details(self, now):
         sample = self.snapshot

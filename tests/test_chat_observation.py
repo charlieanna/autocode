@@ -28,7 +28,7 @@ class ReadMetadata(unittest.TestCase):
         receipt = observation.Read()
         receipt.accept(sampled(), 100)
         self.assertEqual("7s ago", receipt.age(107))
-        self.assertEqual("status read 7s ago, run state at 05:00:00 UTC", receipt.compact(107))
+        self.assertEqual("read 7s ago", receipt.compact(107))
         before = receipt.snapshot.copy()
         receipt.accept(sampled(), 110)
         self.assertEqual(before, receipt.snapshot)
@@ -52,7 +52,7 @@ class ReadMetadata(unittest.TestCase):
                 receipt.accept({**sampled(), "observation": sample}, 5)
                 self.assertIsNone(receipt.snapshot)
                 self.assertEqual("2s ago", receipt.age(7))
-                self.assertEqual("status read 2s ago", receipt.compact(7))
+                self.assertEqual("read 2s ago", receipt.compact(7))
 
     def test_failure_retains_last_sample_and_recovery_updates_only_the_read_receipt(self):
         receipt = observation.Read()

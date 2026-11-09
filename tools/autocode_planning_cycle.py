@@ -125,6 +125,15 @@ def new_cycle(state: RunState, *, new_turn=False):
     if archived:
         state.setdefault("planning_history", []).append(copy.deepcopy(archived))
     state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
+    settings = state.get("settings") or {}
+    if (
+        not archived
+        and not state.get("planning_history")
+        and not any(key in settings for key in ("planning_review_call_limit", "planning_review_call_limit_origin"))
+    ):
+        # Mark only a known original built-in allowance. Never reinterpret a
+        # retained unmarked/configured cap as a default when a cycle restarts.
+        state["planning"].update(review_call_limit=2, review_call_limit_origin="runner_default")
     if inherits_review(archived):
         _inherit_review(state, archived)
     # Scope default depth-policy history to this human turn, not the whole chat.
@@ -167,8 +176,9 @@ def new_cycle(state: RunState, *, new_turn=False):
     saved_review_limit = state.get("settings", {}).get("planning_review_call_limit")
     if type(saved_review_limit) is int and saved_review_limit == 0:
         state["planning"].update(review_call_limit=0, review_call_limit_origin="user_explicit")
-    if role_names.planning_flow(state) == "v2":
-        state["planning"]["inputs"] = planning_inputs(state)
+    # The first legacy correction draft must also be distinguishable from a
+    # later machine-only restart in the same clarification episode.
+    state["planning"]["inputs"] = planning_inputs(state)
     return state["planning"]
 
 

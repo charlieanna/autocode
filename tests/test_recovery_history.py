@@ -1,5 +1,6 @@
 """The status view's ``recoveries``: what went wrong in a run and what AutoCode did about it."""
 
+import copy
 import json
 import unittest
 from pathlib import Path
@@ -147,6 +148,122 @@ class RecoveryHistoryTests(unittest.TestCase):
             ["Builder answer rejected"],
             [row["headline"] for row in waiting if row["job"] == "Builder" and row["problem"] == SCOPE],
         )
+
+    def test_ac4_schema_rejections_are_summarized_for_a_person(self):
+        run = {
+            "failure_history": {
+                "a": {
+                    "identity": {"stage": "investigate_bug", "error_class": "ValueError"},
+                    "last_error": "$: missing counterexample",
+                    "last_seen": "2026-11-02T05:33:44+00:00",
+                    "count": 3,
+                }
+            },
+            "stuck_investigations": [
+                {
+                    "stage": "requirements_gather",
+                    "requested_at": "2026-11-02T05:34:00+00:00",
+                    "finished_at": "2026-11-02T05:35:00+00:00",
+                    "outcome": "retried",
+                    "reason": "Completed requirements_gather_report_repair output was rejected ($: missing message_id; "
+                    "$: missing contract_token; $: unexpected fields: acceptance_tests, access_blockers, conflicts); "
+                    "attempt archived. Resume explicitly with autocode resume.",
+                }
+            ],
+        }
+        before = copy.deepcopy(run)
+        rows = history.project(run)
+        rejected = next(row for row in rows if row["kind"] == "rejected")
+        investigated = next(row for row in rows if row["kind"] == "investigated")
+        self.assertEqual(
+            "The answer was not in the format AutoCode requires: 1 required part missing.", rejected["problem"]
+        )
+        self.assertEqual("Investigator answer rejected (3 times)", rejected["headline"])
+        self.assertEqual(
+            "The answer was not in the format AutoCode requires: 2 required parts missing, 3 parts it does not take.",
+            investigated["problem"],
+        )
+        for row in rows:
+            for value in row.values():
+                for raw in ("$:", "missing counterexample", "unexpected fields"):
+                    self.assertNotIn(raw, str(value))
+        self.assertEqual(before["failure_history"], run["failure_history"])
+        self.assertEqual(before["stuck_investigations"], run["stuck_investigations"])
+
+    def test_ac5_plain_rejection_reasons_stay_as_they_are(self):
+        rows = history.project(state())
+        investigated = next(row for row in rows if row["kind"] == "investigated")
+        self.assertEqual(SCOPE, investigated["problem"])
+        self.assertNotIn("autocode resume", json.dumps(rows))
+
+    def test_ac14_every_schema_error_class_is_summarized_and_rendered_without_raw_text(self):
+        import autocode_chat_recoveries as recoveries
+
+        def rejected(last_error):
+            return {
+                "failure_history": {
+                    "s": {
+                        "identity": {"stage": "sol"},
+                        "count": 1,
+                        "last_seen": "2026-11-02T05:50:00+00:00",
+                        "last_error": last_error,
+                    }
+                }
+            }
+
+        mixed = rejected(
+            "$: unexpected fields: extra; $.verdict: invalid enum; $.findings[0]: missing id; "
+            "$.findings[0].severity: invalid enum; $.summary: expected string"
+        )
+        many = rejected("; ".join(f"$: missing k{index:02d}" for index in range(20)) + "; and 5 more")
+        stuck = {
+            "stuck_investigations": [
+                {
+                    "stage": "astra_plan",
+                    "requested_at": "2026-11-02T05:51:00+00:00",
+                    "finished_at": "2026-11-02T05:52:00+00:00",
+                    "outcome": "retried",
+                    "reason": "Completed astra_plan_report_repair output was rejected ($.milestones: too few items; "
+                    "$: unexpected fields: notes); attempt archived. Resume explicitly with autocode resume.",
+                }
+            ]
+        }
+        cases = (
+            (
+                mixed,
+                "rejected",
+                "The answer was not in the format AutoCode requires: "
+                "1 required part missing, 1 part it does not take, 3 other mismatches.",
+                "Tester answer rejected",
+            ),
+            (
+                many,
+                "rejected",
+                "The answer was not in the format AutoCode requires: 20 required parts missing, 5 other mismatches.",
+                None,
+            ),
+            (
+                stuck,
+                "investigated",
+                "The answer was not in the format AutoCode requires: 1 part it does not take, 1 other mismatch.",
+                "Planner stuck",
+            ),
+        )
+        for run, kind, sentence, headline in cases:
+            with self.subTest(kind=kind, sentence=sentence):
+                before = {key: copy.deepcopy(run.get(key)) for key in ("failure_history", "stuck_investigations")}
+                rows = history.project(run)
+                row = next(row for row in rows if row["kind"] == kind)
+                self.assertEqual(sentence, row["problem"])
+                if headline:
+                    self.assertEqual(headline, row["headline"])
+                raws = ("$", "invalid enum", "unexpected fields", "too few items", "expected string", "missing k")
+                for text in (recoveries.notice(row), recoveries.why({"recoveries": rows})):
+                    self.assertIn(sentence, text)
+                    for raw in raws:
+                        self.assertNotIn(raw, text)
+                self.assertEqual(before["failure_history"], run.get("failure_history"))
+                self.assertEqual(before["stuck_investigations"], run.get("stuck_investigations"))
 
     def test_a_send_back_names_its_round_out_of_the_rounds_the_gate_allows(self):
         # The gate records the round it took (autocode_changed_code_rework); an older record has none,

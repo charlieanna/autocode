@@ -539,11 +539,10 @@ class ChatClient:
                         # chat silently dropping the person's reply (#2593 withdrew other questions).
                         and not self._approval_open
                     )
-            elif key[1] in self.others:
-                if view is not None:
-                    self.viewed.add(key[1])  # a background tab has answered a read too, so it can lose a view
-                    self._attention.observe(view, received=time.monotonic())
-                    self.other_status(key[1], Path(key[0]), view)
+            elif key[1] in self.others and view is not None:
+                self.viewed.add(key[1])  # a background tab has answered a read too, so it can lose a view
+                self._attention.observe(view, received=time.monotonic())
+                self.other_status(key[1], Path(key[0]), view)
             self.show_tabs()
         self._attention.shown = None if self._composing_new else current
         if self.attention_changed is not None:
@@ -560,15 +559,19 @@ class ChatClient:
         # An approval/message check always starts a new read, after the person's input.
         key = (str(self.workspace), str(self.run_dir))
         self._poller.command, self._poller.env = self.command, self.env
+        # A transient read failure must not discard the reply before the poller's
+        # existing bounded retry can return. Neither read may authorize a cached
+        # view, and no action is replayed when a status read fails.
         self._poller.refresh(key)
-        before = self._status_serial
-        while self._status_serial == before:
-            self.poll()
-            if self._status_serial == before and self._wait(0.05) == "pause":
-                self._pause_pending = True
-        if self._status_error or self._status_view is None:
-            raise actions.ClientGap(self._status_error or "status response has no view")
-        return self._status_view
+        for _ in range(2):
+            before = self._status_serial
+            while self._status_serial == before:
+                self.poll()
+                if self._status_serial == before and self._wait(0.05) == "pause":
+                    self._pause_pending = True
+            if not self._status_error and self._status_view is not None:
+                return self._status_view
+        raise actions.ClientGap(self._status_error or "status response has no view")
 
     def accept_status(self, view: dict) -> None:
         self.viewed.add(str(self.run_dir))
@@ -1171,8 +1174,8 @@ class ChatClient:
         steps = {"next": here % len(rows) + 1, "previous": (here - 2) % len(rows) + 1}
         number = steps.get(argument) or (int(argument) if argument.isdigit() else 0)
         if not 1 <= number <= len(rows):
-            return f"There is no tab {argument or 'to switch to'}. " + (
-                f"Choose 1 to {len(rows)}." if len(rows) > 1 else "Ctrl-T opens another chat."
+            return f"Usage: /tab N (1 to {len(rows)}), or /tab next or /tab previous." + (
+                "" if len(rows) > 1 else " Ctrl-T opens another chat."
             )
         row = rows[number - 1]
         if row["current"]:
@@ -1464,7 +1467,10 @@ class ChatClient:
         finally:
             self._approval_open = False
         if gate:
-            return bool(reply.strip()) and self.send(reply, context)
+            if not reply.strip():
+                self.say("Nothing sent; the plan still waits for your answer.")
+                return True
+            return self.send(reply, context)
         if reply.lower() in YES:
             fresh = self.status()
             if actions.approval_token(fresh) != token:
@@ -1838,6 +1844,13 @@ class ChatClient:
             # Say the task is over in the prompt itself: the closing message may be scrolled out of view.
             over = "This task is complete. " if view.get("done") else ""
             reply = self.ask(f"\n{over}Anything else? Any text starts a new task in this chat; press Enter to finish: ")
+            if (
+                reply
+                and len(reply.strip()) <= 3
+                and self.ask(f'Start a new task with "{reply}"? [y/N]: ').lower() not in YES
+            ):
+                self.say("Nothing sent.")
+                return True
         except Left:
             return False
         return bool(reply) and self.send(reply, context)

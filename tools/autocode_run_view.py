@@ -83,6 +83,7 @@ try:
     from . import autocode_tool_containment as tool_containment
     from . import autocode_trace_coverage as trace_coverage
     from . import autocode_transport_recovery as transport_recovery
+    from . import autocode_validation_exhaustion_recovery as validation_recovery
     from . import autocode_verification_view as verification_view
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
@@ -138,6 +139,7 @@ except ImportError:
     import autocode_trace_coverage as trace_coverage
     import autocode_transport_recovery as transport_recovery
     import autocode_usage
+    import autocode_validation_exhaustion_recovery as validation_recovery
     import autocode_verification_view as verification_view
 
 SCHEMA = 2
@@ -204,6 +206,7 @@ def view(
         completion_current = False
     status = state.get("status", "")
     next_action = action(state, run_dir=run_dir, workspace=workspace, stale_report_repair=stale_report_repair)
+    stop_reason = validation_recovery.NOTICE if validation_recovery.pending(state) else state.get("stop_reason")
     try:
         from . import autocode_checkpoint_reconciliation as reconciliation
     except ImportError:
@@ -284,11 +287,11 @@ def view(
         "phase": state.get("phase"),
         "next_stage": state.get("next_stage"),
         "iteration": state.get("iteration"),
-        "stop_reason": state.get("stop_reason"),
+        "stop_reason": stop_reason,
         # Plain-English explanation of this stop (#715), added never renamed.
         "explanation": stop_explanations.explain(
             status,
-            stop_reason=state.get("stop_reason") or "",
+            stop_reason=stop_reason or "",
             needs=need,
             held_cause=pause_authority.answered_cause(state),
             ready=(controller or {}).get("kind") == "ready",
@@ -1143,7 +1146,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "producer_workspace": (state.get("dependency_wait") or {}).get("producer_workspace"),
         }
     issued = state.get("resolver_human_request")
-    if recovery_progress.routine_resume(state, issued):
+    if recovery_progress.routine_resume(state, issued) or validation_recovery.pending(state):
         return {
             "kind": "continue",
             "action": "--resume-paused",

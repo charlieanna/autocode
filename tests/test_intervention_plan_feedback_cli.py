@@ -17,6 +17,58 @@ from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 @unittest.skipUnless(sys.platform == "linux", "supervised provider requires supported Linux")
 class ReviewedPlanFeedbackCliTests(unittest.TestCase):
+    def test_clean_requested_pause_accepts_public_feedback_before_builder(self):
+        workspace, env = fixture_workspace(self)
+        provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
+        calls = provider.parent / "calls"
+        marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
+        provider.write_text(
+            provider.read_text().replace(
+                marker,
+                f"    with Path({str(calls)!r}).open('a') as stream: stream.write(stage + '\\n')\n" + marker,
+            )
+        )
+        run = taskrun.TaskRun.start(workspace, BRIEF, options=FIXTURE_OPTIONS, env=env, timeout=240)
+        original = run.advance_until_input()
+        token = original["needs"]["token"]
+        approved = run.approve_plan(token)
+        self.assertEqual("continue", approved["needs"]["kind"])
+        command = [
+            sys.executable,
+            str(ROOT / "tools/autocode.py"),
+            "intervention",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--run-dir",
+            str(run.run_dir),
+            "--request-id",
+            "clean-requested-pause",
+            "--kind",
+            "pause",
+            "--json",
+        ]
+        requested = subprocess.run(command, env={**os.environ, **env}, capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, requested.returncode, requested.stdout + requested.stderr)
+        held = run.advance()
+        self.assertEqual("PAUSED_INTERVENTION", held["status"])
+        self.assertEqual("resume", held["needs"]["kind"])
+        self.assertEqual("feedback", held["chat"]["input"]["kind"])
+        before = calls.read_text().splitlines()
+        message = "Keep the same scope and standard-library-only constraint."
+        corrected = run.feedback(message)
+        self.assertEqual("PAUSED_INTERVENTION", corrected["status"])
+        self.assertEqual("resume", corrected["needs"]["kind"])
+        self.assertEqual("requirements_gather", corrected["next_stage"])
+        self.assertEqual(before, calls.read_text().splitlines(), "Saving feedback launches no model")
+        self.assertFalse((workspace / "greet.py").exists())
+        self.assertEqual(1, sum(row.get("text") == message for row in corrected["request_sources"]))
+        with self.assertRaises(taskrun.TaskRunError):
+            run.approve_plan(token)
+        self.assertEqual(before, calls.read_text().splitlines())
+        reopened = taskrun.TaskRun(workspace, run.run_dir, env=env).status()
+        self.assertEqual(corrected["needs"], reopened["needs"])
+
     def test_queued_exact_plan_feedback_revises_once_and_reopens_at_fresh_approval(self):
         workspace, env = fixture_workspace(self)
         provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"

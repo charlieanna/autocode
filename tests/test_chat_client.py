@@ -1137,6 +1137,33 @@ class ConversationTests(unittest.TestCase):
             client.text(),
         )
 
+    FINISHED = {
+        **DONE,
+        "chat": {
+            "context": "c9",
+            "input": {"kind": "follow_up", "next_command": f"autocode {PLACE} --follow-up MESSAGE"},
+        },
+    }
+
+    def test_ac2_a_short_stray_reply_at_the_completion_gate_asks_before_a_new_task(self):
+        declined = ScriptedChat(self.FINISHED, DONE, replies=["n", "no", ""])
+        self.assertEqual(0, declined.converse())
+        self.assertEqual([], declined.taken, "a declined confirmation sends no follow-up")
+        self.assertIn('Start a new task with "n"? [y/N]', declined.text())
+        # Back at the completion prompt after the No, where Enter finishes.
+        self.assertEqual(2, declined.text().count("Anything else?"))
+
+        confirmed = ScriptedChat(self.FINISHED, DONE, replies=["n", "y"])
+        self.assertEqual(0, confirmed.converse())
+        self.assertIn('Start a new task with "n"? [y/N]', confirmed.text())
+        self.assertEqual([["--follow-up", "n"]], confirmed.taken)
+
+    def test_ac3_a_deliberate_follow_up_starts_a_new_task_without_confirmation(self):
+        client = ScriptedChat(self.FINISHED, DONE, replies=["Add a --shout flag"])
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--follow-up", "Add a --shout flag"]], client.taken)
+        self.assertNotIn("[y/N]", client.text())
+
     def test_a_finished_run_says_what_it_changed_once_before_the_follow_up(self):
         done = {
             **DONE,

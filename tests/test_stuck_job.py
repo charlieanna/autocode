@@ -3,6 +3,7 @@
 import copy
 import json
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -563,6 +564,75 @@ class ApplyTests(unittest.TestCase):
         state = self.investigated("PAUSED_NO_PROGRESS", no_progress_batches=3)
         stuck.apply(state, report(), {}, state["workspace"])
         self.assertEqual(2, state["no_progress_batches"])
+
+    def test_investigator_review_round_survives_same_turn_replanning_without_refilling(self):
+        from units import autoplanner as planning
+
+        for origin in ("absent", None):
+            with self.subTest(origin=origin):
+                state = state_for(
+                    next_stage="astra_challenge",
+                    planning={
+                        "astra_calls": 2,
+                        "review_call_limit": 2,
+                        "review_depth_reduced": True,
+                        "reports": {},
+                        "final_token": None,
+                    },
+                )
+                self.addCleanup(shutil.rmtree, state["workspace"])
+                state["settings"].update(joint_planning=True, adaptive_planning=True)
+                state["workflow"] = {"clarity": "clear", "brief_size": "small"}
+                if origin != "absent":
+                    state["planning"]["review_call_limit_origin"] = origin
+                settings = copy.deepcopy(state["settings"])
+                self.assertTrue(stuck.intercept(state, "PAUSED_PLANNING_BUDGET", "2/2 reviews used"))
+                stuck.apply(state, report(), {}, state["workspace"])
+                planning.charge(state, "astra_challenge", {"stage": "astra_challenge", "output": "review-3"})
+                planning.new_cycle(state)
+                self.assertEqual(4, planning.review_call_limit(state), "Keep the round the core already granted")
+                planning.charge(state, "astra_finalize", {"stage": "astra_finalize", "output": "review-4"})
+                planning.new_cycle(state)
+                with self.assertRaises(planning.s.Paused) as paused:
+                    planning.charge(state, "astra_challenge", {"stage": "astra_challenge", "output": "review-5"})
+                self.assertEqual("PAUSED_PLANNING_BUDGET", paused.exception.status)
+                self.assertEqual(4, state["planning"]["astra_calls"])
+                self.assertEqual(settings, state["settings"])
+
+    def test_granted_review_round_preserves_an_existing_explicit_origin(self):
+        from units import autoplanner as planning
+
+        state = {
+            "settings": {},
+            "planning": {
+                "astra_calls": 2,
+                "review_call_limit": 2,
+                "review_call_limit_origin": "user_explicit",
+                "review_depth_reduced": True,
+                "reports": {},
+            },
+        }
+        stuck.grant_one_attempt(state, {"status": "PAUSED_PLANNING_BUDGET", "stage": "astra_challenge"})
+        planning.new_cycle(state, new_turn=True)
+        self.assertEqual(4, planning.review_call_limit(state))
+        self.assertEqual("user_explicit", state["planning"]["review_call_limit_origin"])
+        self.assertEqual(2, state["planning"]["astra_calls"])
+
+    def test_core_review_grant_does_not_replace_the_configured_next_turn_allowance(self):
+        from units import autoplanner as planning
+
+        state = {
+            "settings": {"planning_review_call_limit": 2, "planning_review_call_limit_origin": "config.toml"},
+            "planning": {"astra_calls": 2, "review_call_limit": 2, "review_depth_reduced": True, "reports": {}},
+        }
+        settings = copy.deepcopy(state["settings"])
+        stuck.grant_one_attempt(state, {"status": "PAUSED_PLANNING_BUDGET", "stage": "astra_challenge"})
+        planning.new_cycle(state)
+        self.assertEqual(4, planning.review_call_limit(state))
+        planning.new_cycle(state, new_turn=True)
+        self.assertEqual(2, planning.review_call_limit(state))
+        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(settings, state["settings"])
 
     def test_exhausted_timeout_recovery_goes_to_the_investigator_which_grants_one_recovery(self):
         # A live run (2026-11-06) asked a person to --grant-recovery after three stage timeouts.

@@ -689,7 +689,10 @@ def text(name: str, view: dict | None, log: StageLog, available: list[Command] |
     view = view or {}
     if name == "/help":
         commands = available if available is not None else COMMANDS
-        return "\n".join(f"{command.name:<9} {command.description}" for command in commands)
+        lines = [f"{command.name:<9} {command.description}" for command in commands]
+        lines.append("")
+        lines.append("Tab marks: ● working · ! needs you · ✓ done")
+        return "\n".join(lines)
     if name == "/log":
         return "\n".join(log.lines) or "Nothing has happened yet."
     if name == "/why":

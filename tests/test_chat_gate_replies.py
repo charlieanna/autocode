@@ -55,6 +55,19 @@ class ConversationalGateClientTests(unittest.TestCase):
             self.assertTrue(client.approve(view))
             self.assertEqual([["--feedback", text]], client.taken)
 
+    def test_ac1_empty_reply_at_the_plan_gate_stays_in_the_chat(self):
+        client = ScriptedChat(reviewed(), DONE, replies=["", "yes"])
+        self.assertEqual(0, client.converse())
+        out = client.text()
+        self.assertEqual([["--feedback", "yes"]], client.taken)
+        self.assertIn("Nothing sent", out)
+        self.assertEqual(2, out.count("Approve this plan? You can also ask a question or request a change:"))
+        # The empty reply took nothing: "Nothing sent" is said before the prompt is asked again.
+        first = out.index("Approve this plan? You can also ask a question or request a change:")
+        second = out.index("Approve this plan? You can also ask a question or request a change:", first + 1)
+        self.assertTrue(any("Nothing sent" in line for line in out[first:second].splitlines()))
+        self.assertNotIn("Left the chat", out)
+
     def test_interpreted_confirmation_takes_only_the_fresh_named_gate_action(self):
         for factory, expected in (
             (understanding, ["--answer", "RQ=plan"]),

@@ -34,34 +34,44 @@ _FAILED = re.compile(
 AUTH_FAILED = (
     "provider authentication failed (HTTP 401); check or refresh the selected provider's credentials before retrying"
 )
+AUTH_ACCESS_DENIED = "provider account access denied (HTTP 403); check the selected account's access"
 
 
 def authentication_reason(rows) -> str | None:
-    """A provider-owned HTTP 401, never a number in usage, tool output or prose."""
+    """A provider-owned 401, or 403 paired with a typed terminal authentication failure."""
+    forbidden = False
+    authentication_failed = False
     for row in rows:
         if not isinstance(row, dict) or row.get("type") not in ("error", "turn.failed"):
             continue
         error = row.get("error")
         if not isinstance(error, dict):
             continue
+        if row.get("type") == "turn.failed" and error.get("code") == "authentication_failed":
+            authentication_failed = True
         data = error.get("data")
         for fields in (error, data if isinstance(data, dict) else {}):
             if fields.get("statusCode") == 401 or fields.get("status_code") == 401:
                 return AUTH_FAILED
-    return None
+            if fields.get("statusCode") == 403 or fields.get("status_code") == 403:
+                forbidden = True
+    return AUTH_ACCESS_DENIED if forbidden and authentication_failed else None
+
+
+def _rows(path):
+    with path.open(errors="replace") as stream:
+        for line in stream:
+            try:
+                yield json.loads(line)
+            except ValueError:
+                continue
 
 
 def reason(path) -> str | None:
     """Explain a structured rejection or trailing helper timeout without echoing credentials."""
     path = Path(path)
-    if path.is_file():
-        for line in path.read_text(errors="replace").splitlines():
-            try:
-                row = json.loads(line)
-            except ValueError:
-                continue
-            if auth := authentication_reason([row]):
-                return auth
+    if path.is_file() and (auth := authentication_reason(_rows(path))):
+        return auth
     lines = provider_error_lines.trailing(path)
     if not lines:
         return None
