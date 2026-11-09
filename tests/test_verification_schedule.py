@@ -1,5 +1,6 @@
 """Exact-obligation policy, real clean-copy receipts and invalidation controls."""
 
+import contextlib
 import copy
 import json
 import os
@@ -461,6 +462,39 @@ class CleanReplayTests(unittest.TestCase):
 
 
 class ExecutionIdentityTests(unittest.TestCase):
+    def test_relative_python_identity_uses_task_workspace_not_controller_cwd(self):
+        project = Project({"app.py": "VALUE = 1\n", ".gitignore": ".venv\n"})
+        self.addCleanup(project.close)
+        project.write({".venv/pyvenv.cfg": "include-system-site-packages = false\n", ".venv/bin/.keep": ""})
+        python = project.root / ".venv/bin/python"
+        python.symlink_to(sys._base_executable)
+        controller = tempfile.TemporaryDirectory()
+        self.addCleanup(controller.cleanup)
+        decoy = Path(controller.name) / ".venv/bin"
+        decoy.mkdir(parents=True)
+        (decoy / "python").symlink_to(sys._base_executable)
+        (decoy.parent / "pyvenv.cfg").write_text("include-system-site-packages = true\n")
+        original = schedule.tree_identity
+
+        def focused(path, **kwargs):
+            path = Path(path)
+            return (
+                original(path, **kwargs) if path.is_relative_to(project.root) or path.is_file() else {"path": str(path)}
+            )
+
+        with (
+            contextlib.chdir(controller.name),
+            mock.patch.object(verify, "test_environment", return_value={"PATH": ".venv/bin"}),
+            mock.patch.object(schedule, "tree_identity", side_effect=focused),
+        ):
+            expected = verify.execution_identity(project.root, command=f"{python} -m unittest")
+            self.assertTrue(expected["reuse_supported"])
+            for command in (".venv/bin/python -m unittest", "python -m unittest"):
+                with self.subTest(command=command):
+                    result = verify.execution_identity(project.root, command=command)
+                    self.assertTrue(result["reuse_supported"])
+                    self.assertEqual(expected, result)
+
     def test_fixture_symlinks_cannot_hide_unbound_target_changes(self):
         project = Project({"app.py": "x = 1\n", ".gitignore": "ignored-fixture\n"})
         self.addCleanup(project.close)
@@ -727,6 +761,8 @@ class VerificationRestartCLI(unittest.TestCase):
         self.assertTrue(all(ok for _, ok, _ in results), results)
 
     def test_restart_reuses_only_completed_supplemental_check_and_keeps_canonical_execution(self):
+        from dataclasses import replace
+
         from scenarios import run as scenario_run
         from scenarios.harness import catalog
         from scenarios.harness.driver import DriveError, Driver, default_autocode, fake_setup
@@ -737,7 +773,7 @@ class VerificationRestartCLI(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory(prefix="verification-restart-", dir=results, ignore_cleanup_errors=True)
         self.addCleanup(scratch.cleanup)
         root = Path(scratch.name).resolve()
-        scenario = catalog.load("verification-reuse")
+        scenario = replace(catalog.load("verification-reuse"), fake_check=".venv/bin/python -m unittest discover -v")
         project = materialize(scenario.seed, root / "project")
         # Only a deliberately selected virtualenv admits cross-invocation
         # reuse; the default global interpreter always executes fresh.

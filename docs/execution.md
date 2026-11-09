@@ -457,6 +457,12 @@ execute; unsupported test inventories are not guessed. Public evidence records
 the scheduling decision and preserves the original receipt, output hashes and
 execution interval. Those artifacts remain pinned by the Completion gate.
 
+Python interpreter paths such as `.venv/bin/python`, and relative or empty PATH
+entries, resolve from the task workspace when collecting that identity. A
+controller launched elsewhere must not bind its own interpreter instead.
+Environments that inherit global packages still require fresh execution; fixing
+path resolution does not make an incomplete dependency identity reusable.
+
 An uncertain earlier launch blocks subsequent owned verification even if its
 source, task or command identity changed. Starting a new identity does not prove
 that the previous process stopped. Missing, partial, stale or altered receipts

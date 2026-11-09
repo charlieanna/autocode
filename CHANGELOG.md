@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Python verification resolves relative interpreter paths and PATH entries from
+  the task workspace, so an isolated project environment can supply its exact
+  identity even when the controller runs from another directory.
+
 - Clean verification-command timeouts remain failed checks instead of becoming
   an ownership pause that requires discarding the Tester's report. Missing or
   uncertain cleanup still blocks execution; timeouts never authorize proof reuse.
