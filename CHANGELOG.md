@@ -24,6 +24,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Ready check batches keep large receipt bodies in their files and emit only capture attestations
+  and check references, reducing tool-response size without losing full test output or receipt checks.
 - Linux supervision identifies Kilo's wrapper by its kernel executable path, so Node 24's
   `MainThread` name no longer turns a silent model wait into tool activity (#2968).
 

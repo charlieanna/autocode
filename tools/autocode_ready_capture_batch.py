@@ -157,7 +157,9 @@ def context(capture, commands, evidence_directory):
             "When ready, copy and execute this complete command once as one unfiltered tool call. "
             "Its encoded plan is opaque data; do not decode, rewrite or re-quote it. It runs every exact approved "
             "required_command in sequential order through capture, including after a failed check, and "
-            "prints a separate fresh receipt and check reference for each. Its aggregate exit is failure "
+            "prints a short attestation and check reference for each fresh receipt. Full receipts and "
+            "test output remain in the referenced files; read failure details there when needed. "
+            "Its aggregate exit is failure "
             "if any check fails. Report each individual command/result/receipt; the batch is not a check "
             "and grants no verification authority. Native tools use their current writable scratch. "
             "Keep the complete output. Additional probes and the "
@@ -273,7 +275,13 @@ def run(encoded):
     codes = []
     for index, command in enumerate(plan["commands"], 1):
         receipt = prefix + "-" + str(index) + ".json"
-        result = subprocess.run(_capture() + ["--mode", plan["mode"], "--output", receipt, "--"] + command)
+        # Capture's stdout embeds the entire display inside its receipt. Repeating it here can make
+        # a provider truncate the batch, including other checks' authentication. The fresh receipt
+        # and full output remain on disk; stderr retains capture's exact-byte attestation.
+        result = subprocess.run(
+            _capture() + ["--mode", plan["mode"], "--output", receipt, "--"] + command,
+            stdout=subprocess.DEVNULL,
+        )
         codes.append(result.returncode)
         print(json.dumps({"command": command, "exit_code": result.returncode, "evidence_ref": receipt}), flush=True)
     return 1 if any(codes) else 0
