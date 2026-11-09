@@ -7,6 +7,14 @@ All notable changes to AutoCode are recorded here. The format follows
 Each release lists the pull requests that changed user-visible behaviour.
 PR template asks for an entry here; a change without one is incomplete.
 
+## [Unreleased]
+
+### Fixed
+
+- Clean verification-command timeouts remain failed checks instead of becoming
+  an ownership pause that requires discarding the Tester's report. Missing or
+  uncertain cleanup still blocks execution; timeouts never authorize proof reuse.
+
 ## [0.10.0] - 2026-11-09
 
 ### Added
