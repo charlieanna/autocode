@@ -8,6 +8,12 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_repository_pytest_policy_keeps_its_execution_consumer_when_slow(self):
+        consumer = "tests.test_repository_pytest"
+        selected = run_suite.select_tests(["pyproject.toml"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_retained_validation_limit_keeps_the_public_upgrade_consumer_when_slow(self):
         consumer = "tests.test_validation_recovery_cli"
         for source in (
