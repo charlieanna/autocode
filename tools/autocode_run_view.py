@@ -1151,6 +1151,28 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "kind": "continue",
             "action": "--resume-paused",
         }
+    # A Resolver proposal at RESOLVER_PENDING carries decisions for the person;
+    # surface them so the view names an answerable action (#2896).
+    if status == "RESOLVER_PENDING":
+        proposal = state.get("resolver_human_proposal") or {}
+        proposal_questions = proposal.get("questions") or []
+        if not proposal_questions and (proposal.get("request") or {}).get("decision_needed"):
+            req = proposal["request"]
+            proposal_questions = [
+                {
+                    "id": "resolver-decision",
+                    "question": req["decision_needed"],
+                    "why": req.get("impact", ""),
+                    "options": req.get("options", []),
+                    "proposed_default": "",
+                }
+            ]
+        if proposal_questions:
+            return {
+                "kind": "answer",
+                "questions": [{field: q.get(field) for field in QUESTION_FIELDS} for q in proposal_questions],
+                "resolver_scope": proposal.get("scope"),
+            }
     questions = state.get("pending_questions") or []
     reviews = [question for question in questions if question.get("review_criteria")]
     if reviews:
