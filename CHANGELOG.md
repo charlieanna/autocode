@@ -24,6 +24,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Capture emits its receipt attestation before and after a large display, retaining authentication
+  when a native tool keeps only the beginning or end of a combined response; full output stays intact.
 - Ready check batches keep large receipt bodies in their files and emit only capture attestations
   and check references, reducing tool-response size without losing full test output or receipt checks.
 - Linux supervision identifies Kilo's wrapper by its kernel executable path, so Node 24's
