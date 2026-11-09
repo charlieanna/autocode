@@ -23,20 +23,27 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_python_test_roles as test_roles
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
+    import autocode_python_test_roles as test_roles
     import autocode_roles as roles
     import autocode_util as util
 
 LIMIT = 20  # the newest entries a view carries
 TEXT = 400  # characters per sentence field
 DETAIL = 900  # characters of an Investigator's diagnosis
+_SCHEMA_SUMMARY = "The answer was not in the format AutoCode requires"
 # "Completed terra output was rejected (WHY); attempt archived. ..." keeps only WHY.
 _REJECTED = re.compile(r"^Completed \w+ output was rejected \((?P<why>.+)\)(?:;|\.|$)", re.S)
 # A sentence that tells someone to run something is machinery, not an explanation.
 _COMMAND = re.compile(r"\bautocode\s+[a-z-]+|(?:^|\s)--[a-z]")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+# Schema validation errors: "$: missing x", "$: unexpected fields: a, b", "$.path: reason".
+_SCHEMA_MISSING = re.compile(r"\bmissing\b")
+_SCHEMA_UNEXPECTED = re.compile(r"unexpected fields:\s*([^;]+)")
+_SCHEMA_MORE = re.compile(r"\band\s+(\d+)\s+more\b")
 # autocode_resolver.ACTIONS, as a person reads them.
 _RESOLVER_ACTIONS = {
     "continue": "carry on",
@@ -53,6 +60,7 @@ def project(state: RunState) -> list[dict[str, Any]]:
     entries = [
         *(row for row in _rejections(state) if (row["job"], row["problem"]) not in explained),
         *_report_repairs(state),
+        *_test_role_corrections(state),
         *_sent_back(state),
         *investigations,
         *_resolver(state),
@@ -88,6 +96,40 @@ def _entry(
     return {"id": hashlib.sha256(identity.encode()).hexdigest()[:16], **body}
 
 
+def _summarize_schema(text: str) -> str | None:
+    """A person-readable count of what the schema rejected, never the raw ``$:`` clauses."""
+    items = [item.strip() for item in text.split(";") if item.strip()]
+    missing = 0
+    unexpected = 0
+    other = 0
+    for item in items:
+        more = _SCHEMA_MORE.search(item)
+        if more and not _SCHEMA_MISSING.search(item) and not _SCHEMA_UNEXPECTED.search(item):
+            other += int(more.group(1))
+        elif _SCHEMA_MISSING.search(item):
+            missing += 1
+        else:
+            fields = _SCHEMA_UNEXPECTED.search(item)
+            if fields:
+                unexpected += len([f for f in fields.group(1).split(",") if f.strip()])
+            else:
+                other += 1
+    if not (missing or unexpected or other):
+        return None
+    parts = []
+    if missing:
+        parts.append(f"{missing} required part{'s' if missing != 1 else ''} missing")
+    if unexpected:
+        parts.append(f"{unexpected} part{'s' if unexpected != 1 else ''} it does not take")
+    if other:
+        parts.append(f"{other} other mismatch{'es' if other != 1 else ''}")
+    return f"{_SCHEMA_SUMMARY}: {', '.join(parts)}."
+
+
+def _is_schema_rejection(text: str) -> bool:
+    return "$:" in text or "$." in text
+
+
 def _plain(text, limit=TEXT):
     """Redacted, bounded prose without a sentence that names an internal command."""
     if not isinstance(text, str) or not text.strip():
@@ -96,6 +138,10 @@ def _plain(text, limit=TEXT):
     match = _REJECTED.match(text)
     if match:
         text = match["why"]
+    if _is_schema_rejection(text):
+        summary = _summarize_schema(text)
+        if summary:
+            return summary
     kept = [sentence for sentence in _SENTENCE.split(text) if not _COMMAND.search(sentence)]
     text = util.redact(" ".join(kept).strip())
     if not text:
@@ -153,6 +199,20 @@ def _report_repairs(state: RunState):
             headline=f"{job} rewrote its report",
             problem=None,
             action=f"Its work stood; only the report was rewritten.{took} {done}",
+        )
+    for row in state.get("report_repair_archive") or []:
+        if not isinstance(row, dict) or row.get("kind") != "verification_inputs_changed":
+            continue
+        original = (row.get("repair") or {}).get("original") or {}
+        yield _entry(
+            "report_repair_retired",
+            row.get("at"),
+            original.get("stage"),
+            state,
+            headline="Obsolete report repair retired",
+            problem=row.get("reason"),
+            action="The rejected report remains archived. Fresh checks and an independent Tester attempt are required.",
+            by="AutoCode",
         )
 
 
@@ -280,3 +340,20 @@ def _resolver(state: RunState):
             action=f"{who} to {choice}" + (f": {reason}" if reason else "."),
             by="Resolver",
         )
+
+
+def _test_role_corrections(state: RunState):
+    for event in state.get("user_events") or []:
+        if isinstance(event, dict) and event.get("kind") == "protected_tests_roles_corrected":
+            summary = test_roles.correction_summary(event)
+            yield _entry(
+                "protected_tests_roles_corrected",
+                summary["at"],
+                None,
+                state,
+                headline="Original test inventory corrected",
+                problem="A filename hint had included runtime product code as a protected test.",
+                action="AutoCode retained the original tests and command, excluded proven product entries, and retired the old proof. Fresh verification remains required.",
+                by="AutoCode",
+                detail=summary["reason"],
+            )

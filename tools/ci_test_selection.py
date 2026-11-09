@@ -81,6 +81,11 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "tools/dashboard/dashboard_project_controls.py",
+        ("tests.test_dashboard_project_snapshot", "tests.test_catalogue_t12"),
+    ),
+    ("pyproject.toml", ("tests.test_repository_pytest",)),
     (".github/workflows/tests.yml", ("tests.test_ci_java",)),
     ("tools/dashboard/tests/test_shell_a11y_ui.js", ("tests.test_catalogue_t12",)),
     ("tools/dashboard/tests/test_m3_lifecycle_browser_ui.js", ("tests.test_catalogue_t12",)),
@@ -513,6 +518,15 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("tools/autocode_visual_protection.py",), ("tests.test_native_rework_transport",)),
+    (
+        (
+            "tools/autocode_verification_repair.py",
+            "tools/autocode_verification_config.py",
+            "tools/autocode_run_setup.py",
+        ),
+        ("tests.test_verification_repair_retirement", "tests.test_verification_config"),
+    ),
     (
         (
             "tools/autocode_phase_timing.py",
@@ -550,6 +564,22 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_workspace_inventory.py",), ("tests.test_review_attribution_cli",)),
     (
+        (
+            "tools/autocode_python_packaging.py",
+            "tools/autocode_python_test_roles.py",
+            "tools/autocode_test_role_inventory.py",
+            "tools/autocode_test_role_correction.py",
+            "tools/autocode_run_setup.py",
+            "tools/autocode_verify.py",
+            "tools/autocode_protected_oracles.py",
+        ),
+        ("tests.test_python_test_roles_cli",),
+    ),
+    (
+        ("tools/autocode_regression.py", "tools/autocode_test_role_correction.py"),
+        ("tests.test_saved_run_replay_cli",),
+    ),
+    (
         ("tools/autocode_protected_oracles.py", "tools/autocode_protected_commands.py"),
         ("tests.test_protected_oracles_cli",),
     ),
@@ -568,6 +598,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("tools/autocode_goals.py", "tools/autocode_adaptive_planning.py"),
         ("tests.test_intervention_plan_feedback_cli",),
+    ),
+    (
+        (
+            "tools/autocode_planning_cycle.py",
+            "tools/autocode_budget_recovery.py",
+            "tools/autocode_planning_correction_budget.py",
+            "tools/autocode_default_budget_runtime.py",
+        ),
+        ("tests.test_planning_correction_budget_cli",),
     ),
     (
         ("tools/autocode_requirement_retention.py", "tools/autocode_goals.py"),
@@ -675,6 +714,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ),
     ),
     (("tools/autocode_transport_recovery.py",), ("tests.test_transport_recovery", "tests.test_pause_status_cli")),
+    (
+        ("tools/autocode_pause_command.py", "tools/autocode_run_view.py"),
+        ("tests.test_pause_status_cli", "tests.test_checkpoint_reconciliation", "tests.test_worker_flow"),
+    ),
     (("tools/autocode_stop_explanations.py",), ("tests.test_completion_status",)),
     (
         (
@@ -780,6 +823,14 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("tools/autocode_report_source.py",),
         ("tests.test_report_formatting_repair_cli",),
+    ),
+    (
+        ("tools/autocode_report_source.py", "tools/autocode_report_syntax.py", "tools/providers/opencode.py"),
+        ("tests.test_report_syntax_cli",),
+    ),
+    (
+        ("tools/autocode_configure.py", "tools/autocode_requirements_triage.py"),
+        ("tests.test_requirements_triage",),
     ),
     (
         (
@@ -1127,6 +1178,8 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_tool_admission_cli",),
     ),
     (("tools/autocode_model_preflight",), ("tests.test_provider_credentials",)),
+    # The CLI reaches access transport through model_preflight, beyond the direct import selector.
+    (("tools/provider_conformance_transport.py",), ("tests.test_model_preflight_budgets",)),
     (
         ("tools/autocode_access_identity", "tools/autocode_access_evidence", "tools/autocode_model_preflight"),
         ("tests.test_preflight_relocation_cli", "tests.test_model_preflight"),

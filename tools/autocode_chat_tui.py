@@ -746,7 +746,8 @@ def window(text: str, cursor: int, width: int) -> tuple[str, int]:
 
 def composer_rows(text: str, cursor: int, width: int, most: int) -> tuple[list[str], int, int]:
     """``text`` as the reply box shows it: wrapped at ``width`` cells and at its own line breaks, at
-    most ``most`` rows kept around the cursor; with the cursor's row and column among those rows."""
+    most ``most`` rows kept around the cursor; with the cursor's row and column among those rows.
+    Breaks at spaces when possible, as ``wrap`` does, so words are not split mid-word."""
     width, most = max(1, width), max(1, most)
     rows: list[str] = []
     at_row = at_col = 0
@@ -763,10 +764,18 @@ def composer_rows(text: str, cursor: int, width: int, most: int) -> tuple[list[s
         else:
             cells = _char_width(char)
             if used + cells > width:
-                rows.append(row)
-                row, used = "", 0
+                # Break at the last space in this row if one exists, so words stay whole.
+                space = row.rfind(" ")
+                if space > 0:
+                    overflow = row[space:]  # keep the space at the start of the next row
+                    row = row[:space]
+                    rows.append(row)
+                    row, used = overflow, sum(_char_width(c) for c in overflow)
+                else:
+                    rows.append(row)
+                    row, used = "", 0
                 if index == cursor:
-                    at_row, at_col = len(rows), 0
+                    at_row, at_col = len(rows), used
             row += char
             used += cells
     if at_row >= len(rows):
@@ -868,6 +877,9 @@ class ChatTUI:
         self._live = panel.LiveLog()  # what each agent thinks and does, from the view's chat.log
         self._live_on: bool | None = None  # detailed agent pane appears only on request
         self._panel_on = False  # the conversation owns the width until /panel asks for details
+        self._cost_cap: float | None = None  # session cost cap: warn and pause when hit (#3002)
+        self._cost_cap_warned = False
+        self._pause_requested = False
         self._menu_index = 0
         self._waiting = False
         self._launched = False  # a step is running since the last question; its first views may predate it
@@ -1115,7 +1127,8 @@ class ChatTUI:
         /tab, so a step is never left running unwatched. Before a chat Ctrl-T answers as /new does there.
         A tab Ctrl-T opened, whose request is not sent yet, leaves nothing running: it can be left (#1997)."""
         name, argument = ("/new", "") if step == "new" else ("/tab", step)
-        if name == "/new" and asking and self._act is not None and not self._run_open:
+        if name == "/new" and self._act is not None:
+            # Ctrl-T opens a new tab; it never disturbs the current run, so it works at any time.
             return self._run(name, asking)
         draft = self._draft_tab(asking)
         if not draft and ((not asking and not self._can_detach()) or self._act is None or not self._run_open):
@@ -1234,7 +1247,27 @@ class ChatTUI:
                 self._context_key = contexts.identity(view["workspace"], view["run_dir"])
                 self._context = contexts.label(view["workspace"], view["run_dir"])
             self._keep_history_anchor(anchor)
+            self._check_cost_cap(view)
             self._draw()
+
+    def _check_cost_cap(self, view: dict) -> None:
+        """Warn and pause when the session cost hits the configured cap (#3002)."""
+        if self._cost_cap is None:
+            return
+        cost = view.get("cost") or {}
+        spent = cost.get("spent_usd")
+        if not isinstance(spent, (int, float)) or spent < self._cost_cap:
+            self._cost_cap_warned = False
+            return
+        if self._cost_cap_warned:
+            return
+        self._cost_cap_warned = True
+        self._transcript.info(
+            "Cost cap reached",
+            f"Session spend ${spent:.2f} has reached your ${self._cost_cap:.2f} cap. "
+            "The run is paused. Use /cap to change the cap or resume to continue.",
+        )
+        self._pause_requested = True
 
     def status_unavailable(self, error: str) -> None:
         """A failed read does not establish that the worker stopped."""
@@ -1291,6 +1324,9 @@ class ChatTUI:
         self._waiting = True  # this loop animates the marker; the ticker must not draw beside a key read
         try:
             while (left := deadline - time.monotonic()) > 0:
+                if self._pause_requested:
+                    self._pause_requested = False
+                    return "pause"
                 if self.idle is not None:
                     self.idle()
                 with self._lock:  # curses is not thread-safe: read, handle and draw as one step
@@ -1594,7 +1630,9 @@ class ChatTUI:
                 return self._run(word, asking, argument.strip())
             known = any(command.name == word for command in panel.COMMANDS)
             why = "is not available right now" if known else "is not a command"
-            self._transcript.info(word, f"{word} {why}. Type / to see the commands; // sends text that starts with /.")
+            self._transcript.info(
+                word, f"{word} {why}. Type / to see the commands; // sends text that starts with /.", coalesce=True
+            )
             if " " not in text.strip():
                 self._composer.clear()  # a mistyped command; a sentence stays, to fix with //
             return None
@@ -1664,13 +1702,33 @@ class ChatTUI:
                 self._transcript.info(name, result.text)
                 self._pending = result
             else:
-                self._transcript.info(name, result)
+                self._transcript.info(name, result, coalesce=True)
             self._scroll, self._anchored = 0, False
             return None
         if name == "/quit":
             raise EOFError
         if name == "/live":
             self._live_command(argument)
+            return None
+        if name == "/cap":
+            try:
+                value = float(argument.strip()) if argument.strip() else None
+            except ValueError:
+                self._transcript.info("/cap", "Usage: /cap N where N is a dollar amount, or /cap 0 to remove the cap.")
+                return None
+            if value is not None and value <= 0:
+                self._cost_cap = None
+                self._cost_cap_warned = False
+                self._transcript.info("/cap", "Session cost cap removed.")
+            elif value is not None:
+                self._cost_cap = value
+                self._cost_cap_warned = False
+                self._transcript.info(
+                    "/cap", f"Session cost cap set to ${value:.2f}. The run pauses with a warning when it reaches this."
+                )
+            else:
+                current = f"${self._cost_cap:.2f}" if self._cost_cap else "none"
+                self._transcript.info("/cap", f"Session cost cap: {current}. Usage: /cap N (0 removes it).")
             return None
         if name == "/panel":
             self._panel_on = not self._panel_visible(*self._size())
@@ -1811,6 +1869,9 @@ class ChatTUI:
         if self._live_visible(rows, cols) and panel_end - header_rows >= 10:
             live_start = panel_end - max(4, int((panel_end - header_rows) * LIVE_SHARE))
         body_width = width - panel_width - (2 if panel_width else 0)
+        # A reading measure: prose is hard to scan past ~120 columns, so the transcript
+        # stays within a comfortable width and the screen uses the rest for the panel.
+        body_width = min(body_width, 120)
         notes = []
         notes_start = None
         room = panel_end - header_rows
@@ -1938,7 +1999,7 @@ class ChatTUI:
             return "task " + meter.total_text(task, show_pending=True)
         here = meter.run_total(self._view)
         if len(self._tabs) < 2:
-            return meter.total_text(here)
+            return "chat " + (meter.total_text(here) or "$0")
         totals = [here if row.get("current") else row.get("total") for row in self._tabs]
         session = meter.total_text(meter.session_total(totals))
         if not session:
@@ -1983,10 +2044,30 @@ class ChatTUI:
             self._put(1, 0, self._glyphs.rule * layout.width, self._style("dim"))
             return
         col = 0
-        for row in self._tabs:  # the tab bar: number, title and a mark for what it waits on
+        current_index = next((i for i, row in enumerate(self._tabs) if row.get("current")), 0)
+        # Scroll the tab window so the active tab is always visible: tabs before it are
+        # dropped when the bar is full, and "…" marks the hidden ones on each side.
+        start = 0
+        labels = []
+        for row in self._tabs:
             state = str(row.get("state") or "")
             mark = (TAB_MARKS if self._glyphs.unicode else ASCII_TAB_MARKS).get(state, "")
-            label = f" {row['number']} {row['title']} {mark} ".replace("  ", " ")
+            title = truncate(row["title"], max(8, layout.width // (len(self._tabs) + 1)))
+            label = f" {row['number']} {title} {mark} ".replace("  ", " ")
+            labels.append(label)
+        # Find the window that includes current_index and fills the bar.
+        widths = [display_width(label) for label in labels]
+        used_before = sum(widths[i] + 1 for i in range(current_index))
+        if used_before + widths[current_index] + 2 > layout.width:
+            # Drop leading tabs until the current one fits.
+            start = current_index
+            while start > 0 and sum(widths[i] + 1 for i in range(start, current_index + 1)) + 2 > layout.width:
+                start -= 1
+        if start > 0:
+            self._put(1, col, "…", self._style("dim"))
+            col += 2
+        for index in range(start, len(self._tabs)):
+            label = labels[index]
             if col + display_width(label) > layout.width:
                 self._put(1, col, "…", self._style("dim"))
                 break
@@ -1994,7 +2075,8 @@ class ChatTUI:
                 1,
                 col,
                 label,
-                self._style("brand" if row.get("current") else "dim") | (curses.A_REVERSE if row.get("current") else 0),
+                self._style("brand" if self._tabs[index].get("current") else "dim")
+                | (curses.A_REVERSE if self._tabs[index].get("current") else 0),
             )
             col += display_width(label) + 1
 
@@ -2002,6 +2084,8 @@ class ChatTUI:
         height = max(0, layout.body_end - layout.body_start)
         width = layout.body_width or layout.width
         lines = self._transcript.lines(width)
+        if self._view is not None and not self._new_chat():
+            lines = [(role, text) for role, text in lines if not text.startswith("New chats:")]
         if not lines:
             self._hero(layout, height)
             return
@@ -2255,13 +2339,18 @@ class ChatTUI:
         self._put(layout.status_start, 0, truncate(lead, layout.width), style)
         if reading:
             return
+        spend = self._spend()
         tail = (
             "ctrl-c cancel coordination after this step"
             if (self._view or {}).get("coordination")
             else "ctrl-c pause after this step"
         )
+        # Live cost counter on the status line (#3002): always visible while the run works.
+        right = f"{spend} · {tail}" if spend else tail
         room = layout.width - display_width(lead) - 2
-        if room >= display_width(tail):
+        if room >= display_width(right):
+            self._put(layout.status_start, layout.width - display_width(right), right, self._style("dim"))
+        elif room >= display_width(tail):
             self._put(layout.status_start, layout.width - display_width(tail), tail, self._style("dim"))
 
     def _composer_box(self, layout: Layout) -> None:
@@ -2281,6 +2370,7 @@ class ChatTUI:
         inner = max(1, width - 6)
         self._put(layout.box_text, 2, glyphs.prompt, self._style("prompt" if active else "dim"))
         if not active and not self._composer.text:
+            waiting = self._view and panel.needs_you(self._view)
             placeholder = (
                 "Type / for commands while the run starts"
                 if self._view is None and self._launched
@@ -2288,6 +2378,8 @@ class ChatTUI:
                 if self._view is None
                 else "Type a message, then Enter; work is saved before the reply"
                 if self._can_message()
+                else "Type / for commands. AutoCode asks here when it needs you."
+                if waiting
                 else WORKING_PLACEHOLDER
             )
             self._put(layout.box_text, 4, truncate(placeholder, inner), self._style("placeholder"))
@@ -2313,9 +2405,10 @@ class ChatTUI:
 
     def _hints(self, layout: Layout) -> None:
         asking_segments: list[str] = []
+        menu_open = bool(self._menu(self._asking)) and self._composer.text.startswith("/")
         if self._asking:
             newline = "\\⏎ newline" if self._glyphs.unicode else "\\enter newline"
-            history = "↑↓ history" if self._glyphs.unicode else "up/down history"
+            history = "↑↓ chooses" if menu_open else ("↑↓ history" if self._glyphs.unicode else "up/down history")
             # The optional hints give way first, in this order, when the row is short of room:
             # "ctrl-d quit" is the way out of the full screen and "/ commands" the menu, so a
             # stage and cost prefix must never push them off the edge of the footer.

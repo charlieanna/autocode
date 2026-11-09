@@ -1593,6 +1593,14 @@ missing original source or immutable caller binding offers inspection. A termina
 stop or dependency wait offers no recovery command. CLI gates still validate
 freshness and authority when a person executes any displayed command.
 
+The structured status command carries the exact issued token in its environment
+assignment so clients can launch it without putting tokens in argv. Human-readable
+headers, trailers and recovery messages mask those assignments as `NAME=-`;
+that displayed copy is guidance, not an executable token binding. Clients use
+the structured action from a fresh status read, never parse the displayed prose
+or replace an expired action's token with one from a newer view. The same rule
+applies to separate numeric offers, model retry offers and chat recovery replies.
+
 `needs.command_inputs` describes the one number a pause leaves to a person, so a
 client can ask for it instead of handing the command off (#2044). Every bound a
 budget pause names is described, with the same row shape:

@@ -50,6 +50,9 @@ class StageObservationMetadata(TypedDict, total=False):
     """Optional subset of the existing dictionary stage records, with ownership above."""
 
     requirements_observations: RequirementsObservationSeal
+    # report_source writes a trailing-comma normalization receipt; response_text retains
+    # its exact source. Ordinary schema/evidence admission still owns acceptance.
+    syntax_corrections: dict
 
 
 # Every key tools/ reads or writes on a run state dict.
@@ -260,6 +263,7 @@ KEYS: frozenset[str] = frozenset(
         "requirements_body",
         "requirements_handoff",
         "requirements_history",
+        "requirements_triage",
         "resolution_history",
         "resolution_request",
         "resolver",
@@ -599,6 +603,10 @@ class RunState(TypedDict, total=False):
     requirements_body: Any
     requirements_handoff: Any
     requirements_history: Any
+    # The triage pass record (#2940): requirements_handoff's triage branch writes {pass, outcome,
+    # questions, at}; the planning unit's prepare and the CLI's effort launch read it to run only
+    # the first requirements_gather dispatch as triage.
+    requirements_triage: Any
     resolution_history: Any
     resolver: Any
     resolver_human_proposal: Any  # a Resolver proposal awaiting a human; goals writes, dependency pops

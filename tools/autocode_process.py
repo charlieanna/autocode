@@ -6,6 +6,7 @@ import math
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from contextlib import contextmanager, suppress
@@ -114,13 +115,13 @@ def process_table(pids=None):
                 group = os.getpgid(pid)
                 session = os.getsid(pid)
                 try:
-                    # psutil's public name() may expand a truncated POSIX name
-                    # by reading cmdline(). On macOS that optional query can
-                    # raise a raw SystemError when sysctl denies access. The
-                    # pinned psutil 7 backend reads the native name directly;
-                    # a missing name must not discard verified birth identity.
-                    executable = process._proc.name()
-                except (psutil.AccessDenied, OSError, SystemError, AttributeError):
+                    # Linux comm is a mutable thread name (Node 24 uses
+                    # MainThread); exe reads the kernel link without arguments.
+                    # Darwin keeps the native backend name: public name() may
+                    # query cmdline and raise SystemError. Optional metadata
+                    # must not discard verified birth identity.
+                    executable = process._proc.exe() if sys.platform == "linux" else process._proc.name()
+                except (psutil.AccessDenied, psutil.ZombieProcess, OSError, SystemError, AttributeError):
                     executable = None
             table[pid] = {
                 "pid": pid,
@@ -224,6 +225,9 @@ class ProcessTree:
     def __init__(self, pid, checkpoint, *, excluded=(), groups=(), sessions=(), session_admissions=()):
         self.pid = pid
         self.known = {}
+        # Preserve completed receipts, but stop rereading their vanished PIDs
+        # on every tick. A newly admitted birth at that PID is distinct.
+        self._finished = {}
         self.checkpoint = checkpoint
         # A keeper beneath a CLI must not own itself. Exclude only the exact
         # supplied birth identity, before ancestry/group expansion.
@@ -477,7 +481,13 @@ class ProcessTree:
 
     def sample(self, *, initial=False, notify=True):
         self.known = {pid: row for pid, row in self.known.items() if self._included(row)}
-        table = process_table(set(self.known) | {self.pid} | set(self.groups) | set(self.sessions))
+        # Bind a missing observation to the birth we actually queried, even if
+        # another admission replaces that PID while the native read is pending.
+        probes = {pid: dict(row) for pid, row in self.known.items() if self._finished.get(pid) != row}
+        table = process_table(set(probes) | {self.pid} | set(self.groups) | set(self.sessions))
+        # process_table raises on denied or uncertain reads; only an observed
+        # disappearance retires a probe. Root/group/session leases stay fresh.
+        self._finished.update({pid: row for pid, row in probes.items() if pid not in table})
         table = {pid: row for pid, row in table.items() if self._included(row)}
         retained = self._retained_groups(table)
         sessions = self._retained_sessions(table)

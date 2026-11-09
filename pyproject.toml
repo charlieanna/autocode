@@ -33,6 +33,10 @@ autocode = "autocode_cli.autocode:cli"
 public-entry-points = ["autocode"]
 internal-entry-points = []
 
+[tool.pytest.ini_options]
+# Scenario seeds, references and broken variants are independent projects run by the harness.
+testpaths = ["tests"]
+
 [tool.setuptools]
 packages = ["autocode_cli", "autocode_cli.dashboard", "autocode_cli.providers", "autocode_cli.units"]
 package-dir = {autocode_cli = "tools"}

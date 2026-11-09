@@ -66,6 +66,7 @@ try:
     from . import autocode_plan_retention as plan_retention
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_plan as progressive_rules
+    from . import autocode_python_test_roles as test_roles
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_history as recovery_history
     from . import autocode_recovery_limits as recovery_limits
@@ -120,6 +121,7 @@ except ImportError:
     import autocode_plan_retention as plan_retention
     import autocode_planning_review_usage as review_usage
     import autocode_progressive_plan as progressive_rules
+    import autocode_python_test_roles as test_roles
     import autocode_quota_route as quota_route
     import autocode_recovery_history as recovery_history
     import autocode_recovery_limits as recovery_limits
@@ -219,6 +221,7 @@ def view(
             "pause_category_label": None,
             "next_command": pause_command.command(
                 {**reconcile, "kind": "resume"},
+                for_client=True,
                 run_dir=run_dir or state.get("run_dir"),
                 workspace=workspace or state.get("workspace"),
             ),
@@ -722,6 +725,7 @@ def evidence(state: RunState) -> dict:
             }
         )
     proof = state.get("regression_proof")
+    correction = test_roles.latest_correction(state.get("user_events"))
     replay = validation.get("check_replay")
     investigation = state.get("investigation")
     if not isinstance(investigation, dict):
@@ -754,20 +758,23 @@ def evidence(state: RunState) -> dict:
         ],
         **({"finding_scope_moves": moves} if moves else {}),
         "regression_proof": {
-            key: proof.get(key)
-            for key in (
-                "verdict",
-                "fail_to_pass",
-                "failures",
-                "unverified",
-                "commands",
-                "source_revision",
-                "case_tests",
-                "follow_up_baseline",
-                "unstable",
-                "changed_code_evidence",
-            )
-            if key != "changed_code_evidence" or proof.get(key) is not None
+            **{
+                key: proof.get(key)
+                for key in (
+                    "verdict",
+                    "fail_to_pass",
+                    "failures",
+                    "unverified",
+                    "commands",
+                    "source_revision",
+                    "case_tests",
+                    "follow_up_baseline",
+                    "unstable",
+                    "changed_code_evidence",
+                )
+                if key != "changed_code_evidence" or proof.get(key) is not None
+            },
+            **({"role_correction": correction} if correction else {}),
         }
         if isinstance(proof, dict)
         else None,
@@ -923,7 +930,10 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
             "pause_category": "your_decision",
             "pause_category_label": "Your decision",
             "next_command": pause_command.command(
-                held_need, run_dir=run_dir or state.get("run_dir"), workspace=workspace or state.get("workspace")
+                held_need,
+                for_client=True,
+                run_dir=run_dir or state.get("run_dir"),
+                workspace=workspace or state.get("workspace"),
             ),
         }
     status = state.get("status", "")
@@ -946,6 +956,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
     if separate and inputs:
         named_raise = pause_command.command(
             {"kind": "resume", "action": command_inputs.raise_action(inputs[0])},
+            for_client=True,
             run_dir=run_dir or state.get("run_dir"),
             workspace=workspace or state.get("workspace"),
             recovery_token=token,
@@ -970,6 +981,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         answer = f"--answer {need['route']['question_id']}=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
         named = pause_command.command(
             {**need, "action": answer},
+            for_client=True,
             run_dir=run_dir or state.get("run_dir"),
             workspace=workspace or state.get("workspace"),
             resume_flags=resume_flags,
@@ -984,6 +996,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         if not category and not ready_boundary
         else pause_command.command(
             need,
+            for_client=True,
             run_dir=run_dir or state.get("run_dir"),
             workspace=workspace or state.get("workspace"),
             resume_flags=resume_flags,
@@ -1151,6 +1164,31 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "kind": "continue",
             "action": "--resume-paused",
         }
+    # A Resolver proposal at RESOLVER_PENDING carries decisions for the person;
+    # surface them so the view names an answerable action (#2896).
+    if (
+        status == "RESOLVER_PENDING"
+        and (state.get("resolver_human_proposal") or {}).get("scope") != "operational_exhaustion"
+    ):
+        proposal = state.get("resolver_human_proposal") or {}
+        proposal_questions = proposal.get("questions") or []
+        if not proposal_questions and (proposal.get("request") or {}).get("decision_needed"):
+            req = proposal["request"]
+            proposal_questions = [
+                {
+                    "id": "resolver-decision",
+                    "question": req["decision_needed"],
+                    "why": req.get("impact", ""),
+                    "options": req.get("options", []),
+                    "proposed_default": "",
+                }
+            ]
+        if proposal_questions:
+            return {
+                "kind": "answer",
+                "questions": [{field: q.get(field) for field in QUESTION_FIELDS} for q in proposal_questions],
+                "resolver_scope": proposal.get("scope"),
+            }
     questions = state.get("pending_questions") or []
     reviews = [question for question in questions if question.get("review_criteria")]
     if reviews:

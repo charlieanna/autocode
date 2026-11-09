@@ -86,6 +86,7 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
         self.stack.enter_context(patch.object(self.adapter, "available_models", return_value=set(models.values())))
         self.stack.enter_context(patch.object(self.adapter, "check_models"))
         self.stack.enter_context(patch.object(self.adapter, "check_subscription_routes"))
+        self.real_transport = preflight.transport.execute
         self.stack.enter_context(patch.object(preflight.transport, "execute", side_effect=self.probe))
         self.stack.enter_context(
             patch.object(
@@ -235,6 +236,33 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
         self.assertEqual([], self.probes)
         self.assertEqual([], self.stages)
         self.assertEqual("PAUSED_TASK_PREFLIGHT", self.status()["status"], (code, stdout, stderr))
+
+    def test_policy_startup_timeout_is_a_recorded_pause_without_model_launch(self):
+        def timeout(*args, **kwargs):
+            self.clock += 30
+            raise subprocess.TimeoutExpired(["kilo", "debug", "config"], 30)
+
+        with (
+            patch.object(preflight.transport, "execute", side_effect=self.real_transport),
+            patch.object(self.adapter, "launch", side_effect=timeout) as prepare,
+            patch.object(preflight.transport, "_provider_child") as child,
+        ):
+            code, stdout, stderr = self.start("--max-cost-usd", "0")
+        self.assertEqual(2, code, stdout + stderr)
+        self.assertEqual(1, prepare.call_count, "a startup timeout must not silently retry")
+        child.assert_not_called()
+        self.assertEqual([], self.stages)
+        view = self.status()
+        self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", view["needs"].get("pause_origin") or view["status"])
+        self.assertIn("before model access", view["stop_reason"])
+        self.assertIn("debug', 'config", view["stop_reason"])
+        self.assertFalse(view["done"])
+        self.assertFalse((self.run_dir / "model-preflight.json").exists(), "no successful access receipt")
+        attempts = view["usage"]["accounting"]["attempts"]
+        self.assertEqual(1, len(attempts))
+        self.assertTrue(attempts[0]["runner_owned"])
+        self.assertEqual(30, attempts[0]["duration_seconds"])
+        self.assertEqual(0, view["cost"]["spent_usd"])
 
     def test_reported_probe_cost_stops_before_another_request_and_is_public(self):
         code, stdout, stderr = self.start("--max-cost-usd", "0.01")

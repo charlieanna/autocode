@@ -21,7 +21,7 @@ REQUIREMENTS = "requirements_gather"
 
 
 class RequirementsFirstCliTests(unittest.TestCase):
-    def run_fake(self, scenario):
+    def run_fake(self, scenario, *, flags=()):
         temporary = tempfile.TemporaryDirectory(prefix="requirements-first-")
         self.addCleanup(temporary.cleanup)
         args = argparse.Namespace(
@@ -33,7 +33,7 @@ class RequirementsFirstCliTests(unittest.TestCase):
             max_steps=None,
             timeout_minutes=10,
         )
-        result = run.run_one(run.catalog.load(scenario), args)
+        result = run.run_one(run.catalog.load(scenario), args, extra_flags=flags)
         self.assertEqual("PASS", result["verdict"], result["summary"])
         return result
 
@@ -52,7 +52,7 @@ class RequirementsFirstCliTests(unittest.TestCase):
     def test_a_plain_cli_review_goes_from_requirements_to_the_code_reviewer(self):
         result = self.run_fake("review-clean-pr")
         self.assertEqual("review", result["workflow"])
-        self.assertEqual([REQUIREMENTS, "review_change"], result["metrics"]["model_stage_names"])
+        self.assertEqual([REQUIREMENTS, REQUIREMENTS, "review_change"], result["metrics"]["model_stage_names"])
 
     def test_a_plain_cli_bug_fix_goes_from_requirements_to_the_planner(self):
         result = self.run_fake("bugfix-trivial")
@@ -60,11 +60,15 @@ class RequirementsFirstCliTests(unittest.TestCase):
         self.assertStartsAtRequirements(result["metrics"]["model_stage_names"], "astra_discovery")
         self.assertNotIn("investigate_bug", result["metrics"]["model_stage_names"])
 
+    def test_explicit_triage_opt_out_keeps_one_full_requirements_pass(self):
+        result = self.run_fake("review-clean-pr", flags=("--no-requirements-triage",))
+        self.assertEqual([REQUIREMENTS, "review_change"], result["metrics"]["model_stage_names"])
+
     def test_fix_the_findings_after_a_review_is_named_a_build_by_requirements(self):
         result = self.run_fake("review-then-fix")
         review, fix = result["turns"]
         self.assertEqual(("review", "build"), (review["workflow"], fix["workflow"]))
-        self.assertEqual([REQUIREMENTS, "review_change"], review["model_stage_names"])
+        self.assertEqual([REQUIREMENTS, REQUIREMENTS, "review_change"], review["model_stage_names"])
         # The follow-up begins at Requirements too, which reads the earlier review as context and names a
         # build; the Planner then plans the fix from the review's findings.
         self.assertStartsAtRequirements(fix["model_stage_names"], "astra_discovery")

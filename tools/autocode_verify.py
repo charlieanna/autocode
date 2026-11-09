@@ -34,6 +34,7 @@ except ImportError:
     import autocode_source_snapshot as source_snapshot
 
 import contextlib
+import copy
 import hashlib
 import json
 import os
@@ -64,6 +65,7 @@ try:
     from . import autocode_junit_tests as junit_tests
     from . import autocode_node_tests as node_tests
     from . import autocode_package_scope as package_scope
+    from . import autocode_product_diff_stats as product_stats
     from . import autocode_project_inventory as project_inventory
     from . import autocode_prompts as prompts
     from . import autocode_proof_seam as proof_seam
@@ -77,6 +79,7 @@ try:
     from . import autocode_suite_definition_policy as definition_policy
     from . import autocode_suite_definition_scan as definition_scan
     from . import autocode_test_environment as test_env
+    from . import autocode_test_role_inventory as role_inventory
     from . import autocode_test_root as test_roots
     from . import autocode_test_setup as test_setup
     from . import autocode_toolchain_suite as toolchain_suite
@@ -104,6 +107,7 @@ except ImportError:
     import autocode_junit_tests as junit_tests
     import autocode_node_tests as node_tests
     import autocode_package_scope as package_scope
+    import autocode_product_diff_stats as product_stats
     import autocode_project_inventory as project_inventory
     import autocode_prompts as prompts
     import autocode_proof_seam as proof_seam
@@ -117,6 +121,7 @@ except ImportError:
     import autocode_suite_definition_policy as definition_policy
     import autocode_suite_definition_scan as definition_scan
     import autocode_test_environment as test_env
+    import autocode_test_role_inventory as role_inventory
     import autocode_test_root as test_roots
     import autocode_test_setup as test_setup
     import autocode_toolchain_suite as toolchain_suite
@@ -470,47 +475,28 @@ def commit_worktree(workspace):
 BINARY_LINES = 1000  # a binary change is never "tiny"
 
 
-def diff_stats(workspace, base, changes) -> dict:
-    lines, binary = {}, []
-    with _staged(workspace, base) as (env, _):
-        numstat = _git(workspace, "diff-index", "--cached", "--numstat", "-z", "--no-renames", base, "--", env=env)
-    for record in numstat.split("\0"):
-        parts = record.split("\t", 2)
-        if len(parts) != 3 or parts[2] not in changes:
-            continue
-        if parts[0] == "-":
-            binary.append(parts[2])
-            lines[parts[2]] = (BINARY_LINES, 0)
-        else:
-            lines[parts[2]] = (int(parts[0]), int(parts[1]))
-    for path, status in changes.items():
-        file = Path(workspace) / path
-        if path not in lines and status == "added" and file.is_file():
-            data = file.read_bytes()
-            if b"\0" in data[:8000]:
-                binary.append(path)
-                lines[path] = (BINARY_LINES, 0)
-            else:
-                lines[path] = (len(data.splitlines()), 0)
-    source = [p for p in changes if not is_test_path(p)]
-    return {
-        "files": len(changes),
-        "source_files": len(source),
-        "test_files": len(changes) - len(source),
-        "lines_added": sum(a for a, _ in lines.values()),
-        "lines_removed": sum(r for _, r in lines.values()),
-        "source_lines_changed": sum(sum(lines.get(p, (0, 0))) for p in source),
-        "binary_files": sorted(binary),
-        "non_code_files": sorted(p for p in changes if not is_code_path(p)),
-    }
+def diff_stats(workspace, base, changes, *, roles=None, allow_ambiguous=False) -> dict:
+    roles = roles or role_inventory.from_git(workspace, base, is_test_path, changes=changes)
+    return product_stats.summarize(
+        workspace,
+        base,
+        changes,
+        roles,
+        staged=_staged,
+        git=_git,
+        is_code=is_code_path,
+        binary_lines=BINARY_LINES,
+        allow_ambiguous=allow_ambiguous,
+    )
 
 
-def removed_python_tests(workspace, base, changes) -> list[str]:
+def removed_python_tests(workspace, base, changes, *, roles=None) -> list[str]:
     """Names of ``def test*`` functions deleted from modified Python test files."""
+    roles = roles or role_inventory.from_git(workspace, base, is_test_path, changes=changes)
     removed = []
     pattern = re.compile(r"^\s*(?:async\s+)?def\s+(test\w*)\s*\(", re.M)
     for path, status in changes.items():
-        if not (path.endswith(".py") and is_test_path(path)) or status == "added":
+        if not (path.endswith(".py") and roles.protected(path)) or status == "added":
             continue
         before = set(pattern.findall(_git(workspace, "show", f"{base}:{path}", check=False)))
         after_file = Path(workspace) / path
@@ -847,6 +833,8 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
         return _go_results(Path(output).read_text(errors="replace")) if output and Path(output).is_file() else None
     passed, failed, skipped, collection = set(), set(), set(), set()
     setup_errors = {}
+    roles = getattr(framework, "test_roles", None)
+    is_test = (lambda path: roles.role(path) == "test") if roles else is_test_path
     if framework.name == "pytest":
         if not Path(xml_path).is_file():
             return None
@@ -858,7 +846,7 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
             problem = case.find("failure") if case.find("failure") is not None else case.find("error")
             if problem is not None:
                 failed.add(test)
-                reason = test_setup.setup_error(problem.text or "", tree, is_test_path)
+                reason = test_setup.setup_error(problem.text or "", tree, is_test)
                 if reason:
                     setup_errors[test] = reason
                 if not case.get("classname") or "collection failure" in (problem.get("message") or ""):
@@ -876,7 +864,7 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
         return _unittest_results(
             text,
             component="autocode_component_tests.py" in framework.suite,
-            classify_setup=lambda detail: test_setup.setup_error(detail, tree, is_test_path),
+            classify_setup=lambda detail: test_setup.setup_error(detail, tree, is_test),
         )
     results = {
         "passed": sorted(passed),
@@ -1257,7 +1245,7 @@ def _effective_base(workspace, base, patch=None):
             yield entries, read, patched
 
 
-def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, changes=None, junit=False):
+def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, changes=None, junit=False, roles=None):
     """Retained inputs, boundary status and candidate manifest overlays for the suite.
 
     Pinned by rule: manifests, lockfiles, pnpm-workspace.yaml, .npmrc and runner-config
@@ -1271,10 +1259,10 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
     any other import, or a computed import path, leaves the boundary unestablished.
     """
     with _effective_base(workspace, base, base_patch) as (entries, read, patched):
+        roles = roles or role_inventory.from_entries(workspace, entries, read, is_test_path)
+        is_test = lambda path: is_test_path(path) and roles.protected(path)
         if junit:
-            return junit_proof.definition(
-                workspace, suite_command, entries, read, patched, changes, is_test=is_test_path
-            )
+            return junit_proof.definition(workspace, suite_command, entries, read, patched, changes, is_test=is_test)
         tracked = set(entries)
         found = definition_policy.Definition(set(), "", patched)
         manifests = {}
@@ -1289,7 +1277,7 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
                 target = posixpath.normpath(posixpath.join(posixpath.dirname(target), read(target)))
             if target in entries:
                 manifests[path] = read(target)
-        tests = {path for path in tracked if is_test_path(path)}
+        tests = {path for path in tracked if is_test(path)}
         definition = {path for path in tracked if _definition_file(path)} | tests
         definition = definition_inputs.linked_inputs(entries, read, definition)
 
@@ -1444,7 +1432,7 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
                 return
             cwd_of.setdefault(candidate, directory)
             queued.add(candidate)
-            if not is_test_path(candidate):
+            if not is_test(candidate):
                 pinned.add(candidate)
             queue.append(candidate)
 
@@ -1509,7 +1497,7 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
                 # which hides `sh test/run.sh` → `node list.js` (#662).
                 unestablished = follow_shell(text, cwd)
                 continue
-            if is_test_path(path):
+            if is_test(path):
                 continue  # JS tests are pinned wholesale, never scanned
             for specifier, inside_exec in _import_sites(text):
                 if specifier is None:
@@ -1520,7 +1508,7 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
                 target = resolve(specifier, file_dir)
                 if not target or target in product:
                     continue
-                if is_test_path(target) or _definition_file(target):
+                if is_test(target) or _definition_file(target):
                     continue
                 if inside_exec:
                     consider(target, file_dir)
@@ -1553,20 +1541,15 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None, c
             unclassified = {
                 path
                 for path in measured
-                if path not in found.paths
-                and path not in product
-                and not _definition_file(path)
-                and not is_test_path(path)
+                if path not in found.paths and path not in product and not _definition_file(path) and not is_test(path)
             }
             if unestablished and not unclassified:
                 found.boundary = ""
-            found.changed = any(
-                path in found.paths or _definition_file(path) or is_test_path(path) for path in measured
-            )
+            found.changed = any(path in found.paths or _definition_file(path) or is_test(path) for path in measured)
             for path, status in measured.items():
                 if (
                     PurePosixPath(path).name != "package.json"
-                    or is_test_path(path)
+                    or is_test(path)
                     or status == "deleted"
                     or (Path(workspace) / path).is_symlink()
                     or (path in entries and entries[path][0] != "100644" and entries[path][0] != "100755")
@@ -2165,18 +2148,20 @@ def _run_suite_base_definition(
             base_patch=base_patch,
             changes=changes,
             junit=framework is not None and framework.name == "junit",
+            roles=getattr(framework, "test_roles", None),
         )
     except (OSError, RuntimeError, ValueError) as error:
         return {"run": None, "boundary": f"the effective base could not be read ({error})"}
     if found.boundary:
         return {"run": None, "boundary": found.boundary}
     definition, patched = found.paths, found.patched
+    roles = getattr(framework, "test_roles", None)
     overlay = {
         path: status
         for path, status in definition_inputs.reviewed_changes(workspace, changes, patched).items()
         if path not in definition
         and not _definition_file(path)
-        and not is_test_path(path)
+        and not (roles.is_test(path) if roles else is_test_path(path))
         and not (
             framework is not None
             and framework.name == "junit"
@@ -2256,6 +2241,7 @@ class _Run:
     guards: Any
     existing_guards: Any
     existing_failures: Any
+    roles: Any
 
 
 def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
@@ -2315,7 +2301,7 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
         commands["regression"],
         trees["candidate"],
         Path(run_dir) / "diff-coverage",
-        lambda: product_diff(workspace, base, product_files(changes)),
+        lambda: product_diff(workspace, base, product_files(changes, roles=run.roles)),
         lambda command, log: run_command(command, trees["candidate"], log, timeout=timeout),
     )
     _judge_regression(
@@ -2347,7 +2333,7 @@ def _prove_regression(run: _Run, trees, *, no_go_project, no_junit_project):
             generated_unrecorded=generated_unrecorded,
             ignored_inputs=ignored_inputs,
         ),
-        seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt),
+        seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt, roles=run.roles),
         changed_tests=go_tests.changed_filter(
             workspace, changes, lambda path: _git(workspace, "show", f"{base}:{path}", check=False)
         )
@@ -2607,6 +2593,7 @@ def verify(
     package=None,
     package_exempt=(),
     withheld=(),
+    roles=None,
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
@@ -2668,12 +2655,21 @@ def verify(
     before = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     changes = changed_files(workspace, base, source_paths=source_paths)
     changes = {path: changes[path] for path in changes if path not in withheld}
-    tests = [p for p in changes if is_test_path(p)]
-    sources = [p for p in changes if not is_test_path(p)]
+    if roles is None or not role_inventory.matches(roles, workspace, changes):
+        roles = role_inventory.from_git(workspace, base, is_test_path, changes=changes)
+    tests, sources, ambiguous = roles.partition(changes)
+    if framework is not None:
+        framework = copy.copy(framework)
+        framework.test_roles = roles
     preserve = preserve_only or (test_only_allowed and not sources)
     test_changes = {p: changes[p] for p in tests}
     fail: list[Any] = []
     unverified: list[Any] = []
+    unverified += (
+        ["Product/test ownership is ambiguous; no proof commands were started for: " + ", ".join(ambiguous)]
+        if ambiguous
+        else []
+    )
     notes: list[Any] = []
     review_reasons: list[Any] = []
     checks: dict[str, dict] = {}  # command receipts only
@@ -2702,17 +2698,17 @@ def verify(
     )
     if not changes and not preserve_only:
         fail.append("No change: the candidate is identical to the base revision")
-    elif not sources and not preserve:
+    elif not sources and not preserve and not ambiguous:
         fail.append("Only test files changed; a fix must change product code")
     deleted = python_tests.deleted_test_files(
         (p for p in tests if changes[p] == "deleted"), lambda p: _git(workspace, "show", f"{base}:{p}")
     )
     if deleted:
         fail.append("Existing test files were deleted: " + ", ".join(deleted))
-    removed = removed_python_tests(workspace, base, changes)
+    removed = removed_python_tests(workspace, base, changes, roles=roles)
     if removed:
         fail.append("Existing tests were removed: " + ", ".join(removed[:20]))
-    if not runnable_tests and not existing_guards and not existing_failures:
+    if not runnable_tests and not existing_guards and not existing_failures and not ambiguous:
         (unverified if allow_no_test else fail).append(
             "No regression test was added or changed, so the bug is not shown to be reproduced"
         )
@@ -2763,6 +2759,7 @@ def verify(
         guards=guards,
         existing_guards=existing_guards,
         existing_failures=existing_failures,
+        roles=roles,
     )
     trees, hidden = {}, []
     baseline_timed_out = bool(base_suite and (base_suite.get("receipt") or {}).get("timed_out") is True)
@@ -2772,7 +2769,12 @@ def verify(
         checks["suite_on_base"] = base_suite["receipt"]
         unverified.append("The original project suite timed out; candidate checks were not started")
     try:
-        if not baseline_timed_out and (changes or existing_guards) and (commands["regression"] or commands["suite"]):
+        if (
+            not baseline_timed_out
+            and not ambiguous
+            and (changes or existing_guards)
+            and (commands["regression"] or commands["suite"])
+        ):
             trees["candidate"] = make_tree(
                 workspace,
                 base,
@@ -2851,13 +2853,13 @@ def verify(
                 review_reasons.append("the regression proof rests on the whole suite's exit code")
                 if on_base["exit_code"] == 0 and not preserve:
                     fail.append("The new tests pass on the unfixed base code, so they do not reproduce the bug")
-        elif tests and sources and not baseline_timed_out:
+        elif tests and sources and not baseline_timed_out and not ambiguous:
             unverified.append("No command to run the regression tests; pass --regression-command")
 
         # No regressions: the suite on the candidate, compared with base.
         if "candidate" in trees and (sources or preserve) and commands["suite"]:
             hidden = _preserve_suite(run, trees, no_go_project=no_go_project, no_junit_project=no_junit_project)
-        elif (sources or preserve) and not baseline_timed_out:
+        elif (sources or preserve) and not baseline_timed_out and not ambiguous:
             unverified.append(
                 "No project test command was found; existing behavior was not checked (pass --test-command)"
             )
@@ -2874,7 +2876,7 @@ def verify(
             unverified.append(
                 f"{label}: {receipt.get('report_error') or 'JUnit report capture is missing, invalid or changed'}"
             )
-    stats = diff_stats(workspace, base, changes)
+    stats = diff_stats(workspace, base, changes, roles=roles, allow_ambiguous=bool(ambiguous))
     if stats["binary_files"]:
         review_reasons.append("binary files changed: " + ", ".join(stats["binary_files"][:5]))
     if stats["non_code_files"]:
@@ -2891,12 +2893,18 @@ def verify(
     )
 
 
-def product_files(changes) -> list[tuple[str, str]]:
+def product_files(changes, *, roles=None, source_files=None) -> list[tuple[str, str]]:
     """The changed product code (not tests, not deletions) diff coverage and mutants read: (path, status)."""
     return [
         (path, status)
         for path, status in changes.items()
-        if status != "deleted" and is_code_path(path) and not is_test_path(path)
+        if status != "deleted"
+        and is_code_path(path)
+        and (
+            path in source_files
+            if source_files is not None
+            else not (roles.is_test(path) if roles else is_test_path(path))
+        )
     ]
 
 
@@ -2909,7 +2917,7 @@ def product_diff(workspace, base, files) -> str:
 _judge_regression = judgment.judge_regression  # moved to autocode_verify_judgment (#2753)
 
 
-def _seam_names(workspace, base, changes, receipt):
+def _seam_names(workspace, base, changes, receipt, *, roles=None):
     """Names the unfixed run reports missing that the candidate's source change adds and its tests use."""
     added, test_words = set(), set()
     for path, status in changes.items():
@@ -2917,7 +2925,7 @@ def _seam_names(workspace, base, changes, receipt):
         if status == "deleted" or not is_code_path(path) or not file.is_file() or file.is_symlink():
             continue
         after = _read(file)
-        if is_test_path(path):
+        if roles.is_test(path) if roles else is_test_path(path):
             test_words |= proof_seam.words(after)
         else:
             before = "" if status == "added" else _git(workspace, "show", f"{base}:{path}", check=False)

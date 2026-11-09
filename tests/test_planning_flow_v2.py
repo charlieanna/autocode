@@ -653,7 +653,7 @@ class V2PlanningCycleTests(unittest.TestCase):
     def test_initial_requirements_begin_the_first_cycle(self):
         state = self.state()
         self.admit(state)
-        self.assertEqual({"astra_calls", "reports", "final_token", "inputs"}, set(state["planning"]))
+        self.assertEqual("runner_default", state["planning"]["review_call_limit_origin"])
         self.assertEqual(
             (0, None, []), tuple(state["planning"][key] for key in ("astra_calls", "final_token", "inputs"))
         )

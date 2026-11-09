@@ -53,6 +53,7 @@ try:
     from . import autocode_regression as regression
     from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_requirements_handoff as requirements_handoff
+    from . import autocode_requirements_triage as requirements_triage
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_result_application as result_application
@@ -105,6 +106,7 @@ except ImportError:
     import autocode_regression as regression
     import autocode_report_repair_queue as report_repair_queue
     import autocode_requirements_handoff as requirements_handoff
+    import autocode_requirements_triage as requirements_triage
     import autocode_resolver_human as human
     import autocode_resolver_recovery as resolver_recovery
     import autocode_result_application as result_application
@@ -517,7 +519,9 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
             **value,
             "proposed_assumptions": [row for row in value["proposed_assumptions"] if not isinstance(row, str)],
         }
-    support.validate_schema(checked, planning_unit.schema_for(state, stage))
+    requirements_triage.validate_application(
+        state, stage, value, checked, schema_for=planning_unit.schema_for, validate=support.validate_schema
+    )
     if stage == planning_unit.RECOGNIZE:
         return planning_unit.recognize(state, value, record)
     if stage == "astra_discovery" and planning_unit.rerun_requirements(state, value):

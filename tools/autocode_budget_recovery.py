@@ -11,6 +11,7 @@ across resumes; changing a limit or resetting an iteration is not a new run.
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import hashlib
 import json
@@ -19,6 +20,11 @@ from typing import TYPE_CHECKING, Any, TypeGuard, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
+
+try:
+    from . import autocode_planning_correction_budget as correction_budget
+except ImportError:
+    import autocode_planning_correction_budget as correction_budget
 
 HARD_CEILINGS = {
     "iteration_ceiling": 30,
@@ -361,18 +367,50 @@ def recover(state: RunState, *, kind, now) -> bool:
     stages = state.get("stages")
     if not isinstance(stages, list) or not stages or any(not isinstance(row, dict) for row in stages):
         return False
+    correction = (
+        correction_budget.evidence(state, planning, stages, clock, fingerprint=_fingerprint)
+        if kind == PLANNING_KIND
+        else None
+    )
     total_tokens = 0
     unknown_usage = False
-    for row in stages:
+    unknown_records = []
+    for index, row in enumerate(stages):
         if row.get("runner_owned") is True:
             continue
         metrics = row.get("metrics")
         tokens = metrics.get("provider_tokens") if isinstance(metrics, dict) else None
-        if row.get("accounted") is not True or not _number(row.get("duration_seconds")) or not isinstance(tokens, dict):
+        if (
+            row.get("accounted") is not True
+            or not _number(row.get("duration_seconds"))
+            or not isinstance(metrics, dict)
+        ):
             return False
-        if metrics.get("provider_tokens_partial") is True:
+        if tokens is not None and not isinstance(tokens, dict):
             return False
-        values = [tokens.get(name) for name in ("input_tokens", "output_tokens")]
+        values = [(tokens or {}).get(name) for name in ("input_tokens", "output_tokens")]
+        partial = metrics.get("provider_tokens_partial") is True
+        if (partial or any(value is None for value in values)) and correction_budget.historical_usage_allowed(
+            state, row, index, correction
+        ):
+            if any(value is not None and (type(value) is not int or value < 0) for value in values):
+                return False
+            unknown_usage = True
+            total_tokens += sum(value for value in values if type(value) is int)
+            unknown_records.append(
+                {
+                    "stage_index": index,
+                    "stage": row.get("stage"),
+                    "output": row.get("output"),
+                    "events": row.get("events"),
+                    "source_revision": row.get("source_revision"),
+                    "provider_tokens_partial": partial,
+                    "provider_tokens": copy.deepcopy(tokens),
+                }
+            )
+            continue
+        if partial or not isinstance(tokens, dict):
+            return False
         if all(type(value) is int and value >= 0 for value in values):
             total_tokens += sum(value for value in values if isinstance(value, int))
         elif (
@@ -440,7 +478,11 @@ def recover(state: RunState, *, kind, now) -> bool:
         or (kind == "iteration_ceiling" and type(used) is not int)
     ):
         return False
-    evidence = _planning_evidence(state, planning, stages, clock) if kind == PLANNING_KIND else None
+    evidence = None
+    if kind == PLANNING_KIND:
+        evidence = correction
+        if evidence is None:
+            evidence = _planning_evidence(state, planning, stages, clock)
     if evidence is None and kind in ("iteration_ceiling", "max_seconds", "milestone_max_seconds"):
         validation = state.get("validation") or {}
         if validation.get("verdict") == "PASS" and isinstance(validation.get("output"), str):
@@ -538,11 +580,13 @@ def recover(state: RunState, *, kind, now) -> bool:
         or (type(no_progress_limit) is int and no_progress_limit > 0 and no_progress >= no_progress_limit)
     ):
         return False
-    if unknown_usage and not validation_progress:
+    if unknown_usage and not (validation_progress or correction):
         return False
     if evidence is None:
         return False
     evidence = dict(evidence, unknown_usage_preserved=unknown_usage, known_reported_tokens=total_tokens)
+    if unknown_records:
+        evidence["historical_unknown_usage"] = unknown_records
     entry = {
         "kind": kind,
         "from": old,

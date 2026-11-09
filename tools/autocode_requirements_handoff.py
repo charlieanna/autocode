@@ -31,6 +31,7 @@ try:
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_observations as requirements_observations
     from . import autocode_requirements_review as requirements_review
+    from . import autocode_requirements_triage as requirements_triage
     from . import autocode_run_status as run_status
     from . import autocode_technical_questions as technical_questions
     from . import autocode_util as util
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_observations as requirements_observations
     import autocode_requirements_review as requirements_review
+    import autocode_requirements_triage as requirements_triage
     import autocode_run_status as run_status
     import autocode_technical_questions as technical_questions
     import autocode_util as util
@@ -51,6 +53,22 @@ except ImportError:
 
 def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue) -> None:
     """Seal optional data only after every existing acceptance path succeeds."""
+    if requirements_triage.due(state) and requirements_triage.is_answer(value):
+        rows = requirements_triage.questions(value)
+        if not rows:
+            if not value.get("ready"):
+                raise ValueError("Requirements triage needs ready=true or at least one blocking question")
+            # Nothing blocks: record the pass and dispatch the ordinary full report at once.
+            requirements_triage.mark(state, "ready")
+            run_status.running(state, "DISCOVERING", next_stage="requirements_gather")
+            return
+        value = requirements_triage.handoff(
+            value,
+            (sentence for source in goals.scan_texts(state) for sentence in goals.cue_sentences(source)),
+        )
+        requirements_triage.mark(state, "questions", count=len(rows))
+        # The questions-only handoff below pauses through the existing clarification flow, and the
+        # answers send Requirements back (requirements_review.after_answers) for the full pass.
     _accept(state, value, record, check_code_refs=check_code_refs, queue=queue)
     accepted = state.get("requirements_handoff") or {}
     if accepted.get("output") == record.get("output") and isinstance(accepted.get("report"), dict):

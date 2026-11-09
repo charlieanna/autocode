@@ -28,9 +28,41 @@ PR template asks for an entry here; a change without one is incomplete.
   answer, recovery and reply commands name `--resolver-token -`, which reads the request the
   named run already holds, so a terminal, a log or a relayed channel message cannot leak it and
   the command stays runnable exactly as printed (#2958).
+- Corrected verification commands at an idle paused Tester checkpoint can retire an
+  obsolete report repair that has not launched. The rejected report, counters and usage
+  stay archived, the approved plan stays exact, and fresh proof and testing remain required.
+- Changed-line mutation checks prefer independently observed regression tests, retaining suite
+  preservation and the fresh unmutated check while avoiding unrelated suite work for each mutant.
+- Capture emits its receipt attestation before and after a large display, retaining authentication
+  when a native tool keeps only the beginning or end of a combined response; full output stays intact.
+- Ready check batches keep large receipt bodies in their files and emit only capture attestations
+  and check references, reducing tool-response size without losing full test output or receipt checks.
+- Linux supervision identifies Kilo's wrapper by its kernel executable path, so Node 24's
+  `MainThread` name no longer turns a silent model wait into tool activity (#2968).
+
+- Active process supervision no longer repeatedly probes descendants already
+  observed to have exited. Their receipts remain retained, while active workers,
+  ownership leases and cleanup still receive fresh identity checks.
+- A review round already granted by the Investigator survives same-turn replanning,
+  retaining spent calls instead of falling back to a smaller limit and investigating again.
+  Explicit limit provenance and configured allowances for future turns remain unchanged.
+
+- Python runtime modules with test-like filenames keep their original product role in
+  regression proofs and changed-code checks. Literal original packaging and imports bind
+  that role; ambiguous changed files refuse proof. Saved oracle corrections retain genuine
+  original test bytes and commands, preserve history, and require fresh proof.
+  Original assertion-only unittest oracles remain protected, while non-code directory
+  summaries cannot grant proof authority; earlier role-policy proofs require refresh.
+  Original internal test links retain their declared oracle endpoints without promoting
+  runtime-owned, ambiguous or candidate-selected product bytes into test overlays.
 
 - Malformed report-edit schema regression coverage now verifies refusal through
   the planning provenance boundary, including invalid JSON and missing structure.
+
+- A fresh correction to an approved small plan can receive one bounded extra review round
+  from a proven built-in allowance. The runner retains review charges and historical failures,
+  accepts a correctly bound report repair, and still requires independent review and fresh
+  approval. Configured and legacy allowances without provenance remain protected.
 
 - An accepted bounded edit repair of a planning report retains its original execution witness.
   Its derived schema must still match the original validation schema, source report hash and stage;

@@ -7,7 +7,38 @@ import ci_test_selection as dependencies
 import run_suite
 
 
+class AccessTransportConsumerTests(unittest.TestCase):
+    def test_transport_changes_keep_the_public_startup_failure_regression_when_slow(self):
+        consumer = "tests.test_model_preflight_budgets"
+        selected = run_suite.select_tests(["tools/provider_conformance_transport.py"], {consumer: ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertIn(consumer, kept)
+
+
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_project_inventory_keeps_the_race_and_browser_consumers_when_slow(self):
+        expected = {"tests.test_dashboard_project_snapshot", "tests.test_catalogue_t12"}
+        selected = run_suite.select_tests(
+            ["tools/dashboard/dashboard_project_controls.py"],
+            dict.fromkeys((*expected, "tests.test_unrelated"), ""),
+        )
+        kept, _ = run_suite.drop_slow(selected, dict.fromkeys(expected, "slow"))
+        self.assertEqual(expected, set(kept))
+
+    def test_named_action_transport_keeps_its_public_consumers_when_slow(self):
+        consumers = {"tests.test_pause_status_cli", "tests.test_checkpoint_reconciliation", "tests.test_worker_flow"}
+        for source in ("tools/autocode_pause_command.py", "tools/autocode_run_view.py"):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], {name: "" for name in consumers})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
+    def test_repository_pytest_policy_keeps_its_execution_consumer_when_slow(self):
+        consumer = "tests.test_repository_pytest"
+        selected = run_suite.select_tests(["pyproject.toml"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_retained_validation_limit_keeps_the_public_upgrade_consumer_when_slow(self):
         consumer = "tests.test_validation_recovery_cli"
         for source in (
@@ -21,6 +52,23 @@ class DynamicDependenciesTests(unittest.TestCase):
                 selected = run_suite.select_tests([source], {consumer: "", "tests.test_unrelated": ""})
                 kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
                 self.assertEqual([consumer], list(kept))
+
+    def test_requirements_and_report_optimizations_keep_their_cli_regressions_when_slow(self):
+        for consumer, paths in (
+            (
+                "tests.test_requirements_triage",
+                ("tools/autocode_configure.py", "tools/autocode_requirements_triage.py"),
+            ),
+            (
+                "tests.test_report_syntax_cli",
+                ("tools/autocode_report_source.py", "tools/autocode_report_syntax.py", "tools/providers/opencode.py"),
+            ),
+        ):
+            for path in paths:
+                with self.subTest(path=path):
+                    selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                    kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                    self.assertEqual([consumer], list(kept))
 
     def test_requirements_prompt_resources_keep_the_render_and_existing_public_consumers_when_slow(self):
         consumers = {
@@ -1123,6 +1171,16 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {name: "30s" for name in expected})
                 self.assertTrue(expected <= set(kept))
                 self.assertNotIn("tests.test_unrelated", kept)
+
+    def test_native_protection_changes_keep_same_owner_repair_even_when_slow(self):
+        consumer = "tests.test_native_rework_transport"
+        selected = run_suite.select_tests(
+            ["tools/autocode_visual_protection.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, skipped = run_suite.drop_slow(selected, {consumer: "60 seconds"})
+        self.assertIn(consumer, kept)
+        self.assertNotIn(consumer, skipped)
+        self.assertNotIn("tests.test_unrelated", kept)
 
     def test_explicit_registry_never_silently_refers_to_missing_test_modules(self):
         declared = {

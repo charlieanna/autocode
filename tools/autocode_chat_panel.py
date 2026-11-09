@@ -131,6 +131,7 @@ COMMANDS = (
     Command("/attention", "Saved alerts: inspect, acknowledge or open (also F8)"),
     Command("/panel", "Show or hide the side panel"),
     Command("/pause", "Ask AutoCode to pause after the current step"),
+    Command("/cap", "Set a session cost cap: /cap N stops the run with a warning at $N (0 removes it)"),
     Command("/help", "List these commands"),
     Command("/quit", "Leave the chat; the run stays as it is"),
 )
@@ -689,7 +690,10 @@ def text(name: str, view: dict | None, log: StageLog, available: list[Command] |
     view = view or {}
     if name == "/help":
         commands = available if available is not None else COMMANDS
-        return "\n".join(f"{command.name:<9} {command.description}" for command in commands)
+        lines = [f"{command.name:<9} {command.description}" for command in commands]
+        lines.append("")
+        lines.append("Tab marks: ● working · ! needs you · ✓ done")
+        return "\n".join(lines)
     if name == "/log":
         return "\n".join(log.lines) or "Nothing has happened yet."
     if name == "/why":

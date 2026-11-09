@@ -719,6 +719,10 @@ def grant_one_attempt(state: RunState, request: dict) -> None:
         used = max(int(planning.get("review_call_limit", 2)), int(planning.get("astra_calls", 0)))
         # One review round: a challenge still owes its finalize.
         planning["review_call_limit"] = used + (2 if stage == "astra_challenge" else 1)
+        if planning.get("review_call_limit_origin") is None:
+            # This new allowance is core-issued. Carry it with its spent calls
+            # across same-turn replanning, without relabeling an explicit limit.
+            planning["review_call_limit_origin"] = "runner_default"
     elif status == "PAUSED_NO_PROGRESS":
         limit = ((state.get("settings") or {}).get("limits") or {}).get("no_progress_batches") or 1
         state["no_progress_batches"] = max(0, limit - 1)

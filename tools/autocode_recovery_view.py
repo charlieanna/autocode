@@ -192,7 +192,15 @@ AUTH_STOP = (
 def _auth_stop(state: RunState) -> str | None:
     """A stop on the core's own authentication diagnostic, in plain words; never the provider's message."""
     reason = str(state.get("stop_reason") or "")
-    return AUTH_STOP if reason.startswith(provider_auth.AUTH_FAILED) else None
+    if reason.startswith(provider_auth.AUTH_FAILED):
+        return AUTH_STOP
+    if reason.startswith(provider_auth.AUTH_ACCESS_DENIED):
+        return (
+            "The model provider denied access for the selected account or organization (HTTP 403). "
+            "Check that this account is allowed to use the selected backend and model. "
+            "Any retained attempt must be reconciled before retrying."
+        )
+    return None
 
 
 def _job_model_stop(state: RunState, role):

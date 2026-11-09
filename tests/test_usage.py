@@ -193,6 +193,34 @@ class TotalsTests(unittest.TestCase):
             [(row["role"], row["route_role"]) for row in rows],
         )
 
+    def test_request_level_reported_costs_are_counted_for_unpriced_models(self):
+        """#2996: a model missing from the price table is never zero-cost when the provider reported amounts."""
+        record = {
+            "stage": "terra",
+            "role": "terra",
+            "command": ["x", "--model", "some/unknown-model-v9"],
+            "metrics": {
+                "provider_tokens": {
+                    "input_tokens": 5000,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 200,
+                    "reasoning_output_tokens": 0,
+                },
+                "request_context": {
+                    "accounting": {
+                        "requests": [
+                            {"reported_cost_usd": 1.50},
+                            {"reported_cost_usd": 0.75},
+                            {"reported_cost_usd": 0.25},
+                        ]
+                    }
+                },
+            },
+        }
+        rows = usage.stage_rows({"stages": [record]}, estimator=lambda m, t, f: None)
+        self.assertEqual(2.50, rows[0]["cost_usd"], "request-reported costs are summed")
+        self.assertEqual("reported", rows[0]["basis"])
+
 
 class StageMetricsTests(unittest.TestCase):
     def test_a_stage_records_the_cost_its_provider_reported(self):

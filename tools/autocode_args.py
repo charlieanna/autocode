@@ -33,6 +33,7 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_project_config as project_config
     from . import autocode_related_profile as related_profile
+    from . import autocode_requirements_triage as requirements_triage
     from . import autocode_resolver_human as resolver_human
     from . import autocode_review_args as review_args
     from . import autocode_role_transport as role_transport
@@ -58,6 +59,7 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_project_config as project_config
     import autocode_related_profile as related_profile
+    import autocode_requirements_triage as requirements_triage
     import autocode_resolver_human as resolver_human
     import autocode_review_args as review_args
     import autocode_role_transport as role_transport
@@ -271,6 +273,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     )
     compact_planning.add_argument(parser)
     resolver_human.requirements_review.add_argument(parser)
+    requirements_triage.add_argument(parser)
     acceptance_tests.add_argument(parser)
     parser.add_argument(
         "--planning-v2",

@@ -622,7 +622,7 @@ class CoordinatedMeterTests(unittest.TestCase):
         ui.observe(source)
         self.assertEqual("task $3.00+ · 300+ tokens", ui._spend())
         ui.observe(ledger("/unrelated", 7, 700))
-        self.assertEqual("$7.00 · 700 tokens", ui._spend())
+        self.assertEqual("chat $7.00 · 700 tokens", ui._spend())
 
     def test_side_panel_labels_task_usage_separately_from_current_work(self):
         from tests.test_coordination_usage import ledger
@@ -1012,7 +1012,7 @@ class StallAndWorkedTests(unittest.TestCase):
         self.assertIn("ctrl-d quit", footer)
         self.assertIn("enter send", footer)
         self.assertNotIn("worked", footer)
-        self.assertIn("Builder · $0.42 · 184k tokens · ", footer)
+        self.assertIn("Builder · chat $0.42 · 184k tokens · ", footer)
         self.assertLessEqual(tui.display_width(footer), 98)
 
     def test_the_working_time_gives_way_before_the_footers_actions_do(self):
@@ -1032,11 +1032,11 @@ class StallAndWorkedTests(unittest.TestCase):
         footer = next(text for text in puts if "/ commands" in text)
         self.assertIn("ctrl-d quit", footer)
         self.assertNotIn("worked", footer)
-        self.assertIn("Builder · $0.42 · 184k tokens · ", footer)
+        self.assertIn("Builder · chat $0.42 · 184k tokens · ", footer)
         self.assertLessEqual(tui.display_width(footer), 118)
         puts.clear()
         ui._hints(ui._layout(40, 160))
-        self.assertIn("Builder · worked 10m30s · $0.42", next(text for text in puts if "/ commands" in text))
+        self.assertIn("Builder · worked 10m30s · chat $0.42", next(text for text in puts if "/ commands" in text))
 
 
 class HistoryFileTests(unittest.TestCase):
@@ -1147,6 +1147,16 @@ class TabBarTests(unittest.TestCase):
         self.assertIn("Tabs switch once AutoCode asks you something", ui._transcript.blocks[-1][1])
         ui._tab_key("next", asking=True)
         self.assertEqual([("/tab", "next")], acted)
+
+    def test_ctrl_t_opens_a_new_tab_even_while_a_run_is_active(self):
+        """Ctrl-T opens a new tab; it never disturbs the current run, so it works at any time."""
+        ui = screen_ui()
+        acted = []
+        ui.bind(lambda name, argument: acted.append((name, argument)) or "ok")
+        ui.switch(Path("/p/project"), Path("/p/project/.autocode/runs/r1"))
+        ui._run_open = True
+        self.assertIsNone(ui._tab_key("new", asking=False))
+        self.assertEqual([("/new", "")], acted, "Ctrl-T opens a new tab even while a run works")
 
     def test_before_a_chat_ctrl_t_and_new_say_this_is_already_a_new_chat(self):
         """#1759: both used to answer as if /new could not run here, though the client has the reply."""
@@ -2190,7 +2200,7 @@ class MeterScreenTests(unittest.TestCase):
     def test_the_footer_shows_the_runs_cost_and_tokens(self):
         ui = screen_ui()
         ui.observe(SPENDING_VIEW)
-        self.assertIn("$0.42 · 184k tokens", row_text(drawn(ui), 29))
+        self.assertIn("chat $0.42 · 184k tokens", row_text(drawn(ui), 29))
         self.assertNotIn("$0.42", row_text(drawn(ui), 0))
 
     def test_with_two_chats_the_footer_adds_the_session_total(self):
@@ -2218,7 +2228,7 @@ class MeterScreenTests(unittest.TestCase):
         puts = drawn(ui)
         status = next(text for _, text in puts if "attempt 2" in text and "Builder" in text and "exit 1" in text)
         self.assertIn("last one exit 1", status)
-        self.assertIn("$0.42 · 184k tokens", row_text(puts, 29))
+        self.assertIn("chat $0.42 · 184k tokens", row_text(puts, 29))
 
     def test_stage_meter_and_input_stay_at_bottom_across_terminal_sizes(self):
         ui = screen_ui()
@@ -2229,9 +2239,9 @@ class MeterScreenTests(unittest.TestCase):
                 puts = drawn(ui, rows=rows, cols=cols)
                 self.assertIn("my unsent draft", row_text(puts, rows - 3))
                 footer = row_text(puts, rows - 1)
-                self.assertIn("$0.42 · 184k tokens", footer)
+                self.assertIn("chat $0.42 · 184k tokens", footer)
                 # The working time shows where the whole footer fits, and gives way where it does not.
-                self.assertEqual(cols >= 121, "Planner · worked 1m00s · $0.42" in footer, footer)
+                self.assertEqual(cols >= 121, "Planner · worked 1m00s · chat $0.42" in footer, footer)
                 self.assertIsNone(ui._layout(rows, cols).panel_col)
                 self.assertEqual(cols - 1, ui._layout(rows, cols).body_width)
 
@@ -2483,3 +2493,151 @@ class SidePanelWrapTests(unittest.TestCase):
         self.assertNotIn("Given the command", " ".join(panel_rows))
         ui._run("/plan", False)
         self.assertIn(self.VIEW["progress"]["requirements"]["items"][0]["label"], ui._transcript.blocks[-1][1])
+
+
+class TuiUxScreenTests(unittest.TestCase):
+    """The 2026-11-07/08 hands-on UX findings: status suffix, tab bar, placeholder, coalesce, help legend."""
+
+    def test_status_suffix_is_short_no_utc_clock(self):
+        import autocode_chat_observation as obs
+
+        receipt = obs.Read()
+        receipt.received = 100
+        receipt.snapshot = {"time": datetime(2026, 11, 8, 18, 14, 29, tzinfo=UTC), "token": "t"}
+        text = receipt.compact(107)
+        self.assertEqual("read 7s ago", text)
+        self.assertNotIn("UTC", text)
+        self.assertNotIn("run state at", text)
+
+    def test_tab_bar_keeps_the_active_tab_visible_with_many_tabs(self):
+        ui = screen_ui()
+        ui._tabs = [
+            {"number": 1, "title": "first task", "state": "done", "current": False},
+            {"number": 2, "title": "second task", "state": "working", "current": False},
+            {"number": 3, "title": "third task", "state": "needs you", "current": True},
+        ]
+        ui.set_context(Path("/p/project"), Path("/p/project/.autocode/runs/r"))
+        puts = drawn(ui, rows=30, cols=40)  # narrow: only ~2 tabs fit
+        tab_row = row_text(puts, 1)
+        self.assertIn("3", tab_row, "the active tab number must be visible")
+        self.assertIn("third", tab_row, "the active tab title must be visible")
+
+    def test_composer_placeholder_agrees_with_waiting_status(self):
+        ui = screen_ui()
+        ui.observe(
+            {
+                "status": "PAUSED",
+                "needs": {"kind": "answer"},
+                "progress": {"stage": "Requirements", "headline": "Requirements waiting", "needs_you": "your answer"},
+            }
+        )
+        ui._asking = False
+        ui._composer.reset()
+        puts = drawn(ui)
+        self.assertIn("Type / for commands. AutoCode asks here when it needs you.", " ".join(t for _, t in puts))
+
+    def test_repeated_refused_commands_show_once(self):
+        ui = screen_ui()
+        for _ in range(3):
+            ui._transcript.info("/tab", "Usage: /tab N (1 to 3).", coalesce=True)
+        info_blocks = [b for b in ui._transcript.blocks if b[0] == "info" and "Usage" in b[1]]
+        self.assertEqual(1, len(info_blocks), "identical refusals must coalesce")
+
+    def test_help_includes_tab_glyph_legend(self):
+        import autocode_chat_panel as panel
+
+        text = panel.text("/help", {}, None, available=panel.COMMANDS)
+        self.assertIn("●", text)
+        self.assertIn("!", text)
+        self.assertIn("✓", text)
+        self.assertIn("working", text)
+        self.assertIn("needs you", text)
+        self.assertIn("done", text)
+
+    def test_status_line_shows_live_cost_while_working(self):
+        """#3002: the cost counter appears on the status line during active work."""
+        ui = screen_ui()
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "progress": {"stage": "Builder", "headline": "Builder working"},
+                "cost": {"spent_usd": 4.50, "complete": False},
+                "usage": {"tokens": {"input_tokens": 100000, "output_tokens": 5000}},
+            }
+        )
+        ui._asking = False
+        puts = drawn(ui)
+        # The cost should appear somewhere on the status line
+        all_text = " ".join(t for _, t in puts)
+        self.assertIn("chat $4.50", all_text, "the live cost counter is visible during work")
+
+    def test_cost_cap_warns_and_pauses_when_reached(self):
+        """#3002: the session cost cap stops the run with a warning when hit."""
+        ui = screen_ui()
+        ui._cost_cap = 5.00
+        ui._run("/cap", asking=False, argument="5.00")
+        self.assertIn("Session cost cap set to $5.00", ui._transcript.blocks[-1][1])
+        # Below the cap: no warning
+        ui.observe({"status": "RUNNING", "cost": {"spent_usd": 2.00}})
+        self.assertFalse(ui._cost_cap_warned)
+        # At the cap: warn and request pause
+        ui.observe({"status": "RUNNING", "cost": {"spent_usd": 5.50}})
+        self.assertTrue(ui._cost_cap_warned)
+        self.assertTrue(ui._pause_requested)
+        self.assertIn("Cost cap reached", " ".join(b[1] for b in ui._transcript.blocks if b[0] == "info"))
+        # Reset cap
+        ui._run("/cap", asking=False, argument="0")
+        self.assertIsNone(ui._cost_cap)
+        self.assertIn("removed", ui._transcript.blocks[-1][1])
+
+    def test_footer_says_chooses_not_history_while_menu_is_open(self):
+        ui = screen_ui()
+        ui._composer.insert("/")
+        ui._asking = True
+        puts = drawn(ui)
+        hints = row_text(puts, 29)
+        self.assertIn("↑↓ chooses", hints)
+        self.assertNotIn("↑↓ history", hints)
+
+    def test_cost_meter_is_labeled_with_a_single_chat(self):
+        ui = screen_ui()
+        ui.observe({"status": "RUNNING", "progress": {"stage": "Builder", "headline": "Working"}})
+        ui._tabs = [{"number": 1, "title": "task", "state": "working", "current": True, "total": {"usd": 7.0}}]
+        self.assertIn("chat $", ui._spend(), "the cost is labeled even with one chat open")
+
+    def test_composer_wraps_at_spaces_not_mid_word(self):
+        shown, _, _ = tui.composer_rows("hello world foo bar", 19, 11, 10)
+        joined = "".join(shown)
+        self.assertEqual("hello world foo bar", joined.replace("\n", ""), "no characters are lost")
+        for row in shown:
+            self.assertFalse(row.endswith(" "), f"row {row!r} should not end with a dangling space")
+        # No row splits a word: each row starts at a word boundary or is a single long word.
+        for i, row in enumerate(shown):
+            if i > 0 and len(row) > 1:
+                self.assertTrue(row.startswith(" ") or " " not in shown[i - 1], f"row {i} {row!r} splits a word")
+
+    def test_transcript_body_respects_a_reading_measure(self):
+        ui = screen_ui()
+        ui._composer.insert("")
+        drawn(ui, rows=30, cols=180)
+        # The transcript body must not run the full 180 columns.
+        layout = ui._layout(30, 180)
+        self.assertLessEqual(layout.body_width, 120, "the reading measure caps the body width")
+
+    def test_same_brief_tabs_are_disambiguated(self):
+        import autocode_chat_client as client_mod
+
+        client = client_mod.ChatClient.__new__(client_mod.ChatClient)
+        client.tab_order = ["/p/runs/aaaa11", "/p/runs/bbbb22"]
+        client.titles = {"/p/runs/aaaa11": "Fix the bug", "/p/runs/bbbb22": "Fix the bug"}
+        client.run_dir = Path("/p/runs/bbbb22")
+        client.identity = ("", ("working",))
+        client.others = {
+            "/p/runs/aaaa11": ("/p", ("done",)),
+        }
+        client._read_errors = {}
+        client._totals = {}
+        rows = client.tabs()
+        self.assertNotEqual(rows[0]["title"], rows[1]["title"], "same-brief tabs must be distinguishable")
+        self.assertIn("Fix the bug", rows[0]["title"])
+        self.assertIn("Fix the bug", rows[1]["title"])

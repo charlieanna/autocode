@@ -39,6 +39,17 @@ elif sys.argv[1:] == ['auth', 'list']:
         raise SystemExit(1)
     print('Fixture api')
 elif sys.argv[1:2] == ['exec']:
+    if os.environ.get('AUTOCODE_TEST_AUTH_ACCESS_DENIED'):
+        with open(sys.argv[sys.argv.index('--output-schema') + 1]) as source:
+            schema = json.load(source)
+        if set(schema.get('properties', {})) == {'ok'}:
+            with open(sys.argv[sys.argv.index('-o') + 1], 'w') as report:
+                json.dump({'ok': True}, report)
+            print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_tokens':1}}))
+            raise SystemExit(0)
+        print(json.dumps({'type':'error','error':{'name':'APIError','data':{'statusCode':403},'message':'private-auth-canary'}}))
+        print(json.dumps({'type':'turn.failed','error':{'code':'authentication_failed','message':'oauth_org_not_allowed private-auth-canary'}}))
+        raise SystemExit(1)
     if 'FIXTURE_API_KEY' not in os.environ:
         print(json.dumps({'type':'error','error':{'name':'APIError','data':{'statusCode':401,'message':'Unauthorized'}}}))
         raise SystemExit(1)
@@ -279,14 +290,14 @@ class ProviderCredentialCLI(unittest.TestCase):
             "fake",
         )
 
-    def start(self):
+    def start(self, *, timeout=120):
         return taskrun.TaskRun.start(
             self.project,
             "Build greeting",
             options=self.options,
             command=self.entry,
             env=self.env,
-            timeout=120,
+            timeout=timeout,
             cwd=self.root,
         )
 
@@ -333,6 +344,25 @@ class ProviderCredentialCLI(unittest.TestCase):
         output = run.last_advance.stdout + run.last_advance.stderr
         self.assertNotIn(CANARY, output)
         self.assertIn("AUTOCODE_PASS_ENV", output)
+
+    def test_typed_403_names_account_access_and_retains_launched_attempt_uncertainty(self):
+        self.configured()
+        self.env["AUTOCODE_TEST_AUTH_ACCESS_DENIED"] = "1"
+        run = self.start(timeout=300)
+        view = run.status()
+        self.assertIn("account access denied (HTTP 403)", view["stop_reason"])
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", view["recovery"]["cause"], view["stop_reason"])
+        self.assertIn("no automatic replay", view["stop_reason"])
+        self.assertIn("account or organization", view["recovery"]["what_happened"])
+        self.assertNotIn("private-auth-canary", view["stop_reason"])
+        self.assertNotIn("private-auth-canary", json.dumps(view["recovery"]))
+        calls = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertTrue(any(row["args"][:1] == ["exec"] for row in calls))
+        attempts = [row for row in view["usage"]["accounting"]["attempts"] if row["stage"] == "requirements_gather"]
+        self.assertEqual(
+            1, len(attempts), "a rejected launched attempt must remain recorded and must not replay itself"
+        )
+        self.assertEqual(1, attempts[0]["exit_code"])
 
     def test_doctor_cli_uses_same_effective_configured_provider_environment(self):
         self.configured()

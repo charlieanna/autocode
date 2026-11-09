@@ -492,8 +492,8 @@
     "sha256": "b306d5a2daab9306e33277650689607a86c13a4dad649faee7f32ca9fcd905c8"
   },
   "provider/opencode-output-contract": {
-    "bytes": 5542,
-    "sha256": "c7cb6fd6276b2f527bc93295234b5f0dc19dadb5eb8934c164f6ba83f8118b61"
+    "bytes": 5684,
+    "sha256": "830c782968f019c302cf6eba4ce9e97d88e7c5a41886398dc81e6189f0f1835e"
   },
   "provider/opencode-review-output-contract": {
     "bytes": 8375,
