@@ -2258,6 +2258,15 @@ as information and never edits the contract, so after it the run holds and
 `needs.reason` names the path that applies such a decision, `--edit-goal
 body.json` followed by `--approve-goal`.
 
+A retained no-progress question from an older validation-only Builder handoff can
+instead offer `needs.kind=continue` and the normal named resume action. The core
+authenticates the old question, approved task, independent review and current
+source and evidence before returning the unresolved changed-line obligations to
+scope review. This action launches no provider and grants no Builder attempt,
+counter reset, evidence acceptance or plan change. Clients read the resulting
+view for the next action; scope changes still require exact-plan review and
+approval. Unrelated pauses and stale evidence do not qualify for this recovery.
+
 When a role's quota ran out, its provider's content filter refused it, or its authenticated response exhausted the output limit, the `answer`
 need also carries `route`: `question_id` (`route-ROLE`), `role`, `job`, `current_model`,
 `engine`, `cause` (`quota`, `content_filter` or `output_limit`), `stopped_model` and, for a refusal,

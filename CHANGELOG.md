@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Saved validation-only tasks misrouted to Builder can return to scope review
+  through the normal resume action, without asking a person to raise the
+  no-progress limit or changing retained counters, evidence or approved scope.
+
 - Clean verification-command timeouts remain failed checks instead of becoming
   an ownership pause that requires discarding the Tester's report. Missing or
   uncertain cleanup still blocks execution; timeouts never authorize proof reuse.
