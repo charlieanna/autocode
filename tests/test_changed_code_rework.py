@@ -57,7 +57,9 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
                 self.assertEqual("astra_review", state["next_stage"])
                 self.assertIn("validation-only", state["next_action"])
                 self.assertIn("within the approved plan", state["next_action"])
-                self.assertIn("retain the unverified lines and all outstanding milestone obligations", state["next_action"])
+                self.assertIn(
+                    "retain the unverified lines and all outstanding milestone obligations", state["next_action"]
+                )
                 for key in ("current_task", "goal_contract", "regression_proof", "iteration", "no_progress_batches"):
                     self.assertEqual(preserved[key], state[key], key)
                 event = state["regression_proofs"][-1]
