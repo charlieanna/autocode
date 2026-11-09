@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A failed verification replay stops before later checks and acceptance observations,
+  retaining the failure and listing the work not run. A passing replay still
+  requires every check and every acceptance gate.
+
 - Clean verification-command timeouts remain failed checks instead of becoming
   an ownership pause that requires discarding the Tester's report. Missing or
   uncertain cleanup still blocks execution; timeouts never authorize proof reuse.

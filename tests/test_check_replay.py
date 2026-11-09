@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import venv
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_check_replay as check_replay
 import autocode_util as util
@@ -168,6 +169,78 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(["python3 -c 'print(1)'", "python3 -m unittest test_greet.py"], calls)
 
 
+class ReplayFailureBoundaryTests(unittest.TestCase):
+    setUp = ReplayTests.setUp
+    replay = ReplayTests.replay
+
+    def test_failed_check_stops_later_commands_and_acceptance_observations(self):
+        for failure in (
+            receipt(1),
+            receipt(None, timed_out=True),
+            receipt(None, error="cannot execute"),
+            receipt(0, timed_out=True),
+            receipt(0, error="incomplete result collection"),
+            {**receipt(), "supervision": {}},
+        ):
+            with self.subTest(failure=failure):
+                calls = []
+                checks = [
+                    {"command": "python -m unittest first", "exit_code": 0, "evidence_ref": "event:first"},
+                    {"command": "python -m unittest later", "exit_code": 0, "evidence_ref": "event:later"},
+                ]
+
+                def run(workspace, folder, *, command, timeout):
+                    calls.append(command)
+                    return failure if command == checks[0]["command"] else receipt()
+
+                with (
+                    patch.object(check_replay.brief_evidence, "replay", return_value={"verdict": "PASS"}) as brief,
+                    patch.object(check_replay.risk_evidence, "replay", return_value={"verdict": "PASS"}) as risk,
+                    self.assertRaises(ValueError) as rejected,
+                ):
+                    check_replay.replay(checks, "/ws", self.run_dir, self.record, run)
+                self.assertEqual([checks[0]["command"]], calls)
+                brief.assert_not_called()
+                risk.assert_not_called()
+                saved = json.loads(ReceiptCollisionTests.cited_receipt(str(rejected.exception)).read_text())
+                self.assertEqual("FAIL", saved["verdict"])
+                self.assertEqual([failure["exit_code"]], [r["exit_code"] for r in saved["checks"]])
+                self.assertEqual(checks[1:], saved["not_run"]["checks"])
+                self.assertTrue(saved["not_run"]["brief_acceptance"])
+                self.assertTrue(saved["not_run"]["risk_acceptance"])
+                self.assertIsNone(saved["brief_acceptance"])
+                self.assertIsNone(saved["risk_acceptance"])
+
+    def test_passing_commands_still_reach_both_independent_acceptance_gates(self):
+        checks = [{"command": "python -m unittest first", "exit_code": 0, "evidence_ref": "event:first"}]
+        with (
+            patch.object(check_replay.brief_evidence, "replay", return_value={"verdict": "PASS"}) as brief,
+            patch.object(check_replay.risk_evidence, "replay", return_value={"verdict": "PASS"}) as risk,
+        ):
+            result, calls = self.replay(checks, {checks[0]["command"]: receipt()})
+        self.assertEqual([checks[0]["command"]], calls)
+        brief.assert_called_once()
+        risk.assert_called_once()
+        self.assertEqual("PASS", result["verdict"])
+        self.assertNotIn("not_run", result)
+
+    def test_required_command_failure_remains_a_plan_failure_with_no_pass_credit(self):
+        calls = []
+        required = ["python -m unittest required", "python -m unittest later"]
+
+        def run(workspace, folder, *, command, timeout):
+            calls.append(command)
+            return receipt(1)
+
+        with self.assertRaises(check_replay.PlannedCheckFailure) as rejected:
+            check_replay.replay([], "/ws", self.run_dir, self.record, run, required_commands=required)
+        self.assertEqual(required[:1], calls)
+        self.assertEqual(required[0], rejected.exception.command)
+        saved = json.loads(next((self.run_dir / "check-replay").glob("*/replay.json")).read_text())
+        self.assertEqual("FAIL", saved["verdict"])
+        self.assertEqual(required[1:], [r["command"] for r in saved["not_run"]["checks"]])
+
+
 class ReceiptCollisionTests(unittest.TestCase):
     """A later iteration's replay never overwrites an earlier cited receipt (issue #341).
 
@@ -283,11 +356,12 @@ class ReceiptCollisionTests(unittest.TestCase):
             {"output": "iterations/002/validator-01.json", "source_revision": "rev-002"},
             self.scratch_runner(second_logs, {}, second_calls),
         )
-        self.assertEqual([cart, checkout, tax], first_calls)
+        self.assertEqual([cart, checkout], first_calls)
         self.assertEqual([cart, shipping, tax], second_calls)
         first = json.loads(cited.read_text())
         self.assertEqual(("FAIL", "rev-001"), (first["verdict"], first["source_revision"]))
         self.assertEqual(checkout, first["checks"][1]["command"])
+        self.assertEqual([tax], [row["command"] for row in first["not_run"]["checks"]])
         self.assertEqual(
             "FAIL: test_checkout_total\nAssertionError: 120.00 != 119.99\n",
             (cited.parent / "check-02/scratch-command.log").read_text(),
@@ -415,15 +489,17 @@ class ScratchReplayTests(unittest.TestCase):
                 if first_output:
                     first_record["output"] = str(run / first_output)
                 checks = [
+                    {"command": "printf 'original passing check\\n'", "exit_code": 0, "evidence_ref": "event:before"},
                     {"command": "printf 'original failure\\n'; exit 1", "exit_code": 0, "evidence_ref": "event:first"},
-                    {"command": "printf 'original second check\\n'", "exit_code": 0, "evidence_ref": "event:second"},
+                    {"command": "printf 'unexecuted check\\n'", "exit_code": 0, "evidence_ref": "event:after"},
                 ]
                 with self.assertRaisesRegex(ValueError, "exited 1") as rejected:
                     check_replay.replay(checks, self.workspace, run, first_record, verify.scratch_run, timeout=30)
                 cited = Path(str(rejected.exception).split("Receipt: ", 1)[1].split(". Cite", 1)[0])
                 first = json.loads(cited.read_text())
                 self.assertEqual("FAIL", first["verdict"])
-                self.assertEqual([1, 0], [row["exit_code"] for row in first["checks"]])
+                self.assertEqual([0, 1], [row["exit_code"] for row in first["checks"]])
+                self.assertEqual(checks[2:], first["not_run"]["checks"])
                 paths = [cited, *[Path(row["output"]) for row in first["checks"]]]
                 original_bytes = {path: path.read_bytes() for path in paths}
                 (self.workspace / "app.txt").write_text("second source\n")
@@ -625,6 +701,19 @@ class CliTests(unittest.TestCase):
         self.assertIn(state["status"], ("PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE"))
         self.assertIn("`test -f .autocode/validator-only` was reported as exit 0", state["stop_reason"])
         self.assertIn("exited 1", state["stop_reason"])
+        run = next(self.project.glob(".autocode/runs/*"))
+        public = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
+        self.assertFalse(public["done"])
+        replays = [json.loads(path.read_text()) for path in run.glob("check-replay/*/replay.json")]
+        self.assertTrue(replays, "the failed CLI replay must retain its receipt")
+        for replay in replays:
+            self.assertEqual("FAIL", replay["verdict"])
+            self.assertEqual(["test -f .autocode/validator-only"], [r["command"] for r in replay["checks"]])
+            self.assertEqual([], replay["not_run"]["checks"], "this fixture submits exactly one check")
+            self.assertTrue(replay["not_run"]["brief_acceptance"])
+            self.assertTrue(replay["not_run"]["risk_acceptance"])
+            self.assertIsNone(replay["brief_acceptance"])
+            self.assertIsNone(replay["risk_acceptance"])
         self.assertIsNone(
             (state.get("validation") or {}).get("check_replay"),
             "a validation whose check did not reproduce is never stored",
