@@ -84,6 +84,8 @@ class DynamicDependenciesTests(unittest.TestCase):
         for source in (
             "scenarios/harness/fake_changed_code.py",
             "scenarios/catalog/ladder-18-durable-lease-queue/broken/non-atomic-claim/tests/test_behavior.py",
+            "scenarios/catalog/ladder-18-durable-lease-queue/broken/process-local-tokens/tests/test_behavior.py",
+            "scenarios/catalog/ladder-19-transactional-outbox/broken/ack-with-exception-rollback/tests/test_behavior.py",
         ):
             with self.subTest(source=source):
                 selected = run_suite.select_tests([source], {consumer: "", "tests.test_unrelated": ""})

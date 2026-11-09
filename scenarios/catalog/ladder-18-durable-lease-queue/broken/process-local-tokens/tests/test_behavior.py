@@ -1,11 +1,51 @@
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from leasequeue import LeaseQueue
 
 
 class QueueTests(unittest.TestCase):
+    def test_claim_locks_before_reading_jobs_and_closes_its_connection(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "queue.db"
+            queue = LeaseQueue(path)
+            queue.enqueue("first", "work")
+            connections, observed = [], []
+            connect = sqlite3.connect
+
+            class ObservedConnection(sqlite3.Connection):
+                def execute(connection, sql, *args, **kwargs):
+                    cursor = super().execute(sql, *args, **kwargs)
+                    if sql.startswith("SELECT id,payload,token,deadline FROM jobs"):
+                        # No other writer may interleave between selecting the
+                        # available job and saving its lease. No real-time wait.
+                        contender = connect(path, timeout=0)
+                        try:
+                            with self.assertRaises(sqlite3.OperationalError) as refused:
+                                contender.execute("BEGIN IMMEDIATE")
+                            self.assertIn("locked", str(refused.exception))
+                            observed.append(True)
+                        finally:
+                            contender.close()
+                    return cursor
+
+            def observed_connect(*args, **kwargs):
+                connection = connect(*args, **kwargs, factory=ObservedConnection)
+                connections.append(connection)
+                return connection
+
+            with patch("leasequeue.sqlite3.connect", side_effect=observed_connect):
+                item = queue.claim(10, 5)
+            self.assertEqual(("first", "work", 15), (item["id"], item["payload"], item["deadline"]))
+            self.assertEqual([True], observed)
+            self.assertTrue(connections)
+            for connection in connections:
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    connection.execute("SELECT 1")
+
     def test_enqueue_claim_restart_and_ack(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "queue.db"

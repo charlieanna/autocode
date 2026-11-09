@@ -1775,13 +1775,46 @@ assert p.returncode == 2 and p.stderr.startswith('stock.py: ') and 'invalid choi
     }
 
 
+def classification_runner_findings(data: dict) -> list[dict]:
+    """Read the scripted lifecycle REWORK from the narrow, pinned classification packet."""
+    failure = data.get("builder_failure") or {}
+    record, binding = failure.get("record") or {}, failure.get("binding") or {}
+    output = record.get("output")
+    if not failure.get("failure_id") or not output or output not in (failure.get("evidence_refs") or []):
+        return []
+    try:
+        raw = Path(output).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != (binding.get("evidence_hashes") or {}).get(output):
+            return []
+        report = json.loads(raw)
+        prefix = "Correct the product so the runner's failed lifecycle observation passes: "
+        if (
+            report.get("status") != "REWORK"
+            or not report.get("next_objective", "").startswith(prefix)
+            or any(report.get(key) != binding.get(key) for key in ("task_id", "contract_hash", "contract_revision"))
+        ):
+            return []
+        ids = report.get("evidence") or []
+        if len(ids) != 1 or not isinstance(ids[0], str) or not ids[0].startswith("F-"):
+            return []
+        return [
+            {"id": ids[0], "source": "runner", "blocking": True, "finding": report["next_objective"][len(prefix) :]}
+        ]
+    except (OSError, ValueError, TypeError, AttributeError):
+        return []
+
+
 def runner_findings(data: dict) -> list[dict]:
     """Open blocking findings the runner raised from its own failed lifecycle observation (#451).
 
     The scripted Completion Reviewer and Resolver answer one with REWORK, as a reviewer reading it
     would. SCENARIO_FAKE_REWORK_SOLUTION names a solution the Builder applies for that rework (for
     example the honest reference after a mutant); without it the Builder reapplies the same files."""
-    rows = data.get("open_findings") or (data.get("investigation_context") or {}).get("findings") or []
+    rows = (
+        data.get("open_findings")
+        or (data.get("investigation_context") or {}).get("findings")
+        or classification_runner_findings(data)
+    )
     return [row for row in rows if row.get("source") == "runner" and row.get("blocking", True)]
 
 
@@ -1851,7 +1884,7 @@ def runner_rework(stage: str, data: dict, common: dict) -> dict:
             recommendation="retry",
             user_question="",
         )
-    if data.get("report_repair") and stage.startswith("investigate_stuck"):
+    if stage.startswith("investigate_stuck"):
         return {
             key: report[key]
             for key in (
@@ -1961,7 +1994,7 @@ def report_for(stage: str, data: dict) -> dict:
             # The Builder's retry-limit pause at the ladder's end (escalation-ladder-end): explain it.
             return scripted_fault("escalation_provider.py")["investigate"](data)
         # A scripted run that got stuck is a scenario defect; pause and say so.
-        return {
+        report = {
             "diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.",
             "cause": "other",
             "guidance": "",
@@ -1972,6 +2005,18 @@ def report_for(stage: str, data: dict) -> dict:
             "probe": "",
             "untestable": "",
         }
+        if builder_context:
+            # This narrow handoff need not contain open_findings. An unknown
+            # cause still names the pinned failure; an empty identity would
+            # force an unrelated report repair before the retry policy can act.
+            report.update(
+                failure_class="unknown",
+                failure_id=builder_context.get("failure_id", ""),
+                evidence_refs=list(builder_context.get("evidence_refs") or [])[:1],
+                example="Offline fixture: the supplied Builder failure has no scripted diagnosis.",
+                untestable="This fixture provides no independent command that can establish this cause.",
+            )
+        return report
     if stage == "write_acceptance_tests":
         return acceptance_tests(data)
     if stage == "review_change":
