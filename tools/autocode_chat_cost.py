@@ -48,6 +48,18 @@ def _quantity(value, *, money=False) -> str:
     return (_money(amount) if money else f"{amount:,.0f}") + suffix
 
 
+def _duration(seconds) -> str:
+    """Human-readable duration: 1m30s, 2h15m, etc."""
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, secs = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m{secs:02d}s" if secs else f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m" if minutes else f"{hours}h"
+
+
 def _accounting(view: dict) -> dict:
     return _mapping(_mapping(view.get("usage")).get("accounting"))
 
@@ -234,6 +246,62 @@ def details(view: dict) -> str:
             lines.extend(_attempt(row, number))
     else:
         lines.append("Actual attempt routes unavailable.")
+    # Waste: what the run spent on work that did not land (#2996).
+    run_metrics = _mapping(view.get("run_metrics"))
+    waste = _mapping(run_metrics.get("waste"))
+    if _number(waste.get("failed_usd")) or _number(waste.get("report_repair_usd")):
+        lines.extend(["", "Waste"])
+        if _number(waste.get("failed_usd")):
+            floor = "" if waste.get("failed_usd_complete") is not False else "at least "
+            lines.append(f"{floor}{_money(waste['failed_usd'])} on failed or interrupted attempts")
+        if _number(waste.get("report_repair_usd")):
+            lines.append(f"{_money(waste['report_repair_usd'])} on report repairs")
+    # Cost by job: what each role spent (#2996).
+    if by_job := _rows(run_metrics.get("by_job")):
+        lines.extend(["", "Cost by job"])
+        for row in by_job:
+            job_attempts = _count(row.get("attempts"))
+            share = row.get("share")
+            parts = [_money(row.get("spent_usd"))]
+            if job_attempts:
+                parts.append(f"{job_attempts} attempt{'s' if job_attempts != 1 else ''}")
+            if share is not None and _number(share):
+                parts.append(f"{share * 100:.0f}%")
+            lines.append(f"{_label(row.get('job'), 'Unknown')}: " + ", ".join(parts))
+    # Turns and time per stage (#2996).
+    efficiency = _mapping(view.get("efficiency"))
+    by_cat = _mapping(efficiency.get("by_category"))
+    wall = _mapping(efficiency.get("exclusive_wall_seconds_by_category")) or _mapping(
+        efficiency.get("observed_exclusive_wall_seconds_by_category")
+    )
+    if by_cat:
+        lines.extend(["", "Per-stage turns and time"])
+        for cat, data in sorted(by_cat.items()):
+            tokens = _mapping(data.get("tokens"))
+            stage_attempts = _count(data.get("attempts"))
+            seconds = wall.get(cat)
+            seconds = seconds if _number(seconds) else None
+            parts = []
+            if stage_attempts:
+                parts.append(f"{stage_attempts} attempt{'s' if stage_attempts != 1 else ''}")
+            inp_raw = tokens.get("input_tokens")
+            inp = (inp_raw.get("known") if isinstance(inp_raw, dict) else inp_raw) or 0
+            out_raw = tokens.get("output_tokens")
+            out = (out_raw.get("known") if isinstance(out_raw, dict) else out_raw) or 0
+            if inp:
+                parts.append(f"{inp / 1e6:.1f}M in")
+            if out:
+                parts.append(f"{out / 1e3:.0f}K out")
+            if seconds:
+                parts.append(_duration(seconds))
+            if parts:
+                lines.append(f"{_label(cat)}: " + ", ".join(parts))
+    # Total wall time.
+    total_seconds = efficiency.get("summed_execution_seconds")
+    if not _number(total_seconds):
+        total_seconds = sum(v for v in wall.values() if _number(v))
+    if total_seconds:
+        lines.append(f"\nTotal execution time: {_duration(total_seconds)}")
     routes = _mapping(view.get("routes"))
     if routes:
         lines.extend(["", "Saved routes for future attempts"])

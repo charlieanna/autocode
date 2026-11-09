@@ -204,7 +204,20 @@ class InventoryReads(unittest.TestCase):
 
 
 class DrawerTests(unittest.TestCase):
-    def test_acknowledgement_and_event_kind_stay_visible_ahead_of_a_long_task_snippet(self):
+    def test_a_drawer_too_short_for_any_row_says_so_and_stays_in_its_area(self):
+        import autocode_chat_tui as tui
+
+        menu = SimpleNamespace(summary={"unread": 2, "unknown": 0}, rows=[object(), object()], selected=0, note="note")
+        for height, announces in ((4, True), (2, False)):
+            with self.subTest(height=height):
+                ui = SimpleNamespace(_attention_menu=menu, _attention_top=0, _put=Mock(), _style=lambda role: 0)
+                layout = SimpleNamespace(body_start=3, status_start=3 + height, width=40)
+                panel.draw(ui, layout, tui.truncate)
+                drawn = [(call.args[0], call.args[2]) for call in ui._put.call_args_list]
+                self.assertTrue(all(row < 3 + height for row, _ in drawn))
+                self.assertEqual(
+                    announces, any("too short" in text for _, text in drawn), "alerts exist but none can be shown"
+                )
         import autocode_chat_tui as tui
 
         current = row()

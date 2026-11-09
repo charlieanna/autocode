@@ -163,6 +163,32 @@ class RunMetricsTests(unittest.TestCase):
         single = run_metrics.project(early)["single_model"]
         self.assertEqual((None, None, None), (single["builder_usd"], single["builder_share"], single["checking_usd"]))
 
+    def test_budget_exhausted_mutants_do_not_inflate_the_reported_work(self):
+        partial = view()
+        partial["evidence"]["mutation_check"]["files"] = [
+            {"mutants": [{"outcome": "killed"}] * 15 + [{"outcome": "survived"}] * 18},
+            {"mutants": [{"outcome": "not_run"}] * 212},
+        ]
+        metrics = run_metrics.project(partial)
+        produced = metrics["single_model"]["produced"]
+        self.assertEqual(33, produced["mutants_tried"])
+        self.assertEqual(15, produced["mutants_killed"])
+
+    def test_only_recorded_execution_outcomes_count_as_mutants_tried(self):
+        for outcome, tried in (
+            ("killed", 1),
+            ("survived", 1),
+            ("timeout", 1),
+            ("not_run", 0),
+            ("unknown", 0),
+            (None, 0),
+            ({}, 0),
+        ):
+            with self.subTest(outcome=outcome):
+                observed = view()
+                observed["evidence"]["mutation_check"]["files"] = [{"mutants": [{"outcome": outcome}]}]
+                self.assertEqual(tried, run_metrics.project(observed)["single_model"]["produced"]["mutants_tried"])
+
     def test_the_status_view_carries_run_metrics_for_a_run_with_nothing_spent(self):
         public = run_view.view({"status": "RUNNING"})
         metrics = public["run_metrics"]
@@ -208,6 +234,13 @@ class SpendDisplayTests(unittest.TestCase):
         public = {"run_metrics": run_metrics.project({})}
         self.assertNotIn("Spend", [section.title for section in panel.sections(public)])
         self.assertEqual("Nothing has been spent on models yet.", panel.text("/spend", public, panel.StageLog()))
+
+    def test_an_absurd_figure_is_unknown_not_a_crash(self):
+        # A JSON integer too large for a float once raised OverflowError in _number, killing /spend.
+        absurd = 10**400
+        self.assertEqual("unknown", spend._money(absurd))
+        self.assertEqual("?", spend._percent(absurd))
+        self.assertEqual("unknown", spend._tokens(absurd))
 
     def test_spend_is_a_run_command(self):
         self.assertIn("/spend", [command.name for command in panel.commands(asking=False)])

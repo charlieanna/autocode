@@ -1,6 +1,7 @@
 """Fake-clock preparation measurements: no providers, waits or benchmarks."""
 
 import contextlib
+import importlib
 import io
 import tempfile
 import unittest
@@ -18,6 +19,30 @@ from .test_efficiency import attempt
 
 
 class PhaseTimingTests(unittest.TestCase):
+    def test_setup_attempts_reach_public_efficiency_evidence_without_double_counting_time(self):
+        for module in (phase_timing, importlib.import_module("tools.autocode_phase_timing")):
+            prefix = "tools." if module.__name__.startswith("tools.") else ""
+            probe_module = importlib.import_module(prefix + "providers.kilocode_probe")
+            state = {}
+            clock = [0.0]
+
+            def run(seconds):
+                clock[0] += seconds
+                raise probe_module.subprocess.TimeoutExpired(["kilo", "models", "--verbose"], seconds)
+
+            with (
+                patch.object(module.time, "monotonic", lambda: clock[0]),
+                patch.object(module.util, "now", side_effect=[0, 90]),
+                self.assertRaises(probe_module.KiloProbeTimeout),
+            ):
+                with module.measure(state, "source_launcher_preparation", stage="terra"):
+                    probe_module.probe(["kilo", "models", "--verbose"], run)
+            result = efficiency.summary(state)
+            checks = result["observations"][0]["provenance"]["model_free_checks"]
+            self.assertEqual([1, 2], [row["attempt"] for row in checks])
+            self.assertEqual(["timed_out", "timed_out"], [row["outcome"] for row in checks])
+            self.assertEqual(90, result["time"]["known_summed_execution_seconds"])
+
     def measured(self, state, action=lambda: None):
         with (
             patch.object(

@@ -239,7 +239,7 @@ def launch(operation, workspace, out, parameters, *, timeout, env):
         if not isinstance(answer.get("receipt"), dict):
             recovery.hold("preparation worker did not return the collected inner receipt")
         inner = answer["receipt"]
-        if not recovery.collected_command(inner, out):
+        if not (recovery.collected_command(inner, out) or recovery.settled_timeout(inner, out)):
             recovery.hold("preparation worker returned unknown or uncollected inner command ownership")
         return inner
     return None

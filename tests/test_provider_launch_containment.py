@@ -1,5 +1,6 @@
 """The public launch seam must fail before models if its tool boundary is absent."""
 
+import importlib
 import json
 import shlex
 import subprocess
@@ -29,6 +30,35 @@ class LaunchContainment(unittest.TestCase):
             self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", raised.exception.status)
             self.assertNotIn("sandbox", str(raised.exception))
             self.assertNotIn("Restore qualified", str(raised.exception))
+
+    def test_a_kilo_probe_that_only_ran_out_of_time_is_a_named_pause(self):
+        # #2959: a Builder stage asks for no shell boundary, so the probe's timeout escaped as a raw
+        # subprocess error and the controller died unnamed instead of pausing where the run can resume.
+        for prefix in ("", "tools."):
+            KiloProvider = importlib.import_module(prefix + "providers.kilocode").KiloProvider
+            KiloProbeTimeout = importlib.import_module(prefix + "providers.kilocode_probe").KiloProbeTimeout
+            module = importlib.import_module(prefix + "autocode_provider_launch")
+
+            refusal = KiloProbeTimeout(
+                "Kilo's debug agent code check exhausted its 90-second setup budget after 2 attempt(s); "
+                "no model request was launched"
+            )
+            cases = (
+                (True, "PAUSED_TRANSPORT_UNVERIFIED", "exhausted its 90-second setup budget"),
+                (False, "PAUSED_TOOL_CONTAINMENT", "Bounded setup retries were exhausted"),
+            )
+            for writing, status, named in cases:
+                kilo = object.__new__(KiloProvider)
+                kilo.launch = mock.Mock(side_effect=refusal)
+                with self.subTest(writing=writing):
+                    with (
+                        mock.patch.object(module.sys, "platform", "linux"),
+                        self.assertRaises(module.util.Paused) as raised,
+                    ):
+                        module.prepare(**{**self.options, "adapter": kilo, "allow_write": writing})
+                    self.assertEqual(status, raised.exception.status)
+                    self.assertIn(named, str(raised.exception))
+                    self.assertNotIn("Restore qualified", str(raised.exception))
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()

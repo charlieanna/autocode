@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -25,7 +26,7 @@ def launch_command(client, command, env=None):
     This child is only the service launcher. The manager-owned controller never
     inherits its terminal or output handle. No timeout/exit here kills a worker.
     """
-    with tempfile.TemporaryFile("w+") as log:
+    with tempfile.TemporaryFile("w+b") as log:
         child = subprocess.Popen(
             [*client.command, *command],
             stdin=subprocess.DEVNULL,
@@ -36,22 +37,29 @@ def launch_command(client, command, env=None):
             start_new_session=True,
         )
         deadline, noticed = time.monotonic() + polling.READ_TIMEOUT, False
-        while child.poll() is None:
-            if time.monotonic() >= deadline:
-                raise actions.ClientGap("Launch receipt is pending; inspect retained launches before retrying")
-            try:
-                pause = client._wait(0.05) == "pause"
-            except KeyboardInterrupt:
-                pause = True
-            if pause:
-                client._pause_pending = True
-                if not noticed:
-                    client.say(
-                        "Launch binding is pending; the boundary pause will be requested when the core offers it."
-                    )
-                    noticed = True
+        try:
+            while child.poll() is None:
+                if time.monotonic() >= deadline:
+                    raise actions.ClientGap("Launch receipt is pending; inspect retained launches before retrying")
+                try:
+                    pause = client._wait(0.05) == "pause"
+                except KeyboardInterrupt:
+                    pause = True
+                if pause:
+                    client._pause_pending = True
+                    if not noticed:
+                        client.say(
+                            "Launch binding is pending; the boundary pause will be requested when the core offers it."
+                        )
+                        noticed = True
+        finally:
+            if child.poll() is None:
+                # The launch is retained by design, but its launcher must not linger as a zombie:
+                # a daemon thread reaps it whenever it exits (the poller decodes child bytes the
+                # same tolerant way, autocode_chat_polling).
+                threading.Thread(target=child.wait, name="autocode-chat-launch-reap", daemon=True).start()
         log.seek(0)
-        return subprocess.CompletedProcess(command, child.returncode, log.read(), "")
+        return subprocess.CompletedProcess(command, child.returncode, log.read().decode("utf-8", "replace"), "")
 
 
 def advance(client, argv, env=None):
@@ -106,9 +114,21 @@ def advance(client, argv, env=None):
                 continue  # Inspection is read-only; the launch is never repeated.
             if checked.returncode:
                 raise actions.ClientGap("Launch inspection unavailable; do not replay the request")
-            receipt = json.loads(checked.stdout)
-        bound = receipt["binding"]
-        client.workspace, client.run_dir = Path(bound["workspace"]), Path(bound["run_dir"])
+            try:
+                receipt = json.loads(checked.stdout)
+                if not isinstance(receipt, dict):
+                    raise ValueError("not an object")
+            except ValueError:
+                # The first receipt parse above is guarded the same way: a malformed body is a
+                # gap about the retained launch, never an exception that ends the whole chat.
+                raise actions.ClientGap("Launch inspection is unreadable; do not replay the request") from None
+        try:
+            bound = receipt["binding"]
+            client.workspace, client.run_dir = Path(bound["workspace"]), Path(bound["run_dir"])
+        except (KeyError, TypeError):
+            raise actions.ClientGap(
+                "The launch recorded no core binding. Inspect the retained launch: " + " ".join(inspection)
+            ) from None
         client.say("Durable worker attached. Ctrl-C requests only a boundary pause; /quit or Ctrl-D detaches.")
         if client._pause_pending:
             client._pause_pending = False

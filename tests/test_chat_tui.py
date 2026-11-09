@@ -1062,6 +1062,17 @@ class HistoryFileTests(unittest.TestCase):
             self.assertEqual(tui.HISTORY_LIMIT, len(kept))
             self.assertEqual(f"request {tui.HISTORY_LIMIT + 4}", kept[-1])
 
+    def test_a_save_that_cannot_finish_keeps_the_whole_earlier_history(self):
+        # The history lands by rename or not at all, so a chat killed mid-save (or a second
+        # chat in the same project) cannot leave another chat's replies half-written away.
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / tui.HISTORY_FILE
+            tui.keep_history(path, ["Fix the typo"])
+            with mock.patch("autocode_util.os.replace", side_effect=OSError("disk full")):
+                self.assertFalse(tui.keep_history(path, ["Add a flag"]))
+            self.assertEqual(["Fix the typo"], tui.read_history(path))
+            self.assertEqual([tui.HISTORY_FILE], sorted(entry.name for entry in path.parent.iterdir()))
+
     def test_the_chat_recalls_the_projects_earlier_requests(self):
         with tempfile.TemporaryDirectory() as folder:
             (Path(folder) / ".autocode").mkdir()
@@ -2553,6 +2564,42 @@ class TuiUxScreenTests(unittest.TestCase):
         self.assertIn("working", text)
         self.assertIn("needs you", text)
         self.assertIn("done", text)
+
+    def test_status_line_shows_live_cost_while_working(self):
+        """#3002: the cost counter appears on the status line during active work."""
+        ui = screen_ui()
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "progress": {"stage": "Builder", "headline": "Builder working"},
+                "cost": {"spent_usd": 4.50, "complete": False},
+                "usage": {"tokens": {"input_tokens": 100000, "output_tokens": 5000}},
+            }
+        )
+        ui._asking = False
+        puts = drawn(ui)
+        # The cost should appear somewhere on the status line
+        all_text = " ".join(t for _, t in puts)
+        self.assertIn("chat $4.50", all_text, "the live cost counter is visible during work")
+
+    def test_cost_cap_warns_and_pauses_when_reached(self):
+        """#3002: the session cost cap stops the run with a warning when hit."""
+        ui = screen_ui()
+        ui._cost_cap = 5.00
+        ui._run("/cap", asking=False, argument="5.00")
+        self.assertIn("Session cost cap set to $5.00", ui._transcript.blocks[-1][1])
+        # Below the cap: no warning
+        ui.observe({"status": "RUNNING", "cost": {"spent_usd": 2.00}})
+        self.assertFalse(ui._cost_cap_warned)
+        # At the cap: warn and request pause
+        ui.observe({"status": "RUNNING", "cost": {"spent_usd": 5.50}})
+        self.assertTrue(ui._cost_cap_warned)
+        self.assertTrue(ui._pause_requested)
+        self.assertIn("Cost cap reached", " ".join(b[1] for b in ui._transcript.blocks if b[0] == "info"))
+        # Reset cap
+        ui._run("/cap", asking=False, argument="0")
+        self.assertIsNone(ui._cost_cap)
+        self.assertIn("removed", ui._transcript.blocks[-1][1])
 
     def test_footer_says_chooses_not_history_while_menu_is_open(self):
         ui = screen_ui()

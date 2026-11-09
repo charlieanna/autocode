@@ -1872,7 +1872,9 @@ ran more than once, and `report_repair_usd`); and `single_model`: the Builder's 
 one model building the change alone and not a measured run, and `produced`, counts from the run's
 own evidence (criteria requested and accepted, regression-proof verdict and fail-to-pass tests,
 clean-replay checks, mutants tried and killed, review findings and blocking ones, and recoveries
-handled). An amount no source knows is null. The terminal chat shows it in its Spend section and
+handled). Mutants tried counts recorded `killed`, `survived` and `timeout` outcomes; `not_run`
+and unknown outcomes do not count as executed work. An amount no source knows is null.
+The terminal chat shows it in its Spend section and
 `/spend`.
 
 `escalation_outcomes` counts the run's escalations and Builder retries by the outcome the runner

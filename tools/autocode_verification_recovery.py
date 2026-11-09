@@ -316,6 +316,33 @@ def collected_command(result, out):
     )
 
 
+def settled_timeout(result, out):
+    """Authenticate timeout cleanup without granting a collected exit or proof.
+
+    The command supervisor deliberately leaves a timed-out exit unset. Its
+    pinned terminal cleanup can still let the caller record failed verification
+    instead of confusing a known timeout with uncertain process ownership.
+    """
+    if (
+        not isinstance(result, dict)
+        or result.get("timed_out") is not True
+        or result.get("exit_code") is not None
+        or result.get("interrupted")
+        or result.get("error")
+        or result.get("supervision_errors") != []
+        or not isinstance(result.get("supervision_sha256"), str)
+        or re.fullmatch("[0-9a-f]{64}", result["supervision_sha256"]) is None
+    ):
+        return False
+    terminal = receipts.load(result.get("supervision"), root=out, pin=result["supervision_sha256"])
+    return bool(
+        terminal
+        and terminal["phase"] == "stopped"
+        and not terminal["cleanup_error"]
+        and terminal["cause"] in receipts.NORMAL_CAUSES | {"stage_deadline"}
+    )
+
+
 def authenticate_publication(root, active):
     """Preserve a genuinely collected result at normal publication boundaries.
 

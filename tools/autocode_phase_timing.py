@@ -17,9 +17,11 @@ if TYPE_CHECKING:
 try:
     from . import autocode_efficiency as efficiency
     from . import autocode_util as util
+    from .providers import kilocode_probe
 except ImportError:
     import autocode_efficiency as efficiency
     import autocode_util as util
+    from providers import kilocode_probe
 
 
 @contextmanager
@@ -38,8 +40,10 @@ def measure(state: RunState, phase, *, stage=None, attempt=None):
         "attempt": attempt,
         "outcome": "completed",
     }
+    checks = []
     try:
-        yield
+        with kilocode_probe.capture() as checks:
+            yield
     except BaseException as error:
         status = getattr(error, "status", None)
         provenance.update(
@@ -52,6 +56,8 @@ def measure(state: RunState, phase, *, stage=None, attempt=None):
     finally:
         finished_at = util.now()
         provenance["duration_seconds"] = time.monotonic() - started
+        if checks:
+            provenance["model_free_checks"] = checks
         efficiency.record_observation(
             state,
             event_id="phase:" + uuid.uuid4().hex,

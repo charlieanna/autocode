@@ -310,7 +310,9 @@ class OutcomeTests(unittest.TestCase):
         self.assertIsNone(units["reported_usd"]["value"])
         self.assertAlmostEqual(prices.estimate("zai-coding-plan/glm-5.3", tokens), units["spent_usd"]["value"])
         self.assertEqual(1, units["spent_usd"]["denominator"])
-        unpriced = {"status": "TASK_COMPLETE", "stages": [priced, attempt(identity="two")]}
+        # The default attempt has a provider-reported request cost (#2998).
+        # Missing rates alone no longer make it unpriced; this row lacks usage too.
+        unpriced = {"status": "TASK_COMPLETE", "stages": [priced, attempt(identity="two", metrics={})]}
         units = efficiency.summary(unpriced, completion_current=True)["unit_metrics"]
         self.assertIsNone(units["spent_usd"]["value"])
         self.assertIn("Cost coverage is incomplete", units["spent_usd"]["reason"])

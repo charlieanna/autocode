@@ -196,14 +196,16 @@ class NeedsContractTests(unittest.TestCase):
         self.assertEqual(KNOWN_KINDS, frozenset(KIND_STATES))
         self.assertEqual(KNOWN_KINDS, frozenset(KIND_ACCEPTANCE))
 
-    def test_each_kind_from_state_matches_and_its_command_parses(self):
+    def test_each_kind_from_state_matches_and_its_public_command_parses(self):
         for kind, state in KIND_STATES.items():
             with self.subTest(kind=kind):
                 need = run_view.needs(copy.deepcopy(state))
                 self.assertIsNotNone(need, f"needs() returned None for {kind}")
                 self.assertEqual(kind, need["kind"])
                 self.assertIn(need["kind"], KNOWN_KINDS)
-                text = pause_command.command(need, run_dir=Path("/tmp/run"), workspace=Path("/tmp/ws"))
+                public = run_view.view({**copy.deepcopy(state), "workspace": "/tmp/ws", "run_dir": "/tmp/run"})
+                self.assertEqual(kind, public["needs"]["kind"])
+                text = public["next_command"]
                 args, _ = parse_next_command(text)
                 self.assertTrue(KIND_ACCEPTANCE[kind](args), f"kind={kind} command={text!r} args={args!r}")
 

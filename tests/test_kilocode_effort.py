@@ -17,6 +17,24 @@ from scenarios.harness import profiles
 from tests import test_kilocode_policy as native_policy
 
 
+def raises(error):
+    """A fake probe that always dies this way, so a test can name which cause the reason must report."""
+
+    def listing(*_args, **_kwargs):
+        raise error
+
+    return listing
+
+
+def returns(result):
+    """A fake probe that always completes with ``result``."""
+
+    def listing(*_args, **_kwargs):
+        return result
+
+    return listing
+
+
 class KiloEffortTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -58,11 +76,14 @@ class KiloEffortTests(unittest.TestCase):
                     kilocode.command.env_prep,
                     "preflight_run",
                     return_value=subprocess.CompletedProcess([], 0, self.listing({effort: {}}), ""),
-                ),
+                ) as checked,
             ):
                 argv, _, _ = self.launch(effort)
                 self.assertEqual(effort, argv[argv.index("--variant") + 1])
                 self.assertEqual("fixture/model", argv[argv.index("--model") + 1])
+                self.assertEqual(self.root, checked.call_args.kwargs["cwd"])
+                self.assertEqual(self.env, checked.call_args.args[1])
+                self.assertTrue(checked.call_args.kwargs["require_executable"])
 
     def test_stock_kilo_profile_glm_flags_pass_launch_admission_unchanged(self):
         flags = profiles.flags(profiles.resolve("glm-mimo-kilo"))
@@ -103,6 +124,50 @@ class KiloEffortTests(unittest.TestCase):
                 ):
                     self.launch("medium")
                 self.assertNotIn("private diagnostic", str(raised.exception))
+
+    def test_a_slow_listing_is_answered_on_the_next_attempt(self):
+        # #2959: a `kilo models --verbose` cold start is slow on a loaded host, not broken; the attempts
+        # share one bound, so the first one running out leaves the next one time instead of stopping the run.
+        calls = []
+
+        def listing(*_args, **kwargs):
+            calls.append(kwargs["timeout"])
+            if len(calls) == 1:
+                raise subprocess.TimeoutExpired(["kilo", "models", "--verbose"], kwargs["timeout"])
+            return subprocess.CompletedProcess([], 0, self.listing({"medium": {}}), "")
+
+        with patch.object(kilocode.command.env_prep, "preflight_run", side_effect=listing):
+            argv, _, _ = self.launch("medium")
+        self.assertEqual(2, len(calls))
+        self.assertGreater(calls[1], 0)
+        self.assertEqual(30, calls[0])
+        self.assertLessEqual(calls[1], 90)
+        self.assertEqual("medium", argv[argv.index("--variant") + 1])
+
+    def test_each_way_the_listing_fails_names_its_own_cause(self):
+        # One sentence for four different failures left the saved output unable to say which happened (#2959).
+        words = ["kilo", "models", "--verbose"]
+        causes = {
+            "a setup check that times out": (raises(subprocess.TimeoutExpired(words, 90)), "setup budget"),
+            "an executable that cannot start": (raises(FileNotFoundError(2, "no kilo here")), "could not start"),
+            "a listing command that fails": (
+                returns(subprocess.CompletedProcess(words, 1, "", "private diagnostic")),
+                "failed (exit 1)",
+            ),
+            "a model the listing lacks": (
+                returns(subprocess.CompletedProcess(words, 0, "other/model\n{}", "")),
+                "has no variants for",
+            ),
+        }
+        for description, (listing, named) in causes.items():
+            with (
+                self.subTest(cause=description),
+                patch.object(kilocode.command.env_prep, "preflight_run", side_effect=listing),
+                self.assertRaises(kilocode.KiloEffortError) as raised,
+            ):
+                self.launch("medium")
+            self.assertIn(named, str(raised.exception))
+            self.assertNotIn("private diagnostic", str(raised.exception))
 
 
 @unittest.skipUnless(

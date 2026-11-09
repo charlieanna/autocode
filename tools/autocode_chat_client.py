@@ -165,7 +165,18 @@ class History:
 
     def read(self, argv: list[str]) -> dict:
         """One of the listings the chat may read (`modes list`, `connections list`), as JSON."""
-        proc = subprocess.run([*self.command, *argv], capture_output=True, text=True, env=self.env)
+        try:
+            proc = subprocess.run(
+                [*self.command, *argv],
+                capture_output=True,
+                text=True,
+                env=self.env,
+                timeout=polling.READ_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            raise actions.ClientGap(
+                f"`autocode {' '.join(argv)}` timed out; check status before trying it again."
+            ) from None
         try:
             return json.loads(proc.stdout)
         except ValueError:
@@ -617,7 +628,14 @@ class ChatClient:
         ):
             return worker.advance(self, argv, env)
         before = self._status_view
-        with tempfile.TemporaryFile("w+") as log:
+        with tempfile.TemporaryFile("w+b") as log:
+
+            def collected() -> str:
+                """The child's whole output, with any undecodable byte replaced instead of fatal
+                (autocode_chat_polling decodes child bytes the same way)."""
+                log.seek(0)
+                return log.read().decode("utf-8", "replace")
+
             child = subprocess.Popen(
                 [*self.command, *argv],
                 stdin=subprocess.DEVNULL,
@@ -665,12 +683,11 @@ class ChatClient:
             if interrupts > 2 and child.returncode not in (0, 2):
                 raise actions.ClientGap("stopped AutoCode in the middle of a step; `autocode chat` picks the run up")
             if child.returncode not in (0, 2):
-                log.seek(0)
-                raise actions.ClientGap(f"AutoCode exited {child.returncode}: {log.read()[-2000:].strip()}")
+                raise actions.ClientGap(f"AutoCode exited {child.returncode}: {collected()[-2000:].strip()}")
             if argv[:1] == ["coordinate"] and child.returncode:
-                log.seek(0)
                 raise actions.ClientGap(
-                    "Coordination stopped: " + diagnostics.command_error(log.read(), secret_values=(env or {}).values())
+                    "Coordination stopped: "
+                    + diagnostics.command_error(collected(), secret_values=(env or {}).values())
                 )
             after = self.status() if child.returncode == 2 and before is not None else None
             if (
@@ -680,8 +697,7 @@ class ChatClient:
             ):
                 # Exit 2 can refuse an action without changing the saved view.
                 # Show bounded diagnostics; never parse prose into a new action.
-                log.seek(0)
-                diagnostic = redact(log.read(), secret_values=(env or {}).values())[-2000:].strip()
+                diagnostic = redact(collected(), secret_values=(env or {}).values())[-2000:].strip()
                 if diagnostic:
                     raise actions.ClientGap("AutoCode action stopped: " + diagnostic)
             if str(self.run_dir) not in self.viewed:
@@ -690,8 +706,7 @@ class ChatClient:
                 except actions.ClientGap:
                     # Exit 2 before the run saved anything is a refusal (a missing engine, an unsupported
                     # host): say what AutoCode said, not that the run it never made has no status.
-                    log.seek(0)
-                    raise actions.ClientGap(f"AutoCode did not start the run: {log.read()[-2000:].strip()}") from None
+                    raise actions.ClientGap(f"AutoCode did not start the run: {collected()[-2000:].strip()}") from None
 
     def request_pause(self, *, again: str | None = None) -> bool:
         attached = self._attached
@@ -2081,7 +2096,16 @@ def confirm_launch(ask: Callable[[str], str], say: Callable[[str], None], mode: 
 
 def mode_row(mode: str | None, *, command=AUTOCODE, env=None) -> dict:
     """The mode `autocode modes list` names, or the core's default without one."""
-    proc = subprocess.run([*command, "modes", "list", "--json"], capture_output=True, text=True, env=env)
+    try:
+        proc = subprocess.run(
+            [*command, "modes", "list", "--json"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=polling.READ_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise actions.ClientGap("could not list run modes: the command timed out") from None
     if proc.returncode != 0:
         raise actions.ClientGap(f"could not list run modes: {tail(proc)}")
     listed = json.loads(proc.stdout)
@@ -2100,9 +2124,16 @@ def run_mode(mode: str | None, *, command=AUTOCODE, env=None) -> list[str]:
 
 def project_runs(workspace: Path, *, command=AUTOCODE, env=None) -> list[dict]:
     """Every run of the project, as `autocode runs --json` lists them."""
-    proc = subprocess.run(
-        [*command, "runs", "--workspace", str(workspace), "--json"], capture_output=True, text=True, env=env
-    )
+    try:
+        proc = subprocess.run(
+            [*command, "runs", "--workspace", str(workspace), "--json"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=polling.READ_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise actions.ClientGap("could not list this project's runs: the command timed out") from None
     if proc.returncode == 2 and not proc.stdout.strip() and proc.stderr.strip().startswith("No runs found"):
         return []  # no runs in this project yet
     if proc.returncode != 0:
@@ -2112,7 +2143,16 @@ def project_runs(workspace: Path, *, command=AUTOCODE, env=None) -> list[dict]:
 
 def every_project_runs(*, command=AUTOCODE, env=None) -> list[dict]:
     """Every registered project's runs, as `autocode runs --all --json` lists them."""
-    proc = subprocess.run([*command, "runs", "--all", "--json"], capture_output=True, text=True, env=env)
+    try:
+        proc = subprocess.run(
+            [*command, "runs", "--all", "--json"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=polling.READ_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise actions.ClientGap("could not list the projects' runs: the command timed out") from None
     if proc.returncode == 2 and not proc.stdout.strip() and proc.stderr.strip().startswith("No runs found"):
         return []
     if proc.returncode != 0:

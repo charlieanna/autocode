@@ -927,6 +927,108 @@ class OwnedPreparationExecutionTests(unittest.TestCase):
         self.assertFalse((root / "pending.json").exists())
 
 
+class SettledTimeoutTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.fixture = PublicationFixture(Path(temporary.name).resolve() / "obligations")
+        self.fixture.result.update(exit_code=None, timed_out=True)
+        self.fixture.inner_terminal["cause"] = "stage_deadline"
+        self._pin()
+
+    def _pin(self):
+        fixture = self.fixture
+        util.atomic_json(fixture.inner_path, fixture.inner_terminal)
+        fixture.result["supervision_sha256"] = util.file_hash(fixture.inner_path)
+
+    def _launch(self):
+        fixture = self.fixture
+
+        def outer(command, cwd, output, *, timeout, env):
+            request_path = shlex.split(command)[3]
+            request = util.read(request_path)
+            util.atomic_json(
+                request["result"],
+                {
+                    "operation": "execute",
+                    "nonce": fixture.prep["nonce"],
+                    "request_sha256": util.file_hash(request_path),
+                    "receipt": fixture.result,
+                },
+            )
+            return {"exit_code": 0, "timed_out": False, "error": ""}
+
+        with (
+            preparation.admitted(fixture.active["preparation_admission"]),
+            patch.object(preparation.commands, "run", side_effect=outer),
+        ):
+            return preparation.launch("execute", fixture.root.parent, fixture.out, {}, timeout=30, env={})
+
+    def test_clean_timeout_returns_failed_evidence_without_an_ownership_pause(self):
+        for cause in ("stage_deadline", "controller_finished", "provider_stopped"):
+            with self.subTest(cause=cause):
+                self.fixture.inner_terminal["cause"] = cause
+                self._pin()
+                result = self._launch()
+                self.assertEqual(self.fixture.result, result)
+                self.assertFalse(receipts.completed(result, root=self.fixture.out))
+                self.assertFalse(recovery.collected_command(result, self.fixture.out))
+                self.assertFalse(schedule.reusable(result, root=self.fixture.out))
+
+    def test_clean_timeout_rejects_tester_pass_as_a_timeout(self):
+        import autocode_check_replay as check_replay
+
+        fixture = self.fixture
+        record = {"output": str(fixture.root.parent / "validator.json"), "source_revision": "revision"}
+        with self.assertRaisesRegex(ValueError, "timed out after 30 seconds"):
+            check_replay.replay(
+                [{"command": "node --test inner.cjs", "exit_code": 0, "evidence_ref": "event:test"}],
+                fixture.root.parent,
+                fixture.root.parent,
+                record,
+                lambda *args, **kwargs: self._launch(),
+                timeout=30,
+            )
+        [path] = fixture.root.parent.glob("check-replay/*/replay.json")
+        result = util.read(path)
+        self.assertEqual("FAIL", result["verdict"])
+        self.assertTrue(result["checks"][0]["timed_out"])
+        self.assertIsNone(result["checks"][0]["exit_code"])
+
+    def test_uncertain_or_unbound_timeout_still_holds(self):
+        changes = (
+            ("result", "timed_out", False),
+            ("result", "timed_out", 1),
+            ("result", "exit_code", 0),
+            ("result", "interrupted", True),
+            ("result", "error", "ownership unknown"),
+            ("result", "supervision_errors", ["uncollected process"]),
+            ("result", "supervision_errors", None),
+            ("result", "supervision_sha256", "0" * 64),
+            ("result", "supervision_sha256", None),
+            ("result", "supervision_sha256", "invalid"),
+            ("result", "supervision", None),
+            ("terminal", "cleanup_error", "cleanup failed"),
+            ("terminal", "phase", "running"),
+            ("terminal", "phase", "stopping"),
+            ("terminal", "cause", "owner_dead"),
+            ("terminal", "cause", "owner_lost"),
+        )
+        original_result = deepcopy(self.fixture.result)
+        original_terminal = deepcopy(self.fixture.inner_terminal)
+        for target, key, value in changes:
+            with self.subTest(target=target, key=key, value=value):
+                self.fixture.result = deepcopy(original_result)
+                self.fixture.inner_terminal = deepcopy(original_terminal)
+                if target == "terminal":
+                    self.fixture.inner_terminal[key] = value
+                self._pin()
+                if target == "result":
+                    self.fixture.result[key] = value
+                with self.assertRaisesRegex(receipts.OwnershipUncertain, "unknown or uncollected"):
+                    self._launch()
+
+
 class CompletedWorkerRecoveryTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

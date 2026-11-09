@@ -9,6 +9,59 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- Clean verification-command timeouts remain failed checks instead of becoming
+  an ownership pause that requires discarding the Tester's report. Missing or
+  uncertain cleanup still blocks execution; timeouts never authorize proof reuse.
+
+## [0.10.0] - 2026-11-09
+
+### Added
+
+- **Session cost cap** (`/cap N`): sets a dollar threshold. When the live cost counter reaches it,
+  the TUI shows a "Cost cap reached" warning and pauses the run. `/cap 0` removes the cap (#3007).
+- **Live cost counter** on the status line during active work: `chat $4.50 · ctrl-c pause after this
+  step`, updating on every status poll alongside the spinner (#3003).
+- **`/spend` now shows waste, cost per job, turns per stage, and execution time**: failed-attempt
+  cost, report-repair cost, per-job breakdown with attempt counts, and wall-clock duration per
+  stage category (#3001).
+
+### Changed
+
+- **Unified pipeline**: all tasks now go through the full pipeline (Requirements → Planner → Builder →
+  Tester → Completion). The `review`, `design`, `discuss`, and `bugfix` workflow shortcuts are removed.
+  The workflow kind is retained for labeling and reporting only (#3009).
+- **`/spend` cost accounting** now always counts provider-reported request-level costs, even when
+  the model is missing from the price table. Missing model prices for `anthropic/claude-fable-5-1`
+  and `openai/gpt-6.1-sol` are added (#2998, #2999).
+
+### Fixed
+
+- **TUI UX fixes** (16 items from the 2026-11-07/08 hands-on reviews):
+  - Empty reply at the plan gate no longer exits the chat with code 2; it says "Nothing sent" and re-asks (#2962).
+  - Short stray replies (≤3 chars) at the completion gate ask confirmation before starting a new task (#2962).
+  - Recovery schema rejections are summarized as person-readable text instead of raw `$:` clauses (#2962).
+  - Status suffix shortened: "read 7s ago" instead of "status read 7s ago, run state at HH:MM:SS UTC" (#2964).
+  - Tab bar scrolls to keep the active tab visible at narrow widths (#2964).
+  - Composer placeholder agrees with the status when the run is waiting (#2964).
+  - Repeated refused commands coalesce into one block (#2964).
+  - `/help` includes a tab-mark legend (● working · ! needs you · ✓ done) (#2964).
+  - Footer says "↑↓ chooses" while the `/` menu is open, not "↑↓ history" (#2964).
+  - `/tab` wording clarified: "Usage: /tab N" instead of "There is no tab" (#2964).
+  - "New chats:" subtitle leaves when a run is active (#2964).
+  - Ctrl-T opens a new tab during active runs (#2971).
+  - Footer cost meter labeled "chat $X" even with one chat open (#2975).
+  - Composer wraps at spaces, not mid-word (#2975).
+  - Transcript body caps at 120 columns for a comfortable reading measure (#2975).
+  - Same-brief tabs are disambiguated with the run's short ID (#2975).
+- **Security**: displayed "Next commands" mask live control tokens with `-` instead of printing the
+  credential, which was being captured in terminal logs and relayed to issues by the channel bridge (#2989).
+- **RESOLVER_PENDING decisions** are now surfaced in the status view with their options, so a client
+  can name an answerable action instead of looping silently (#2994).
+
+## [Unreleased]
+
 ### Added
 
 - Public tool accounting adds bounded counts of literal conventional instruction filename mentions
@@ -23,6 +76,15 @@ PR template asks for an entry here; a change without one is incomplete.
   progress and the agent's messages are shown as before (#2699).
 
 ### Fixed
+
+- Request-level cost subtotals stay marked incomplete when any request price or request
+  coverage is missing, even when aggregate token counts are complete (#3000).
+- Run metrics exclude unrun mutation candidates from the number of mutants tried,
+  so an exhausted mutation budget does not inflate the reported testing work.
+
+- Kilo policy and model-catalog setup checks retry one timeout within a shared
+  90-second budget, retain attempt evidence, and distinguish setup exhaustion from
+  an invalid model, failed command or missing executable (#2959).
 
 - Corrected verification commands at an idle paused Tester checkpoint can retire an
   obsolete report repair that has not launched. The rejected report, counters and usage

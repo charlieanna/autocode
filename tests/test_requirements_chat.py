@@ -59,12 +59,8 @@ class RequirementsChatTests(unittest.TestCase):
                 self.assertTrue(chat.gather_first(state))
                 self.assertEqual(chat.STAGE, state["next_stage"])
                 self.assertIsNone(state["workflow"]["kind"])
-        pinned = {"task": "Look over my change", "settings": {"spec_first": True}}
-        workflows.begin(pinned, chat.STAGE)
-        workflows.pin(pinned, "review")
-        self.assertFalse(chat.gather_first(pinned))
-        self.assertEqual(("review_change", "review"), (pinned["next_stage"], pinned["workflow"]["kind"]))
-        for kind in ("build", "discuss", "design"):
+        # #3010: every kind, including a pinned review, starts at Requirements first.
+        for kind in ("review", "build", "discuss", "design", "bugfix"):
             state = {"task": "Work on this", "settings": {"spec_first": True}}
             workflows.begin(state, chat.STAGE)
             workflows.pin(state, kind)
@@ -181,14 +177,18 @@ class RequirementsChatTests(unittest.TestCase):
         self.assertEqual((None, chat.STAGE), (state["workflow"]["kind"], state["workflow"]["then"]))
         pinned = self.approved(workflow={"kind": "review", "then": chat.STAGE})
         self.assertTrue(chat.recognize_after_approval(pinned))
-        self.assertEqual(workflows.REVIEW_STAGE, pinned["next_stage"])
+        # #3010: every kind goes through the full pipeline; the pinned kind is labeling only.
+        self.assertTrue(pinned["workflow"]["requirements_approved"])
         # Every chat turn begins at Requirements (#1860), so a follow-up's approval starts its job too.
         follow_up = self.approved(turns=[{"say": "earlier"}])
         self.assertTrue(chat.recognize_after_approval(follow_up))
         self.assertEqual(workflows.STAGE, follow_up["next_stage"])
+        # #3010: an already-pinned job's approval is still processed (marks approved).
+        already = self.approved(workflow={"kind": "build", "then": chat.STAGE})
+        self.assertTrue(chat.recognize_after_approval(already))
+        self.assertTrue(already["workflow"]["requirements_approved"])
         for state in (
             self.approved("Also add a total row", next_stage=chat.STAGE),
-            self.approved(workflow={"kind": "build", "then": chat.STAGE}),
             self.approved(pending_questions=[{"id": "Q2"}]),
             self.approved(settings={}),
         ):
@@ -211,9 +211,9 @@ class RequirementsChatTests(unittest.TestCase):
     def test_an_approval_starts_the_job_requirements_named_without_the_recognizer(self):
         for job, first in (
             ("build", review.NEXT),
-            ("bugfix", workflows.FIRST_STAGE["bugfix"]),
-            ("review", workflows.REVIEW_STAGE),
-            ("design", workflows.FIRST_STAGE["design"]),
+            ("bugfix", review.NEXT),
+            ("review", review.NEXT),
+            ("design", review.NEXT),
         ):
             with self.subTest(job=job):
                 state = self.named(job)
@@ -243,36 +243,11 @@ class RequirementsChatTests(unittest.TestCase):
                 chat.recognize_after_approval(state)
                 self.assertEqual("astra_discovery", state["next_stage"])
 
-    def test_a_named_question_starts_the_analyst_without_asking_for_approval(self):
-        def asked(**change):
-            state = self.named("discuss", **change)
-            state.pop("answers")
-            return state
-
-        state = asked()
-        self.assertTrue(chat.answer_now(state, {"output": None}))
-        self.assertEqual((workflows.DISCUSS_STAGE, "discuss"), (state["next_stage"], state["workflow"]["kind"]))
-        pinned = asked(workflow={"kind": "discuss", "then": chat.STAGE})
-        self.assertTrue(chat.answer_now(pinned, {"output": None}))
-        self.assertEqual(workflows.DISCUSS_STAGE, pinned["next_stage"])
-        # On every flow (#1860): a plain CLI run, and a follow-up after an earlier turn's Analyst.
-        for state in (
-            asked(settings={}),
-            asked(turns=[{"say": "earlier", "stage_index": 1}], stages=[{"stage": workflows.DISCUSS_STAGE}]),
-        ):
-            with self.subTest(state=state):
-                self.assertTrue(chat.answer_now(state, {"output": None}))
-                self.assertEqual(workflows.DISCUSS_STAGE, state["next_stage"])
-        for state in (
-            asked(requirements_handoff={"report": {"job": "discuss", "open_questions": [{"id": "Q1"}]}}),
-            asked(stages=[{"stage": workflows.DISCUSS_STAGE}]),
-            asked(turns=[{"say": "earlier", "stage_index": 0}], stages=[{"stage": workflows.DISCUSS_STAGE}]),
-            self.named("review"),
-        ):
-            with self.subTest(state=state):
-                before = copy.deepcopy(state)
-                self.assertFalse(chat.answer_now(state, {"output": None}))
-                self.assertEqual(before, state)
+    def test_no_shortcut_to_the_analyst(self):
+        """#3010: every task goes through the full pipeline; answer_now is always False."""
+        state = self.named("discuss")
+        state.pop("answers")
+        self.assertFalse(chat.answer_now(state, {"output": None}))
 
     def test_only_jobs_that_build_code_need_behaviors_and_acceptance_tests(self):
         self.assertEqual(
@@ -298,21 +273,19 @@ class RequirementsChatTests(unittest.TestCase):
         workflows.apply(state, build, {"output": None})
         self.assertEqual(chat.STAGE, state["next_stage"])
 
-    def test_an_approval_starts_a_job_with_its_own_first_stage_only_once(self):
-        design = workflows.FIRST_STAGE["design"]
+    def test_an_approval_starts_a_job_only_once(self):
         pinned = self.approved(workflow={"kind": "design", "then": chat.STAGE}, stages=[{"stage": chat.STAGE}])
         self.assertTrue(chat.recognize_after_approval(pinned))
-        self.assertEqual(design, pinned["next_stage"])
-        for kind, ran in (
-            ("design", [chat.STAGE, design, chat.STAGE]),
-            ("bugfix", [chat.STAGE, workflows.STAGE, workflows.FIRST_STAGE["bugfix"]]),
-        ):
+        # #3010: every kind goes through the full pipeline after Requirements.
+        self.assertTrue(pinned["workflow"]["requirements_approved"])
+        for kind in ("design", "bugfix", "review"):
             with self.subTest(kind=kind):
                 later = self.approved(
-                    workflow={"kind": kind, "then": chat.STAGE}, stages=[{"stage": stage} for stage in ran]
+                    workflow={"kind": kind, "then": chat.STAGE, "requirements_approved": True},
+                    stages=[{"stage": chat.STAGE}, {"stage": "astra_discovery"}],
                 )
                 before = copy.deepcopy(later)
-                self.assertFalse(chat.recognize_after_approval(later), "The job's first stage already ran")
+                self.assertFalse(chat.recognize_after_approval(later), "already approved")
                 self.assertEqual(before, later)
 
     def test_the_recognizer_judges_the_job_from_the_confirmed_understanding(self):
