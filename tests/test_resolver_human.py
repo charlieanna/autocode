@@ -456,6 +456,32 @@ class ResolverHumanTests(unittest.TestCase):
         self.state["intake_input_hash"] = "different-user-input"
         self.assertIsNone(human.current(self.state))
 
+    def test_a_resolver_proposal_at_pending_is_visible_in_the_status_view(self):
+        """#2896: a decision in resolver_human_proposal must be answerable from the view alone."""
+        import autocode_run_view as run_view
+
+        human.queue(
+            self.state,
+            "blocker",
+            {"stage": "astra_resolve"},
+            request={
+                "kind": "blocker",
+                "decision_needed": "Approve or decline extending AC8's supersedes",
+                "impact": "Two example names need rewriting",
+                "options": ["Approve", "Decline"],
+            },
+            evidence={"diagnosis": "REWORK", "output": "resolver.json"},
+        )
+        self.state["status"] = "RESOLVER_PENDING"
+        self.state["pending_questions"] = []
+        need = run_view.needs(self.state)
+        self.assertIsNotNone(need, "the view must name an action at RESOLVER_PENDING")
+        self.assertEqual("answer", need.get("kind"))
+        self.assertTrue(need.get("questions"), "the decision must appear as a question")
+        question = need["questions"][0]
+        self.assertIn("AC8", question.get("question", ""))
+        self.assertTrue(question.get("options"), "the decision must carry its options")
+
 
 class WithdrawnOperationalRequestTests(unittest.TestCase):
     def sealed_entry(self, cause, *, issued_at, status="superseded", worker=None):
