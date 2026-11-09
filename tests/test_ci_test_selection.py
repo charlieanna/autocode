@@ -1156,6 +1156,16 @@ class DynamicDependenciesTests(unittest.TestCase):
                 self.assertTrue(expected <= set(kept))
                 self.assertNotIn("tests.test_unrelated", kept)
 
+    def test_native_protection_changes_keep_same_owner_repair_even_when_slow(self):
+        consumer = "tests.test_native_rework_transport"
+        selected = run_suite.select_tests(
+            ["tools/autocode_visual_protection.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, skipped = run_suite.drop_slow(selected, {consumer: "60 seconds"})
+        self.assertIn(consumer, kept)
+        self.assertNotIn(consumer, skipped)
+        self.assertNotIn("tests.test_unrelated", kept)
+
     def test_explicit_registry_never_silently_refers_to_missing_test_modules(self):
         declared = {
             *dependencies.PROMPT_CONSUMERS,

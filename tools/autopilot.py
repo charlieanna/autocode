@@ -519,18 +519,9 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
             **value,
             "proposed_assumptions": [row for row in value["proposed_assumptions"] if not isinstance(row, str)],
         }
-    if stage == requirements_triage.STAGE and requirements_triage.due(state) and requirements_triage.is_answer(value):
-        # The triage dispatch's small answer (#2940) was validated against its relaxed request
-        # schema where it was loaded (autocode_report_source); the strict full schema below is the
-        # full pass's contract. Routing in autocode_requirements_handoff rejects an answer that is
-        # neither ready nor a question.
-        pass
-    elif stage == requirements_triage.STAGE and requirements_triage.due(state):
-        # A full report on the triage dispatch keeps every ordinary requirement, plus tolerance for
-        # a materialized optional ``ready`` (autocode_requirements_triage.tolerant).
-        support.validate_schema(checked, requirements_triage.tolerant(planning_unit.schema_for(state, stage)))
-    else:
-        support.validate_schema(checked, planning_unit.schema_for(state, stage))
+    requirements_triage.validate_application(
+        state, stage, value, checked, schema_for=planning_unit.schema_for, validate=support.validate_schema
+    )
     if stage == planning_unit.RECOGNIZE:
         return planning_unit.recognize(state, value, record)
     if stage == "astra_discovery" and planning_unit.rerun_requirements(state, value):

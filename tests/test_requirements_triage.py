@@ -23,6 +23,8 @@ from unittest import mock
 import autocode_requirements_handoff as handoff
 import autocode_requirements_triage as triage
 import autocode_taskrun as taskrun
+import autopilot
+from autocode_util import validate_schema
 
 SCENARIOS = Path(__file__).resolve().parents[1] / "scenarios"
 if str(SCENARIOS) not in sys.path:
@@ -142,6 +144,62 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(["summary", "intended_outcome"], relaxed["required"])
         self.assertEqual({"type": "boolean"}, relaxed["properties"]["ready"])
         self.assertIn("required_behaviors", relaxed["properties"], "a full report's fields stay known")
+
+
+class ApplicationValidationTests(unittest.TestCase):
+    def test_the_controller_rejects_a_malformed_draft_before_applying_it(self):
+        with self.assertRaisesRegex(ValueError, r"\$\.summary: expected string"):
+            autopilot.apply_planning(
+                state(),
+                triage.STAGE,
+                {"summary": False, "required_behaviors": ["Greet"]},
+                {"output": "requirements.json"},
+            )
+
+    def validate(self, value, *, current=None, stage=triage.STAGE, checked=None):
+        schema = {
+            "type": "object",
+            "required": ["summary", "required_behaviors"],
+            "properties": {
+                "summary": {"type": "string"},
+                "required_behaviors": {"type": "array", "items": {"type": "string"}},
+            },
+            "additionalProperties": False,
+        }
+        triage.validate_application(
+            state() if current is None else current,
+            stage,
+            value,
+            value if checked is None else checked,
+            schema_for=lambda *_: schema,
+            validate=validate_schema,
+        )
+
+    def test_an_already_loaded_small_answer_does_not_need_the_full_draft_fields(self):
+        for ready, questions in ((True, []), (False, [QUESTION])):
+            self.validate({"summary": "Triage", "ready": ready, "open_questions": questions})
+
+    def test_a_drafted_triage_report_keeps_required_fields_and_field_types(self):
+        full = {"summary": "Draft", "required_behaviors": ["Greet"], "ready": False}
+        self.validate(full)
+        for invalid in ({**full, "summary": False}, {key: value for key, value in full.items() if key != "summary"}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.validate(invalid)
+
+    def test_other_stages_and_saved_flows_keep_the_strict_full_schema(self):
+        for options in (
+            {"stage": "astra_challenge"},
+            {"current": state(requirements_triage={"outcome": "ready"})},
+            {"current": state(settings={"joint_planning": True})},
+        ):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                self.validate({"summary": "Triage", "ready": True}, **options)
+
+    def test_validation_uses_the_compatibility_checked_value(self):
+        full = {"summary": "Draft", "required_behaviors": ["Greet"], "legacy": "already normalized"}
+        self.validate(full, checked={key: value for key, value in full.items() if key != "legacy"})
+        with self.assertRaises(ValueError):
+            self.validate(full)
 
 
 class RoutingTests(unittest.TestCase):
