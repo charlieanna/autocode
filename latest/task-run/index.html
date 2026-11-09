@@ -2372,7 +2372,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/66a29d807e970d8f5559657cc1a7f6d686499a6c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/061cb2f63fe9ac181cfe9153111537c661f0318b/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3559,7 +3559,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/66a29d807e970d8f5559657cc1a7f6d686499a6c/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/061cb2f63fe9ac181cfe9153111537c661f0318b/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4258,7 +4258,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/66a29d807e970d8f5559657cc1a7f6d686499a6c/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/061cb2f63fe9ac181cfe9153111537c661f0318b/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -5297,6 +5297,14 @@ command's liveness. A legacy unbound marker or unavailable
 ownership remains held; status does not reconcile it, grant a retry or establish
 test success. Use the displayed supported recovery action and retain interrupted
 receipts separately from fresh verification.</p>
+<p>For an admitted execution worker, <code>verification_obligation.returned_check</code> exposes
+its returned command's bounded diagnostic fields: result hash, nullable exit code,
+timeout/interruption flags, whether an error was recorded, supervision-error count,
+and the phase/cause/error presence of its hash-bound cleanup receipt. Its <code>status</code>
+is <code>available</code>, <code>not_returned</code>, or <code>unavailable</code>; other preparation operations use
+null. Unbound answers expose no diagnostic fields. Command output, report text,
+error text and control tokens are never included. This observation does not
+reconcile the run, permit a retry or establish passing evidence.</p>
 <h2 id="connections-for-clients">Connections for clients<a class="headerlink" href="#connections-for-clients" title="Permanent link">&para;</a></h2>
 <p>Connection setup is a core interface alongside task runs. A client may read
 <code>autocode connections list --json</code> before starting a task. The version-1 object
