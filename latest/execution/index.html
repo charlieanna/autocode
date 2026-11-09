@@ -939,7 +939,7 @@
   <span class="md-ellipsis">
     
   
-    GitHub issues and PR review
+    GitHub issues
   
 
     
@@ -968,34 +968,6 @@
     
   
     Channel bridge
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../verify/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Verify an existing change
   
 
     
@@ -2450,7 +2422,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/c254ce964c9eafb48029049df680b8f8d9d55484/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1a9349b2714d853276405ae602d97f6ba3e3ca31/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2819,17 +2791,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/c254ce964c9eafb48029049df680b8f8d9d55484/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/1a9349b2714d853276405ae602d97f6ba3e3ca31/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/c254ce964c9eafb48029049df680b8f8d9d55484/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/1a9349b2714d853276405ae602d97f6ba3e3ca31/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/c254ce964c9eafb48029049df680b8f8d9d55484/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/1a9349b2714d853276405ae602d97f6ba3e3ca31/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3090,9 +3062,8 @@ such line, but still lists any record the run saved, such as a resume from a pau
 <p>The evidence report of a completed build, bug-fix or design run lists the same records under
 <code>approvals</code> in <code>evidence.json</code> and as an Approvals table in <code>evidence.md</code>, just after the
 intended outcome (<a href="../task-run/#canonical-completion-evidence">Canonical completion evidence</a>).
-A review or discuss report has neither, not even a resume, because those workflows have no
-approval step and <code>autocode review-pr --post</code> publishes a review's report on someone else's pull
-request (<a href="../issues/#reviewing-a-pull-request">Issues</a>). A report written before AutoCode listed
+A review or discuss report has neither, not even a resume, because a review's or an answer's
+report must not attribute approvals to the person who resumed it. A report written before AutoCode listed
 approvals has no such section either, until AutoCode saves the completed run again; reading its
 status does not. Each row gives the time, what was decided (the plan token approved, the criterion
 accepted, completion accepted, the draft an edit saved, or the pause a resume released), the Git
@@ -3111,7 +3082,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/c254ce964c9eafb48029049df680b8f8d9d55484/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/1a9349b2714d853276405ae602d97f6ba3e3ca31/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -4004,9 +3975,9 @@ archives), <code>conversation-handoffs</code> (requirements conversation handoff
 <code>conversation-starts</code> (conversation start markers), <code>investigation</code> (bug
 investigation workspaces), <code>issues</code> (<code>autocode issue</code> worktrees and their runs),
 <code>programs</code> (state an <code>autocode program</code> left; that command is archived on the
-<code>archive/program</code> branch), <code>pull-reviews</code> (<code>autocode review-pr</code> checkouts and their runs),
+<code>archive/program</code> branch), <code>pull-reviews</code> (checkouts and runs the removed <code>autocode review-pr</code> left),
 <code>registry</code> (the run registry), <code>replay</code> (replay recordings), <code>task-flows</code>,
-<code>verification</code> (<code>autocode verify</code> checkouts and reports) and <code>worktrees</code> (task
+<code>verification</code> (checkouts and reports the removed <code>autocode verify</code> left) and <code>worktrees</code> (task
 worktrees, and any an archived program made). The list is not every place a run can be kept: a run kept
 elsewhere in the workspace (an <code>--out</code> or <code>--arena</code> directory outside these
 stores, or another <code>.autocode</code> directory) is not denied. Each store that exists

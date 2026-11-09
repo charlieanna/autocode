@@ -1219,17 +1219,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#standalone-verification" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Standalone verification
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -1281,7 +1270,7 @@
   <span class="md-ellipsis">
     
   
-    GitHub issues and PR review
+    GitHub issues
   
 
     
@@ -1310,34 +1299,6 @@
     
   
     Channel bridge
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../verify/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Verify an existing change
   
 
     
@@ -2428,17 +2389,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#standalone-verification" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Standalone verification
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -2460,7 +2410,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/c254ce964c9eafb48029049df680b8f8d9d55484/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1a9349b2714d853276405ae602d97f6ba3e3ca31/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2502,10 +2452,6 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <tr>
 <td><code>autocode demo [--directory PATH]</code></td>
 <td>Watch an offline sample plan, demo approval, build, rejected evidence and completion acceptance with the bundled fake provider. No account or model spend. Creates a new temporary directory by default, keeps its run and evidence records for inspection, and refuses an existing <code>--directory</code>. See <a href="#offline-demo">Offline demo</a>.</td>
-</tr>
-<tr>
-<td><code>autocode verify</code></td>
-<td>Check an existing working-tree change, branch or patch against caller-supplied criteria; retain independent review, replay and external-change proof in the canonical evidence format. See <a href="../verify/">Standalone verification</a>.</td>
 </tr>
 <tr>
 <td><code>autocode coordinate status\|message\|advance\|bind\|approve\|choose\|cancel\|resume\|budget\|planning-budget\|access</code></td>
@@ -2578,10 +2524,6 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <tr>
 <td><code>autocode compare-baseline</code></td>
 <td>Compare Vitest failure evidence (see <a href="../execution/#baseline-comparison">Execution</a>).</td>
-</tr>
-<tr>
-<td><code>autocode review-pr URL [--post] [--out NEW_DIRECTORY] [--json] -- PROVIDER_OPTIONS</code> / <code>autocode issue review-pr</code></td>
-<td>Fetch the exact PR head into an owned checkout, run Code Reviewer only, and print authenticated findings/evidence. <code>--post</code> submits COMMENT only after every new-side anchor and the head are rechecked (see <a href="../issues/#reviewing-a-pull-request">Pull request reviews</a>).</td>
 </tr>
 <tr>
 <td><code>autocode review --workspace PATH [--run-dir RUN]</code></td>
@@ -2694,7 +2636,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/c254ce964c9eafb48029049df680b8f8d9d55484/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/1a9349b2714d853276405ae602d97f6ba3e3ca31/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3308,7 +3250,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/c254ce964c9eafb48029049df680b8f8d9d55484/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/1a9349b2714d853276405ae602d97f6ba3e3ca31/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3737,11 +3679,6 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <td>Select a conversation/run, queue a human message, explicitly refresh a revision or hand off its reviewed draft; creation provider/model/effort/budget options follow <code>--</code>. On <code>send</code>, <code>--supersedes-request-id</code> queues a correction only for a definitively rejected, unapplied human request, retaining its history; it cannot replace acknowledged input or active delivery. Sending does not advance the run. All commands print JSON.</td>
 </tr>
 <tr>
-<td><code>autocode verify</code></td>
-<td><code>--workspace</code>, <code>--base</code>, <code>--branch</code>, <code>--patch</code>, <code>--criteria</code>, <code>--criteria-file</code>, <code>--out</code>, <code>--record</code>, <code>--engine</code>, <code>--provider</code>, <code>--model</code>, <code>--reasoning-effort</code>, <code>--evidence-provenance</code>, <code>--suite-command</code>, <code>--check-timeout</code>, <code>--max-seconds</code>, <code>--max-stage-seconds</code>, <code>--max-cost-usd</code>, <code>--related-profile</code>, <code>--related-profile-sha256</code>, <code>--json</code></td>
-<td>Verify an existing change against caller criteria, or read a retained verification and recheck freshness. <code>--max-cost-usd</code> caps independent review cost; the paired related-profile options preserve a coordinating run's pinned role routes and limits. See <a href="../verify/">Standalone verification</a>.</td>
-</tr>
-<tr>
 <td><code>autocode coordinate</code></td>
 <td><code>--run-dir</code>, <code>--workspace</code>, <code>--token</code>, <code>--target</code>, <code>--request-id</code>, <code>--text</code>, <code>--plan-token</code>, <code>--max-cost-usd</code>, <code>--max-planning-cost-usd</code>, <code>--json</code></td>
 <td>The anchor run to coordinate, the authorized local checkout to choose, the exact token of the displayed decision, the ambiguous repository target to resolve, a finite whole-set cost cap for <code>budget</code>, and JSON output. <code>status</code> reads; <code>message --request-id ID --text TEXT</code> saves original task text with an exact retry receipt without launching work or releasing any hold. At coordinated plan approval, the named message action adds <code>--plan-token TOKEN</code> to bind interpretation by the saved Plan Reviewer to the exact complete displayed packet (use <code>-</code> with <code>AUTOCODE_COORDINATION_TOKEN</code> to keep it out of argv). This message does not approve; <code>advance</code> performs one durable core step; <code>bind</code> snapshots exact completed member trees into the approved joint plan; <code>approve</code>, <code>choose</code> and <code>cancel</code> take the corresponding named action. At a settled cost stop, <code>budget --token TOKEN --max-cost-usd N</code> takes the current status offer, retains accumulated spend and other limits, and acknowledges only its displayed member cost pause. It cannot waive a check or approve a plan; zero/unlimited, stale, insufficient, active and cancelled requests are refused. <code>planning-budget --token TOKEN --max-planning-cost-usd N</code> explicitly reallocates a total planning allowance inside the unchanged whole-set cap at its named stop. It preserves all prior spend and work, records the prior allocation, launches nothing, and requires a new exact checkpoint; stale/duplicate, active, unpriced, uncertain and out-of-range requests are refused. A separate ordinary cost-pause acknowledgement may still be needed. At a settled cancellation, <code>resume --token TOKEN --max-cost-usd N</code> takes the exact recovery offer without launching a model or approving a plan. It retains prior work and accounting; an explicit zero removes the shared cap and disables the planning allocation limit while retaining their history. Newer cancellations, stale tokens, active/uncertain work and changed sources refuse. With incomplete pricing, an already uncapped policy (including the public cost view’s <code>null</code> cap) can recover only with explicit zero; a finite cap cannot be established. <code>access</code> checks GitHub delivery readiness without starting a run. Configure shared roots with <code>autocode registry roots add PATH</code> and standalone checkouts with <code>autocode registry repositories add PATH</code>; <code>/repos</code> displays discovery.</td>
@@ -3770,11 +3707,6 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <td><code>autocode models</code></td>
 <td><code>--workspace</code>, <code>--provider</code>, <code>--json</code>, <code>--prices</code>, <code>--selection</code></td>
 <td>Project/provider model availability and default routes; optionally JSON; <code>--prices</code> shows the dated price table and each default route's rate; <code>--selection</code> shows what automatic selection would choose and why (#1426).</td>
-</tr>
-<tr>
-<td><code>autocode review-pr</code></td>
-<td><code>--out</code>, <code>--post</code>, <code>--json</code></td>
-<td>New owned review directory, optional COMMENT-only posting after full finding/head admission, and JSON findings/evidence; creation/provider options follow <code>--</code>.</td>
 </tr>
 <tr>
 <td><code>autocode review</code></td>
@@ -4336,7 +4268,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/c254ce964c9eafb48029049df680b8f8d9d55484/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/1a9349b2714d853276405ae602d97f6ba3e3ca31/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
@@ -4483,12 +4415,6 @@ compatibility.</p>
 <td>Missing required default model route.</td>
 <td>Usage error.</td>
 </tr>
-<tr>
-<td><code>autocode verify</code></td>
-<td>Verified criteria passed and evidence produced.</td>
-<td>Verification checks failed.</td>
-<td>Criteria invalid, run error, or usage error.</td>
-</tr>
 </tbody>
 </table>
 <p>See also: <a href="../install/">Install</a> · <a href="../workflow/">Workflow</a> · <a href="../execution/">Execution</a></p>
@@ -4566,23 +4492,8 @@ route, then issues a new exact-retry token. Use that token for the retry. Changi
 <code>--investigator-model</code> alone at this stop is refused before saving settings.
 An older Investigator stop can expose the same question only when its retained
 attempt, launch configuration and original source establish that model. Other
-older job stops without a saved model question keep their exact retry.</p>
-<h2 id="standalone-verification">Standalone verification<a class="headerlink" href="#standalone-verification" title="Permanent link">&para;</a></h2>
-<p><code>autocode verify</code> accepts <code>--workspace</code>, <code>--base</code>, either <code>--branch</code> or <code>--patch</code>,
-and either <code>--criteria</code> or <code>--criteria-file</code>. Criteria are explicit JSON; they
-are never inferred. <code>--out</code> names a fresh output directory. <code>--record</code> reads an
-existing verification and checks freshness instead of running models or checks.
-Review controls are <code>--engine</code>, <code>--provider</code>, <code>--model</code>, <code>--reasoning-effort</code>,
-<code>--evidence-provenance</code>, <code>--max-seconds</code> and <code>--max-stage-seconds</code>.
-The paired <code>--related-profile</code> and <code>--related-profile-sha256</code> inherit saved
-review routing and provenance. They refuse explicit <code>--engine</code>, <code>--provider</code>,
-<code>--model</code>, <code>--reasoning-effort</code> or <code>--evidence-provenance</code> flags rather than
-silently discarding them. Time and cost caps may still bound the review.
-<code>--suite-command</code> selects the proof suite and <code>--check-timeout</code> bounds each runner
-command. <code>--json</code> emits the verdict and evidence metadata. See
-<a href="../verify/">Standalone verification</a> for the criteria format, proof modes and
-exit codes.</p>
-<p><code>autocode modes list</code> lists the run modes a client may offer for a new run (<code>--json</code> for the version-1 list). See <a href="../task-run/#run-modes-for-clients">Run modes for clients</a>.</p>
+older job stops without a saved model question keep their exact retry.
+<code>autocode modes list</code> lists the run modes a client may offer for a new run (<code>--json</code> for the version-1 list). See <a href="../task-run/#run-modes-for-clients">Run modes for clients</a>.</p>
 <p><code>autocode connections list|check|login|setup</code> manages backend setup; list and check return status without inference, and login delegates to the backend in a terminal. <code>connections setup</code> (retired with the direct connection, #2049) ends by naming the route each role will use, and <code>connections list --routes --json</code> returns the same choice as <code>routes[]</code> — both read the connected tool's own model listing and launch no model. See <a href="../task-run/#connections-for-clients">Connections for clients</a>.</p>
 
 
