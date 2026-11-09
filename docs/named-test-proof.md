@@ -333,12 +333,15 @@ from `tools/autocode_mutants.py`).
   The older advisory collector and standalone review study retain their six-site
   sample per file. The same source and selection give the same sites.
 - **How long.** One 900-second budget, the same limit as a check replay, covers
-  one unmutated run and every mutant. Current task proofs select the independently
-  observed passing candidate-suite tests by exact ID; when the suite is a command
-  the runner cannot narrow to those tests (a project's own gate script, such as
-  `python project_gate.py`), they select the proof's regression command and the
-  tests it passed on the candidate instead, so a project gate does not leave every
-  changed line without evidence. Older advisory collectors
+  one unmutated run and every mutant. Current task proofs prefer the independently
+  observed passing regression tests by exact ID. When the regression command cannot
+  select observed tests, they use the passing candidate-suite tests instead. Suite
+  preservation still runs unchanged on the original and candidate code. The selected
+  tests must pass a fresh, complete unmutated run before any mutant runs; an earlier
+  suite or regression receipt cannot replace it. This preference does not itself
+  refresh a saved measurement at Completion Review; normal validation requests proof
+  under the current runtime identity, while previously qualified evidence stays valid.
+  Older advisory collectors
   select only the named proving tests. Each mutant uses its own empty
   bytecode cache and its own modification time, so a compile cached by a Python
   the tests start themselves is never reused. A mutant may take ten times the

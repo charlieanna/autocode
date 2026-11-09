@@ -149,22 +149,21 @@ def selected_tests(framework, result):
     """(package, command, tests): the proof command the mutation check runs, and the passing tests it
     observed on the candidate, which every mutant must then fail.
 
-    The suite is preferred. When the runner cannot narrow it to those tests (a project gate script
-    such as ``python project_gate.py``), the proof's regression command is used instead: it is the
-    same runner's own observation of the proving tests. When neither can be narrowed, the suite is
-    returned and the mutation check records that it ran no test.
+    The regression command is preferred: its independently observed passing tests target the change.
+    The suite remains the fallback when the regression command cannot select observed tests. When
+    neither can be narrowed, the suite is returned and the mutation check records that it ran no test.
     """
     name = (result.get("framework") or {}).get("name")
     commands, checks = result.get("commands") or {}, result.get("checks") or {}
     choices = []
-    for key, label in (("suite", "suite_on_candidate"), ("regression", "regression_on_candidate")):
+    for key, label in (("regression", "regression_on_candidate"), ("suite", "suite_on_candidate")):
         package, command = package_scope.split(framework, commands.get(key))
         tests = sorted(((checks.get(label) or {}).get("results") or {}).get("passed") or [])
         choices.append((package, command, tests))
         narrowed = proof_stability.narrow(name, command, tests) if command and tests else None
         if narrowed and python_tests.parse(narrowed) is not None:
             return package, command, tests
-    return choices[0]
+    return choices[-1]
 
 
 def reviewed(proof, exceptions):
