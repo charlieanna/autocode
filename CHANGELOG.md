@@ -24,6 +24,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- An accepted bounded edit repair of a planning report retains its original execution witness.
+  Its derived schema must still match the original validation schema, source report hash and stage;
+  changed report bytes or provenance remain refused.
+
 - Saved runs that exhausted unchanged validation rounds before an upgrade now settle
   through ordinary continuation with a recorded failed outcome, preserving findings
   and usage instead of asking the person to manage validation machinery.

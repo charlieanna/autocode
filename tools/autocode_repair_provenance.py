@@ -11,6 +11,44 @@ import hashlib
 import json
 from pathlib import Path
 
+try:
+    from . import autocode_report_edits as report_edits
+    from . import autocode_util as util
+except ImportError:
+    import autocode_report_edits as report_edits
+    import autocode_util as util
+
+
+def _matching_schema(original, accepted, stage):
+    if original.get("schema") == accepted.get("schema"):
+        return True  # Preserve the original full-report transport.
+    if not accepted.get("report_only") or stage not in report_edits.STAGES:
+        return False
+    try:
+        source = Path(original["output"])
+        schema_path, original_path = Path(accepted["schema"]), Path(original["schema"])
+        if schema_path != source.with_name(source.stem + ".repair-edits.schema.json") or any(
+            path.is_symlink() or not path.is_file() for path in (source, schema_path, original_path)
+        ):
+            return False
+        schema = json.loads(schema_path.read_text())
+        metadata = schema.get(report_edits.META) or {}
+        validation = report_edits.validation_schema(json.loads(original_path.read_text()))
+        branches = schema["properties"][report_edits.KEY]["anyOf"]
+        return bool(
+            metadata.get("source_path") == str(source)
+            and metadata.get("sha256") == util.file_hash(source)
+            and metadata.get("stage") == stage
+            and metadata.get("format") == "json"
+            and metadata.get("original_schema") == validation
+            and report_edits.validation_schema(schema) == validation
+            and len(branches) == 2
+            and branches[1] == util.model_output_schema(validation)
+            and branches[0]["properties"]["sha256"] == {"type": "string", "const": metadata["sha256"]}
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError):
+        return False
+
 
 def verify_accepted_repair(state: RunState, accepted):
     """Read the repaired-output hash saved by accept_repaired_report, never repin it."""
@@ -79,8 +117,9 @@ def witness(state: RunState, stage, output):
         or not original.get("source_revision")
         or any(
             original.get(key) != accepted.get(key)
-            for key in ("role", "source_revision", "iteration", "schema", "contract_hash", "criteria_revision")
+            for key in ("role", "source_revision", "iteration", "contract_hash", "criteria_revision")
         )
+        or not _matching_schema(original, accepted, stage)
     ):
         raise ValueError("planning report lacks matching original provenance")
     try:
