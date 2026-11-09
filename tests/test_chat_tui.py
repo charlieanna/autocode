@@ -2554,6 +2554,23 @@ class TuiUxScreenTests(unittest.TestCase):
         self.assertIn("needs you", text)
         self.assertIn("done", text)
 
+    def test_status_line_shows_live_cost_while_working(self):
+        """#3002: the cost counter appears on the status line during active work."""
+        ui = screen_ui()
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "progress": {"stage": "Builder", "headline": "Builder working"},
+                "cost": {"spent_usd": 4.50, "complete": False},
+                "usage": {"tokens": {"input_tokens": 100000, "output_tokens": 5000}},
+            }
+        )
+        ui._asking = False
+        puts = drawn(ui)
+        # The cost should appear somewhere on the status line
+        all_text = " ".join(t for _, t in puts)
+        self.assertIn("chat $4.50", all_text, "the live cost counter is visible during work")
+
     def test_footer_says_chooses_not_history_while_menu_is_open(self):
         ui = screen_ui()
         ui._composer.insert("/")
