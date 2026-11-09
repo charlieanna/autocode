@@ -1169,6 +1169,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
     if (
         status == "RESOLVER_PENDING"
         and (state.get("resolver_human_proposal") or {}).get("scope") != "operational_exhaustion"
+        and not recovery_limits.scoped_retry_unavailable(state)
     ):
         proposal = state.get("resolver_human_proposal") or {}
         proposal_questions = proposal.get("questions") or []

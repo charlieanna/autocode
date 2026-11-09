@@ -716,7 +716,7 @@ def render(state: RunState, run_dir=None, *, details=True):
             if public:
                 lines += [
                     f"Resolver request ID: {public['request_id']}",
-                    f"Resolver request token: {public['request_token']}",
+                    "Resolver request token: (private)",
                 ]
             return "\n".join(lines)
         return "No contract yet; resume to interview with the Requirements Gatherer."
@@ -727,7 +727,7 @@ def render(state: RunState, run_dir=None, *, details=True):
     if asks_approval:
         lines.append(approval_view.intro(contract["revision"]))
     if public:
-        lines += [f"AutoResolver request: {public['request_id']}", f"AutoResolver token: {public['request_token']}"]
+        lines += [f"AutoResolver request: {public['request_id']}", "AutoResolver token: (private)"]
     if asks_approval:
         lines += [f"Approval token: {token(contract)}", approval_view.token_note()]
     if workflows.approval_note(state):
@@ -902,7 +902,7 @@ def render(state: RunState, run_dir=None, *, details=True):
         elif public["request"]:
             lines += ["", "Decision needed:", json.dumps(public["request"], indent=2)]
         lines += [f"Answer ID: {q['id']} - {q['question']}" for q in public["questions"]]
-        lines += [f"Resolver request ID: {public['request_id']}", f"Resolver request token: {public['request_token']}"]
+        lines += [f"Resolver request ID: {public['request_id']}", "Resolver request token: (private)"]
     if state.get("planning"):
         total = state["planning"]["astra_calls"]
         recovered = state["planning"].get("recovery_review_calls_used", 0)
