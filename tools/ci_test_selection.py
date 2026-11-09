@@ -1146,6 +1146,8 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_tool_admission_cli",),
     ),
     (("tools/autocode_model_preflight",), ("tests.test_provider_credentials",)),
+    # The CLI reaches access transport through model_preflight, beyond the direct import selector.
+    (("tools/provider_conformance_transport.py",), ("tests.test_model_preflight_budgets",)),
     (
         ("tools/autocode_access_identity", "tools/autocode_access_evidence", "tools/autocode_model_preflight"),
         ("tests.test_preflight_relocation_cli", "tests.test_model_preflight"),
