@@ -877,6 +877,9 @@ class ChatTUI:
         self._live = panel.LiveLog()  # what each agent thinks and does, from the view's chat.log
         self._live_on: bool | None = None  # detailed agent pane appears only on request
         self._panel_on = False  # the conversation owns the width until /panel asks for details
+        self._cost_cap: float | None = None  # session cost cap: warn and pause when hit (#3002)
+        self._cost_cap_warned = False
+        self._pause_requested = False
         self._menu_index = 0
         self._waiting = False
         self._launched = False  # a step is running since the last question; its first views may predate it
@@ -1244,7 +1247,27 @@ class ChatTUI:
                 self._context_key = contexts.identity(view["workspace"], view["run_dir"])
                 self._context = contexts.label(view["workspace"], view["run_dir"])
             self._keep_history_anchor(anchor)
+            self._check_cost_cap(view)
             self._draw()
+
+    def _check_cost_cap(self, view: dict) -> None:
+        """Warn and pause when the session cost hits the configured cap (#3002)."""
+        if self._cost_cap is None:
+            return
+        cost = view.get("cost") or {}
+        spent = cost.get("spent_usd")
+        if not isinstance(spent, (int, float)) or spent < self._cost_cap:
+            self._cost_cap_warned = False
+            return
+        if self._cost_cap_warned:
+            return
+        self._cost_cap_warned = True
+        self._transcript.info(
+            "Cost cap reached",
+            f"Session spend ${spent:.2f} has reached your ${self._cost_cap:.2f} cap. "
+            "The run is paused. Use /cap to change the cap or resume to continue.",
+        )
+        self._pause_requested = True
 
     def status_unavailable(self, error: str) -> None:
         """A failed read does not establish that the worker stopped."""
@@ -1301,6 +1324,9 @@ class ChatTUI:
         self._waiting = True  # this loop animates the marker; the ticker must not draw beside a key read
         try:
             while (left := deadline - time.monotonic()) > 0:
+                if self._pause_requested:
+                    self._pause_requested = False
+                    return "pause"
                 if self.idle is not None:
                     self.idle()
                 with self._lock:  # curses is not thread-safe: read, handle and draw as one step
@@ -1683,6 +1709,26 @@ class ChatTUI:
             raise EOFError
         if name == "/live":
             self._live_command(argument)
+            return None
+        if name == "/cap":
+            try:
+                value = float(argument.strip()) if argument.strip() else None
+            except ValueError:
+                self._transcript.info("/cap", "Usage: /cap N where N is a dollar amount, or /cap 0 to remove the cap.")
+                return None
+            if value is not None and value <= 0:
+                self._cost_cap = None
+                self._cost_cap_warned = False
+                self._transcript.info("/cap", "Session cost cap removed.")
+            elif value is not None:
+                self._cost_cap = value
+                self._cost_cap_warned = False
+                self._transcript.info(
+                    "/cap", f"Session cost cap set to ${value:.2f}. The run pauses with a warning when it reaches this."
+                )
+            else:
+                current = f"${self._cost_cap:.2f}" if self._cost_cap else "none"
+                self._transcript.info("/cap", f"Session cost cap: {current}. Usage: /cap N (0 removes it).")
             return None
         if name == "/panel":
             self._panel_on = not self._panel_visible(*self._size())

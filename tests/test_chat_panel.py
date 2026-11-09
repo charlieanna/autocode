@@ -761,6 +761,7 @@ class RunListTests(unittest.TestCase):
                 "/stages",
                 "/repos",
                 "/attention",
+                "/cap",
                 "/help",
                 "/quit",
             ],
