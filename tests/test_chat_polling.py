@@ -174,6 +174,101 @@ class Reads(unittest.TestCase):
         self.assertEqual([], self.poller.tick(self.keys))
 
 
+class FreshDecisionReads(unittest.TestCase):
+    def setUp(self):
+        self.client = chat.ChatClient(WORKSPACE, RUN, say=lambda text: None, wait=lambda seconds: None)
+        self.addCleanup(self.client.close)
+        self.key = (str(WORKSPACE), str(RUN))
+        self.stale = {
+            "status": "AWAITING_GOAL_APPROVAL",
+            "workspace": str(WORKSPACE),
+            "run_dir": str(RUN),
+            "needs": {"kind": "approve_plan", "token": "OLD"},
+        }
+        self.fresh = {**self.stale, "needs": {"kind": "approve_plan", "token": "NEW"}}
+        self.client._status_view = self.stale
+
+    def result(self, view):
+        return [(self.key, json.dumps({"view": view}), "")]
+
+    def test_a_failed_fresh_read_retries_and_returns_only_the_new_plan(self):
+        for failed in (
+            [(self.key, "", "status read timed out after 5s")],
+            [(self.key, "invalid JSON", "")],
+            self.result({**self.fresh, "run_dir": "/another/run"}),
+        ):
+            with self.subTest(failed=failed):
+                with (
+                    mock.patch.object(self.client._poller, "refresh") as refresh,
+                    mock.patch.object(
+                        self.client._poller, "tick", side_effect=[failed, self.result(self.fresh)]
+                    ) as tick,
+                    mock.patch.object(self.client, "take") as take,
+                ):
+                    self.assertEqual(self.fresh, self.client.status())
+                refresh.assert_called_once_with(self.key)  # Keep the poller's already admitted retry.
+                self.assertEqual(2, tick.call_count)
+                take.assert_not_called()
+
+    def test_two_failed_reads_refuse_the_cached_plan_without_an_unbounded_retry(self):
+        failed = [(self.key, "", "status read timed out after 10s")]
+        with (
+            mock.patch.object(self.client._poller, "refresh") as refresh,
+            mock.patch.object(self.client._poller, "tick", side_effect=[failed, failed]) as tick,
+            mock.patch.object(self.client, "take") as take,
+        ):
+            with self.assertRaisesRegex(chat.actions.ClientGap, "timed out after 10s"):
+                self.client.status()
+        self.assertEqual(2, tick.call_count)
+        refresh.assert_called_once_with(self.key)
+        self.assertEqual(self.stale, self.client._status_view)
+        take.assert_not_called()
+
+    def test_a_plan_changed_during_the_retry_is_never_approved_with_the_old_reply(self):
+        shown = {
+            **self.stale,
+            "displayed_plan": {
+                "token": "OLD",
+                "acceptance_criteria": [
+                    {"id": "C1", "criterion": "deliver", "verification_method": "test", "human_review": False}
+                ],
+                "constraints": [],
+                "permission_boundaries": ["this project"],
+            },
+        }
+        failed = [(self.key, "", "status read timed out after 5s")]
+        with (
+            mock.patch.object(self.client._poller, "refresh"),
+            mock.patch.object(self.client._poller, "tick", side_effect=[failed, self.result(self.fresh)]),
+            mock.patch.object(self.client, "ask", return_value="y"),
+            mock.patch.object(self.client, "take") as take,
+        ):
+            self.assertTrue(self.client.approve(shown))
+        self.assertEqual(self.fresh, self.client._status_view)
+        take.assert_not_called()
+
+    def test_a_healthy_read_returns_immediately_without_an_extra_refresh(self):
+        with (
+            mock.patch.object(self.client._poller, "refresh") as refresh,
+            mock.patch.object(self.client._poller, "tick", side_effect=[self.result(self.fresh)]) as tick,
+        ):
+            self.assertEqual(self.fresh, self.client.status())
+        refresh.assert_called_once_with(self.key)
+        self.assertEqual(1, tick.call_count)
+        self.assertFalse(self.client._pause_pending, "A healthy status read must not request a pause")
+
+    def test_pause_input_is_still_observed_while_the_retry_waits(self):
+        failed = [(self.key, "", "status read timed out after 5s")]
+        with (
+            mock.patch.object(self.client._poller, "refresh"),
+            mock.patch.object(self.client._poller, "tick", side_effect=[failed, [], self.result(self.fresh)]),
+            mock.patch.object(self.client, "_wait", return_value="pause") as wait,
+        ):
+            self.assertEqual(self.fresh, self.client.status())
+        self.assertTrue(self.client._pause_pending)
+        wait.assert_called_once_with(0.05)
+
+
 class AttachedInput(unittest.TestCase):
     def test_attached_wait_consumes_keyboard_and_observes_other_chats(self):
         client = ScriptedChat({})

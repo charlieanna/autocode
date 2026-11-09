@@ -189,6 +189,17 @@ def requested_only(state: RunState) -> bool:
     )
 
 
+def requested_feedback(state: RunState) -> bool:
+    """A clean requested checkpoint may save a correction while retaining its pause.
+
+    Archived recovery evidence is not a live gate. Current requests, uncertain
+    ownership and interrupted operational holds keep their existing authority.
+    """
+    return requested_only(state) and not any(
+        state.get(key) for key in ("pending_questions", "user_request", RESOLVER_PROPOSAL_KEY)
+    )
+
+
 def answered_blocker_decision(state: RunState) -> bool:
     """Whether the pause holding ``state`` is an answered semantic blocker waiting for its decision.
 

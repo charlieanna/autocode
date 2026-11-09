@@ -560,15 +560,19 @@ class ChatClient:
         # An approval/message check always starts a new read, after the person's input.
         key = (str(self.workspace), str(self.run_dir))
         self._poller.command, self._poller.env = self.command, self.env
+        # A transient read failure must not discard the reply before the poller's
+        # existing bounded retry can return. Neither read may authorize a cached
+        # view, and no action is replayed when a status read fails.
         self._poller.refresh(key)
-        before = self._status_serial
-        while self._status_serial == before:
-            self.poll()
-            if self._status_serial == before and self._wait(0.05) == "pause":
-                self._pause_pending = True
-        if self._status_error or self._status_view is None:
-            raise actions.ClientGap(self._status_error or "status response has no view")
-        return self._status_view
+        for _ in range(2):
+            before = self._status_serial
+            while self._status_serial == before:
+                self.poll()
+                if self._status_serial == before and self._wait(0.05) == "pause":
+                    self._pause_pending = True
+            if not self._status_error and self._status_view is not None:
+                return self._status_view
+        raise actions.ClientGap(self._status_error or "status response has no view")
 
     def accept_status(self, view: dict) -> None:
         self.viewed.add(str(self.run_dir))
