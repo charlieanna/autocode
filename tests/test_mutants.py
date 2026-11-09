@@ -499,7 +499,33 @@ class LimitTests(unittest.TestCase):
                 self.assertEqual(limit, len({mutant.line for mutant in made}))
                 self.assertEqual(sorted(made, key=lambda mutant: mutant.line), made)
                 self.assertEqual([f"many.py: 61 mutation sites on the changed lines; {limit} were chosen"], notes)
-        self.assertEqual(mutants.PER_FILE_LIMIT, len(mutants.python_mutants("many.py", source, every_line(source))[0]))
+        # #2815: the default limit scales with changed lines; this source has 41.
+        self.assertEqual(
+            mutants.scaled_limit(41), len(mutants.python_mutants("many.py", source, every_line(source))[0])
+        )
+
+
+class ScaledLimitTests(unittest.TestCase):
+    """The mutation budget scales with changed lines (#2815)."""
+
+    def test_small_change_keeps_the_base_limit(self):
+        self.assertEqual(mutants.PER_FILE_LIMIT, mutants.scaled_limit(0))
+        self.assertEqual(mutants.PER_FILE_LIMIT, mutants.scaled_limit(10))
+        self.assertEqual(mutants.PER_FILE_LIMIT, mutants.scaled_limit(20))
+
+    def test_large_wave_gets_more_mutants(self):
+        self.assertGreater(mutants.scaled_limit(40), mutants.PER_FILE_LIMIT)
+        self.assertGreater(mutants.scaled_limit(100), mutants.scaled_limit(40))
+
+    def test_scaled_limit_is_capped(self):
+        self.assertLessEqual(mutants.scaled_limit(10000), mutants.SCALED_PER_FILE_CAP)
+        self.assertEqual(mutants.SCALED_PER_FILE_CAP, mutants.scaled_limit(10000))
+
+    def test_default_limit_is_scaled_not_fixed(self):
+        source = b"".join(f"def f{i}(n):\n    return n\n".encode() for i in range(30))
+        lines = set(range(1, 61))
+        made, _ = mutants.python_mutants("many.py", source, lines)
+        self.assertEqual(mutants.scaled_limit(len(lines)), len(made))
 
 
 class SkipTests(unittest.TestCase):
