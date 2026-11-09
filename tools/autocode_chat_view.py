@@ -334,9 +334,9 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         message_input = {
             "kind": "resolver_response",
             "label": "Send recovery reply",
-            "next_command": shlex.join(["AUTOCODE_RESOLVER_TOKEN=" + need["resolver_token"]])
-            + " "
-            + shlex.join(
+            # No token value in the named command: `--resolver-token -` reads this run's own saved
+            # request, so relaying or logging this text never carries the credential (#2958).
+            "next_command": shlex.join(
                 [
                     "autocode",
                     "--workspace",

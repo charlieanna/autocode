@@ -14,15 +14,21 @@ try:
     from . import autocode_resolver_human as human
     from . import autocode_stop as stop
     from . import autocode_validation_rounds as rounds
+    from . import autocode_validation_scope_recovery as scope_recovery
 except ImportError:
     import autocode_contract_identity as contracts
     import autocode_findings as findings
     import autocode_resolver_human as human
     import autocode_stop as stop
     import autocode_validation_rounds as rounds
+    import autocode_validation_scope_recovery as scope_recovery
 
 
 NOTICE = "AutoCode will settle the retained validation limit against current evidence."
+
+
+def notice(state: RunState):
+    return scope_recovery.NOTICE if scope_recovery.pending(state) else NOTICE
 
 
 def pending(state: RunState):
@@ -32,6 +38,8 @@ def pending(state: RunState):
     The saved rounds must still prove exhaustion; live source is checked again
     under the run lock by ``settle``. No answer or execution authority is issued.
     """
+    if issued := scope_recovery.pending(state):
+        return issued
     if state.get("status") != "WAITING_FOR_USER" or any(
         state.get(key)
         for key in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts")
@@ -67,6 +75,8 @@ def settle(state: RunState, revision, *, at):
     source must independently satisfy today's admission limit. History, routes,
     caps and findings remain intact; no provider is launched or retry granted.
     """
+    if scope_recovery.pending(state):
+        return scope_recovery.settle(state, revision, at=at)
     issued = pending(state)
     if not issued or any(human.pending_interruptions(state.get("run_dir")).values()):
         return False

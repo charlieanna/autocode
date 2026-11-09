@@ -39,7 +39,8 @@ def _span(quote: str, text: str) -> str | None:
 def ground(quote, sources) -> str | None:
     """The exact source text ``quote`` stands for: the quote itself, the same words with the source's
     whitespace, or the same text without the period the checklist adds to a heading. None when no
-    source holds it."""
+    source holds it. A quote that differs only by dropped markup (backticks, quotes, whitespace)
+    resolves to the source span itself (#2835)."""
     quote = str(quote or "").strip()
     if not quote:
         return None
@@ -51,7 +52,74 @@ def ground(quote, sources) -> str | None:
             span = _span(candidate, text)
             if span:
                 return span
+    # A quote that dropped markup (backticks, quotes) still matches the source's words (#2835).
+    # Strip markup from both and match; then map back to the source's exact text.
+    stripped = _strip_markup(quote)
+    if stripped:
+        for text in texts:
+            stripped_text = _strip_markup(text)
+            if _span(stripped, stripped_text):
+                # Find the source's exact span: locate the stripped words in the original text.
+                span = _find_source_span(stripped, text)
+                if span:
+                    return span
     return None
+
+
+def _markup_flexible_match(stripped: str, text: str) -> bool:
+    """Whether ``stripped`` matches ``text`` ignoring markup characters and whitespace."""
+    words = stripped.split()
+    if not words:
+        return False
+    # Between words, allow markup and whitespace; at word boundaries, allow markup only.
+    parts = []
+    for i, word in enumerate(words):
+        if i > 0:
+            parts.append(r"[`'\"\u201c\u201d\u2018\u2019\s]*")
+        parts.append(re.escape(word))
+    # After the last word, allow trailing markup (e.g. quote drops a closing backtick).
+    parts.append(r"[`'\"\u201c\u201d\u2018\u2019]*")
+    pattern = "".join(parts)
+    return re.search(pattern, text) is not None
+
+
+def _find_source_span(stripped: str, text: str) -> str | None:
+    """The exact source text for ``stripped``'s words, with the source's own markup and whitespace."""
+    words = stripped.split()
+    if not words:
+        return None
+    # Find each word's position in the source; words may be wrapped in markup.
+    # Match each word allowing surrounding markup, and take the span from first to last.
+    positions = []
+    for word in words:
+        core = word.strip(".,;:!?")
+        if not core:
+            continue
+        # Find the core word in the source, allowing markup around it.
+        match = re.search(
+            r"[`'\"\u201c\u201d\u2018\u2019]*" + re.escape(core) + r"[`'\"\u201c\u201d\u2018\u2019]*",
+            text,
+        )
+        if not match:
+            return None
+        positions.append(match)
+    if not positions:
+        return None
+    start = positions[0].start()
+    end = positions[-1].end()
+    # Extend to include trailing punctuation from the source.
+    while end < len(text) and text[end] in ".,;:!?":
+        end += 1
+    return text[start:end]
+
+
+_MARKUP_CHARS = "`'\"\u201c\u201d\u2018\u2019"
+
+
+def _strip_markup(text: str) -> str:
+    """Remove backticks and quote marks, collapse whitespace: the words a dropped-markup quote holds."""
+    cleaned = "".join(c for c in text if c not in _MARKUP_CHARS)
+    return " ".join(cleaned.split())
 
 
 def closest(quote, sources) -> str | None:

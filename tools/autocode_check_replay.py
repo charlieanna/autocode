@@ -10,7 +10,9 @@ check. Every check must exit 0 there. There are no exceptions a model can claim:
 a check that needs a server or other setup starts and stops it itself.
 
 A check that does not reproduce rejects the Validator's report with a ValueError
-naming the command, the runner's exit code and the end of its output. That is the
+naming the command, the runner's exit code and the end of its output. Later checks
+and acceptance observations are not run after that failure; the saved FAIL receipt
+lists them as not_run, never as passing evidence. That is the
 runner's ordinary rejected-report path: a bounded report repair may drop the check
 or cite another executed one (each is replayed again), then the run pauses, and
 ``--resume-paused`` asks for a fresh validation.
@@ -144,6 +146,10 @@ def executable_checks(checks, approved_state=None, required_commands=None, progr
     return checks, prescribed
 
 
+def _failed_check(row):
+    return bool(row["error"] or row["timed_out"] or row["exit_code"] != 0 or not command_receipt.completed(row))
+
+
 def replay(
     checks,
     workspace,
@@ -240,6 +246,7 @@ def replay(
         else None
     )
     rows: list[Any] = []
+    failed: list[Any] = []
     seen: dict[Any, Any] = {}
     contexts: dict[Any, Any] = {}
     for check in checks:
@@ -319,37 +326,37 @@ def replay(
         rows.append(
             {**seen[key], "reported_exit_code": check.get("exit_code"), "evidence_ref": check.get("evidence_ref")}
         )
-    brief = brief_evidence.replay(
-        cast("RunState", approved_state or {}),
-        workspace,
-        out,
-        scratch_run,
-        timeout=timeout,
-        source_revision=record.get("source_revision"),
-        progressive_context=progressive_context,
-        all_observations=all_brief_observations,
-    )
-    try:
-        risk, refuted = (
-            risk_evidence.replay(
-                cast("RunState", approved_state or {}),
-                workspace,
-                out,
-                scratch_run,
-                timeout=timeout,
-                source_revision=record.get("source_revision"),
-                progressive_context=progressive_context,
-                all_observations=all_risk_observations,
-            ),
-            None,
+        if _failed_check(rows[-1]):
+            failed.append(rows[-1])
+            break  # This report cannot pass; preserve the failure before spending on later gates.
+    brief = risk = refuted = None
+    if not failed:
+        brief = brief_evidence.replay(
+            cast("RunState", approved_state or {}),
+            workspace,
+            out,
+            scratch_run,
+            timeout=timeout,
+            source_revision=record.get("source_revision"),
+            progressive_context=progressive_context,
+            all_observations=all_brief_observations,
         )
-    except LifecycleFailure as error:
-        risk, refuted = error.result, error
-    failed = [
-        row
-        for row in rows
-        if row["error"] or row["timed_out"] or row["exit_code"] != 0 or not command_receipt.completed(row)
-    ]
+        try:
+            risk, refuted = (
+                risk_evidence.replay(
+                    cast("RunState", approved_state or {}),
+                    workspace,
+                    out,
+                    scratch_run,
+                    timeout=timeout,
+                    source_revision=record.get("source_revision"),
+                    progressive_context=progressive_context,
+                    all_observations=all_risk_observations,
+                ),
+                None,
+            )
+        except LifecycleFailure as error:
+            risk, refuted = error.result, error
     result = {
         "verdict": FAIL if failed or refuted else PASS,
         "checks": rows,
@@ -360,6 +367,12 @@ def replay(
         "timeout_seconds": timeout,
         "replayed_at": dt.datetime.now(dt.UTC).isoformat(),
     }
+    if failed:
+        result["not_run"] = {
+            "checks": checks[len(rows) :],
+            "brief_acceptance": True,
+            "risk_acceptance": True,
+        }
     decisions = [row for row in seen.values() if row.get("scheduling")]
     result["scheduling"] = {
         "executed_count": sum(row["scheduling"]["action"] == "execute" for row in decisions),
@@ -404,6 +417,7 @@ def replay(
                 "that needs a server or other setup must start and stop it itself."
             )
             + (RUN_FILES_HINT if ".autocode" in row["command"] else "")
+            + " Later checks and acceptance observations were not run; they remain required for a passing replay."
         )
         if isinstance(failure, PlannedCheckFailure):
             failure.command, failure.tail = row["command"], row["tail"]  # read by autocode_planned_check_rework

@@ -387,6 +387,40 @@ class ResolverHumanTests(unittest.TestCase):
                 human.respond_operational(self.state, request_id, token, action, "yes")
             self.assertEqual(before, self.state)
 
+    def test_the_shown_selector_reads_this_run_and_a_typed_token_stays_as_typed(self):
+        # #2958: `-` is the only selector this reads back, and it reads it from the run's own saved
+        # request. A typed value comes back untouched, so a stale token still fails at the caller's
+        # own authority check instead of being silently repaired here.
+        public = self.publish_operational()
+        self.assertEqual(public["request_token"], human.cli_token(self.state, "-"))
+        self.assertEqual(public["request_token"], human.cli_token(self.state, "-", public["request_id"]))
+        self.assertEqual("stale", human.cli_token(self.state, "stale"))
+        self.assertEqual("stale", human.cli_token(self.state, "stale", public["request_id"]))
+
+    def test_the_shown_selector_resolves_only_from_an_authentic_ledger_entry(self):
+        # A named request reads back from the entry whose own digest is its key and which this
+        # module published; anything else leaves `-` for the caller to refuse.
+        public = self.publish_operational()
+        ledger = self.state["resolver"]["human_escalations"]
+        identity = ledger[public["request_id"]]["identity"]
+        foreign = dict(identity, issuer="someone-else")
+        foreign_key = support.digest(foreign)
+        for label, key, entries in (
+            ("a request this run never published", public["request_id"], {}),
+            (
+                "an entry that is not its own key",
+                public["request_id"],
+                {public["request_id"]: {"identity": dict(identity, reason="edited after publishing")}},
+            ),
+            ("an entry someone else published", foreign_key, {foreign_key: {"identity": foreign}}),
+        ):
+            with self.subTest(entry=label):
+                tampered = copy.deepcopy(self.state)
+                tampered["resolver"]["human_escalations"] = copy.deepcopy(entries)
+                self.assertEqual("-", human.cli_token(tampered, "-", key))
+        self.assertEqual("-", human.cli_token({"status": "RUNNING"}, "-"))
+        self.assertEqual("typed", human.cli_token({"status": "RUNNING"}, "typed"))
+
     def test_operational_answer_cannot_satisfy_material_approval(self):
         self.contract()
         human.queue(self.state, "goal_approval", {"stage": "astra_discovery"}, status="AWAITING_GOAL_APPROVAL")

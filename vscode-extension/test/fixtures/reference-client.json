@@ -26,7 +26,7 @@
       "name": "answer proposed default",
       "workspace": "/ws",
       "runDir": "/ws/.autocode/runs/r1",
-      "nextCommand": "AUTOCODE_RESOLVER_TOKEN=r7:beef autocode --workspace /ws --run-dir /ws/.autocode/runs/r1 --answer q-1=ANSWER --resolver-token -",
+      "nextCommand": "autocode --workspace /ws --run-dir /ws/.autocode/runs/r1 --answer q-1=ANSWER --resolver-token -",
       "expect": {
         "ok": true,
         "argv": [
@@ -35,9 +35,7 @@
           "--resolver-token",
           "-"
         ],
-        "env": {
-          "AUTOCODE_RESOLVER_TOKEN": "r7:beef"
-        },
+        "env": {},
         "decideOk": true,
         "decidedTo": [
           "--answer",

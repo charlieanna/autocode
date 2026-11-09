@@ -1380,7 +1380,9 @@ apart from surrounding spaces (#1013). Any other text is rejected with the valid
 current, and something the options do not cover goes in `--feedback` (`/feedback` in
 `--chat`, which asks again after a rejected answer). A question without options takes any
 nonempty text. The terminal CLI also shows the remaining question IDs and
-current Resolver token on stderr after each successful answer and on `--status`, and `--status`
+the exact `--answer` command on stderr after each successful answer and on `--status`; that
+command names `--resolver-token -`, which reads the current token from the run it names, so the
+value never appears in a terminal, a log or a relayed message (#2958). `--status`
 also prints the run's cost line there (`Cost: ...`, from the view's `cost`), then, when the run has
 escalated, one `Escalations: ...` line and a line per escalation (from the view's `escalations`);
 the status JSON on stdout and the returned TaskRun view keep their existing shape.
@@ -1581,7 +1583,9 @@ that cause.
 
 `next_command` formats the current `needs` and existing recovery controls. It
 contains the owned run/workspace paths, and issued tokens travel through their
-paired environment variables with the `-` selector. Replace `ANSWER`, `MODEL`,
+paired environment variables with the `-` selector; the AutoResolver token needs no
+assignment at all, because `--resolver-token -` reads it back from the run the command
+names (#2958). Replace `ANSWER`, `MODEL`,
 `N` or `GOAL_FILE` with a decision; presentation never chooses one or grants
 approval. An uncertain attempt offers abandonment first; inspect status again
 before resuming. Missing issued tokens offer a noninteractive display, and a
@@ -2258,6 +2262,15 @@ as information and never edits the contract, so after it the run holds and
 `needs.reason` names the path that applies such a decision, `--edit-goal
 body.json` followed by `--approve-goal`.
 
+A retained no-progress question from an older validation-only Builder handoff can
+instead offer `needs.kind=continue` and the normal named resume action. The core
+authenticates the old question, approved task, independent review and current
+source and evidence before returning the unresolved changed-line obligations to
+scope review. This action launches no provider and grants no Builder attempt,
+counter reset, evidence acceptance or plan change. Clients read the resulting
+view for the next action; scope changes still require exact-plan review and
+approval. Unrelated pauses and stale evidence do not qualify for this recovery.
+
 When a role's quota ran out, its provider's content filter refused it, or its authenticated response exhausted the output limit, the `answer`
 need also carries `route`: `question_id` (`route-ROLE`), `role`, `job`, `current_model`,
 `engine`, `cause` (`quota`, `content_filter` or `output_limit`), `stopped_model` and, for a refusal,
@@ -2735,6 +2748,15 @@ command's liveness. A legacy unbound marker or unavailable
 ownership remains held; status does not reconcile it, grant a retry or establish
 test success. Use the displayed supported recovery action and retain interrupted
 receipts separately from fresh verification.
+
+For an admitted execution worker, `verification_obligation.returned_check` exposes
+its returned command's bounded diagnostic fields: result hash, nullable exit code,
+timeout/interruption flags, whether an error was recorded, supervision-error count,
+and the phase/cause/error presence of its hash-bound cleanup receipt. Its `status`
+is `available`, `not_returned`, or `unavailable`; other preparation operations use
+null. Unbound answers expose no diagnostic fields. Command output, report text,
+error text and control tokens are never included. This observation does not
+reconcile the run, permit a retry or establish passing evidence.
 
 ## Connections for clients
 

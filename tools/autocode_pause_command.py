@@ -2,8 +2,10 @@
 
 This formats existing controls; it grants no permission and never changes state.
 Controller tokens use the CLI's private environment channel, so copying a shown
-command does not put them in the launched process's argv. ANSWER, MODEL, EFFORT and N
-remain values a person must supply rather than decisions made by presentation.
+command does not put them in the launched process's argv; the AutoResolver token is
+read back from the run a shown command names, so its value is never shown at all.
+ANSWER, MODEL, EFFORT and N remain values a person must supply rather than decisions
+made by presentation.
 """
 
 from __future__ import annotations
@@ -134,6 +136,10 @@ def _action_flags(action, need):
 def _display(words, *, private=None, for_client=False):
     public, extracted = private_command(words, argument_offset=1)
     private = {**extracted, **(private or {})}
+    # The AutoResolver token is the digest of the run's own saved request, so the command that
+    # names the run names it: `-` reads it back after the run loads (#2958). Its value never
+    # reaches a shown command, a terminal, a log or a relayed channel message, for a client too.
+    private.pop(TOKEN_ENV_VARS["resolver_token"], None)
     # The machine-readable contract supplies the launch env. A displayed copy
     # carries no token, while argv always uses the private-channel selector.
     assignments = " ".join(f"{name}={shlex.quote(value) if for_client else '-'}" for name, value in private.items())
@@ -152,7 +158,9 @@ def display(text):
 
 def recovery(need, *, run_dir=None, workspace=None, terminal=False) -> str:
     """The #909 recovery suffix: the current action with control tokens masked.
-    Executable bindings remain in the structured status contract. Empty when
+    Executable bindings remain in the structured status contract; the AutoResolver
+    token needs no binding at all, since `--resolver-token -` reads it from the run
+    this command names (#2958). Empty when
     no recovery exists (no need, terminal, a dependency without its producer) —
     a pause never emits a command its own CLI would reject."""
     rendered = command(need, run_dir=run_dir, workspace=workspace, terminal=terminal)

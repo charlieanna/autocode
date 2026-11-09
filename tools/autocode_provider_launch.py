@@ -360,6 +360,9 @@ def prepare(
         )
     if native_image_preparation is not None:
         worker["visual_runtime"] = native_image_preparation.context()
+    # A format repair gets a bounded output cap (#2835); the provider's output_cap.apply() reads this.
+    if planning_report_recovery:
+        environment["AUTOCODE_REPAIR"] = "1"
     if engine == "opencode" and (not worker["configured"] or type(adapter) is KiloProvider):
         # Read from the scrubbed environment: the cap the process will actually get.
         variable = (

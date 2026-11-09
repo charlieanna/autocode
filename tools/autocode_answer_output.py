@@ -20,14 +20,16 @@ def questions(view: dict) -> str | None:
 
 
 def summary(view: dict, *, after_answer: bool = False) -> str | None:
-    """Show the current request after a saved answer or a read-only status call."""
+    """Show the current request after a saved answer or a read-only status call.
+
+    The command is the whole answer: `--resolver-token -` reads the token from the run it names,
+    so no shown line carries the value into a terminal, a log or a relayed message (#2958).
+    """
     need = view.get("needs") or {}
     block = questions(view)
     if block is None:
         return "No questions left to answer." if after_answer else None
     lines = [block]
-    if token := need.get("resolver_token"):
-        lines.append(f"Resolver token: {token}")
     if action := need.get("action"):
         lines.append(f"Response action: {action}")
     if command := view.get("next_command"):

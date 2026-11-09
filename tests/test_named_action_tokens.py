@@ -121,7 +121,11 @@ class NamedActionTokenTests(unittest.TestCase):
                         run_dir=self.run_dir,
                     )
                 command = actions.named(view, self.workspace, self.run_dir)
-                self.assertEqual({pause.TOKEN_ENV_VARS[field]: token}, command.env)
+                # #2958: an AutoResolver command names the run whose own saved request the `-`
+                # selector reads back, so it carries no value at all. Every other issued token
+                # is freshly derived per action and still travels only through the launch env.
+                expected_env = {} if field == "resolver_token" else {pause.TOKEN_ENV_VARS[field]: token}
+                self.assertEqual(expected_env, command.env)
                 self.assertNotIn(token, command.argv)
                 self.assertEqual("-", command.argv[command.argv.index("--" + field.replace("_", "-")) + 1])
                 if need.get("route"):
@@ -137,11 +141,14 @@ class NamedActionTokenTests(unittest.TestCase):
         projected = chat.project({"status": view["status"]}, view, workspace=self.workspace, run_dir=self.run_dir)
         view["chat"] = projected
         command = actions.message(view, "The dependency is ready", projected["context"], self.workspace, self.run_dir)
-        self.assertEqual({"AUTOCODE_RESOLVER_TOKEN": token}, command.env)
+        self.assertEqual({}, command.env)
         self.assertNotIn(token, command.argv)
+        self.assertNotIn(token, shlex.join(command.argv))
         self.assertEqual("The dependency is ready", command.argv[-1])
         self.assertNotIn(token, str(projected["messages"]))
-        view["needs"] = {**need, "resolver_token": "newer-token"}
+        # The reply is bound to the request it names, not to a token copy, so a command from an
+        # earlier request is refused; the current request's own binding is read back from the run.
+        view["needs"] = {**need, "resolver_request_id": "req-2"}
         with self.assertRaisesRegex(actions.ClientGap, "Unsupported message action"):
             actions.message(view, "The dependency is ready", projected["context"], self.workspace, self.run_dir)
 
@@ -156,7 +163,13 @@ class NamedActionTokenTests(unittest.TestCase):
                     "status": "WAITING_FOR_USER",
                     "next_command": command,
                 }
-                shown = f"{variable}=- autocode --run-dir '/tmp/run with spaces' --no-chat"
+                shown = (
+                    # #2958: the AutoResolver selector reads the named run's own request, so its
+                    # assignment is dropped rather than masked; the others keep `-` as the selector.
+                    "autocode --run-dir '/tmp/run with spaces' --no-chat"
+                    if variable == pause.TOKEN_ENV_VARS["resolver_token"]
+                    else f"{variable}=- autocode --run-dir '/tmp/run with spaces' --no-chat"
+                )
                 self.assertEqual("Your decision\nState: WAITING_FOR_USER\nNext command: " + shown, pause.summary(view))
                 self.assertEqual("Next command: " + shown, pause.trailer(view, "line\n" * 21))
                 self.assertEqual("", pause.trailer(view, "line\n" * 21 + "Next command: " + shown))

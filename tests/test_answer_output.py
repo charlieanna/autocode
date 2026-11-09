@@ -1,4 +1,4 @@
-"""Human-readable answer hints use only the public frontier."""
+"""Human-readable answer hints use only the public frontier, and never a token value (#2958)."""
 
 import copy
 import unittest
@@ -7,7 +7,7 @@ import autocode_answer_output as output
 
 
 class AnswerOutputTests(unittest.TestCase):
-    def test_pending_ids_questions_and_exact_current_token_are_shown(self):
+    def test_pending_ids_and_questions_are_shown(self):
         view = {
             "needs": {
                 "kind": "answer",
@@ -20,8 +20,7 @@ class AnswerOutputTests(unittest.TestCase):
         }
         before = copy.deepcopy(view)
         self.assertEqual(
-            "Pending questions:\n  audience: Who will read it?\n"
-            "  punctuation: Use an exclamation mark?\nResolver token: current-token",
+            "Pending questions:\n  audience: Who will read it?\n  punctuation: Use an exclamation mark?",
             output.summary(view),
         )
         self.assertEqual(before, view)
@@ -42,7 +41,7 @@ class AnswerOutputTests(unittest.TestCase):
                 ],
                 "resolver_token": "current-token",
             },
-            "next_command": "AUTOCODE_RESOLVER_TOKEN=current-token autocode --run-dir R --answer Q1=ANSWER",
+            "next_command": "autocode --run-dir R --answer Q1=ANSWER --resolver-token -",
         }
         self.assertEqual(
             "Pending questions:\n"
@@ -54,11 +53,13 @@ class AnswerOutputTests(unittest.TestCase):
         )
         text = output.summary(view)
         assert text is not None
-        self.assertTrue(text.startswith(output.questions(view) + "\nResolver token: current-token"), text)
+        self.assertTrue(text.startswith(output.questions(view) + "\nAnswer with: "), text)
         self.assertTrue(text.endswith("\nAnswer with: " + view["next_command"]), text)
+        self.assertNotIn("current-token", text)
         self.assertIsNone(output.questions({"needs": {"kind": "approve_plan"}}))
 
-    def test_only_the_current_public_token_is_used(self):
+    def test_no_hint_line_prints_a_token_value(self):
+        """#2958: neither the current nor a superseded token value reaches a stream a person logs."""
         view = {
             "resolver_token": "old-token",
             "needs": {
@@ -67,12 +68,12 @@ class AnswerOutputTests(unittest.TestCase):
                 "resolver_token": "rotated-token",
             },
         }
-        self.assertEqual(
-            "Pending questions:\n  remaining: Choose?\nResolver token: rotated-token",
-            output.summary(view, after_answer=True),
-        )
+        text = output.summary(view, after_answer=True)
+        self.assertEqual("Pending questions:\n  remaining: Choose?", text)
+        self.assertNotIn("rotated-token", text)
+        self.assertNotIn("old-token", text)
 
-    def test_missing_public_token_is_not_inferred(self):
+    def test_a_frontier_without_its_token_still_names_the_questions(self):
         self.assertEqual(
             "Pending questions:\n  q: Choose?",
             output.summary(
