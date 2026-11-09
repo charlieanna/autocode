@@ -18,6 +18,49 @@ from providers.command import CommandProvider
 
 
 class CaptureEventContractTests(unittest.TestCase):
+    def test_large_capture_authenticates_from_either_end_of_native_display(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve()
+            ref = ".autocode/evidence/large.json"
+            argv = [sys.executable, "-c", "print('x' * 400000)"]
+            capture = [sys.executable, str(Path(support.__file__).parent / "autocode.py"), "capture"]
+            command = capture + ["--mode", "raw", "--output", ref, "--", *argv]
+            environment = {key: value for key, value in os.environ.items() if not key.startswith("AUTOCODE_")}
+            environment["AUTOCODE_OUTPUT_STORE"] = str(workspace / ".output-store")
+            ran = subprocess.run(
+                command,
+                cwd=workspace,
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=20,
+            )
+            self.assertEqual(0, ran.returncode)
+            receipt = workspace / ref
+            original = receipt.read_bytes()
+            self.assertEqual("x" * 400000 + "\n", Path(json.loads(original)["full_output"]).read_text())
+            events = workspace / "events.jsonl"
+            for kind, display in (("head", ran.stdout[:8192]), ("tail", ran.stdout[-8192:])):
+                with self.subTest(display=kind):
+                    item = {
+                        "type": "command_execution",
+                        "id": "large",
+                        "command": shlex.join(command),
+                        "exit_code": 0,
+                        "aggregated_output": display,
+                    }
+                    events.write_text(json.dumps({"type": "item.completed", "item": item}) + "\n")
+                    check = {"command": shlex.join(argv), "exit_code": 0, "evidence_ref": ref}
+                    try:
+                        support.verify_checks([check], workspace, events)
+                    except ValueError as error:
+                        self.fail(f"The {kind} display lost capture authentication: {error}")
+                    receipt.write_text(json.dumps({**json.loads(original), "duration_seconds": 0}))
+                    with self.assertRaisesRegex(ValueError, "independently executed"):
+                        support.verify_checks([check], workspace, events)
+                    receipt.write_bytes(original)
+
     def test_native_and_configured_event_providers_explain_receipt_preservation(self):
         configured = CommandProvider(
             {
@@ -218,7 +261,7 @@ class CaptureEventContractTests(unittest.TestCase):
             ref = ".autocode/evidence/only-exit.json"
             command = f"{capture} --output {ref} -- {shlex.join(argv)} 2>&1 | grep -o '\"exit_code\": [0-9]*'"
             ran = subprocess.run(["sh", "-c", command], cwd=workspace, env=environment, capture_output=True, text=True)
-            self.assertEqual('"exit_code": 0\n"exit_code": 0\n', ran.stdout)
+            self.assertEqual('"exit_code": 0\n' * 3, ran.stdout)
             events = workspace / "events.jsonl"
             item = {"type": "command_execution", "id": "item_1", "command": command, "exit_code": 0}
             item["aggregated_output"] = ran.stdout

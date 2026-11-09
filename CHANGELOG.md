@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Capture emits its receipt attestation before and after a large display, retaining authentication
+  when a native tool keeps only the beginning or end of a combined response; full output stays intact.
+
 - Active process supervision no longer repeatedly probes descendants already
   observed to have exited. Their receipts remain retained, while active workers,
   ownership leases and cleanup still receive fresh identity checks.
