@@ -1666,12 +1666,12 @@ def execution_identity(
     node_invocation = node_tests.parse(command)
     runtime = node_invocation.node if node_invocation else python
     search_path = environment.get("PATH", "")
-    if node_invocation:
+    if node_invocation or python_command:
         command_root = workspace.resolve()
         if os.path.dirname(runtime) and not Path(runtime).is_absolute():
             runtime = str(command_root / runtime)
         # The shell executes in the proof workspace. Relative and empty PATH
-        # entries must select its Node, never a binary in the controller cwd.
+        # entries must select its runtime, never a binary in the controller cwd.
         search_path = os.pathsep.join(
             str(Path(entry) if Path(entry).is_absolute() else command_root / entry)
             for entry in search_path.split(os.pathsep)

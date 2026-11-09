@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Python verification resolves relative interpreter paths and PATH entries from
+  the task workspace, so an isolated project environment can supply its exact
+  identity even when the controller runs from another directory.
+
 - Public status now explains retained report repairs with typed original and current
   rejection categories and hashes, without granting any recovery action.
 - Ask the Tester to supply an omitted changed-line decision before running clean
