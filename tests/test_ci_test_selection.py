@@ -8,6 +8,15 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_project_inventory_keeps_the_race_and_browser_consumers_when_slow(self):
+        expected = {"tests.test_dashboard_project_snapshot", "tests.test_catalogue_t12"}
+        selected = run_suite.select_tests(
+            ["tools/dashboard/dashboard_project_controls.py"],
+            dict.fromkeys((*expected, "tests.test_unrelated"), ""),
+        )
+        kept, _ = run_suite.drop_slow(selected, dict.fromkeys(expected, "slow"))
+        self.assertEqual(expected, set(kept))
+
     def test_repository_pytest_policy_keeps_its_execution_consumer_when_slow(self):
         consumer = "tests.test_repository_pytest"
         selected = run_suite.select_tests(["pyproject.toml"], {consumer: "", "tests.test_unrelated": ""})

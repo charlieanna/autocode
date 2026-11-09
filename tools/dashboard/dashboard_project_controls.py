@@ -184,11 +184,16 @@ class ProjectRemovalMixin:
     def dashboard_snapshot(self):
         """Coalesce overlapping polls without making later reads stale."""
         with self._dashboard_snapshot_condition:
-            generation = self._dashboard_snapshot_generation
-            if self._dashboard_snapshot_building:
-                while self._dashboard_snapshot_building and generation == self._dashboard_snapshot_generation:
-                    self._dashboard_snapshot_condition.wait()
-                if self._dashboard_snapshot_generation > generation and self._dashboard_snapshot_cache is not None:
+            while self._dashboard_snapshot_building:
+                generation = self._dashboard_snapshot_generation
+                self._dashboard_snapshot_condition.wait()
+                # A restore/remove may finish while the older inventory is
+                # building. A later reader must not inherit that old visibility.
+                if (
+                    self._dashboard_snapshot_generation > generation
+                    and self._dashboard_snapshot_cache is not None
+                    and self._dashboard_snapshot_cache["removed_projects"] == self.removed_projects()
+                ):
                     return self._dashboard_snapshot_cache
             self._dashboard_snapshot_building = True
         try:

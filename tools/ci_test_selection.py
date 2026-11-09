@@ -81,6 +81,10 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "tools/dashboard/dashboard_project_controls.py",
+        ("tests.test_dashboard_project_snapshot", "tests.test_catalogue_t12"),
+    ),
     ("pyproject.toml", ("tests.test_repository_pytest",)),
     (".github/workflows/tests.yml", ("tests.test_ci_java",)),
     ("tools/dashboard/tests/test_shell_a11y_ui.js", ("tests.test_catalogue_t12",)),
