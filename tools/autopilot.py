@@ -51,7 +51,6 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_regression as regression
-    from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_requirements_handoff as requirements_handoff
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_resolver_human as human
@@ -104,7 +103,6 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_regression as regression
-    import autocode_report_repair_queue as report_repair_queue
     import autocode_requirements_handoff as requirements_handoff
     import autocode_requirements_triage as requirements_triage
     import autocode_resolver_human as human
@@ -865,8 +863,8 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
     progressive_pass = progressive_state.enabled(state) and any(
         row["status"] == "PASS" for row in value.get("criterion_results", [])
     )
-    report_repair_queue.require_executed_passes(
-        value, passing_claim=value["verdict"] == "PASS" or human_pending or progressive_pass
+    changed_code_review_application.preflight(
+        state, validation, record, passing_claim=value["verdict"] == "PASS" or human_pending or progressive_pass
     )
     if modern and stage == "sol" and any(c["human_review"] for c in criteria):
         # Only a contract with human criteria has a review receipt to look up; the gate itself returns
@@ -874,10 +872,6 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
         human_review_flow.require_human_pending_proof(
             criteria, value, human_pending, bool(goals.missing_human_reviews(state))
         )
-    # Missing offered Tester decisions already make this report incomplete.
-    # Request its repair before spending clean executions; admission still binds
-    # the supplied decisions and evidence after those executions below.
-    changed_code_review_application.require_tester_decisions(state, validation, record)
     native = getattr(runtime, "native_calls", None)
     native_execution = native.verification_execution(state, record) if native is not None else None
     replay_context = progressive_state.context(state)
