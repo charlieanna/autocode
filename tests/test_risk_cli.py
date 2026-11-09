@@ -69,7 +69,8 @@ class RiskCliTests(unittest.TestCase):
         return scenario, run, self.drive(run) if drive else run.status()
 
     def drive(self, run):
-        for _ in range(12):
+        boundaries = 32 if "--pause-after-stage" in run.options else 12
+        for _ in range(boundaries):
             view = run.advance_until_input()
             if view["done"]:
                 return view
@@ -79,9 +80,11 @@ class RiskCliTests(unittest.TestCase):
             elif need.get("kind") == "review":
                 for criterion in need["criteria"]:
                     run.approve_review(criterion, need["token"])
+            elif need.get("kind") == "resume" and view["status"] == "PAUSED_REQUESTED":
+                run.resume_paused()
             else:
                 return view
-        self.fail("The scripted lifecycle task exceeded twelve public approval gates")
+        self.fail(f"The scripted lifecycle task exceeded {boundaries} public stage boundaries")
 
     def reattach(self, run):
         return taskrun.TaskRun(run.workspace, run.run_dir, options=run.options, env=run.env, timeout=180, cwd=self.root)
@@ -301,7 +304,7 @@ raise SystemExit(runner.cli())
         scenario, run, _ = self.start(
             scenario.id,
             solution="broken/process-local-tokens",
-            planning=("--no-adaptive-planning",),
+            planning=("--no-adaptive-planning", "--pause-after-stage"),
             env={
                 "RISK_RESTART_MARKER": str(marker),
                 "SCENARIO_FAKE_REWORK_SOLUTION": str(scenario.dir / "reference"),

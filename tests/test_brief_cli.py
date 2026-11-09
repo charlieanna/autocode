@@ -48,7 +48,12 @@ class BriefCliTests(unittest.TestCase):
         paths = environment["PATH"].split(os.pathsep)
         environment["PATH"] = os.pathsep.join([paths[0], str(Path(sys.executable).parent), *paths[1:]])
         run = taskrun.TaskRun.start(
-            project, self.scenario.brief, options=(*flags, *planning), env=environment, timeout=180, cwd=self.root
+            project,
+            self.scenario.brief,
+            options=(*flags, *planning, "--pause-after-stage"),
+            env=environment,
+            timeout=180,
+            cwd=self.root,
         )
         return run, self.drive(run) if drive else run.status()
 
@@ -245,8 +250,10 @@ class BriefCliTests(unittest.TestCase):
         self.assertEqual([["list"]], [row["declaration"]["observe_argv"] for row in rows])
 
     def drive(self, run):
-        """Serve this fixture's delegated plan approval through the task-run API."""
-        for _ in range(12):
+        """Serve approvals and saved stage boundaries through the task-run API."""
+        # Proof, Builder and review work each retain the original per-call
+        # deadline, including when subprocess coverage measures the entire core.
+        for _ in range(32):
             view = run.advance_until_input()
             if view["done"]:
                 return view
@@ -256,9 +263,11 @@ class BriefCliTests(unittest.TestCase):
             elif need.get("kind") == "review":
                 for criterion in need["criteria"]:
                     run.approve_review(criterion, need["token"])
+            elif need.get("kind") == "resume" and view["status"] == "PAUSED_REQUESTED":
+                run.resume_paused()
             else:
                 return view
-        self.fail("The scripted task did not stop within twelve public approval gates")
+        self.fail("The scripted task did not stop within 32 public stage boundaries")
 
     def reattach(self, run):
         return taskrun.TaskRun(run.workspace, run.run_dir, options=run.options, env=run.env, timeout=180, cwd=self.root)
