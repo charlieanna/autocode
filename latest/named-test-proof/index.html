@@ -2207,6 +2207,11 @@ test-report = &quot;junit:target/surefire-reports/TEST-example.PageCountTest.xml
 </code></pre>
 <p>A saved command/report correction uses the existing reconciled
 <code>--resume-paused</code> repair boundary before the Tester or combined checkpoint.
+When a completed Tester report was rejected and its queued repair has not launched,
+a material verification-command correction archives that obsolete repair after
+settings validation. Rejected artifacts, counters, usage and plan approval remain
+retained; fresh runner proof and an independent Tester attempt are required.
+Active or uncertain ownership and already launched report repairs remain held.
 It cannot replace evidence during an active command or late acceptance.
 Generic JUnit commands have no portable selector: stability repeats the unchanged
 command only when its complete report contains exclusively the proving cases.
