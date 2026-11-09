@@ -171,10 +171,6 @@ class BlockerNeedTests(unittest.TestCase):
                 lambda: self.state.update(uncertain_artifacts=["iterations/002/resolver-02.json"]),
                 recovery_limits.UNSETTLED_REFUSAL,
             ),
-            "different pending decision": (
-                lambda: self.state[human.PRIVATE].update(scope="blocker"),
-                "A different pending decision cannot grant a recovery retry",
-            ),
         }
         for name, (change, reason) in cases.items():
             with self.subTest(name):
@@ -191,6 +187,18 @@ class BlockerNeedTests(unittest.TestCase):
         need = self.needs()
         self.assertNotIn("retry_action", need)
         self.assertNotIn("retry_unavailable", need)
+
+    def test_a_different_pending_decision_is_shown_before_any_recovery_retry(self):
+        self.hold_before_publication()
+        self.state[human.PRIVATE].update(scope="blocker")
+        view = run_view.view(self.state)
+        need = view["needs"]
+        self.assertEqual("answer", need["kind"])
+        self.assertEqual("blocker", need["resolver_scope"])
+        self.assertEqual(self.request()["decision_needed"], need["questions"][0]["question"])
+        self.assertNotIn("retry_action", need)
+        self.assertNotEqual(recovery_limits.SCOPED_RETRY, need.get("action"))
+        self.assertNotIn("retry_failed_stage", self.card_actions())
 
     def test_the_view_and_the_cli_share_one_admission_rule(self):
         # A published request of another kind refuses in both, with the same reason.
