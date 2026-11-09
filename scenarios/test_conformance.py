@@ -235,6 +235,59 @@ class ClientDecisionTests(unittest.TestCase):
         self.assertEqual((["--approve-goal", "-"], {"AUTOCODE_APPROVE_GOAL_TOKEN": "r2:abc"}), (words, env))
         self.assertEqual("next_command", source)
 
+    def test_malformed_named_command_quoting_is_a_gap(self):
+        for command in (
+            f"autocode --run-dir '{self.client.run_dir} --resume-paused",
+            f'autocode --workspace "{self.client.project} --resume-paused',
+            "autocode --resume-paused \\",
+        ):
+            with self.subTest(command=command), self.assertRaises(ConformanceGap):
+                self.named(command, "resume")
+
+    def test_named_path_flags_require_a_value(self):
+        for flag in ("--run-dir", "--workspace"):
+            for suffix in ("", " --resume-paused"):
+                with self.subTest(flag=flag, suffix=suffix), self.assertRaises(ConformanceGap):
+                    self.named(f"autocode --resume-paused {flag}{suffix}", "resume")
+
+    def test_well_formed_quoted_paths_preserve_the_named_action(self):
+        self.client.project = self.client.project / "project with 'quotes'"
+        self.client.run_dir = self.client.project / ".autocode/runs/run with spaces"
+        command = shlex.join(
+            [
+                "autocode",
+                "--workspace",
+                str(self.client.project),
+                "--run-dir",
+                str(self.client.run_dir),
+                "--resume-paused",
+            ]
+        )
+        self.assertEqual((["--resume-paused"], {}, "next_command"), self.named(command, "resume"))
+        for path in (self.client.project, self.client.run_dir):
+            with self.subTest(path=path), self.assertRaisesRegex(ConformanceGap, "not this run"):
+                self.named(command.replace(shlex.quote(str(path)), shlex.quote(str(path / "other"))), "resume")
+
+    def test_malformed_named_commands_stop_before_execution(self):
+        self.client.person_paused = True
+        for command in (
+            "autocode --resume-paused --run-dir",
+            "autocode --resume-paused --workspace",
+            "autocode --run-dir --resume-paused",
+            "autocode --workspace --resume-paused",
+            f"autocode --run-dir '{self.client.run_dir} --resume-paused",
+        ):
+            with (
+                self.subTest(command=command),
+                mock.patch.object(self.client, "view", return_value=view("resume", command)),
+                mock.patch.object(self.client, "call") as call,
+                self.assertRaises(ConformanceGap),
+            ):
+                try:
+                    self.client.until_stopped()
+                finally:
+                    call.assert_not_called()
+
     def test_operational_message_fills_only_bound_person_reply(self):
         need = {
             "kind": "answer",

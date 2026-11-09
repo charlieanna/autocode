@@ -240,7 +240,10 @@ class ConformanceDriver(Driver):
             return ["--no-chat"], {}, "needs.kind"
         if not text:
             raise ConformanceGap(f"needs {view['needs']['kind']!r} at {view['status']!r} names no next_command")
-        words = shlex.split(text)
+        try:
+            words = shlex.split(text)
+        except ValueError as error:
+            raise ConformanceGap(f"next_command has invalid quoting: {error}") from error
         env = {}
         while words and words[0] != "autocode" and "=" in words[0]:
             name, value = words.pop(0).split("=", 1)
@@ -251,6 +254,8 @@ class ConformanceDriver(Driver):
         for flag, expected in (("--run-dir", self.run_dir), ("--workspace", self.project)):
             if flag in words:
                 index = words.index(flag)
+                if index + 1 == len(words):
+                    raise ConformanceGap(f"next_command names {flag} without a path")
                 named = words[index + 1]
                 del words[index : index + 2]
                 if Path(named).resolve() != Path(expected).resolve():

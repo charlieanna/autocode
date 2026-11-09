@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The independent conformance client refuses malformed named-action quoting and missing
+  run/workspace paths as contract gaps before execution, preserving exact path binding (#2969).
 - VS Code refuses approval projections with malformed milestone or end-to-end
   flow fields while retaining valid and legacy plans (#2970).
 - A failed verification replay stops before later checks and acceptance observations,
