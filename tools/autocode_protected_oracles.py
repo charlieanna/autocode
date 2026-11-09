@@ -21,8 +21,10 @@ except ImportError:
 
 try:
     from . import autocode_source_scope as source_scope
+    from . import autocode_stop as stop
 except ImportError:
     import autocode_source_scope as source_scope
+    import autocode_stop as stop
 
 import copy
 import json
@@ -35,7 +37,10 @@ try:
     from . import autocode_protected_commands as commands
     from . import autocode_protected_paths as paths
     from . import autocode_protected_store as store
+    from . import autocode_python_test_roles as test_roles
     from . import autocode_superseded_tests as superseded_tests
+    from . import autocode_test_role_correction as role_correction
+    from . import autocode_test_role_inventory as role_inventory
     from . import autocode_util as util
     from .autocode_protected_paths import identity, path_in
 except ImportError:
@@ -44,7 +49,10 @@ except ImportError:
     import autocode_protected_commands as commands
     import autocode_protected_paths as paths
     import autocode_protected_store as store
+    import autocode_python_test_roles as test_roles
     import autocode_superseded_tests as superseded_tests
+    import autocode_test_role_correction as role_correction
+    import autocode_test_role_inventory as role_inventory
     import autocode_util as util
     from autocode_protected_paths import identity, path_in
 
@@ -88,13 +96,19 @@ def retain(workspace, run_dir, files, command):
 def inventory(workspace, is_test_path, *, package=None):
     """Every eligible test, or only those inside ``package``; a test's link targets come with it."""
     snapshot = util.snapshot(workspace)["files"]
-    names = [name for name, value in snapshot.items() if is_test_path(name) and value != "deleted"]
+    roles = role_inventory.from_workspace(workspace, is_test_path, snapshot=snapshot)
+    names = [
+        name for name, value in snapshot.items() if is_test_path(name) and value != "deleted" and roles.protected(name)
+    ]
     if package:
         names = [name for name in names if package_scope.contains(package, name)]
-    return paths.collect(workspace, names, snapshot)
+    files = paths.collect(workspace, names, snapshot)
+    return {name: value for name, value in files.items() if roles.protected(name)}
 
 
-def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_path, discover_command):
+def reconcile(
+    state: RunState, settings, args, workspace, run_dir, *, is_test_path, discover_command, original_inputs=None
+):
     """New runs bind all eligible existing tests; saved runs never silently rebind.
 
     A CLI revision declares the exact old binding, new inventory, command and
@@ -102,6 +116,26 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
     Neither a Builder report nor a repaired verification command is authority.
     """
     revision = getattr(args, "revise_protected_tests", None)
+    if (
+        getattr(args, "run_dir", None)
+        and getattr(args, "resume_paused", False)
+        and not getattr(args, "revise_protected_tests", None)
+        and not any(getattr(args, name, False) for name in ("status", "explain", "dry_run"))
+        and str(state.get("status", "")).startswith("PAUSED_")
+        and state.get("next_stage") in ("sol", "astra_checkpoint")
+        and stop.applied_stop(state) is None
+    ):
+        role_correction.reconcile(
+            state,
+            settings,
+            workspace,
+            run_dir,
+            is_test=is_test_path,
+            verify=verify_binding,
+            retain=retain,
+            opened=store.opened,
+            original_inputs=original_inputs,
+        )
     previous = settings.get("protected_tests")
     if revision:
         command_only = str(revision) == commands.SELECTOR
@@ -177,7 +211,7 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
     if getattr(args, "run_dir", None) and not any(state.get(key) for key in ("active_stage", "active_runner_check")):
         retained = [settings.get("protected_tests")]
         for event in state.get("user_events", []):
-            if event.get("kind") == "protected_tests_revised":
+            if event.get("kind") in ("protected_tests_revised", "protected_tests_roles_corrected"):
                 retained.extend((event.get("previous"), event.get("current")))
         for record in retained:
             if record:
@@ -195,7 +229,12 @@ MAX_ASSIGNED_BYTES = 32_000
 
 def context(settings, affected_paths=(), state: RunState | None = None, *, current=None):
     record = settings.get("protected_tests")
-    if not record or not record["files"]:
+    correction = (
+        test_roles.latest_correction(state.get("user_events"), record.get("binding_hash"))
+        if state is not None and record
+        else None
+    )
+    if not record or not record["files"] and not correction:
         return None
     verify_binding(record)
     matching = [
@@ -212,6 +251,9 @@ def context(settings, affected_paths=(), state: RunState | None = None, *, curre
     result = {key: copy.deepcopy(record.get(key)) for key in ("binding_hash", "root", "inventory_path", "command")}
     result |= {"total_files": len(record["files"]), "assigned_tests": assigned}
     instruction = prompts.get("fragments/protected-oracles/context.md")
+    if correction:
+        result["role_correction"] = correction
+        instruction += "\nThe runner removed only proven original product entries from a legacy test inventory. Original test bytes and command remain protected; the retired proof is historical and fresh proof is required. See the bound archive references and correction reason."
     replaced = superseded_tests.approved(state) if state is not None else []
     if replaced:
         result["superseded_tests"] = [{"file": row["file"], "test": row["test"]} for row in replaced]

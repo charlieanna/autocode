@@ -671,6 +671,18 @@ def _render(document):
         lines.append(f"| {text(row['id'])} | {text(row['criterion'])} | {text(status)} | {text(row['evidence'])} |")
     if not document["criteria"]:
         lines.append("None recorded.")
+    correction = mapping(mapping(document.get("regression_proof")).get("role_correction"))
+    if correction:
+        previous, current = mapping(correction.get("previous")), mapping(correction.get("current"))
+        lines += [
+            "",
+            "## Original test inventory correction",
+            "",
+            text(correction.get("reason")),
+            f"Original entries: {text(previous.get('file_count'))}; retained test inputs: {text(current.get('file_count'))}. The original command is unchanged; prior proof is historical and fresh verification is required.",
+            f"Original inventory: {text(previous.get('inventory'))} ({text(previous.get('binding_hash'))}).",
+            f"Corrected inventory: {text(current.get('inventory'))} ({text(current.get('binding_hash'))}).",
+        ]
     lines += [
         "",
         "## Independent checks",
