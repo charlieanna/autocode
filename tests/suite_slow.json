@@ -82,5 +82,6 @@
   "tests.test_chat_screens": "The full-screen chat in tmux with the offline fixture provider: three start-screen checks and one run to completion (76 s locally on macOS, 2026-10-19); mapped from tools/autocode_chat_* in ci_test_selection",
   "tests.test_changeset_bridge": "Two linked offline fixture runs reach plan approval while the bridge worker relays the set and takes its set approval through the CLI; about 16 s on macOS, 2026-10-25",
   "tests.test_changeset_chat": "Two linked offline fixture runs reach plan approval and complete while the chat client approves the set and runs its check through the CLI; about 34 s on macOS, 2026-10-25",
-  "tests.test_changeset_delivery_cli": "Two linked offline fixture runs complete through the task-run interface, then the change set's integration check, waiver and reopen run through the CLI; about 70 s on macOS, 2026-10-26"
+  "tests.test_changeset_delivery_cli": "Two linked offline fixture runs complete through the task-run interface, then the change set's integration check, waiver and reopen run through the CLI; about 70 s on macOS, 2026-10-26",
+  "tests.test_python_test_roles_cli": "189.710s observed on Linux: native named proof and saved legacy inventory migration"
 }

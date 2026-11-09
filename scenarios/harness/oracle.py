@@ -205,6 +205,52 @@ def bugfix_entry(run: dict | None) -> str:
     return "astra_discovery" if settings.get("implementation_flow") == "standard" else "investigate_bug"
 
 
+def _has_initial_triage(run: dict, model: list[str]) -> bool:
+    """Recognize only the named public triage/full reports, never a second unexplained pass.
+
+    Reports identify the kind of Requirements call, not correctness of the delivered
+    project. Product oracles still run independently. A turn's public view contains
+    earlier attempts too, so bind to its exact model-stage suffix before reading.
+    """
+    view = run.get("view") or {}
+    attempts = ((view.get("usage") or {}).get("accounting") or {}).get("attempts") or []
+    attempts = [
+        row
+        for row in attempts
+        if not row.get("runner_owned")
+        and row.get("stage") not in RUNNER_STAGES
+        and not str(row.get("stage")).endswith("_report_repair")
+    ][-len(model) :]
+    if [row.get("stage") for row in attempts] != model or not view.get("run_dir"):
+        return False
+    reports = []
+    root = Path(view["run_dir"]).resolve()
+    for row in attempts[:2]:
+        if row.get("exit_code") != 0 or any(row.get(key) for key in ("active", "rejected", "interrupted", "timed_out")):
+            return False
+        try:
+            path = Path(row["output"]).resolve()
+            if not path.is_relative_to(root):
+                return False
+            report = json.loads(path.read_text())
+        except (KeyError, TypeError, ValueError, OSError):
+            return False
+        if not isinstance(report, dict):
+            return False
+        reports.append(report)
+    if len(reports) != 2:
+        return False
+    triage, full = reports
+    drafted = ("requirements", "required_behaviors", "acceptance_tests")
+    return (
+        type(triage.get("ready")) is bool
+        and (triage["ready"] or bool(triage.get("open_questions")))
+        and not any(triage.get(key) for key in drafted)
+        and any(full.get(key) for key in drafted)
+        and full.get("job") == view.get("workflow")
+    )
+
+
 def run_checks(
     run: dict | None,
     *,
@@ -228,7 +274,8 @@ def run_checks(
     ``workflow`` is the kind of job the run should have recognized; the harness
     reads it from the status view's ``workflow`` field (README, "Workflows").
     ``after_requirements`` is the job's own first stage: Requirements must be the first model
-    stage, run once, and that stage must follow it (owner decision 2026-10-22, #1860).
+    stage, followed by that job. The full pass may have one documented initial triage
+    pass (#2940); repeated full passes or later Requirements calls still fail.
     """
     if run is None:
         return []
@@ -261,18 +308,19 @@ def run_checks(
             if stage not in RUNNER_STAGES and not str(stage).endswith("_report_repair")
         ]
         gathered = [stage for stage in model if stage in REQUIREMENTS_STAGES]
+        prefix = 2 if model[:2] == ["requirements_gather"] * 2 and _has_initial_triage(run, model) else 1
         checks.append(
             Check(
                 "requirements_first",
-                model[:1] == list(REQUIREMENTS_STAGES) and len(gathered) == 1,
+                model[:prefix] == ["requirements_gather"] * prefix and len(gathered) == prefix,
                 f"Requirements ran {len(gathered)} times; first stages: {model[:3]}",
             )
         )
         checks.append(
             Check(
                 "job_starts_after_requirements",
-                model[1:2] == [after_requirements],
-                f"after Requirements came {model[1:2]}, wanted {after_requirements!r}",
+                model[prefix : prefix + 1] == [after_requirements],
+                f"after Requirements came {model[prefix : prefix + 1]}, wanted {after_requirements!r}",
             )
         )
     if no_plan_review:

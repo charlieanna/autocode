@@ -24,12 +24,30 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Changed-line mutation checks prefer independently observed regression tests, retaining suite
+  preservation and the fresh unmutated check while avoiding unrelated suite work for each mutant.
+- Capture emits its receipt attestation before and after a large display, retaining authentication
+  when a native tool keeps only the beginning or end of a combined response; full output stays intact.
+- Ready check batches keep large receipt bodies in their files and emit only capture attestations
+  and check references, reducing tool-response size without losing full test output or receipt checks.
+- Linux supervision identifies Kilo's wrapper by its kernel executable path, so Node 24's
+  `MainThread` name no longer turns a silent model wait into tool activity (#2968).
+
 - Active process supervision no longer repeatedly probes descendants already
   observed to have exited. Their receipts remain retained, while active workers,
   ownership leases and cleanup still receive fresh identity checks.
 - A review round already granted by the Investigator survives same-turn replanning,
   retaining spent calls instead of falling back to a smaller limit and investigating again.
   Explicit limit provenance and configured allowances for future turns remain unchanged.
+
+- Python runtime modules with test-like filenames keep their original product role in
+  regression proofs and changed-code checks. Literal original packaging and imports bind
+  that role; ambiguous changed files refuse proof. Saved oracle corrections retain genuine
+  original test bytes and commands, preserve history, and require fresh proof.
+  Original assertion-only unittest oracles remain protected, while non-code directory
+  summaries cannot grant proof authority; earlier role-policy proofs require refresh.
+  Original internal test links retain their declared oracle endpoints without promoting
+  runtime-owned, ambiguous or candidate-selected product bytes into test overlays.
 
 - Malformed report-edit schema regression coverage now verifies refusal through
   the planning provenance boundary, including invalid JSON and missing structure.

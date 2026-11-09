@@ -186,6 +186,13 @@ def execute(
             # classify it, so report the same pause its stage launch would (autocode_provider_launch),
             # instead of an unclassified RuntimeError (#2108).
             raise support.Paused("PAUSED_TRANSPORT_UNVERIFIED", str(error)) from error
+        except subprocess.TimeoutExpired as error:
+            # Native policy discovery happens before provider ownership or model traffic.
+            # Keep it a recorded setup failure, not an escaped controller exception.
+            raise support.Paused(
+                "PAUSED_TRANSPORT_UNVERIFIED",
+                f"Provider setup timed out before model access; no model request was launched: {error}",
+            ) from error
     if prepare is not None and adapter is not None:
         argv, child_env = prepare(list(argv), dict(child_env))
     prompt_path.write_text(prompt)

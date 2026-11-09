@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 
 import autocode_junit as junit
+import autocode_python_test_roles as role_policy
 import autocode_regression as regression
 import autocode_util as util
 import autocode_verification_schedule as schedule
@@ -76,6 +77,7 @@ class JUnitProofArtifactTests(unittest.TestCase):
                 }
             },
             "regression_proof": {
+                "execution_context": {"test_role_policy": role_policy.VERSION},
                 "verdict": verify.PASS,
                 "source_revision": cls.result["source_revision"],
                 "path": str(cls.proof_path),

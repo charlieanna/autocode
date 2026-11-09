@@ -164,11 +164,16 @@ def cli(argv=None, *, formatter=filters.compact_output):
     if capture_context:
         receipt["capture_context"] = capture_context
     atomic_json(path, receipt)
+    # Native tools may retain only the beginning of a large combined response. Keep the same
+    # exact-byte attestation at both boundaries; stdout remains the complete receipt object.
+    attestation = receipts.attestation_line(path.read_bytes())
+    sys.stderr.write(attestation)
+    sys.stderr.flush()
     display = json.dumps(receipt) + "\n"
     print(display, end="", flush=True)
     # On stderr after stdout is flushed: it survives a stdout filter or redirect, and a merged
     # ``2>&1 | tail`` keeps it as the last line (autocode_receipts.attestation_line).
-    sys.stderr.write(receipts.attestation_line(path.read_bytes()))
+    sys.stderr.write(attestation)
     sys.stderr.flush()
     if root:
         store.record(

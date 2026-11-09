@@ -7,6 +7,14 @@ import ci_test_selection as dependencies
 import run_suite
 
 
+class AccessTransportConsumerTests(unittest.TestCase):
+    def test_transport_changes_keep_the_public_startup_failure_regression_when_slow(self):
+        consumer = "tests.test_model_preflight_budgets"
+        selected = run_suite.select_tests(["tools/provider_conformance_transport.py"], {consumer: ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertIn(consumer, kept)
+
+
 class DynamicDependenciesTests(unittest.TestCase):
     def test_project_inventory_keeps_the_race_and_browser_consumers_when_slow(self):
         expected = {"tests.test_dashboard_project_snapshot", "tests.test_catalogue_t12"}
@@ -16,6 +24,14 @@ class DynamicDependenciesTests(unittest.TestCase):
         )
         kept, _ = run_suite.drop_slow(selected, dict.fromkeys(expected, "slow"))
         self.assertEqual(expected, set(kept))
+
+    def test_named_action_transport_keeps_its_public_consumers_when_slow(self):
+        consumers = {"tests.test_pause_status_cli", "tests.test_checkpoint_reconciliation", "tests.test_worker_flow"}
+        for source in ("tools/autocode_pause_command.py", "tools/autocode_run_view.py"):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], {name: "" for name in consumers})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
 
     def test_repository_pytest_policy_keeps_its_execution_consumer_when_slow(self):
         consumer = "tests.test_repository_pytest"
