@@ -478,6 +478,9 @@ original product. Original top-level assertions with a literal `import unittest`
 also declare an oracle; packaging or runtime import ownership still makes that mixed
 role ambiguous. Unknown unchanged oracle entries remain protected conservatively.
 Proofs from an earlier role policy require fresh execution before advancing.
+An original internal test link also retains a declared oracle outside test roots
+when packaging, runtime imports and dynamic uncertainty do not give it a conflicting
+role. A candidate-added link cannot promote an original product or unknown endpoint.
 
 At an idle saved pause before independent validation, an explicit resume can remove
 positively proven original product entries from an old protected inventory. The runner

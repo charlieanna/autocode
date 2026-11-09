@@ -37,6 +37,8 @@ PR template asks for an entry here; a change without one is incomplete.
   original test bytes and commands, preserve history, and require fresh proof.
   Original assertion-only unittest oracles remain protected, while non-code directory
   summaries cannot grant proof authority; earlier role-policy proofs require refresh.
+  Original internal test links retain their declared oracle endpoints without promoting
+  runtime-owned, ambiguous or candidate-selected product bytes into test overlays.
 
 - Malformed report-edit schema regression coverage now verifies refusal through
   the planning provenance boundary, including invalid JSON and missing structure.

@@ -19,7 +19,7 @@ except ImportError:
     import autocode_python_packaging as packaging
     import autocode_python_tests as python_tests
 
-VERSION = 2
+VERSION = 3
 PRODUCT, TEST, AMBIGUOUS = "product", "test", "ambiguous"
 TEST_DIRS = frozenset({"tests", "__tests__", "__snapshots__", "testdata", "test_data"})
 
@@ -128,7 +128,10 @@ class Roles:
     metadata: dict[str, str]
     unsupported: str
     original_products: frozenset[str]
-    candidate_sources: dict[str, str]
+    candidate_sources: dict[str, str | None]
+    original_test_links: dict[str, str]
+    eligible_test_links: frozenset[str]
+    candidate_links: dict[str, str | None]
 
     def role(self, path):
         return self.roles.get(path, AMBIGUOUS)
@@ -144,6 +147,18 @@ class Roles:
         if role == AMBIGUOUS:
             raise ValueError(f"Python product/test ownership is ambiguous for changed path {path}")
         return role == TEST
+
+    def selectors(self, paths):
+        """Keep original collector identities when their linked oracle bytes change."""
+        selected = set(paths)
+        selected.update(
+            alias
+            for alias, endpoint in self.original_test_links.items()
+            if endpoint in selected
+            and alias in self.eligible_test_links
+            and self.role(alias) == self.role(endpoint) == TEST
+        )
+        return sorted(selected)
 
 
 def _endpoint(path, paths, links):
@@ -161,13 +176,24 @@ def _endpoint(path, paths, links):
     return path
 
 
-def _classify(paths, read, hint, ownership, links):
+def _classify(paths, read, hint, ownership, links, *, original_tests=None):
     def source(path):
         endpoint = _endpoint(path, paths, links)
         return read(endpoint) if endpoint is not None else ""
 
     potential = {p for p in paths if p.endswith(".py") and hint(p) and not _test_tree(p) and not ownership.contains(p)}
     reached, dynamic = _runtime_reach(paths, source, hint, ownership, potential)
+    runtime_targets = {_endpoint(path, paths, links) for path in paths if ownership.contains(path) or path in reached}
+    oracle_targets = {
+        endpoint
+        for path in links
+        if hint(path)
+        and (endpoint := _endpoint(path, paths, links)) is not None
+        and endpoint not in runtime_targets
+        and not dynamic
+        and (original_tests is None or endpoint in original_tests)
+        and _declares(source(endpoint))
+    }
     result = {}
     for path in paths:
         if not path.endswith(".py") or not hint(path):
@@ -188,8 +214,11 @@ def _classify(paths, read, hint, ownership, links):
         endpoint = _endpoint(path, paths, links)
         if endpoint is None:
             result[path] = AMBIGUOUS
+        elif endpoint in oracle_targets:
+            result[path] = result[endpoint] = TEST
         elif result.get(endpoint) == PRODUCT:
-            if _declares(source(endpoint)) or PurePosixPath(path).name == "conftest.py":
+            declared = _declares(source(endpoint))
+            if declared or PurePosixPath(path).name == "conftest.py":
                 result[path] = result[endpoint] = AMBIGUOUS
             else:
                 result[path] = PRODUCT
@@ -222,14 +251,29 @@ def build(paths, read, hint, *, candidates=None, links=None, candidate_links=Non
     )
     roles, runtime = _classify(paths, read, hint, ownership, links)
     original_products = frozenset(path for path in runtime if roles[path] == PRODUCT)
+    original_test_links = {
+        path: endpoint
+        for path in links
+        if hint(path)
+        and roles.get(path) == TEST
+        and (endpoint := _endpoint(path, paths, links)) is not None
+        and roles.get(endpoint) == TEST
+    }
     candidates = candidates or {}
+    current_paths = (paths | candidates.keys()) - {path for path, source in candidates.items() if source is None}
+    current_links = {
+        path: target
+        for path, target in {**links, **(candidate_links or {})}.items()
+        if target is not None and path in current_paths
+    }
     if candidates:
         current, runtime = _classify(
-            paths | candidates.keys(),
+            current_paths,
             lambda p: candidates.get(p, read(p) if p in paths else ""),
             hint,
             ownership,
-            {path: target for path, target in {**links, **(candidate_links or {})}.items() if target is not None},
+            current_links,
+            original_tests={path for path, role in roles.items() if role == TEST},
         )
         for path, role in current.items():
             old = roles.get(path)
@@ -240,7 +284,21 @@ def build(paths, read, hint, *, candidates=None, links=None, candidate_links=Non
             elif path in candidates and (old == AMBIGUOUS or old != role):
                 roles[path] = AMBIGUOUS
     metadata = {"pyproject.toml": hashlib.sha256(manifest.encode()).hexdigest()} if manifest is not None else {}
-    return Roles(roles, metadata, ownership.reason, original_products, dict(candidates))
+    eligible = frozenset(
+        alias
+        for alias, endpoint in original_test_links.items()
+        if alias in current_links and _endpoint(alias, current_paths, current_links) == endpoint
+    )
+    return Roles(
+        roles,
+        metadata,
+        ownership.reason,
+        original_products,
+        dict(candidates),
+        original_test_links,
+        eligible,
+        dict(candidate_links or {}),
+    )
 
 
 def proof_current(proof, protected_binding):

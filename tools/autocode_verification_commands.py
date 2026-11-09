@@ -52,7 +52,8 @@ def select_commands(framework, test_paths, *, suite_command=None, regression_com
         suite, suite_source = reported["test_command"].strip(), "builder"
     regression, regression_source = regression_command, "explicit" if regression_command else None
     if not regression and framework:
-        derived = framework.targeted(test_paths)
+        roles = getattr(framework, "test_roles", None)
+        derived = framework.targeted(roles.selectors(test_paths) if roles is not None else test_paths)
         if derived:
             regression, regression_source = derived, f"derived:{framework.name}"
     builder_regression = str(reported.get("regression_command", "")).strip()

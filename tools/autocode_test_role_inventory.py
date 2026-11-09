@@ -49,6 +49,7 @@ def _candidate(workspace, changes):
     sources, links = {}, {}
     for name, status in (changes or {}).items():
         if status == "deleted":
+            sources[name] = links[name] = None
             continue  # A deleted oracle retains its original role.
         path = Path(workspace) / name
         if path.is_symlink():
@@ -60,8 +61,8 @@ def _candidate(workspace, changes):
 
 
 def matches(roles, workspace, changes):
-    sources, _ = _candidate(workspace, changes)
-    return sources == roles.candidate_sources
+    sources, links = _candidate(workspace, changes)
+    return sources == roles.candidate_sources and links == roles.candidate_links
 
 
 def from_entries(workspace, original, read, hint, *, changes=None):

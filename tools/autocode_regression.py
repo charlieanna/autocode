@@ -477,6 +477,8 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         # whose regression command was derived is compared with the replay's own derivation (#2500).
         changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
         roles = role_inventory.from_git(workspace, base, verify.is_test_path, changes=changes)
+        if framework is not None:
+            framework.test_roles = roles
         commands = verify.select_commands(
             framework,
             [path for path, status in changes.items() if roles.is_test(path) and status != "deleted"],

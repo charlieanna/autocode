@@ -262,6 +262,23 @@ class PythonPathRoleTests(unittest.TestCase):
         self.assertEqual(2, len(git_commands))
         self.assertIn("--batch", git_commands[-1])
 
+    def test_selector_snapshot_detects_same_byte_alias_replacement_and_deletion(self):
+        (self.root / "shared").mkdir()
+        (self.root / "shared/oracle.py").write_text(PinnedRolePolicyTests.CASE)
+        alias = self.root / "test_alias.py"
+        alias.symlink_to("shared/oracle.py")
+        self.git("add", ".")
+        self.git("-c", "user.name=Fixture", "-c", "user.email=f@example.test", "commit", "-qm", "original link")
+        base = self.git("rev-parse", "HEAD")
+        changes = {"test_alias.py": "modified"}
+        roles = role_inventory.from_git(self.root, base, verify.is_test_path, changes=changes)
+        self.assertTrue(role_inventory.matches(roles, self.root, changes))
+        alias.unlink()
+        alias.write_text("shared/oracle.py")
+        self.assertFalse(role_inventory.matches(roles, self.root, changes))
+        alias.unlink()
+        self.assertFalse(role_inventory.matches(roles, self.root, {"test_alias.py": "deleted"}))
+
 
 class PinnedRolePolicyTests(unittest.TestCase):
     CASE = (
@@ -269,8 +286,15 @@ class PinnedRolePolicyTests(unittest.TestCase):
     )
     ASSERTION = "import unittest\nassert 2 + 2 == 4\n"
 
-    def roles(self, sources, *, candidates=None, links=None):
-        return role_policy.build(sources, sources.__getitem__, verify.is_test_path, candidates=candidates, links=links)
+    def roles(self, sources, *, candidates=None, links=None, candidate_links=None):
+        return role_policy.build(
+            sources,
+            sources.__getitem__,
+            verify.is_test_path,
+            candidates=candidates,
+            links=links,
+            candidate_links=candidate_links,
+        )
 
     def test_declared_runtime_ownership_does_not_depend_on_module_name(self):
         for name in ("billing_tests", "ledger_tests", "anything_test"):
@@ -395,6 +419,81 @@ class PinnedRolePolicyTests(unittest.TestCase):
         self.assertTrue(all(result.protected(path) for path in sources))
         self.assertTrue(all(result.is_test(path) for path in sources))
 
+    def test_original_test_link_keeps_declared_oracles_outside_test_roots(self):
+        sources = {"shared/oracle.py": self.CASE, "test_alias.py": "shared/oracle.py"}
+        result = self.roles(
+            sources,
+            links={"test_alias.py": "shared/oracle.py"},
+            candidates={"shared/oracle.py": self.CASE + "# added coverage\n"},
+        )
+        for path in sources:
+            self.assertTrue(result.is_test(path))
+            self.assertTrue(result.protected(path))
+
+    def test_changed_original_link_endpoint_selects_the_original_test_module_identity(self):
+        sources = {"shared/oracle.py": self.CASE, "test_alias.py": "shared/oracle.py"}
+        roles = self.roles(sources, links={"test_alias.py": "shared/oracle.py"})
+        framework = verify.Framework("unittest", "python -m unittest discover -v", python="python")
+        framework.test_roles = roles
+        commands = verify.select_commands(framework, ["shared/oracle.py"])
+        self.assertEqual("python -m unittest -v test_alias.py", commands["regression"])
+
+    def test_changed_or_missing_link_chain_cannot_select_another_oracle(self):
+        sources = {
+            "shared/oracle.py": self.CASE,
+            "shared/other.py": self.CASE,
+            "shared/bridge.py": "oracle.py",
+            "test_alias.py": "shared/bridge.py",
+        }
+        links = {"shared/bridge.py": "oracle.py", "test_alias.py": "shared/bridge.py"}
+        original = self.roles(sources, links=links)
+        self.assertEqual(["shared/oracle.py", "test_alias.py"], original.selectors(["shared/oracle.py"]))
+        for path, source, target in (
+            ("test_alias.py", None, None),
+            ("test_alias.py", self.CASE, None),
+            ("test_alias.py", "shared/other.py", "shared/other.py"),
+            ("shared/bridge.py", "other.py", "other.py"),
+            ("shared/bridge.py", None, None),
+            ("shared/bridge.py", self.CASE, None),
+            ("test_alias.py", "../outside.py", "../outside.py"),
+            ("shared/oracle.py", None, None),
+        ):
+            with self.subTest(path=path, source=source):
+                result = self.roles(sources, links=links, candidates={path: source}, candidate_links={path: target})
+                self.assertEqual(original.original_test_links, result.original_test_links)
+                self.assertEqual(["shared/oracle.py"], result.selectors(["shared/oracle.py"]))
+
+    def test_original_link_cannot_promote_packaged_reached_or_uncertain_oracles(self):
+        for extra, extra_links in (
+            ({"pyproject.toml": '[tool.setuptools]\npackages=["shared"]\n'}, {}),
+            ({"service.py": "from shared import oracle\n"}, {}),
+            ({"service.py": "import importlib\nimportlib.import_module(selected)\n"}, {}),
+            (
+                {"runtime_alias.py": "shared/oracle.py", "service.py": "import runtime_alias\n"},
+                {"runtime_alias.py": "shared/oracle.py"},
+            ),
+        ):
+            with self.subTest(extra=extra):
+                sources = {"shared/oracle.py": self.CASE, "test_alias.py": "shared/oracle.py", **extra}
+                result = self.roles(sources, links={"test_alias.py": "shared/oracle.py", **extra_links})
+                for path in ("shared/oracle.py", "test_alias.py"):
+                    with self.assertRaisesRegex(ValueError, "ambiguous"):
+                        result.is_test(path)
+
+    def test_candidate_added_link_cannot_promote_original_product_or_unknown_role(self):
+        for path, source in (("shared/oracle.py", self.CASE), ("shared/mystery_tests.py", "VALUE=1\n")):
+            with self.subTest(path=path):
+                sources = {path: source}
+                original = self.roles(sources)
+                result = self.roles(
+                    sources,
+                    candidates={"test_alias.py": path},
+                    candidate_links={"test_alias.py": path},
+                )
+                self.assertEqual(original.role(path), result.role(path))
+                with self.assertRaisesRegex(ValueError, "ambiguous"):
+                    result.is_test("test_alias.py")
+
     def test_mixed_runtime_test_link_ownership_keeps_both_entries_protected_but_refuses_changes(self):
         sources = {
             "pyproject.toml": '[tool.setuptools]\npackages=["pkg"]\n',
@@ -431,8 +530,9 @@ class RoleProofFreshnessTests(unittest.TestCase):
             mock.patch.object(regression.changed_code, "ready", return_value=True),
         ):
             self.assertFalse(regression.complete(state, "current"))
-            proof["execution_context"] = {"test_role_policy": 1}
-            self.assertFalse(regression.complete(state, "current"))
+            for previous_policy in (1, 2):
+                proof["execution_context"] = {"test_role_policy": previous_policy}
+                self.assertFalse(regression.complete(state, "current"))
             proof["execution_context"] = {"test_role_policy": role_policy.VERSION}
             self.assertTrue(regression.complete(state, "current"))
             state["settings"] = {"protected_tests": {"binding_hash": "new"}}
