@@ -72,6 +72,7 @@ try:
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_recovery_view as recovery_view
+    from . import autocode_report_repair_view as report_repair_view
     from . import autocode_report_retry as report_retry
     from . import autocode_request_usage as request_usage
     from . import autocode_resolver_recommendation as recommendation
@@ -127,6 +128,7 @@ except ImportError:
     import autocode_recovery_limits as recovery_limits
     import autocode_recovery_progress as recovery_progress
     import autocode_recovery_view as recovery_view
+    import autocode_report_repair_view as report_repair_view
     import autocode_report_retry as report_retry
     import autocode_request_usage as request_usage
     import autocode_resolver_recommendation as recommendation
@@ -364,6 +366,7 @@ def view(
         "package": package_scope.of(state.get("settings")),
         # Status inspection supplies a fresh offer; saved state alone grants no adoption.
         "job_report_recovery": None,
+        "report_repair": report_repair_view.project(state, stale=stale_report_repair),
         # The pause a client may request while the run works (autocode_pause_offer, #1598); status supplies it.
         "pause": None,
     }
