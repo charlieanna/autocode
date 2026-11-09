@@ -24,6 +24,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Active process supervision no longer repeatedly probes descendants already
+  observed to have exited. Their receipts remain retained, while active workers,
+  ownership leases and cleanup still receive fresh identity checks.
+
 - Malformed report-edit schema regression coverage now verifies refusal through
   the planning provenance boundary, including invalid JSON and missing structure.
 
