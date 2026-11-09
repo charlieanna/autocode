@@ -371,7 +371,7 @@ with ChatTUI() as ui:
                 update(current_view(delivered=True))
                 shown = screen.wait_for("Complete; current delivery verified")
                 self.assertIn("Fixture ready", shown)
-                self.assertIn("status read", shown)
+                self.assertIn("read 0s ago", shown)
                 screen.type("/details ")
                 screen.keys("Enter")
                 screen.wait_for("Core snapshot sampled at: 2026-10-24T05:00:00+00:00")

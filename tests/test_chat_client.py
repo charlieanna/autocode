@@ -1861,7 +1861,7 @@ class TabTests(unittest.TestCase):
         drawn = []
         client.tabs_changed = drawn.append
         self.assertEqual("That is this chat.", client.slash("/tab", "2"))
-        self.assertIn("There is no tab 7. Choose 1 to 2.", client.slash("/tab", "7"))
+        self.assertIn("Usage: /tab N (1 to 2)", client.slash("/tab", "7"))
         with self.assertRaises(chat.Switched):
             client.slash("/tab", "next")  # wraps around to the first
         self.assertEqual(Path(other), client.run_dir)

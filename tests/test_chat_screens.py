@@ -585,7 +585,7 @@ class ChatScreenTests(unittest.TestCase):
 
         screen.type("y")
         screen.keys("Enter")
-        screen.wait_for("AutoCode is working")
+        screen.wait_for("interpreted the reply", RUN_SECONDS)  # the approval was received
         screen.type("y")  # typed while AutoCode works, before the plan is shown
         screen.keys("Enter")
         screen.wait_for("Approve this plan", RUN_SECONDS)
@@ -672,7 +672,11 @@ def composer_text(screen: str) -> str:
         for prompt in ("❯ ", "> "):
             if inner.startswith(prompt):
                 typed = inner[len(prompt) :].strip()
-                return "" if typed.startswith(("Ask for", "Type your", "AutoCode is working")) else typed
+                return (
+                    ""
+                    if typed.startswith(("Ask for", "Type your", "AutoCode is working", "Type / for commands"))
+                    else typed
+                )
     return ""
 
 

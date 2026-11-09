@@ -35,5 +35,5 @@ class ChatContrastTests(unittest.TestCase):
             "cost": {"spent_usd": 1.25, "complete": True},
         }
         puts = styled(ui)
-        footer = next(row for row in puts if row[0] == 29 and "Planner · $1.25" in row[2])
+        footer = next(row for row in puts if row[0] == 29 and "Planner · chat $1.25" in row[2])
         self.assertEqual(ui._style("plain"), footer[3])
