@@ -24,6 +24,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Corrected verification commands at an idle paused Tester checkpoint can retire an
+  obsolete report repair that has not launched. The rejected report, counters and usage
+  stay archived, the approved plan stays exact, and fresh proof and testing remain required.
+
 - Active process supervision no longer repeatedly probes descendants already
   observed to have exited. Their receipts remain retained, while active workers,
   ownership leases and cleanup still receive fresh identity checks.
