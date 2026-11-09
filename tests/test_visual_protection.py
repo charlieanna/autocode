@@ -124,6 +124,63 @@ class OwnedGuardFixture(unittest.TestCase):
         with self.assertRaises(util.Paused):
             self.owner._safe(self.run / "state.json")
 
+    def test_authority_path_checks_containment_once_but_observes_every_owned_ancestor(self):
+        # Deep evidence paths must not repeat a lexical containment parse for
+        # every ancestor. Every original filesystem symlink observation stays.
+        relative = Path.is_relative_to
+        symlink = Path.is_symlink
+        for depth in (0, 1, 12):
+            target = self.workspace.joinpath(*[f"future-{index}" for index in range(depth)])
+            containment, observed = [], []
+
+            def contained(path, *args):
+                containment.append(path)
+                return relative(path, *args)
+
+            def linked(path):
+                observed.append(path)
+                return symlink(path)
+
+            with (
+                self.subTest(depth=depth),
+                patch.object(Path, "is_relative_to", contained),
+                patch.object(Path, "is_symlink", linked),
+            ):
+                self.assertEqual(target, self.owner._safe(target))
+            expected = [target]
+            while expected[-1] != self.workspace:
+                expected.append(expected[-1].parent)
+            self.assertEqual(expected, observed)
+            self.assertEqual([target], containment)
+
+    def test_authority_path_refuses_each_ancestor_changed_after_resolution(self):
+        target = self.workspace / "future" / "evidence.json"
+        for replaced in (target, target.parent, self.workspace):
+            with (
+                self.subTest(replaced=replaced),
+                patch.object(Path, "is_symlink", lambda path: path == replaced),
+                self.assertRaises(util.Paused),
+            ):
+                # The separate resolve and live symlink checks must both stay:
+                # this models a replacement after resolve returned its answer.
+                self.owner._safe(target)
+
+    def test_authority_path_still_rejects_foreign_alias_traversal_and_nonfiles(self):
+        regular = self.workspace / "evidence.json"
+        regular.write_text("retained evidence")
+        alias = self.workspace / "alias"
+        alias.symlink_to(self.workspace, target_is_directory=True)
+        self.assertEqual(regular, self.owner._safe(regular, file=True))
+        for path in (
+            self.workspace.with_name(self.workspace.name + "-sibling") / "evidence.json",
+            self.workspace / ".." / self.workspace.name / "evidence.json",
+            alias / "evidence.json",
+            self.workspace,
+            self.workspace / "absent.json",
+        ):
+            with self.subTest(path=path), self.assertRaises(util.Paused):
+                self.owner._safe(path, file=True)
+
     def test_foreign_sink_receipt_cannot_be_reconstructed(self):
         candidate = {"goal_contract": {"id": "fixture"}, "settings": {}, "current_task": None}
         intent, raw, sink = self.sink_intent(candidate)
