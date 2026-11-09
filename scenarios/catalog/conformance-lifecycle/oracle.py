@@ -101,8 +101,10 @@ def check(project, scenario, run=None):
             len(turns) == 2
             and (turns[0].get("view") or {}).get("done") is True
             and (second.get("view") or {}).get("workflow") == "discuss"
-            and "answer_question" in (second.get("stages") or [])
-            and any(path.startswith("docs/") for path in second.get("changed_files") or []),
+            # A question with nothing to write is answered by Requirements itself: nothing is planned or built.
+            and "requirements_gather" in (second.get("stages") or [])
+            and not {"answer_question", "astra_discovery", "terra"} & set(second.get("stages") or [])
+            and not second.get("changed_files"),
             repr({key: second.get(key) for key in ("stages", "changed_files")}),
         )
     )

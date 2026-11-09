@@ -32,6 +32,6 @@ scripted = ["astra_challenge"]
 first_attempt = ["terra"]
 
 [run]
-requires_stages = ["glm_revise", "terra", "sol", "astra_review", "answer_question"]
+requires_stages = ["glm_revise", "terra", "sol", "astra_review"]
 timeout_minutes = 10
 max_steps = 60
