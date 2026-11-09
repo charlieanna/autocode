@@ -551,6 +551,21 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_workspace_inventory.py",), ("tests.test_review_attribution_cli",)),
     (
+        (
+            "tools/autocode_python_packaging.py",
+            "tools/autocode_python_test_roles.py",
+            "tools/autocode_test_role_inventory.py",
+            "tools/autocode_test_role_correction.py",
+            "tools/autocode_verify.py",
+            "tools/autocode_protected_oracles.py",
+        ),
+        ("tests.test_python_test_roles_cli",),
+    ),
+    (
+        ("tools/autocode_regression.py", "tools/autocode_test_role_correction.py"),
+        ("tests.test_saved_run_replay_cli",),
+    ),
+    (
         ("tools/autocode_protected_oracles.py", "tools/autocode_protected_commands.py"),
         ("tests.test_protected_oracles_cli",),
     ),

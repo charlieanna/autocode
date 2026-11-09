@@ -16,12 +16,16 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_python_test_roles as role_policy
     from . import autocode_run_base as run_base
     from . import autocode_source_scope as source_scope
+    from . import autocode_test_role_inventory as role_inventory
     from . import autocode_verify as verify
 except ImportError:
+    import autocode_python_test_roles as role_policy
     import autocode_run_base as run_base
     import autocode_source_scope as source_scope
+    import autocode_test_role_inventory as role_inventory
     import autocode_verify as verify
 
 
@@ -37,7 +41,7 @@ def _recorded(state: RunState):
     if any(_product(row.get("changed_files")) for row in state.get("stages") or [] if isinstance(row, dict)):
         return True
     proof = state.get("regression_proof") or {}
-    if _product(proof.get("source_files")):
+    if any(isinstance(path, str) and verify.is_code_path(path) for path in proof.get("source_files") or []):
         return True
     return _product(
         [
@@ -67,7 +71,10 @@ def owes(state: RunState) -> bool:
         changes = verify.changed_files(root, base, source_paths=source_scope.paths(state))
         if not isinstance(changes, dict):
             return known
-        return bool(_product(changes))
+        # An unreadable role inventory cannot erase a visible changed-code obligation.
+        known = known or any(verify.is_code_path(path) for path in changes)
+        roles = role_inventory.from_git(root, base, verify.is_test_path, changes=changes)
+        return any(verify.is_code_path(path) and roles.role(path) != role_policy.TEST for path in changes)
     except (OSError, ValueError, RuntimeError, TypeError, KeyError, subprocess.SubprocessError):
         return known
 

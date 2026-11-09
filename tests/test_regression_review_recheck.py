@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_python_test_roles as role_policy
 import autocode_regression as regression
 import autocode_util as util
 
@@ -19,6 +20,10 @@ class ReviewRecheckTests(unittest.TestCase):
                 "source_revision": "rev",
                 "verdict": state.pop("_next_verdict", "PASS"),
                 "execution_context": {
+                    "test_role_policy": role_policy.VERSION,
+                    "protected_test_binding": ((state.get("settings") or {}).get("protected_tests") or {}).get(
+                        "binding_hash"
+                    ),
                     "contract_identity": util.digest(state.get("goal_contract")),
                     "cases_identity": util.digest([]),
                     "preserve_only": regression.preserve_only(state),
@@ -47,6 +52,8 @@ class ReviewRecheckTests(unittest.TestCase):
             "source_revision": "rev",
             "verdict": "FAIL",
             "execution_context": {
+                "test_role_policy": role_policy.VERSION,
+                "protected_test_binding": None,
                 "contract_identity": util.digest(None),
                 "cases_identity": util.digest([]),
                 "preserve_only": False,
@@ -76,9 +83,33 @@ class ReviewRecheckTests(unittest.TestCase):
                 proof = {
                     "source_revision": "rev",
                     "verdict": verdict,
-                    "execution_context": {"contract_identity": util.digest(None), "cases_identity": util.digest([])},
+                    "execution_context": {
+                        "test_role_policy": role_policy.VERSION,
+                        "contract_identity": util.digest(None),
+                        "cases_identity": util.digest([]),
+                    },
                 }
                 self.assertEqual(0, self.review({"regression_proof": proof, "regression_proofs": [proof]}))
+
+    def test_old_classification_and_changed_original_binding_require_fresh_proof_once(self):
+        for context, settings in (
+            ({}, {}),
+            ({"test_role_policy": 0}, {}),
+            ({"test_role_policy": True}, {}),
+            (
+                {"test_role_policy": role_policy.VERSION, "protected_test_binding": "old"},
+                {"protected_tests": {"binding_hash": "new"}},
+            ),
+        ):
+            with self.subTest(context=context, settings=settings):
+                state = self.failed_once()
+                state["settings"] = settings
+                proof = state["regression_proof"]
+                proof["verdict"] = "PASS"
+                proof["execution_context"].pop("test_role_policy", None)
+                proof["execution_context"].update(context)
+                self.assertEqual(1, self.review(state))
+                self.assertEqual(0, self.review(state))
 
     def test_reapproval_replays_repeated_failure_without_source_change(self):
         state = self.failed_once()

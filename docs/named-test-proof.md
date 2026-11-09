@@ -463,3 +463,22 @@ corrected production source, while the original suite baseline keeps its origina
 inputs. Compilation failures never establish a bug reproduction. Other dependency
 changes remain on the ordinary proof path and are not overlaid onto the original
 source as test prerequisites.
+
+
+### Python product and test roles
+
+A test-like filename alone does not make a shipped Python module an oracle. The runner
+uses the original Git tree, including its launch commit's dirty and untracked inputs,
+to read literal setuptools package and module lists and ordinary literal imports.
+Original product ownership keeps those bytes on the base side of a regression proof.
+Dedicated test roots and supported test declarations keep test authority; mixed or
+unresolved changed roles remain unverified without executing proof commands. Dynamic
+build configuration is not interpreted, and candidate packaging cannot relabel the
+original product. Unknown unchanged oracle entries remain protected conservatively.
+
+At an idle saved pause before independent validation, an explicit resume can remove
+positively proven original product entries from an old protected inventory. The runner
+checks their bytes and modes against the original Git pin and authenticated archive,
+retains every remaining original file and the same command, records both bindings and
+the retired proof, and requires fresh proof. Status reads and terminal stops cannot
+perform this correction. Ignored launch-source overlays leave the correction refused.
