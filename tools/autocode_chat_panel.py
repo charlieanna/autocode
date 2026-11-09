@@ -131,6 +131,7 @@ COMMANDS = (
     Command("/attention", "Saved alerts: inspect, acknowledge or open (also F8)"),
     Command("/panel", "Show or hide the side panel"),
     Command("/pause", "Ask AutoCode to pause after the current step"),
+    Command("/cap", "Set a session cost cap: /cap N stops the run with a warning at $N (0 removes it)"),
     Command("/help", "List these commands"),
     Command("/quit", "Leave the chat; the run stays as it is"),
 )

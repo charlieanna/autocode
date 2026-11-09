@@ -2571,6 +2571,25 @@ class TuiUxScreenTests(unittest.TestCase):
         all_text = " ".join(t for _, t in puts)
         self.assertIn("chat $4.50", all_text, "the live cost counter is visible during work")
 
+    def test_cost_cap_warns_and_pauses_when_reached(self):
+        """#3002: the session cost cap stops the run with a warning when hit."""
+        ui = screen_ui()
+        ui._cost_cap = 5.00
+        ui._run("/cap", asking=False, argument="5.00")
+        self.assertIn("Session cost cap set to $5.00", ui._transcript.blocks[-1][1])
+        # Below the cap: no warning
+        ui.observe({"status": "RUNNING", "cost": {"spent_usd": 2.00}})
+        self.assertFalse(ui._cost_cap_warned)
+        # At the cap: warn and request pause
+        ui.observe({"status": "RUNNING", "cost": {"spent_usd": 5.50}})
+        self.assertTrue(ui._cost_cap_warned)
+        self.assertTrue(ui._pause_requested)
+        self.assertIn("Cost cap reached", " ".join(b[1] for b in ui._transcript.blocks if b[0] == "info"))
+        # Reset cap
+        ui._run("/cap", asking=False, argument="0")
+        self.assertIsNone(ui._cost_cap)
+        self.assertIn("removed", ui._transcript.blocks[-1][1])
+
     def test_footer_says_chooses_not_history_while_menu_is_open(self):
         ui = screen_ui()
         ui._composer.insert("/")
