@@ -221,6 +221,7 @@ def view(
             "pause_category_label": None,
             "next_command": pause_command.command(
                 {**reconcile, "kind": "resume"},
+                for_client=True,
                 run_dir=run_dir or state.get("run_dir"),
                 workspace=workspace or state.get("workspace"),
             ),
@@ -929,7 +930,10 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
             "pause_category": "your_decision",
             "pause_category_label": "Your decision",
             "next_command": pause_command.command(
-                held_need, run_dir=run_dir or state.get("run_dir"), workspace=workspace or state.get("workspace")
+                held_need,
+                for_client=True,
+                run_dir=run_dir or state.get("run_dir"),
+                workspace=workspace or state.get("workspace"),
             ),
         }
     status = state.get("status", "")
@@ -952,6 +956,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
     if separate and inputs:
         named_raise = pause_command.command(
             {"kind": "resume", "action": command_inputs.raise_action(inputs[0])},
+            for_client=True,
             run_dir=run_dir or state.get("run_dir"),
             workspace=workspace or state.get("workspace"),
             recovery_token=token,
@@ -976,6 +981,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         answer = f"--answer {need['route']['question_id']}=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
         named = pause_command.command(
             {**need, "action": answer},
+            for_client=True,
             run_dir=run_dir or state.get("run_dir"),
             workspace=workspace or state.get("workspace"),
             resume_flags=resume_flags,
@@ -990,6 +996,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         if not category and not ready_boundary
         else pause_command.command(
             need,
+            for_client=True,
             run_dir=run_dir or state.get("run_dir"),
             workspace=workspace or state.get("workspace"),
             resume_flags=resume_flags,
@@ -1159,7 +1166,10 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         }
     # A Resolver proposal at RESOLVER_PENDING carries decisions for the person;
     # surface them so the view names an answerable action (#2896).
-    if status == "RESOLVER_PENDING":
+    if (
+        status == "RESOLVER_PENDING"
+        and (state.get("resolver_human_proposal") or {}).get("scope") != "operational_exhaustion"
+    ):
         proposal = state.get("resolver_human_proposal") or {}
         proposal_questions = proposal.get("questions") or []
         if not proposal_questions and (proposal.get("request") or {}).get("decision_needed"):
