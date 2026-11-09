@@ -2,6 +2,7 @@ import contextlib
 import csv
 import io
 import json
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -42,8 +43,29 @@ class CsvCheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "rows.csv"
             path.write_text(text)
-            return subprocess.run(
-                [sys.executable, "-m", "csvcheck", str(path)], capture_output=True, text=True, timeout=10
+            # Each command gets fresh package globals and its original CSV limit.
+            # The independent scenario oracle still launches the real module CLI.
+            stdout, stderr = io.StringIO(), io.StringIO()
+            code, limit = 0, csv.field_size_limit()
+            try:
+                with (
+                    patch.dict(sys.modules),
+                    patch.object(sys, "argv", ["csvcheck", str(path)]),
+                    contextlib.redirect_stdout(stdout),
+                    contextlib.redirect_stderr(stderr),
+                ):
+                    for name in ("csvcheck", "csvcheck.__main__"):
+                        sys.modules.pop(name, None)
+                    try:
+                        runpy.run_module("csvcheck", run_name="__main__", alter_sys=True)
+                    except SystemExit as error:
+                        code = error.code if isinstance(error.code, int) else 0 if error.code is None else 1
+                        if error.code is not None and not isinstance(error.code, int):
+                            print(error.code, file=sys.stderr)
+            finally:
+                csv.field_size_limit(limit)
+            return subprocess.CompletedProcess(
+                [sys.executable, "-m", "csvcheck", str(path)], code, stdout.getvalue(), stderr.getvalue()
             )
 
     def test_valid(self):

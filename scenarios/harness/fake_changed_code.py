@@ -1953,12 +1953,12 @@ CSVCHECK_SOURCES = {
     "csvcheck/__main__.py": "0472e2ffee01c7582c667fb3eb1ef01023e7d584f175cef8cb475e45e6bd1736",
 }
 CSVCHECK_TESTS = {
-    "tests/test_csvcheck.py": "0f38d7a9365dec107086cd5f6f61517bfb1c36f20cf9138d0e974320c1459dcc",
+    "tests/test_csvcheck.py": "22e484b1f3d468f76ecf4e42ad2ad7c85c00dc43459bd28c132ea4dc9899b730",
     "tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 }
 CSVCHECK_REASONS = {
     "csvcheck/__init__.py": {
-        "import argparse": "No supported import mutation. main builds its parser from argparse; tests/test_csvcheck.py drives `python3 -m csvcheck PATH` through the CLI, so removing the import breaks every observed flow.",
+        "import argparse": "No supported import mutation. main builds its parser from argparse; tests/test_csvcheck.py runs a fresh csvcheck module entry point with PATH, so removing the import breaks every observed flow.",
         "import csv": "No supported import mutation. The reader, field_size_limit and csv.Error paths below are what the quoting and header tests observe through the CLI exit code and stderr.",
         "import json": "No supported import mutation. test_valid and test_reports_errors parse the CLI's stdout as JSON; removing the import breaks that output.",
         "import re": "No supported import mutation. The age and email field checks use re.fullmatch; the error-row tests observe those fields in the stdout JSON.",
@@ -1981,7 +1981,7 @@ CSVCHECK_REASONS = {
         "yield line": "No supported yield mutation. csv.reader consumes exactly these lines; withholding one starves the parser and fails the row-count and quoting checks.",
         'raise csv.Error("unterminated quoted field")': "No supported raise mutation. An unterminated quoted field must surface as exit 2 with stderr; dropping the raise fails that CLI check.",
         "def main(argv=None):": "The header declares the CLI entrypoint and its optional argv; every test observes main through the module CLI's exit code, stdout and stderr.",
-        'parser = argparse.ArgumentParser(description="Validate contact CSV")': "No supported call mutation. The CLI tests invoke `python3 -m csvcheck PATH`; the parser is what turns argv into the path every flow reads.",
+        'parser = argparse.ArgumentParser(description="Validate contact CSV")': "No supported call mutation. The command tests invoke the csvcheck module entry point with PATH; the parser is what turns argv into the path every flow reads.",
         'parser.add_argument("path")': "No supported call mutation. Without the positional path argument the CLI cannot be invoked as the tests require.",
         "args = parser.parse_args(argv)": "No supported call mutation. The parsed path feeds the open below; the CLI tests observe a missing argument as argparse's own exit and usage.",
         "limit = sys.maxsize": "No supported assignment mutation. This seeds the largest field-size search; the CLI flows below observe the resolved limit through csv.field_size_limit.",
@@ -2023,7 +2023,7 @@ CSVCHECK_REASONS = {
         "return 1 if errors else 0": "No supported return mutation. test_valid asserts exit 0 and test_reports_errors asserts exit 1.",
     },
     "csvcheck/__main__.py": {
-        "from . import main": "No supported import mutation. The CLI tests invoke `python3 -m csvcheck`; this adapter is what makes the package runnable.",
+        "from . import main": "No supported import mutation. The command tests invoke the csvcheck module entry point; this adapter is what makes the package runnable.",
         "raise SystemExit(main())": "No supported exit-adapter mutation. The tests assert exits 0, 1 and 2; discarding main's return value fails those checks.",
     },
 }
