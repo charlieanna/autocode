@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Malformed report-edit schema regression coverage now verifies refusal through
+  the planning provenance boundary, including invalid JSON and missing structure.
+
 - An accepted bounded edit repair of a planning report retains its original execution witness.
   Its derived schema must still match the original validation schema, source report hash and stage;
   changed report bytes or provenance remain refused.
