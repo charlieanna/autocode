@@ -952,7 +952,7 @@ class NativeProtection:
             and path.is_relative_to(self.workspace)
             and path.resolve() == path
             and not any(
-                parent.is_symlink() for parent in (path, *path.parents) if parent.is_relative_to(self.workspace)
+                parent.is_symlink() for parent in (path, *path.parents[: len(path.parts) - len(self.workspace.parts)])
             ),
             "unsafe private/source authority path",
         )

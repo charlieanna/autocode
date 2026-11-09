@@ -355,6 +355,58 @@ class ReadyCaptureBatchTests(unittest.TestCase):
                     self.assertIn("current native scratch directory", result.stderr)
                     self.assertFalse(marker.exists(), "invalid destination reached capture")
 
+    def test_large_check_output_keeps_all_receipt_attestations_in_bounded_tool_display(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / ".autocode").mkdir()
+            (root / "large.py").write_text("import sys\nprint('x' * 400000)\nraise SystemExit(int(sys.argv[1]))\n")
+            commands = [shlex.join([sys.executable, "large.py", str(code)]) for code in (0, 1, 0)]
+            capture = shlex.join(
+                [sys.executable, str(Path(support.__file__).with_name("autocode.py")), "capture", "--mode", "raw"]
+            )
+            batch = ready.context(capture, commands, root / ".autocode/evidence")
+            environment = {key: value for key, value in os.environ.items() if not key.startswith("AUTOCODE_")}
+            environment["AUTOCODE_OUTPUT_STORE"] = str(root / "store")
+            ran = subprocess.run(
+                shlex.split(batch["command"]),
+                cwd=root,
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(1, ran.returncode)
+            self.assertLess(len(ran.stdout.encode()), 8192, "tool display repeats the captured check output")
+            checks = [json.loads(line) for line in ran.stdout.splitlines() if '"evidence_ref"' in line]
+            self.assertEqual([0, 1, 0], [check["exit_code"] for check in checks])
+            for check in checks:
+                check["command"] = shlex.join(check["command"])
+                receipt = json.loads(Path(check["evidence_ref"]).read_text())
+                self.assertEqual("x" * 400000 + "\n", Path(receipt["full_output"]).read_text())
+                self.assertEqual("x" * 400000 + "\n", receipt["summary"]["content"])
+            events = root / "events.jsonl"
+            events.write_text(
+                json.dumps(
+                    {
+                        "type": "tool_use",
+                        "sessionID": "bounded-batch",
+                        "part": {
+                            "id": "batch",
+                            "tool": "bash",
+                            "state": {
+                                "status": "completed",
+                                "input": {"command": batch["command"]},
+                                "metadata": {"exit": 1},
+                                "output": ran.stdout[:8192],
+                            },
+                        },
+                    }
+                )
+                + "\n"
+            )
+            support.verify_checks(checks, root, events)
+
     def test_batch_keeps_order_all_failures_fresh_receipts_and_existing_authentication(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

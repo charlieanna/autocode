@@ -128,7 +128,10 @@ def _action_flags(action, need):
 def _display(words, *, private=None):
     public, extracted = private_command(words, argument_offset=1)
     private = {**extracted, **(private or {})}
-    assignments = " ".join(f"{name}={shlex.quote(value)}" for name, value in private.items())
+    # Never write a live control token to a stream a log or client can capture (#2958).
+    # The command keeps its shape; the ``-`` placeholder reads the token from the
+    # private environment channel when the command is actually launched.
+    assignments = " ".join(f"{name}=-" for name in private)
     return (assignments + " " if assignments else "") + shlex.join(public)
 
 

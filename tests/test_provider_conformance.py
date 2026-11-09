@@ -354,6 +354,26 @@ class ProbeLaunchRoleTests(unittest.TestCase):
         self.assertIn("--glm-reasoning-effort high", str(caught.exception))
         self.assertIs(error, caught.exception.__cause__)
 
+    def test_a_policy_timeout_retains_its_cause_and_never_starts_a_provider(self):
+        error = subprocess.TimeoutExpired(["kilo", "debug", "config"], 30)
+        with patch.object(transport, "_provider_child") as child, self.assertRaises(support.Paused) as caught:
+            self.execute(self.adapter(error), role="glm")
+        self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
+        self.assertIn("no model request was launched", str(caught.exception))
+        self.assertIs(error, caught.exception.__cause__)
+        child.assert_not_called()
+        self.assertFalse((self.root / "probe/launch.json").exists())
+
+    def test_a_timeout_after_preparation_is_not_mislabeled_as_unlaunched(self):
+        error = subprocess.TimeoutExpired(["kilo", "run"], 30)
+        adapter = types.SimpleNamespace(launch=lambda *args, **kwargs: ([sys.executable], kwargs["env"], {}))
+        with (
+            patch.object(transport, "_provider_child", side_effect=error),
+            self.assertRaises(subprocess.TimeoutExpired),
+        ):
+            self.execute(adapter)
+        self.assertTrue((self.root / "probe/launch.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

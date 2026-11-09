@@ -78,14 +78,14 @@ class PauseCommandTests(unittest.TestCase):
             args, _ = autocode_args.parse(None, words, autocode_configure.DEFAULT_ROLE_MODELS)
         return args, words
 
-    def test_question_command_carries_the_current_token_privately(self):
+    def test_question_command_masks_the_live_token(self):
         token = "request token 'with quotes'"
         text = self.command({"kind": "answer", "resolver_token": token, "questions": [{"id": "Q1"}]})
-        args, argv = self.parse(text)
-        self.assertEqual(["Q1=ANSWER"], args.answer)
-        self.assertEqual(token, args.resolver_token)
-        self.assertNotIn(token, argv)
-        self.assertEqual(Path("/tmp/run with spaces"), args.run_dir)
+        self.assertNotIn(token, text, "the live token is never written to a stream (#2958)")
+        self.assertIn("AUTOCODE_RESOLVER_TOKEN=-", text)
+        self.assertIn("--resolver-token -", text)
+        self.assertIn("--answer", text)
+        self.assertIn("Q1=", text)
 
     def test_core_named_deterministic_recovery_is_a_continue_action(self):
         text = self.command(
@@ -122,34 +122,31 @@ class PauseCommandTests(unittest.TestCase):
         self.assertFalse(args.answer)
         self.assertIsNone(args.resolver_token)
 
-    def test_approval_uses_the_displayed_plan_token_without_resuming(self):
-        args, argv = self.parse(self.command({"kind": "approve_plan", "token": "plan-token"}))
-        self.assertEqual("plan-token", args.approve_goal)
-        self.assertNotIn("plan-token", argv)
-        self.assertFalse(args.resume_paused)
+    def test_approval_masks_the_plan_token(self):
+        text = self.command({"kind": "approve_plan", "token": "secret-plan-token"})
+        self.assertNotIn("secret-plan-token", text, "the live token is never written to a stream (#2958)")
+        self.assertIn("AUTOCODE_APPROVE_GOAL_TOKEN=-", text)
 
-    def test_review_names_each_criterion_and_current_review_token(self):
-        args, _ = self.parse(self.command({"kind": "review", "criteria": ["AC1", "AC2"], "token": "review-token"}))
-        self.assertEqual(["AC1", "AC2"], args.approve_review)
-        self.assertEqual("review-token", args.review_token)
+    def test_review_names_each_criterion_and_masks_the_token(self):
+        text = self.command({"kind": "review", "criteria": ["AC1", "AC2"], "token": "secret-review-token"})
+        self.assertNotIn("secret-review-token", text, "the live token is never written to a stream (#2958)")
+        self.assertIn("--approve-review", text)
+        self.assertIn("AC1", text)
+        self.assertIn("AC2", text)
 
-    def test_retry_uses_its_job_token_and_not_a_resolver_token(self):
-        args, argv = self.parse(
-            self.command(
-                {
-                    "kind": "retry_job",
-                    "job_retry_token": "job-token",
-                    "action": "--resume-paused --retry-failed-stage --job-retry-token TOKEN",
-                }
-            )
+    def test_retry_masks_the_job_token(self):
+        text = self.command(
+            {
+                "kind": "retry_job",
+                "job_retry_token": "secret-job-token",
+                "action": "--resume-paused --retry-failed-stage --job-retry-token TOKEN",
+            }
         )
-        self.assertTrue(args.resume_paused)
-        self.assertTrue(args.retry_failed_stage)
-        self.assertEqual("job-token", args.job_retry_token)
-        self.assertIsNone(args.resolver_token)
-        self.assertNotIn("job-token", argv)
+        self.assertNotIn("secret-job-token", text, "the live token is never written to a stream (#2958)")
+        self.assertIn("AUTOCODE_JOB_RETRY_TOKEN=-", text)
+        self.assertIn("--retry-failed-stage", text)
 
-    def test_private_retry_actions_are_executable_and_bind_the_displayed_token(self):
+    def test_private_retry_actions_mask_the_displayed_token(self):
         token = "current job token 'with quotes'"
         actions = (
             "--resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)",
@@ -159,32 +156,22 @@ class PauseCommandTests(unittest.TestCase):
         for action in actions:
             with self.subTest(action=action):
                 text = self.command({"kind": "retry_job", "job_retry_token": token, "action": action})
-                args, argv = self.parse(text)
-                self.assertEqual(token, args.job_retry_token)
-                self.assertNotIn(token, argv)
-                self.assertNotIn("(reads", argv)
-                self.assertNotIn("AUTOCODE_JOB_RETRY_TOKEN)", argv)
-                self.assertIsNone(args.resolver_token)
-                if "--answer" in action:
-                    self.assertEqual(["route-analyst=MODEL"], args.answer)
-                    self.assertFalse(args.retry_failed_stage)
-                else:
-                    self.assertTrue(args.resume_paused)
-                    self.assertTrue(args.retry_failed_stage)
+                self.assertNotIn(token, text, "the live token is never written to a stream (#2958)")
+                self.assertIn("AUTOCODE_JOB_RETRY_TOKEN=-", text)
+                self.assertNotIn("(reads", text)
 
     def test_a_refused_job_names_another_model_before_retry(self):
         text = self.command(
             {
                 "kind": "retry_job",
-                "job_retry_token": "job-token",
+                "job_retry_token": "secret-job-token",
                 "route": {"question_id": "route-analyst", "cause": "content_filter"},
                 "action": "--answer route-analyst=MODEL --job-retry-token TOKEN",
             }
         )
-        args, _ = self.parse(text)
-        self.assertEqual(["route-analyst=MODEL"], args.answer)
-        self.assertEqual("job-token", args.job_retry_token)
-        self.assertFalse(args.retry_failed_stage)
+        self.assertNotIn("secret-job-token", text, "the live token is never written to a stream (#2958)")
+        self.assertIn("--answer", text)
+        self.assertIn("route-analyst=MODEL", text)
 
     def test_unreconciled_attempt_is_abandoned_before_any_resume(self):
         args, _ = self.parse(
@@ -239,6 +226,32 @@ class PauseCommandTests(unittest.TestCase):
             self.command({"kind": "dependency", "producer_run": "/tmp/producer run"}),
         )
 
+    def test_no_live_token_value_ever_appears_in_any_displayed_command(self):
+        """#2958: a control token printed to a terminal is captured in logs and relayed to
+        issues by the channel bridge. Every displayed command masks its token value."""
+        token = "super-secret-value-12345"
+        needs = [
+            {"kind": "answer", "resolver_token": token, "questions": [{"id": "Q1"}]},
+            {
+                "kind": "answer",
+                "resolver_scope": "operational_exhaustion",
+                "resolver_request_id": "req-1",
+                "resolver_token": token,
+            },
+            {"kind": "approve_plan", "token": token},
+            {"kind": "review", "criteria": ["AC1"], "token": token},
+            {
+                "kind": "retry_job",
+                "job_retry_token": token,
+                "action": "--resume-paused --retry-failed-stage --job-retry-token TOKEN",
+            },
+        ]
+        for need in needs:
+            with self.subTest(kind=need.get("kind")):
+                text = self.command(need)
+                self.assertNotIn(token, text, f"live token leaked in {need.get('kind')} command")
+                self.assertIn("=- ", text + " ", "the placeholder replaces every token value")
+
 
 class RecoverySuffixTests(unittest.TestCase):
     """#909: pause/rejection messages end with the exact recovery command and
@@ -249,9 +262,10 @@ class RecoverySuffixTests(unittest.TestCase):
 
         return autocode_pause_command.recovery(need, run_dir=Path("/tmp/run"), **kwargs)
 
-    def test_the_suffix_carries_the_live_token_and_the_answer_command(self):
+    def test_the_suffix_carries_the_answer_command_without_the_live_token(self):
         suffix = self.recovery({"kind": "answer", "resolver_token": "live-token", "questions": [{"id": "Q1"}]})
-        self.assertIn("live-token", suffix)
+        self.assertNotIn("live-token", suffix, "the live token is never written to a stream (#2958)")
+        self.assertIn("AUTOCODE_RESOLVER_TOKEN=-", suffix)
         self.assertIn("--answer", suffix)
         self.assertIn("Q1=", suffix)
         self.assertIn("--resolver-token", suffix)
@@ -274,7 +288,9 @@ class RecoverySuffixTests(unittest.TestCase):
     def test_a_changed_token_is_rendered_fresh_not_from_a_stale_copy(self):
         stale = {"kind": "answer", "resolver_token": "stale-token", "questions": [{"id": "Q1"}]}
         fresh = {"kind": "answer", "resolver_token": "fresh-token", "questions": [{"id": "Q1"}]}
-        self.assertIn("stale-token", self.recovery(stale))
-        rendered = self.recovery(fresh)
-        self.assertIn("fresh-token", rendered)
-        self.assertNotIn("stale-token", rendered)
+        stale_rendered = self.recovery(stale)
+        fresh_rendered = self.recovery(fresh)
+        # The live token values are masked; both renders show the placeholder (#2958).
+        self.assertNotIn("stale-token", stale_rendered)
+        self.assertNotIn("fresh-token", fresh_rendered)
+        self.assertIn("AUTOCODE_RESOLVER_TOKEN=-", fresh_rendered)
