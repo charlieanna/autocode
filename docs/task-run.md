@@ -2541,6 +2541,23 @@ run. A failed/incomplete producer cannot release the consumer.
 
 `TaskRun.grant_recovery(N)` explicitly grants a positive number of additional recoveries after the operator inspects saved work and fixes the cause. It preserves recovery history and uses the CLI checkpoint guards. `resume_paused()` and operational guidance do not grant an allowance.
 
+### Retained report repair diagnostics
+
+`view.report_repair` is null without a retained rejected report. Otherwise it exposes
+its stage, recorded source revision, attempt count and limit, plus original and
+latest rejection diagnostics. Each reason has a fixed `category`, `error_sha256`,
+and nullable `command_sha256`, `timeout_seconds`, `exit_code` and `planned`.
+Unrecognized messages remain `unclassified`; raw commands, captured output,
+report text and control tokens are never included. These are recorded errors,
+not independently accepted evidence or recovery actions.
+
+`freshness` is `recorded` when the saved source, task, contract and stage bindings
+agree, `stale` when a binding changed or the caller's inspection found stale
+repair evidence, and `unavailable` without a valid source digest. Recorded does
+not assert that the current filesystem was rehashed. `active` additionally
+requires a running report-only attempt for the original stage. No field grants
+approval, retry, proof reuse or completion authority.
+
 ### Failed workflow jobs
 
 When a sessionless `report_file` bug Investigator lost its controller after
