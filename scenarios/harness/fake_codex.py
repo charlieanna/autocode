@@ -2128,11 +2128,12 @@ def report_for(stage: str, data: dict) -> dict:
         provider = runpy.run_path(str(scenario.parents[1] / "harness" / "recovery_novelty_provider.py"))
         # The Tester's changed-line reasons (fake_changed_code) are attached like every other report's.
         return lazy_citations(provider["report_for"](stage, data, common, CONFIG, run_check, requirements))
-    if CONFIG.get("fault", "").startswith("completion_rework_") and stage in (
-        "terra",
-        "sol",
-        "astra_review",
-        "astra_resolve",
+    if (
+        CONFIG.get("fault", "").startswith("completion_rework_")
+        and stage in ("terra", "sol", "astra_review", "astra_resolve")
+        # The fault is the brief's build; a later turn goes through the full pipeline too (#3010) and
+        # delivers only that turn's files, as an unfaulted Builder does.
+        and not (CONFIG.get("turns") and turn_number())
     ):
         provider = scripted_fault("completion_rework_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)

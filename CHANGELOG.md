@@ -20,6 +20,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The lifecycle conformance scenario's follow-up question and the review mutation scenario
+  match the unified pipeline (#3010): the question is planned, built and checked, and the
+  Code Reviewer's mutation check is exercised on a review launched as an earlier runtime saved it.
 - After a design turn that went through the full pipeline (#3010), "Build it." again names the
   design documents that turn wrote, so the build checks that design first. The tests, scenario
   oracles and scripted provider now expect every new task to go through the full pipeline, and
