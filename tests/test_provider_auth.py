@@ -101,6 +101,45 @@ class ProviderAuthReasonTests(unittest.TestCase):
                 self.assertIsNone(provider_auth.reason(path))
                 self.assertNotEqual("PAUSED_AUTH", support.failure_status(path))
 
+    def test_typed_authentication_403_names_account_access_without_changing_retry_authority(self):
+        rows = [
+            {"type": "error", "error": {"data": {"statusCode": 403}, "message": "private-test-canary"}},
+            {"type": "turn.failed", "error": {"code": "authentication_failed", "message": "private-test-canary"}},
+        ]
+        for ordered in (rows, rows[::-1]):
+            with self.subTest(reverse=ordered != rows):
+                path = self.write("\n".join(json.dumps(row) for row in ordered) + "\n")
+                reason = provider_auth.reason(path)
+                self.assertIsNotNone(reason)
+                self.assertIn("account access denied (HTTP 403)", reason)
+                self.assertEqual(reason, provider_auth.authentication_reason(iter(ordered)))
+                message = provider_auth.exit_message("Planner", 1, path)
+                self.assertIn(reason, message)
+                self.assertIn("no automatic replay", message)
+                self.assertNotIn("private-test-canary", message)
+                self.assertEqual("PAUSED_AUTH", support.failure_status(path))
+                self.assertEqual(
+                    "PAUSED_PROVIDER_UNCERTAIN", support.failure_status(path, record={"stage": "glm_revise"})
+                )
+
+    def test_403_requires_a_provider_owned_terminal_authentication_code(self):
+        forbidden = {"type": "error", "error": {"data": {"statusCode": 403}}}
+        for terminal in (
+            {"type": "turn.failed", "error": {"message": "authentication_failed oauth_org_not_allowed"}},
+            {"type": "turn.failed", "error": {"code": "permission_denied"}},
+            {"type": "error", "error": {"code": "authentication_failed"}},
+            {"type": "item.completed", "error": {"code": "authentication_failed"}},
+            {"type": "turn.failed", "error": {"data": {"code": "authentication_failed"}}},
+            {"type": "turn.failed", "usage": {"input_tokens": 0, "output_tokens": 0}},
+        ):
+            with self.subTest(terminal=terminal):
+                path = self.write("\n".join(json.dumps(row) for row in (forbidden, terminal)))
+                self.assertIsNone(provider_auth.reason(path))
+                self.assertNotEqual("PAUSED_AUTH", support.failure_status(path))
+        self.assertIsNone(
+            provider_auth.authentication_reason([{"type": "turn.failed", "error": {"code": "authentication_failed"}}])
+        )
+
 
 class ProviderAuthJobClassificationTests(unittest.TestCase):
     def setUp(self):
@@ -127,14 +166,20 @@ class ProviderAuthJobClassificationTests(unittest.TestCase):
 
     def test_job_failure_classifies_structured_auth_rejection(self):
         events = self.root / "investigation.jsonl"
-        events.write_text(json.dumps({"type": "error", "error": {"data": {"statusCode": 401}}}) + "\n")
-        kind, reason = job_failure._reason(
-            SimpleNamespace(support=support),
-            {"stage": "investigate_bug", "role": "astra", "events": str(events), "exit_code": 1},
-            "provider exited 1",
-        )
-        self.assertEqual("provider_auth", kind)
-        self.assertIn("401", reason)
+        for status in (401, 403):
+            with self.subTest(status=status):
+                rows = [
+                    {"type": "error", "error": {"data": {"statusCode": status}}},
+                    {"type": "turn.failed", "error": {"code": "authentication_failed"}},
+                ]
+                events.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+                kind, reason = job_failure._reason(
+                    SimpleNamespace(support=support),
+                    {"stage": "investigate_bug", "role": "astra", "events": str(events), "exit_code": 1},
+                    "provider exited 1",
+                )
+                self.assertEqual("provider_auth", kind)
+                self.assertIn(str(status), reason)
 
 
 if __name__ == "__main__":
