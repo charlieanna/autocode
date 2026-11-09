@@ -874,6 +874,10 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
         human_review_flow.require_human_pending_proof(
             criteria, value, human_pending, bool(goals.missing_human_reviews(state))
         )
+    # Missing offered Tester decisions already make this report incomplete.
+    # Request its repair before spending clean executions; admission still binds
+    # the supplied decisions and evidence after those executions below.
+    changed_code_review_application.require_tester_decisions(state, validation, record)
     native = getattr(runtime, "native_calls", None)
     native_execution = native.verification_execution(state, record) if native is not None else None
     replay_context = progressive_state.context(state)

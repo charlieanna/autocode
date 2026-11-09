@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Ask the Tester to supply an omitted changed-line decision before running clean
+  verification commands for its incomplete report. Complete and repaired reports
+  retain fresh verification, exact evidence binding and completion checks.
+
 - Clean verification-command timeouts remain failed checks instead of becoming
   an ownership pause that requires discarding the Tester's report. Missing or
   uncertain cleanup still blocks execution; timeouts never authorize proof reuse.
