@@ -47,13 +47,8 @@ def _first_conversation(state: RunState):
 
 
 def gather_first(state: RunState):
-    """Gather an unpinned chat brief; an explicitly selected review starts its named job."""
+    """Gather an unpinned chat brief. Every task goes through Requirements first (#3010)."""
     if not _first_conversation(state) or state.get("stages"):
-        return False
-    # An explicit review already names the job and supplies its brief. It has no
-    # implementation plan to approve; ambiguous/unpinned chats still use intake.
-    workflow = state.get("workflow") or {}
-    if workflow.get("kind") == "review" and workflow.get("source") == "user":
         return False
     intake = state.get("design_intake") or {}
     if intake.get("status") == "PENDING":
@@ -120,37 +115,20 @@ def recognize_after_approval(state: RunState):
     elif kind is None:
         workflows.begin(state, state["workflow"].get("then") or STAGE)
         state["workflow"]["requirements_approved"] = True
-    elif kind in workflows.FIRST_STAGE and not workflows.ran_this_turn(
-        state, workflows.first_stage(state, kind, workflows.planner_stage(state))
-    ):
-        state["next_stage"] = workflows.first_stage(state, kind, workflows.planner_stage(state))
+    elif not state["workflow"].get("requirements_approved"):
+        # Already pinned but not yet approved (#3010): mark approved; the full pipeline is set up.
+        state["workflow"]["requirements_approved"] = True
     else:
         return False
     return True
 
 
 def answer_now(state: RunState, record: dict) -> bool:
-    """A run whose Requirements understood a clear question starts the Analyst at once (#1846, #1860).
+    """Every task goes through the full pipeline (#3010). No shortcut to the Analyst.
 
-    Nothing is planned or built for a question, so there is nothing for the person to approve: asking
-    them to "prepare a plan" first only invited a yes to a plan that never came. Unanswered open
-    questions still stop the run, and a question the Analyst already answered in this turn is not
-    answered again."""
-    if "workflow" not in state or requirements_review.job(state) != "discuss":
-        return False
-    report = (state.get("requirements_handoff") or {}).get("report") or {}
-    answered = state.get("answers") or {}
-    if any(row.get("id") not in answered for row in report.get("open_questions") or []):
-        return False
-    first = workflows.FIRST_STAGE["discuss"]
-    if workflows.ran_this_turn(state, first):
-        return False
-    if state["workflow"].get("kind") is None:
-        workflows.from_requirements(state, report, record)
-    else:
-        # The handoff was just accepted as running (autocode_requirements_handoff); only the stage changes.
-        state["next_stage"] = first
-    return True
+    Previously a clear question skipped planning and went straight to the Analyst. Now
+    everything follows Requirements → Planner → Builder → Tester → Completion."""
+    return False
 
 
 def start_named_job(state: RunState, record: dict) -> bool:

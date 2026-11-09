@@ -86,10 +86,11 @@ STANDARD_IMPLEMENTATION = "standard"
 
 
 def first_stage(state: RunState, kind: str, default: str) -> str:
-    """Select a job entry without changing a saved run's in-flight stage."""
-    if kind == "bugfix" and (state.get("settings") or {}).get(IMPLEMENTATION_FLOW) == STANDARD_IMPLEMENTATION:
-        return default
-    return FIRST_STAGE.get(kind) or default
+    """Select a job entry without changing a saved run's in-flight stage.
+
+    Every task goes through the full pipeline (Requirements → Planner → Builder → Tester
+    → Completion). The workflow kind is retained for labeling and reporting only (#3010)."""
+    return default
 
 
 # Who may approve a goal contract. Normally only the user (actor "user_cli"). A
