@@ -539,11 +539,10 @@ class ChatClient:
                         # chat silently dropping the person's reply (#2593 withdrew other questions).
                         and not self._approval_open
                     )
-            elif key[1] in self.others:
-                if view is not None:
-                    self.viewed.add(key[1])  # a background tab has answered a read too, so it can lose a view
-                    self._attention.observe(view, received=time.monotonic())
-                    self.other_status(key[1], Path(key[0]), view)
+            elif key[1] in self.others and view is not None:
+                self.viewed.add(key[1])  # a background tab has answered a read too, so it can lose a view
+                self._attention.observe(view, received=time.monotonic())
+                self.other_status(key[1], Path(key[0]), view)
             self.show_tabs()
         self._attention.shown = None if self._composing_new else current
         if self.attention_changed is not None:
@@ -1464,7 +1463,10 @@ class ChatClient:
         finally:
             self._approval_open = False
         if gate:
-            return bool(reply.strip()) and self.send(reply, context)
+            if not reply.strip():
+                self.say("Nothing sent; the plan still waits for your answer.")
+                return True
+            return self.send(reply, context)
         if reply.lower() in YES:
             fresh = self.status()
             if actions.approval_token(fresh) != token:
@@ -1838,6 +1840,13 @@ class ChatClient:
             # Say the task is over in the prompt itself: the closing message may be scrolled out of view.
             over = "This task is complete. " if view.get("done") else ""
             reply = self.ask(f"\n{over}Anything else? Any text starts a new task in this chat; press Enter to finish: ")
+            if (
+                reply
+                and len(reply.strip()) <= 3
+                and self.ask(f'Start a new task with "{reply}"? [y/N]: ').lower() not in YES
+            ):
+                self.say("Nothing sent.")
+                return True
         except Left:
             return False
         return bool(reply) and self.send(reply, context)
