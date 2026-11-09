@@ -37,6 +37,7 @@ try:
     from . import autocode_protected_commands as commands
     from . import autocode_protected_paths as paths
     from . import autocode_protected_store as store
+    from . import autocode_python_test_roles as test_roles
     from . import autocode_superseded_tests as superseded_tests
     from . import autocode_test_role_correction as role_correction
     from . import autocode_test_role_inventory as role_inventory
@@ -48,6 +49,7 @@ except ImportError:
     import autocode_protected_commands as commands
     import autocode_protected_paths as paths
     import autocode_protected_store as store
+    import autocode_python_test_roles as test_roles
     import autocode_superseded_tests as superseded_tests
     import autocode_test_role_correction as role_correction
     import autocode_test_role_inventory as role_inventory
@@ -227,7 +229,12 @@ MAX_ASSIGNED_BYTES = 32_000
 
 def context(settings, affected_paths=(), state: RunState | None = None, *, current=None):
     record = settings.get("protected_tests")
-    if not record or not record["files"]:
+    correction = (
+        test_roles.latest_correction(state.get("user_events"), record.get("binding_hash"))
+        if state is not None and record
+        else None
+    )
+    if not record or not record["files"] and not correction:
         return None
     verify_binding(record)
     matching = [
@@ -244,6 +251,9 @@ def context(settings, affected_paths=(), state: RunState | None = None, *, curre
     result = {key: copy.deepcopy(record.get(key)) for key in ("binding_hash", "root", "inventory_path", "command")}
     result |= {"total_files": len(record["files"]), "assigned_tests": assigned}
     instruction = prompts.get("fragments/protected-oracles/context.md")
+    if correction:
+        result["role_correction"] = correction
+        instruction += "\nThe runner removed only proven original product entries from a legacy test inventory. Original test bytes and command remain protected; the retired proof is historical and fresh proof is required. See the bound archive references and correction reason."
     replaced = superseded_tests.approved(state) if state is not None else []
     if replaced:
         result["superseded_tests"] = [{"file": row["file"], "test": row["test"]} for row in replaced]

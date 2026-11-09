@@ -482,3 +482,8 @@ checks their bytes and modes against the original Git pin and authenticated arch
 retains every remaining original file and the same command, records both bindings and
 the retired proof, and requires fresh proof. Status reads and terminal stops cannot
 perform this correction. Ignored launch-source overlays leave the correction refused.
+
+The correction remains in full historical custody. Planning packets and reviewer
+handoffs carry only bounded counts, reasons, binding hashes and archive references;
+they do not repeat entire original inventories. The public recovery history explains
+the correction, and the evidence report cites its original and corrected inventories.

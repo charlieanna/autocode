@@ -115,6 +115,10 @@ class PythonPathRoleTests(unittest.TestCase):
         self.assertNotIn("regression_proof", state)
         self.assertEqual([{"old": True}], state["regression_proofs"])
         protected.verify_binding(previous)
+        context = protected.context(settings, ["tests/test_service.py"], state)
+        self.assertEqual(event["reason"], context["role_correction"]["reason"])
+        self.assertEqual(previous["binding_hash"], context["role_correction"]["previous"]["binding_hash"])
+        self.assertIn("fresh proof is required", context["instruction"])
         before = copy.deepcopy(settings)
         self.reconcile(run_dir, state, settings)
         self.assertEqual(before, settings)
@@ -396,3 +400,92 @@ class RoleProofFreshnessTests(unittest.TestCase):
             self.assertFalse(regression.complete(state, "current"))
             proof["execution_context"]["protected_test_binding"] = "new"
             self.assertTrue(regression.complete(state, "current"))
+
+
+class CorrectionProjectionTests(unittest.TestCase):
+    def event(self, count=1596):
+        files = {f"tests/test_{n}.py": {"sha256": "a" * 64, "size": n, "mode": 420} for n in range(count)}
+        return {
+            "kind": "protected_tests_roles_corrected",
+            "actor": "core",
+            "at": "2026-11-09T00:00:00Z",
+            "reason": "Original runtime product entries are not test oracles; original tests and command are retained.",
+            "base_commit": "b" * 40,
+            "previous": {
+                "binding_hash": "c" * 64,
+                "root": "/owned/original.zip",
+                "inventory_path": "/owned/original.json",
+                "files": files,
+                "command": "python -m unittest discover -v",
+            },
+            "current": {
+                "binding_hash": "d" * 64,
+                "root": "/owned/corrected.zip",
+                "inventory_path": "/owned/corrected.json",
+                "files": dict(list(files.items())[1:]),
+                "command": "python -m unittest discover -v",
+            },
+            "previous_regression_proof": {
+                "path": "/owned/old-proof.json",
+                "receipt_sha256": "e" * 64,
+                "source_revision": "f" * 64,
+                "verdict": "PASS",
+                "raw": "x" * 200_000,
+            },
+        }
+
+    def test_model_packet_references_large_history_without_copying_or_mutating_inventories(self):
+        import json
+
+        import autocode_packet_events as packets
+
+        event = self.event()
+        original = copy.deepcopy(event)
+        projected = packets.reference_repeats([event], None, None)
+        self.assertLess(len(json.dumps(projected)), 2500)
+        self.assertEqual(1596, projected[0]["previous"]["file_count"])
+        self.assertEqual(1595, projected[0]["current"]["file_count"])
+        self.assertEqual("/owned/original.json", projected[0]["previous"]["inventory"])
+        self.assertEqual("/owned/old-proof.json", projected[0]["retired_proof"]["path"])
+        self.assertNotIn("files", projected[0]["previous"])
+        self.assertEqual(original, event)
+        self.assertEqual(projected, packets.reference_repeats(projected, None, None))
+        import autocode_plan_retention as retention
+
+        final_packet = {"user_events": projected}
+        retention.compact_final_packet(final_packet)
+        self.assertEqual(projected, final_packet["user_events"])
+        event["reason"] = "x" * 100_000
+        event["previous"]["root"] = "/owned/" + "z" * 100_000
+        oversized = packets.reference_repeats([event], None, None)
+        self.assertLess(len(json.dumps(oversized)), 5000)
+        self.assertIsNone(oversized[0]["previous"]["archive"])
+
+    def test_public_recovery_and_final_report_show_the_bounded_correction_reason(self):
+        import json
+
+        import autocode_evidence_document as document
+        import autocode_recovery_history as recovery
+        import autocode_run_view as run_view
+
+        from .test_evidence_report import public_view, value
+
+        event = self.event()
+        state = {
+            "settings": {"protected_tests": event["current"]},
+            "user_events": [event],
+            "regression_proof": {"verdict": "PASS", "source_revision": "current"},
+        }
+        history = recovery.project(state)
+        self.assertEqual("protected_tests_roles_corrected", history[0]["kind"])
+        self.assertIn("original tests and command", history[0]["detail"])
+        evidence = run_view.evidence(state)
+        self.assertEqual(1596, evidence["regression_proof"]["role_correction"]["previous"]["file_count"])
+        shown = public_view()
+        shown["evidence"]["regression_proof"] = evidence["regression_proof"]
+        report = value(shown)
+        markdown = document.render(report)
+        self.assertIn("Original test inventory correction", markdown)
+        self.assertIn(event["reason"], markdown)
+        self.assertIn("/owned/original.json", markdown)
+        self.assertLess(len(json.dumps(report["regression_proof"]["role_correction"])), 2500)

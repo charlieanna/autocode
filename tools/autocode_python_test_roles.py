@@ -245,3 +245,61 @@ def proof_current(proof, protected_binding):
         and context["test_role_policy"] == VERSION
         and context.get("protected_test_binding") == protected_binding
     )
+
+
+def _text(value, limit):
+    return value[:limit] if isinstance(value, str) else None
+
+
+def _reference_text(value, limit=2048):
+    # An overlong artifact locator is omitted, never shortened into another path.
+    return value if isinstance(value, str) and len(value) <= limit else None
+
+
+def _record_reference(value):
+    record = value if isinstance(value, dict) else {}
+    files = record.get("files")
+    command = record.get("command")
+    count = len(files) if isinstance(files, dict) else record.get("file_count")
+    return {
+        "binding_hash": _reference_text(record.get("binding_hash"), 128),
+        "file_count": count if type(count) is int and 0 <= count <= 1_000_000_000 else None,
+        "archive": _reference_text(record.get("root", record.get("archive"))),
+        "inventory": _reference_text(record.get("inventory_path", record.get("inventory"))),
+        "command_sha256": hashlib.sha256(command.encode()).hexdigest()
+        if isinstance(command, str)
+        else _reference_text(record.get("command_sha256"), 128),
+    }
+
+
+def correction_summary(event):
+    """Bounded display references; never substitute for retained authority or evidence."""
+    previous, current = _record_reference(event.get("previous")), _record_reference(event.get("current"))
+    proof = event.get("previous_regression_proof", event.get("retired_proof")) or {}
+    proof = proof if isinstance(proof, dict) else {}
+    return {
+        "kind": "protected_tests_roles_corrected",
+        "actor": _text(event.get("actor"), 80),
+        "at": _text(event.get("at"), 80),
+        "reason": _text(event.get("reason"), 512),
+        "base_commit": _text(event.get("base_commit"), 128),
+        "previous": previous,
+        "current": current,
+        "same_command": previous["command_sha256"] == current["command_sha256"],
+        "retired_proof": {
+            key: _reference_text(proof.get(key), 2048 if key == "path" else 128)
+            for key in ("path", "receipt_sha256", "source_revision", "verdict")
+        },
+        "meaning": "Historical inventory correction; fresh runner proof and independent verification remain required.",
+    }
+
+
+def latest_correction(events, binding_hash=None):
+    for event in reversed(events or []):
+        if (
+            isinstance(event, dict)
+            and event.get("kind") == "protected_tests_roles_corrected"
+            and (binding_hash is None or (event.get("current") or {}).get("binding_hash") == binding_hash)
+        ):
+            return correction_summary(event)
+    return None

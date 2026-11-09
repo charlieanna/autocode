@@ -556,6 +556,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_python_test_roles.py",
             "tools/autocode_test_role_inventory.py",
             "tools/autocode_test_role_correction.py",
+            "tools/autocode_run_setup.py",
             "tools/autocode_verify.py",
             "tools/autocode_protected_oracles.py",
         ),
