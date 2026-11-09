@@ -1,7 +1,7 @@
 """The note must describe both caches correctly (scope, TTL, who uses them) and
 name the consequence of removing the local one; nothing may change."""
 
-from harness.oracle import Check, load_json, mentions, only_changed_under, run_checks
+from harness.oracle import PIPELINE_ENTRY, Check, load_json, mentions, only_changed_under, run_checks
 
 EXPECTED = {
     "svc/cache_local.py": {"scope": "process", "ttl_seconds": 60, "used_by": "svc/metadata.py"},
@@ -37,5 +37,5 @@ def check(project, scenario, run=None):
             )
         )
     checks.append(only_changed_under(project, "docs/notes/"))
-    checks += run_checks(run, workflow="discuss", no_build=True)
+    checks += run_checks(run, workflow="discuss", after_requirements=PIPELINE_ENTRY)
     return checks

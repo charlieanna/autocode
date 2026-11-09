@@ -2,7 +2,7 @@
 workers against a 60/hour upstream limit), cite where they live, weigh both
 options, and change no code."""
 
-from harness.oracle import Check, load_json, mentions, only_changed_under, run_checks
+from harness.oracle import PIPELINE_ENTRY, Check, load_json, mentions, only_changed_under, run_checks
 
 
 def check(project, scenario, run=None):
@@ -40,5 +40,5 @@ def check(project, scenario, run=None):
             )
         )
     checks.append(only_changed_under(project, "docs/decisions/"))
-    checks += run_checks(run, workflow="discuss", no_build=True, max_questions=3)
+    checks += run_checks(run, workflow="discuss", after_requirements=PIPELINE_ENTRY, max_questions=3)
     return checks

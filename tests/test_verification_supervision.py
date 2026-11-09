@@ -28,7 +28,12 @@ import autocode_supervision as supervision
 import autocode_taskrun as taskrun
 import psutil
 
+from tests import legacy_bugfix_fixture
+
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
+# A new review goes through the full pipeline (#3010); a review-stage fault is launched as an earlier
+# runtime saved the run, at the Code Reviewer.
+LEGACY_LAUNCH = legacy_bugfix_fixture.COMMAND
 BRIEF = (
     "Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
     "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
@@ -369,7 +374,9 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
         path = self.root / "provider-called"
         return path.read_text().splitlines() if path.exists() else []
 
-    def taskrun_fault(self, workspace, environment, script, *, stage, provider_calls, expected_worker_context=None):
+    def taskrun_fault(
+        self, workspace, environment, script, *, stage, provider_calls, expected_worker_context=None, launcher=None
+    ):
         sentinel = subprocess.Popen(
             [sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE, start_new_session=True
         )
@@ -392,7 +399,7 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
         ancestors = psutil.Process(command["pid"]).parents()
         owner = next((parent for parent in ancestors if parent.ppid() == self.driver.pid), None)
         self.assertIsNotNone(owner, "Verification command has no disposable CLI owner")
-        self.assertIn(str(TOOLS / "autocode.py"), owner.cmdline())
+        self.assertIn(launcher or str(TOOLS / "autocode.py"), owner.cmdline())
         owner_identity = self.capture(owner.pid)
         for parent in ancestors:
             if parent.pid == self.driver.pid:
@@ -744,6 +751,13 @@ print(json.dumps({{'type':'turn.completed','usage':{{'input_tokens':10,'output_t
 sys.path.insert(0,{str(TOOLS)!r})
 from autocode_taskrun import TaskRun
 TaskRun.start({str(workspace)!r},'Review the double implementation and deliver a finding test.',options={OPTIONS!r},
-    start_options=('--workflow','review'),env={environment!r},timeout=300)
+    start_options=('--workflow','review'),env={environment!r},timeout=300,command={LEGACY_LAUNCH!r})
 """
-        self.taskrun_fault(workspace, environment, script, stage="review_change", provider_calls=["review_change"])
+        self.taskrun_fault(
+            workspace,
+            environment,
+            script,
+            stage="review_change",
+            provider_calls=["review_change"],
+            launcher=LEGACY_LAUNCH[1],
+        )

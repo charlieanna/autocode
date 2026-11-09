@@ -327,14 +327,22 @@ AutoCode, AutoReview, AutoResolver) stay behind the scenes.
 | `orchestrator` | Orchestrator: parallel milestone scheduling (no model) | AutoCode build unit |
 | `terra` | Builder | AutoCode build unit |
 | `sol` | Tester | AutoReview |
-| `review_change` | Code Reviewer: the review workflow's only stage (`autocode_review_job.py`) | AutoReview |
-| `review_design` | Designer: the design workflow's first stage (`autocode_design_job.py`) | AutoReview |
+| `review_change` | Code Reviewer: a saved review run's stage (`autocode_review_job.py`) | AutoReview |
+| `review_design` | Designer: a saved design run's first stage (`autocode_design_job.py`) | AutoReview |
 | `check_design` | Design Reviewer: checks an approved design against the repository (`autocode_design_check_job.py`) | AutoReview |
 | `investigate_stuck` | Investigator: why a stage stopped converging (`autocode_stuck_job.py`) | AutoResolver |
 | `astra_review`, `astra_checkpoint` | Completion Reviewer (`astra_checkpoint` is Tester under reviewer routing) | AutoReview |
 | `astra_resolve` | Resolver | AutoResolver |
-| `investigate_bug` | Investigator: the bug-fix workflow's first stage (`autocode_bug_job.py`) | AutoResolver |
-| `answer_question` | Analyst: the discuss workflow's only stage (`autocode_discuss_job.py`) | AutoResolver |
+| `investigate_bug` | Investigator: a saved bug-fix run's first stage (`autocode_bug_job.py`) | AutoResolver |
+| `answer_question` | Analyst: a saved discuss run's stage (`autocode_discuss_job.py`) | AutoResolver |
+
+**Every new task goes through the full pipeline (#3010).** Requirements names the job (build, bug
+fix, review, design or discuss), and the kind labels the run and its report, but every kind is then
+planned, built and checked: Planner, Plan Reviewer, Builder, Tester, Completion Reviewer. A build that
+names an existing design document still starts at the Design Reviewer (`check_design`). The Code
+Reviewer, Investigator (`investigate_bug`), Designer and Analyst stages no longer start a new run;
+they still serve runs an earlier runtime saved at them, and their tests launch such a run with
+`tests/legacy_bugfix_fixture.py` rather than editing a checkpoint.
 
 Stages that belong to one workflow rather than to the build pipeline (`review_change`,
 `investigate_bug`, `review_design`, `answer_question`, `check_design`, `investigate_stuck`) are listed in `tools/autocode_jobs.py`; the runner and Autopilot

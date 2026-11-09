@@ -2,6 +2,7 @@
 repository left untouched."""
 
 from harness.oracle import (
+    PIPELINE_ENTRY,
     Check,
     apply_patch,
     findings_of,
@@ -37,5 +38,5 @@ def check(project, scenario, run=None):
             Check("verdict_approves", report.get("verdict") == "approve", f"verdict={report.get('verdict')!r}")
         )
     checks.append(only_changed_under(project, "review/"))
-    checks += run_checks(run, workflow="review", no_build=True, after_requirements="review_change")
+    checks += run_checks(run, workflow="review", after_requirements=PIPELINE_ENTRY)
     return checks

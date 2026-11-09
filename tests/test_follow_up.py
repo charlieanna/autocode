@@ -22,6 +22,8 @@ import autocode_workflows as workflows
 from autocode_taskrun import AUTOCODE, TaskRun, TaskRunError
 from units import autoplanner
 
+from tests import legacy_bugfix_fixture
+
 FINDINGS = [
     {
         "id": "F1",
@@ -338,6 +340,30 @@ class FollowUpTests(unittest.TestCase):
         turn = follow_up.current(self.state)
         self.assertEqual((2, self.state["brief_feedback"][-1]["id"]), (turn["stage_index"], turn["event_id"]))
         self.assertTrue(turn["event_id"].startswith("feedback-"))
+
+    def test_a_design_planned_through_the_full_pipeline_carries_the_documents_its_turn_wrote(self):
+        """Every task goes through the full pipeline (#3010), so a design job has no Designer record; its
+        turn's Markdown documents are still carried, so "Build it." names that design to check."""
+        start = began(self.workspace)
+        write(self.workspace, "docs/design/cache.md")
+        write(self.workspace, "docs/design/README.md")
+        write(self.workspace, "app/notes.txt")
+        state = finished_design(self.workspace, [start, stage("terra"), stage("sol")])
+        del state["design_review"]
+        self.assertEqual(
+            {"mode": "propose", "documents": ["docs/design/cache.md"]}, follow_up.carried_design(state, self.workspace)
+        )
+        follow_up.accept(state, "Build it.", self.workspace, "t1")
+        self.assertEqual(
+            {"mode": "propose", "documents": ["docs/design/cache.md"]}, state["turns"][-1]["previous"]["design"]
+        )
+        # A design turn that wrote no document carries nothing, and another job's run carries no design.
+        (self.workspace / "docs" / "design" / "cache.md").unlink()
+        empty = finished_design(self.workspace, [began(self.workspace), stage("terra")])
+        del empty["design_review"]
+        self.assertIsNone(follow_up.carried_design(empty, self.workspace))
+        empty["workflow"]["kind"] = "build"
+        self.assertIsNone(follow_up.carried_design(empty, self.workspace))
 
     def test_a_turn_s_changes_are_what_it_left_in_the_workspace_including_set_aside_attempts(self):
         write(self.workspace, "app/old.py")
@@ -671,6 +697,9 @@ class FinishedRunCliTests(unittest.TestCase):
                 "gpt-6-astra",
             ),
             start_options=("--workflow", "design", "--planning-v2"),
+            # A new design job goes through the full pipeline (#3010); this run is launched as an earlier
+            # runtime saved it, at the Architect's review, whose follow-ups the current runtime still serves.
+            command=legacy_bugfix_fixture.COMMAND,
         )
         view = run.status()
         self.assertEqual((True, "design", 1), (view["done"], view["workflow"], view["turn"]), view)

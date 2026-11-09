@@ -135,11 +135,12 @@ class InvestigationRetryWorkflowTests(JobHarness):
 
 
 class RoutingTests(unittest.TestCase):
-    def test_a_recognized_bug_goes_to_the_investigator_and_remembers_the_build_entry(self):
+    def test_a_recognized_bug_continues_into_the_full_pipeline_and_remembers_the_build_entry(self):
+        # #3010: a bug fix goes through the full pipeline; the Investigator stays a known stage for saved runs.
         state = state_for()
         workflows.begin(state, "requirements_gather")
         workflows.apply(state, {"workflow": "bugfix", "reason": "", "signals": []}, {})
-        self.assertEqual(bug_job.STAGE, state["next_stage"])
+        self.assertEqual("requirements_gather", state["next_stage"])
         self.assertEqual("requirements_gather", state["workflow"]["then"])
         self.assertEqual("autoresolver", autopilot.unit_for(bug_job.STAGE))
         self.assertIn(bug_job.STAGE, jobs.STAGES)

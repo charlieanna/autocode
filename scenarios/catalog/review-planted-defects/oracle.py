@@ -2,7 +2,15 @@
 else as blocking, and leave the repository untouched? Line spans refer to the
 files as they are after the patch."""
 
-from harness.oracle import Check, finding_matches, findings_of, load_json, only_changed_under, run_checks
+from harness.oracle import (
+    PIPELINE_ENTRY,
+    Check,
+    finding_matches,
+    findings_of,
+    load_json,
+    only_changed_under,
+    run_checks,
+)
 
 # F1: the Timeout branch of RegistryClient.send no longer asks the registry for
 # the transaction's status before resending.
@@ -42,5 +50,5 @@ def check(project, scenario, run=None):
         ]
         checks.append(Check("no_false_blockers", not false, f"blocking but not a real regression: {false}"))
     checks.append(only_changed_under(project, "review/"))
-    checks += run_checks(run, workflow="review", no_build=True, after_requirements="review_change")
+    checks += run_checks(run, workflow="review", after_requirements=PIPELINE_ENTRY)
     return checks

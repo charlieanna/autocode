@@ -142,6 +142,31 @@ def permission_changes() -> list[dict]:
     ]
 
 
+def follow_up_removals(body: dict) -> list[dict]:
+    """What the Planner declares when a follow-up's plan drops a line of the approved contract: one
+    ``removed`` row per dropped protected line, backed by the newest follow-up's receipt. Every task now
+    plans (#3010), so "Fix them." after a review revises the review's approved contract, whose "Do not
+    fix anything" the person's follow-up replaces; a live Planner declares that change the same way."""
+    contract = DATA.get("goal_contract") or {}
+    old = contract.get("body") or {}
+    feedback = [row for row in DATA.get("brief_feedback") or [] if row.get("id")]
+    if contract.get("approval_status") != "approved" or not feedback:
+        return []
+    return [
+        {
+            "item": item,
+            "change": "removed",
+            "basis": "user_feedback",
+            "answer_id": feedback[-1]["id"],
+            "replacement": "",
+            "example_correction": None,
+        }
+        for key in ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
+        for item in old.get(key) or []
+        if item not in (body.get(key) or [])
+    ]
+
+
 def request() -> str:
     """The request this turn serves: the brief, or the newest follow-up without the earlier turns it quotes."""
     task = resolved_task()
@@ -1161,9 +1186,11 @@ def recognize(brief: str, follow_up: dict | None = None) -> dict:
 
     if (follow_up or {}).get("previous_workflow") == "review" and has(r"\bfix\b", r"\bland\b", r"\bapply\b"):
         kind, signal = "build", "follow-up: act on the review's findings"
-    elif ((follow_up or {}).get("previous_design") or {}).get("mode") == "review" and not has(
-        r"\bbuild\b", r"\bimplement\b"
-    ):
+    elif (
+        ((follow_up or {}).get("previous_design") or {}).get("mode") == "review"
+        # A design review planned through the full pipeline (#3010) carries no design record.
+        or ((follow_up or {}).get("previous_workflow") == "design" and not (follow_up or {}).get("previous_design"))
+    ) and not has(r"\bbuild\b", r"\bimplement\b"):
         kind, signal = "design", "follow-up: a reply to the design review"
     elif has(r"\bimplement (it|this|the design)\b", r"has already been .*approved") and not has(
         r"do(n't| not) implement anything"
@@ -1404,6 +1431,30 @@ def scripted_cases() -> list[dict]:
         }
         for name in names
     ] or [{"id": "T1", "given": "the scripted seed", "when": "the reported case runs", "then": "it is fixed"}]
+
+
+def write_turn_design_review() -> None:
+    """A design-review conversation's Builder writes this turn's revision of the report. Every task goes
+    through the full pipeline (#3010), so the Builder, not the Architect's runner, leaves the report: the
+    turn's scripted concerns and questions, and the solution's trail up to this turn."""
+    final = json.loads((Path(CONFIG["reference"]) / "review" / "design-review.json").read_text())
+    number, scripted = turn_number(), turn_report("review_design")
+    trail = list(final.get("revisions") or [])[: number + 1]
+    report = {
+        **final,
+        **{
+            key: scripted[key]
+            for key in ("design_under_review", "summary", "satisfied", "questions")
+            if key in scripted
+        },
+        "concerns": [{**c, "status": c.get("status") or "open"} for c in scripted.get("concerns") or []],
+        "revision": number + 1,
+        "revisions": trail,
+        "verdict": (trail[-1] if trail else final).get("verdict"),
+    }
+    destination = Path.cwd() / "review" / "design-review.json"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(report, indent=2) + "\n")
 
 
 def design() -> dict:
@@ -2358,8 +2409,11 @@ def report_for(stage: str, data: dict) -> dict:
             builder_copy_source(data),
             Path.cwd(),
             dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            # .fake-turns/ holds this fake's own per-turn reports (turn_report), never a project file.
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".fake-turns"),
         )
+    if stage == "terra" and CONFIG.get("turns") and turn_report("review_design"):
+        write_turn_design_review()
     if stage == "terra":
         edit_acceptance_tests_once()
         code = run_check()
@@ -3003,6 +3057,8 @@ def _main() -> int:
         report["contract"]["acceptance_criteria"] = [
             retained.get(row["id"], row) for row in report["contract"]["acceptance_criteria"]
         ]
+    if stage in ("astra_discovery", "glm_revise") and isinstance(report.get("contract"), dict):
+        report["contract_changes"] = [*report.get("contract_changes", []), *follow_up_removals(report["contract"])]
     if stage == "astra_finalize" and "retain_contract" in OUTPUT_SCHEMA.get("properties", {}).get("contract", {}).get(
         "properties", {}
     ):

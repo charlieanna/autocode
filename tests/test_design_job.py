@@ -67,11 +67,13 @@ def report(mode="review", **overrides):
 
 
 class RoutingTests(unittest.TestCase):
-    def test_a_recognized_design_job_goes_to_the_architect(self):
+    def test_a_recognized_design_job_continues_into_the_full_pipeline(self):
+        # #3010: a design job goes through the full pipeline; the Designer stays a known stage for saved runs.
         state = state_for()
         workflows.begin(state, "requirements_gather")
         workflows.apply(state, {"workflow": "design", "reason": "", "signals": []}, {})
-        self.assertEqual(design_job.STAGE, state["next_stage"])
+        self.assertEqual("requirements_gather", state["next_stage"])
+        self.assertEqual("design", state["workflow"]["kind"])
         self.assertEqual("autoreview", autopilot.unit_for(design_job.STAGE))
         self.assertIn(design_job.STAGE, jobs.STAGES)
 

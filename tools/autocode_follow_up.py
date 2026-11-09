@@ -279,19 +279,23 @@ def carried_design(state: RunState, workspace, changes: list[str] | None = None)
     review wrote it (its saved sha256), raises ValueError: the revision would start from text the
     Architect never wrote."""
     found = state.get("design_review") or {}
-    if workflows.kind(state) != "design" or found.get("mode") not in ("propose", "review"):
+    if workflows.kind(state) != "design":
         return None
-    if found["mode"] == "propose":
-        return {
-            "mode": "propose",
-            "documents": [
-                path
-                for path in (turn_changes(state, workspace) if changes is None else changes)
-                if path.lower().endswith(".md")
-                and Path(path).name.lower() != "readme.md"
-                and workflows.workspace_file(workspace, path)
-            ],
-        }
+    if found.get("mode") not in ("propose", "review", None):
+        return None
+    if found.get("mode") in ("propose", None):
+        documents = [
+            path
+            for path in (turn_changes(state, workspace) if changes is None else changes)
+            if path.lower().endswith(".md")
+            and Path(path).name.lower() != "readme.md"
+            and workflows.workspace_file(workspace, path)
+        ]
+        # A design job that went through the full pipeline (#3010) has no Designer record: what it
+        # produced is the Markdown documents its turn wrote, as a proposed design's are.
+        if found.get("mode") is None and not documents:
+            return None
+        return {"mode": "propose", "documents": documents}
     if not found.get("report_path"):
         return None
     try:

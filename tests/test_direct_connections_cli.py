@@ -14,6 +14,7 @@ import autocode_direct_config as config
 import autocode_direct_runtime as runtime
 import autocode_taskrun as taskrun
 
+from tests import legacy_bugfix_fixture
 from tests.test_direct_connections import HttpFixture, settings
 
 
@@ -394,6 +395,9 @@ class DirectCliTests(unittest.TestCase):
             ),
             env=self.env,
             timeout=180,
+            # A new question goes through the full pipeline (#3010); the Analyst carries this tool round
+            # trip, so the run is launched as an earlier runtime saved it, at the Analyst.
+            command=legacy_bugfix_fixture.COMMAND,
         )
         view = run.status()
         self.assertTrue(view["done"], view.get("stop_reason"))

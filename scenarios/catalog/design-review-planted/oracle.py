@@ -2,7 +2,7 @@
 except a real consequence of them, ground ordering in the existing code, and
 leave the repository untouched."""
 
-from harness.oracle import Check, load_json, mentions, only_changed_under, run_checks
+from harness.oracle import PIPELINE_ENTRY, Check, load_json, mentions, only_changed_under, run_checks
 
 PLANTED = {
     "ordering": ((" order", "ordering", "sequence", "seq"), ("kind", "partition", "key")),
@@ -59,5 +59,5 @@ def check(project, scenario, run=None):
             Check("grounds_ordering_in_existing_contract", any(grounds_ordering(concern) for concern in blocking))
         )
     checks.append(only_changed_under(project, "review/"))
-    checks += run_checks(run, workflow="design", no_build=True)
+    checks += run_checks(run, workflow="design", after_requirements=PIPELINE_ENTRY)
     return checks

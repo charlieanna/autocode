@@ -88,20 +88,23 @@ class HumanStopCliTests(unittest.TestCase):
         self.assertEqual("", git(project, "diff", "--exit-code"))
         self.assertFalse((project / "docs/bugs/none-cells.json").exists())
 
-    def test_read_only_discussion_finishes_without_a_build_plan(self):
+    def test_a_discussion_reaches_exact_plan_approval_before_anything_is_written(self):
+        # Every task goes through the full pipeline (#3010): a question is planned like a build, with no
+        # Analyst shortcut, and nothing is written before the person approves that plan.
         scenario, project, flags, environment = self.fixture("discuss-cache-choice")
+        before = git(project, "ls-files", "-s")
         run = self.start(scenario, project, flags, environment)
         view = run.advance_until_input()
-        self.assertEqual("TASK_COMPLETE", view["status"], view)
-        self.assertIs(view["done"], True, view)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertIs(view["done"], False, view)
         self.assertEqual("discuss", view["workflow"], view)
-        self.assert_no_build_offer(view)
-        self.assertEqual(
-            ["analyst-01.jsonl", "requirements-gather-01.jsonl"],
-            sorted(path.name for path in run.run_dir.glob("iterations/*/*.jsonl")),
-        )
-        self.assertTrue((project / "docs/decisions/metadata-cache.json").is_file())
-        self.assertEqual("", git(project, "diff", "--", "app/", "deploy/"))
+        stages = sorted(path.name for path in run.run_dir.glob("iterations/*/*.jsonl"))
+        self.assertNotIn("analyst-01.jsonl", stages)
+        self.assertIn("discovery-01.jsonl", stages)
+        self.assertFalse(any(name.startswith("builder-") for name in stages), stages)
+        self.assertEqual(before, git(project, "ls-files", "-s"))
+        self.assertEqual("", git(project, "diff", "--exit-code"))
+        self.assertFalse((project / "docs/decisions/metadata-cache.json").exists())
 
     def test_a_reproduced_bug_still_reaches_exact_plan_approval_and_builds(self):
         scenario, project, flags, environment = self.fixture("bugfix-trivial")

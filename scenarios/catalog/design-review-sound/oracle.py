@@ -1,6 +1,6 @@
 """A sound design gets no blocking concerns and the repository is left untouched."""
 
-from harness.oracle import Check, load_json, only_changed_under, run_checks
+from harness.oracle import PIPELINE_ENTRY, Check, load_json, only_changed_under, run_checks
 
 
 def check(project, scenario, run=None):
@@ -16,5 +16,5 @@ def check(project, scenario, run=None):
         satisfied = report.get("satisfied") or []
         checks.append(Check("credits_the_goals_the_design_meets", len(satisfied) >= 3, f"{len(satisfied)} listed"))
     checks.append(only_changed_under(project, "review/"))
-    checks += run_checks(run, workflow="design", no_build=True)
+    checks += run_checks(run, workflow="design", after_requirements=PIPELINE_ENTRY)
     return checks

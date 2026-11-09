@@ -62,11 +62,14 @@ def report(verdict="request_changes", findings=None, delivered_tests=()):
 
 
 class RoutingTests(unittest.TestCase):
-    def test_a_recognized_review_goes_to_the_reviewer_not_requirements(self):
+    def test_a_recognized_review_continues_into_the_full_pipeline(self):
+        # #3010: every task goes through Requirements, Planner, Builder, Tester and Completion. The
+        # Code Reviewer stays a known stage, so a saved run that already reached it still dispatches it.
         state = state_for()
         workflows.begin(state, "requirements_gather")
         workflows.apply(state, {"workflow": "review", "reason": "", "signals": []}, {"output": "o"})
-        self.assertEqual(review_job.STAGE, state["next_stage"])
+        self.assertEqual("requirements_gather", state["next_stage"])
+        self.assertEqual("review", state["workflow"]["kind"])
         self.assertEqual("autoreview", autopilot.unit_for(review_job.STAGE))
 
     def test_kinds_without_their_own_first_stage_continue_into_the_build_pipeline(self):

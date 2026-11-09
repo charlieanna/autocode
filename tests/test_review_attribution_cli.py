@@ -16,6 +16,8 @@ from harness.driver import fake_setup, saved_run_flags
 from harness.processes import run_cli
 from harness.project import materialize
 
+from tests import legacy_bugfix_fixture
+
 
 @unittest.skipUnless(sys.platform == "linux", "supervised fake-provider checks require supported Linux")
 class ReviewAttributionCLI(unittest.TestCase):
@@ -82,6 +84,8 @@ class ReviewAttributionCLI(unittest.TestCase):
                 "Review change.patch before merge",
                 options=saved_run_flags(flags),
                 start_options=("--workflow", "review", "--spec-first"),
+                # A new review goes through the full pipeline (#3010); launched as an earlier runtime saved it.
+                command=legacy_bugfix_fixture.COMMAND,
                 env={**os.environ, **fake_env, "AUTOCODE_HOME": str(root / "registry")},
                 cwd=root,
                 timeout=180,
@@ -163,6 +167,8 @@ class ReviewAttributionCLI(unittest.TestCase):
                 "Review this change without changing application source",
                 options=saved_run_flags(flags),
                 start_options=("--workflow", "review", "--spec-first"),
+                # A new review goes through the full pipeline (#3010); launched as an earlier runtime saved it.
+                command=legacy_bugfix_fixture.COMMAND,
                 env={**os.environ, **fake_env, "AUTOCODE_HOME": str(root / "registry")},
                 cwd=root,
                 timeout=180,
@@ -199,6 +205,8 @@ class ReviewAttributionCLI(unittest.TestCase):
                 scenario.brief,
                 options=saved_run_flags(flags),
                 start_options=("--workflow", "review"),
+                # A new review goes through the full pipeline (#3010); launched as an earlier runtime saved it.
+                command=legacy_bugfix_fixture.COMMAND,
                 env={**os.environ, **fake_env, "AUTOCODE_HOME": str(root / "registry")},
                 cwd=root,
                 timeout=180,

@@ -4543,13 +4543,15 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual(["nothing_changed_outside_the_package"], failing, result["checks"])
         self.assertIn("outside_changes_reported", [row["name"] for row in result["checks"]])
 
-    def test_a_review_runs_only_the_reviewer_and_leaves_the_tree_alone(self):
+    def test_a_review_goes_through_the_full_pipeline_and_changes_only_its_report(self):
+        # #3010: a review is planned, built, tested and reviewed for completion like every other task.
         result = self.run_fake("reference", "review-clean-pr")
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual("review", result["workflow"])
-        self.assertEqual(
-            ["requirements_gather", "requirements_gather", "review_change"], result["metrics"]["stage_names"]
-        )
+        stages = result["metrics"]["stage_names"]
+        self.assertEqual(["requirements_gather", "requirements_gather", "astra_discovery"], stages[:3])
+        self.assertNotIn("review_change", stages)
+        self.assertIn("terra", stages)
 
     def test_tiny_jobs_do_not_quietly_take_more_steps(self):
         # Issue #15: small jobs already take many model calls. These are today's counts
@@ -4585,8 +4587,10 @@ class FakeRunTests(unittest.TestCase):
     def test_a_conversation_reviews_first_then_says_its_follow_up_in_the_same_run(self):
         result = self.run_fake("reference", "review-then-fix")
         self.assertEqual(2, len(result["turns"]), result["summary"])
+        # #3010: the review turn goes through the full pipeline after Requirements.
         self.assertEqual(
-            ["requirements_gather", "requirements_gather", "review_change"], result["turns"][0]["model_stage_names"]
+            ["requirements_gather", "requirements_gather", "astra_discovery", "astra_challenge", "terra", "sol"],
+            result["turns"][0]["model_stage_names"][:6],
         )
         self.assertEqual("review", result["turns"][0]["workflow"])
         self.assertTrue(result["turns"][1]["say"].startswith("Fix them."))
@@ -4655,18 +4659,21 @@ class FakeRunTests(unittest.TestCase):
         result = self.run_fake("reference", "design-review-with-answers")
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual(["design"] * 3, [turn["workflow"] for turn in result["turns"]])
-        # Each reply runs the Architect again on the same review, after Requirements names it design: nothing
-        # is built.
-        self.assertEqual(
-            [["requirements_gather", "review_design"]] * 3, [turn["model_stage_names"] for turn in result["turns"]]
-        )
+        # Every task goes through the full pipeline (#3010): each reply runs Requirements, which names it
+        # design, then the Planner, the Builder that revises the review, and the checks; no Architect stage.
+        for turn in result["turns"]:
+            stages = [stage for stage in turn["model_stage_names"] if not stage.endswith("_report_repair")]
+            self.assertEqual(
+                ["requirements_gather", "astra_discovery", "astra_challenge", "terra", "sol", "astra_review"], stages
+            )
 
     def test_a_revision_that_ignores_an_answer_or_renumbers_its_concerns_never_passes(self):
         for solution, judged, failing in (
             ("broken/answer-ignored", verdict.FALSE_COMPLETE, "ordering_blocking_after_first_answer"),
             ("broken/still-blocking", verdict.FALSE_COMPLETE, "ordering_resolved_after_second_answer"),
-            # The runner refuses a revision that drops earlier ids, and its repairs, and stops.
-            ("broken/rewritten", verdict.HONEST_BLOCKER, "revised_not_rewritten"),
+            # The Builder writes the revision now (#3010), so a rewrite that drops earlier ids reaches the
+            # files, and the oracle judges it false complete.
+            ("broken/rewritten", verdict.FALSE_COMPLETE, "revised_not_rewritten"),
         ):
             with self.subTest(solution):
                 result = self.run_fake(solution, "design-review-with-answers")
@@ -6862,9 +6869,11 @@ class AdaptiveCompletionTests(unittest.TestCase):
         )
 
     def test_review_and_discussion_keep_the_same_model_sequence(self):
+        # #3010: a review and a question go through the full pipeline after Requirements.
+        pipeline = ["astra_discovery", "astra_challenge", "terra", "sol", "astra_review"]
         for id_, expected in (
-            ("review-clean-pr", ["requirements_gather", "requirements_gather", "review_change"]),
-            ("discuss-cache-choice", ["requirements_gather", "answer_question"]),
+            ("review-clean-pr", ["requirements_gather", "requirements_gather", *pipeline]),
+            ("discuss-cache-choice", ["requirements_gather", *pipeline]),
         ):
             with self.subTest(scenario=id_):
                 result = self.run_fake(id_)

@@ -18,6 +18,9 @@ from scenarios import run
 
 RECOGNIZER = "recognize_workflow"
 REQUIREMENTS = "requirements_gather"
+# Every task goes through the full pipeline after Requirements (#3010): a question and a review are
+# planned, built and checked like a build, and the kind Requirements named labels the run.
+PIPELINE = ["astra_discovery", "astra_challenge", "terra", "sol", "astra_review"]
 
 
 class RequirementsFirstCliTests(unittest.TestCase):
@@ -43,16 +46,16 @@ class RequirementsFirstCliTests(unittest.TestCase):
         self.assertEqual([REQUIREMENTS, first_job_stage], model[:2], stages)
         self.assertEqual(1, model.count(REQUIREMENTS), stages)
 
-    def test_a_plain_cli_question_goes_from_requirements_to_the_analyst(self):
+    def test_a_plain_cli_question_goes_from_requirements_into_the_full_pipeline(self):
         result = self.run_fake("discuss-cache-choice")
         self.assertEqual("discuss", result["workflow"])
-        self.assertStartsAtRequirements(result["metrics"]["model_stage_names"], "answer_question")
-        self.assertNotIn("astra_discovery", result["metrics"]["model_stage_names"], "Nothing is planned")
+        self.assertStartsAtRequirements(result["metrics"]["model_stage_names"], "astra_discovery")
+        self.assertNotIn("answer_question", result["metrics"]["model_stage_names"], "No Analyst shortcut")
 
-    def test_a_plain_cli_review_goes_from_requirements_to_the_code_reviewer(self):
+    def test_a_plain_cli_review_goes_from_requirements_into_the_full_pipeline(self):
         result = self.run_fake("review-clean-pr")
         self.assertEqual("review", result["workflow"])
-        self.assertEqual([REQUIREMENTS, REQUIREMENTS, "review_change"], result["metrics"]["model_stage_names"])
+        self.assertEqual([REQUIREMENTS, REQUIREMENTS, *PIPELINE], result["metrics"]["model_stage_names"])
 
     def test_a_plain_cli_bug_fix_goes_from_requirements_to_the_planner(self):
         result = self.run_fake("bugfix-trivial")
@@ -62,13 +65,13 @@ class RequirementsFirstCliTests(unittest.TestCase):
 
     def test_explicit_triage_opt_out_keeps_one_full_requirements_pass(self):
         result = self.run_fake("review-clean-pr", flags=("--no-requirements-triage",))
-        self.assertEqual([REQUIREMENTS, "review_change"], result["metrics"]["model_stage_names"])
+        self.assertEqual([REQUIREMENTS, *PIPELINE], result["metrics"]["model_stage_names"])
 
     def test_fix_the_findings_after_a_review_is_named_a_build_by_requirements(self):
         result = self.run_fake("review-then-fix")
         review, fix = result["turns"]
         self.assertEqual(("review", "build"), (review["workflow"], fix["workflow"]))
-        self.assertEqual([REQUIREMENTS, REQUIREMENTS, "review_change"], review["model_stage_names"])
+        self.assertEqual([REQUIREMENTS, REQUIREMENTS, *PIPELINE], review["model_stage_names"])
         # The follow-up begins at Requirements too, which reads the earlier review as context and names a
         # build; the Planner then plans the fix from the review's findings.
         self.assertStartsAtRequirements(fix["model_stage_names"], "astra_discovery")

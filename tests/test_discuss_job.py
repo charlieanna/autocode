@@ -60,11 +60,13 @@ def report(**overrides):
 
 
 class RoutingTests(unittest.TestCase):
-    def test_a_recognized_question_goes_to_the_analyst(self):
+    def test_a_recognized_question_continues_into_the_full_pipeline(self):
+        # #3010: a question goes through the full pipeline; the Analyst stays a known stage for saved runs.
         state = state_for(workspace_with())
         workflows.begin(state, "requirements_gather")
         workflows.apply(state, {"workflow": "discuss", "reason": "", "signals": []}, {})
-        self.assertEqual(discuss_job.STAGE, state["next_stage"])
+        self.assertEqual("requirements_gather", state["next_stage"])
+        self.assertEqual("discuss", state["workflow"]["kind"])
         self.assertEqual("autoresolver", autopilot.unit_for(discuss_job.STAGE))
         self.assertIn(discuss_job.STAGE, jobs.STAGES)
 
