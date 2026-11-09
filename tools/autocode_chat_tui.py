@@ -1115,7 +1115,8 @@ class ChatTUI:
         /tab, so a step is never left running unwatched. Before a chat Ctrl-T answers as /new does there.
         A tab Ctrl-T opened, whose request is not sent yet, leaves nothing running: it can be left (#1997)."""
         name, argument = ("/new", "") if step == "new" else ("/tab", step)
-        if name == "/new" and asking and self._act is not None and not self._run_open:
+        if name == "/new" and self._act is not None:
+            # Ctrl-T opens a new tab; it never disturbs the current run, so it works at any time.
             return self._run(name, asking)
         draft = self._draft_tab(asking)
         if not draft and ((not asking and not self._can_detach()) or self._act is None or not self._run_open):
