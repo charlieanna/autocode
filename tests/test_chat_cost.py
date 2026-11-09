@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 
+import autocode_chat_cost as cost
 import autocode_chat_panel as panel
 
 from tests import ROOT
@@ -257,6 +258,47 @@ class CostDisplayTests(unittest.TestCase):
         self.assertIn("Input: 100", shown)
 
     @unittest.skipUnless(os.name == "posix", "the TUI uses a POSIX curses terminal")
+    def test_spend_shows_waste_cost_per_job_turns_and_time(self):
+        """#2996: /spend displays waste, cost by job, turns per stage, and execution time."""
+        view = {
+            "cost": {"spent_usd": 28.0, "complete": True},
+            "usage": {"tokens": {"input_tokens": 1000, "output_tokens": 100}},
+            "run_metrics": {
+                "waste": {"failed_usd": 3.50, "failed_usd_complete": True, "report_repair_usd": 1.25},
+                "by_job": [
+                    {"job": "Builder", "attempts": 3, "spent_usd": 15.0, "share": 0.53},
+                    {"job": "Tester", "attempts": 2, "spent_usd": 8.0, "share": 0.28},
+                ],
+            },
+            "efficiency": {
+                "by_category": {
+                    "planning": {
+                        "attempts": 2,
+                        "tokens": {"input_tokens": {"known": 5000000}, "output_tokens": {"known": 50000}},
+                    },
+                    "build": {
+                        "attempts": 3,
+                        "tokens": {"input_tokens": {"known": 1000000}, "output_tokens": {"known": 10000}},
+                    },
+                },
+                "exclusive_wall_seconds_by_category": {"planning": 1500, "build": 600},
+                "summed_execution_seconds": 2100,
+            },
+        }
+        text = cost.details(view)
+        self.assertIn("Waste", text)
+        self.assertIn("$3.50", text)
+        self.assertIn("$1.25", text)
+        self.assertIn("Cost by job", text)
+        self.assertIn("Builder", text)
+        self.assertIn("Tester", text)
+        self.assertIn("Per-stage turns and time", text)
+        self.assertIn("planning", text)
+        self.assertIn("2 attempts", text)
+        self.assertIn("25m", text)  # 1500 seconds = 25m
+        self.assertIn("Total execution time", text)
+        self.assertIn("35m", text)  # 2100 seconds = 35m
+
     def test_long_route_ids_are_readable_through_details_at_80_columns(self):
         import autocode_chat_tui as tui
 
