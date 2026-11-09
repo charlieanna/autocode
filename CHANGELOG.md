@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- After a design turn that went through the full pipeline (#3010), "Build it." again names the
+  design documents that turn wrote, so the build checks that design first. The tests, scenario
+  oracles and scripted provider now expect every new task to go through the full pipeline, and
+  launch runs an earlier runtime saved at a review, bug-investigation, design or question stage
+  to keep those stages covered.
 - Python verification resolves relative interpreter paths and PATH entries from
   the task workspace, so an isolated project environment can supply its exact
   identity even when the controller runs from another directory.

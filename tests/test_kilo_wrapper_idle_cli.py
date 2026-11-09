@@ -10,6 +10,7 @@ from pathlib import Path
 import autocode_process as processes
 from autocode_taskrun import TaskRun
 
+from tests import legacy_bugfix_fixture
 from tests import test_subprocess as subprocess_test_support
 
 
@@ -97,6 +98,9 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
             env=self.env,
             cwd=self.root,
             timeout=60,
+            # A new question goes through the full pipeline (#3010); this run is launched as an earlier
+            # runtime saved it, at the Analyst job whose idle stop the current runtime still settles.
+            command=legacy_bugfix_fixture.COMMAND,
         )
         status = subprocess.run(
             [*run.command, "--status", "--workspace", str(self.project), "--run-dir", str(run.run_dir)],

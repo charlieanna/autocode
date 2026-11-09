@@ -78,11 +78,12 @@ class EntryStage(unittest.TestCase):
         workflows.from_requirements(state, {"job": "build", "clarity": "clear"})
         self.assertNotIn("clarity", state["workflow"])
 
-    def test_recognition_of_another_kind_keeps_its_own_first_stage(self):
+    def test_recognition_of_another_kind_continues_into_the_full_pipeline(self):
+        # #3010: a bug fix goes through the full pipeline; it has no Investigator first stage.
         state = {"settings": {"adaptive_planning": True}, "workspace": "."}
         workflows.begin(state, "requirements_gather")
         workflows.apply(state, {"workflow": "bugfix", "reason": "", "signals": [], "clarity": "clear"}, {})
-        self.assertEqual(state["next_stage"], workflows.INVESTIGATE_STAGE)
+        self.assertEqual(state["next_stage"], "requirements_gather")
 
 
 def recognized(settings, clarity="clear", kind="build", then="requirements_gather", **saved):

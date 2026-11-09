@@ -199,6 +199,11 @@ BUILD_STAGES = ("orchestrator", "astra_plan", "terra")
 RUNNER_STAGES = ("orchestrator",)
 
 
+# Every new task goes through the full pipeline (#3010): after Requirements, a review, a design
+# job and a question are planned like a build, so their first stage is the Planner's.
+PIPELINE_ENTRY = "astra_discovery"
+
+
 def bugfix_entry(run: dict | None) -> str:
     """Expected bug-fix entry under the run's public saved launch policy."""
     settings = (((run or {}).get("view") or {}).get("related_profile") or {}).get("settings") or {}

@@ -49,12 +49,16 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
         )
         return run, project
 
-    def drive(self, run):
-        """Serve every public gate as a cooperative person would; return the final view and what was offered."""
+    def drive(self, run, *, approve=False):
+        """Serve every public gate as a cooperative person would; return the final view and what was offered.
+        With ``approve``, the plan shown for approval is approved by its token, as the person would."""
         offers = []
         for _ in range(12):
             view = run.advance_until_input()
             need = view.get("needs") or {}
+            if approve and need.get("kind") == "approve_plan":
+                run.approve_plan(need["token"])
+                continue
             if view["done"] or need.get("kind") != "answer":
                 return view, offers
             question = need["questions"][0]
@@ -73,30 +77,29 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
     def details(self, view):
         return {key: view.get(key) for key in ("status", "next_stage", "needs", "stop_reason", "workflow")}
 
-    def test_a_question_goes_from_requirements_straight_to_the_analyst(self):
+    def test_a_question_goes_from_requirements_into_the_full_pipeline(self):
+        # Every task goes through the full pipeline (#3010): Requirements names the question, which is
+        # then planned, approved and built like any other job, with no Analyst shortcut.
         run, project = self.start("discuss-cache-choice")
-        view, offers = self.drive(run)
+        view, offers = self.drive(run, approve=True)
         self.assertTrue(view["done"], self.details(view))
         self.assertEqual("discuss", view["workflow"], self.details(view))
-        self.assertEqual([], offers, "Nothing is planned for a question, so nothing asks to prepare a plan")
         self.assertEqual(1, self.ran(run, "requirements-gather"))
         self.assertEqual(0, self.ran(run, "requirements-gather-report-repair"), "No repair invents acceptance tests")
         self.assertEqual(0, self.ran(run, "recognize-workflow"), "Requirements already named the job")
-        self.assertEqual(1, self.ran(run, "analyst"))
-        self.assertEqual(0, self.ran(run, "discovery"))
-        self.assertIsNone(view.get("displayed_plan"))
+        self.assertEqual(0, self.ran(run, "analyst"), "No Analyst shortcut")
+        self.assertEqual(1, self.ran(run, "discovery"), "The Planner plans the question")
         self.assertTrue((project / "docs/decisions/metadata-cache.json").is_file())
 
     def test_same_chat_follow_up_has_one_checklist_row_per_distinct_source_obligation(self):
         run, _ = self.start("discuss-cache-choice")
-        initial, _ = self.drive(run)
+        initial, _ = self.drive(run, approve=True)
         self.assertTrue(initial["done"], self.details(initial))
         requirement = "The answer must compare the two existing cache alternatives."
         run.follow_up("Why keep the existing cache choice? " + requirement)
-        view, offers = self.drive(run)
+        view, offers = self.drive(run, approve=True)
         self.assertTrue(view["done"], self.details(view))
         self.assertEqual(2, view["turn"])
-        self.assertEqual([], offers)
         self.assertEqual(0, self.ran(run, "requirements-gather-report-repair"))
         prompts = sorted(Path(run.run_dir).glob("iterations/*/requirements-gather-[0-9][0-9].prompt.md"))
         packet = json.loads(prompts[-1].read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -104,21 +107,16 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
         self.assertEqual(view["evidence"]["base_commit"], packet["regression_reference"]["repository_base_commit"])
         self.assertEqual("saved_run_start", packet["regression_reference"]["scope"])
 
-    def test_a_review_is_confirmed_as_a_review_and_starts_without_the_recognizer(self):
+    def test_a_review_is_confirmed_as_a_review_and_planned_without_the_recognizer(self):
+        # A review goes through the full pipeline (#3010): Requirements names it, and the Planner plans it.
         run, _ = self.start("review-clean-pr")
-        view, offers = self.drive(run)
+        view, offers = self.drive(run, approve=True)
         self.assertTrue(view["done"], self.details(view))
         self.assertEqual("review", view["workflow"], self.details(view))
-        self.assertEqual(1, len(offers), offers)
-        offer = offers[0]
-        self.assertIn("start the review", offer["question"])
-        self.assertNotIn("plan", offer["question"].rsplit("\n", 1)[-1])
-        self.assertEqual("Approve understanding and start the review", offer["review"]["label"])
-        self.assertNotIn("plan", offer["review"]["spend_confirmation"]["detail"])
         self.assertEqual(0, self.ran(run, "requirements-gather-report-repair"))
         self.assertEqual(0, self.ran(run, "recognize-workflow"), "Requirements already named the job")
-        self.assertEqual(1, self.ran(run, "review-change"))
-        self.assertEqual(0, self.ran(run, "discovery"))
+        self.assertEqual(0, self.ran(run, "review-change"), "No Code Reviewer shortcut")
+        self.assertEqual(1, self.ran(run, "discovery"), "The Planner plans the review")
 
     def test_a_small_bug_fix_keeps_its_reduced_review_when_requirements_names_the_job(self):
         # The recognizer judged clarity, and units.autoplanner.review_depth_reduced keeps a small clear brief on

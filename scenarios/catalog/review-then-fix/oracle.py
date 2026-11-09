@@ -5,6 +5,7 @@ requirements questions and without touching the advisory finding?"""
 import shutil
 
 from harness.oracle import (
+    PIPELINE_ENTRY,
     Check,
     apply_patch,
     findings_of,
@@ -83,7 +84,7 @@ def conversation_checks(run):
         review, fix = turns
         checks += [
             Check(f"review_turn_{c.name}", c.ok, c.detail)
-            for c in run_checks(review, workflow="review", no_build=True, after_requirements="review_change")
+            for c in run_checks(review, workflow="review", after_requirements=PIPELINE_ENTRY)
         ]
         checks += [
             Check(f"fix_turn_{c.name}", c.ok, c.detail)

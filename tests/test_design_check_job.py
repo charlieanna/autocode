@@ -90,7 +90,8 @@ class RecognitionTests(unittest.TestCase):
                 ({"workflow": "build", "design_document": "docs/design/missing.md"}, "requirements_gather"),
                 ({"workflow": "build", "design_document": "../outside.md"}, "requirements_gather"),
                 ({"workflow": "build", "design_document": root + "/" + DESIGN}, "requirements_gather"),
-                ({"workflow": "design", "design_document": DESIGN}, workflows.DESIGN_STAGE),
+                # #3010: a design job goes through the full pipeline like a build.
+                ({"workflow": "design", "design_document": DESIGN}, "requirements_gather"),
             ):
                 with self.subTest(value=value):
                     state = self.recognize(root, value)

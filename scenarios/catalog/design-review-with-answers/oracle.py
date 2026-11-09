@@ -5,7 +5,7 @@ message that prompted it and the ids of its open blocking, open advisory and res
 so the files alone show how the review changed: no ordering blocker before any answer, one after
 "per-domain", the same concern resolved after "per-registry is fine"; the planted migration gap
 blocking in every revision; the unowned DLQ raised as advisory; no invented blocker; nothing
-renumbered. With a run record, each turn also ran only the Architect, changed only the review,
+renumbered. With a run record, each turn also went through the full pipeline (#3010), changed only the review,
 and left a report whose concerns match its trail entry (read from the copy the harness kept as
 that turn ended, never from AutoCode's state).
 """
@@ -13,7 +13,7 @@ that turn ended, never from AutoCode's state).
 import re
 from pathlib import Path
 
-from harness.oracle import Check, load_json, only_changed_under, run_checks
+from harness.oracle import PIPELINE_ENTRY, Check, load_json, only_changed_under, run_checks
 
 REPORT = "review/design-review.json"
 SAYS = ("Ordering is per-domain.", "Per-registry is fine.")
@@ -40,13 +40,9 @@ AREAS = (
 # Covered by the design and the code: durable event_id dedupe in billing and notifications (a rare
 # duplicate notification is accepted), an idempotent producer, and per-key sizing.
 INVENTED = ("idempotency", "throughput")
-# A reply runs Requirements, which names the job, and the Architect (and their report repairs) and nothing else.
-ARCHITECT_ONLY = (
-    "requirements_gather",
-    "requirements_gather_report_repair",
-    "review_design",
-    "review_design_report_repair",
-)
+# Every task goes through the full pipeline (#3010): a reply runs Requirements, which names the job, then
+# the Planner, Builder and checks, never the Architect's own stage.
+ARCHITECT = "review_design"
 
 
 def about(text):
@@ -227,18 +223,15 @@ def conversation_checks(run, report):
     for number, turn in enumerate(turns, start=1):
         checks += [
             Check(f"turn{number}_{c.name}", c.ok, c.detail)
-            for c in run_checks(
-                turn, workflow="design", no_build=True, after_requirements="review_design", max_questions=0
-            )
+            for c in run_checks(turn, workflow="design", after_requirements=PIPELINE_ENTRY, max_questions=0)
         ]
         changed = turn.get("changed_files")
         checks.append(Check(f"turn{number}_changed_only_the_review", changed == [REPORT], f"changed {changed}"))
         stages = turn.get("model_stages") or []
-        others = [stage for stage in stages if stage not in ARCHITECT_ONLY]
         checks.append(
             Check(
-                f"turn{number}_ran_only_the_architect",
-                "review_design" in stages and not others,
+                f"turn{number}_went_through_the_full_pipeline",
+                "terra" in stages and ARCHITECT not in stages,
                 f"model stages {stages}",
             )
         )

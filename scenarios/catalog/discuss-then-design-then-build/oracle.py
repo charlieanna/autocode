@@ -19,7 +19,7 @@ import math
 import re
 import sys
 
-from harness.oracle import Check, hidden_tests, load_json, python_tests, run_checks, scratch_copy, tail
+from harness.oracle import PIPELINE_ENTRY, Check, hidden_tests, load_json, python_tests, run_checks, scratch_copy, tail
 
 NOTE = "docs/decisions/metadata-cache.json"
 SPAN = re.compile(r"`([^`\n]+)`")
@@ -311,7 +311,7 @@ def conversation_checks(run):
     checks += named(
         "discuss_turn",
         [
-            *run_checks(discuss, workflow="discuss", no_build=True, max_questions=3),
+            *run_checks(discuss, workflow="discuss", after_requirements=PIPELINE_ENTRY, max_questions=3),
             changed_only(discuss, "docs/decisions/"),
         ],
     )
