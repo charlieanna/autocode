@@ -92,17 +92,14 @@ class ModuleTests(unittest.TestCase):
         self.assertEqual("requirements_gather", state["next_stage"])
         self.assertEqual("model", state["workflow"]["source"])
 
-    def test_review_bugfix_and_design_get_their_own_first_stage_and_keep_the_build_entry(self):
-        for kind, stage in (
-            ("review", workflows.REVIEW_STAGE),
-            ("bugfix", workflows.INVESTIGATE_STAGE),
-            ("design", workflows.DESIGN_STAGE),
-            ("discuss", workflows.DISCUSS_STAGE),
-        ):
+    def test_every_kind_goes_through_the_full_pipeline(self):
+        """#3010: all tasks use the standard pipeline; the workflow kind is labeling only."""
+        for kind in ("review", "bugfix", "design", "discuss", "build"):
             state = fresh()
             workflows.begin(state, "requirements_gather")
             workflows.apply(state, {"workflow": kind, "reason": "", "signals": []}, {})
-            self.assertEqual(stage, state["next_stage"], kind)
+            # At Requirements, the stage stays there; after it, the pipeline entry is the Planner.
+            self.assertEqual("requirements_gather", state["next_stage"], kind)
             self.assertEqual("requirements_gather", state["workflow"]["then"], kind)
 
     def test_pin_names_the_kind_before_recognition_and_refuses_after(self):
@@ -110,7 +107,7 @@ class ModuleTests(unittest.TestCase):
         workflows.begin(state, "requirements_gather")
         workflows.pin(state, "review")
         self.assertEqual(
-            ("review", "user", workflows.REVIEW_STAGE),
+            ("review", "user", "requirements_gather"),
             (workflows.kind(state), state["workflow"]["source"], state["next_stage"]),
         )
         self.assertEqual("requirements_gather", state["workflow"]["then"])
@@ -136,7 +133,7 @@ class ModuleTests(unittest.TestCase):
         self.assertEqual(("requirements_gather", None), (state["next_stage"], workflows.kind(state)))
         self.assertEqual("astra_discovery", state["workflow"]["then"], "a build goes on to the Planner")
         for job, first in (
-            ("bugfix", workflows.INVESTIGATE_STAGE),
+            ("bugfix", "astra_discovery"),
             ("build", "astra_discovery"),
             (None, "astra_discovery"),
         ):
@@ -148,7 +145,7 @@ class ModuleTests(unittest.TestCase):
                 self.assertEqual("requirements_gather", named["workflow"]["named_by"])
         self.assertEqual("Requirements named no job; planned as a build", named["workflow"]["reason"])
 
-    def test_pin_at_requirements_keeps_it_for_a_build_and_skips_it_for_another_kind(self):
+    def test_pin_at_requirements_keeps_it_for_any_kind(self):
         build = fresh()
         workflows.begin_requirements(build)
         workflows.pin(build, "build")
@@ -159,7 +156,7 @@ class ModuleTests(unittest.TestCase):
         review = fresh()
         workflows.begin_requirements(review)
         workflows.pin(review, "review")
-        self.assertEqual(workflows.REVIEW_STAGE, review["next_stage"])
+        self.assertEqual("requirements_gather", review["next_stage"])
         started = fresh()
         workflows.begin_requirements(started)
         started["stages"] = [{"stage": "requirements_gather"}]
