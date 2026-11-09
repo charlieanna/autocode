@@ -76,6 +76,7 @@ try:
     from . import autocode_task_input as task_input
     from . import autocode_task_preflight as task_preflight
     from . import autocode_test_root as test_roots
+    from . import autocode_verification_repair as verification_repair
     from . import autocode_verify as verify
     from . import autocode_worker_binding as worker_binding
     from . import autocode_worker_quota as worker_quota
@@ -123,6 +124,7 @@ except ImportError:
     import autocode_task_input as task_input
     import autocode_task_preflight as task_preflight
     import autocode_test_root as test_roots
+    import autocode_verification_repair as verification_repair
     import autocode_verify as verify
     import autocode_worker_binding as worker_binding
     import autocode_worker_quota as worker_quota
@@ -803,6 +805,10 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             limit_events.record(state, previous_settings, settings, at=runner.now())
         else:
             args._grant_limit_events = limit_events.planned(state, previous_settings, settings, at=runner.now())
+        try:
+            verification_repair.commit(state, settings, getattr(args, "_verification_repair_retirement", None))
+        except ValueError as error:
+            raise SettingRefused(str(error)) from None
         state["settings"] = settings
         # A recovery novelty hold's stop states the cost cap; the settings saved here may change it (#611).
         resolver_recovery.restate_hold(state)

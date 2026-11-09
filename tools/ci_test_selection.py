@@ -521,6 +521,14 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("tools/autocode_visual_protection.py",), ("tests.test_native_rework_transport",)),
     (
         (
+            "tools/autocode_verification_repair.py",
+            "tools/autocode_verification_config.py",
+            "tools/autocode_run_setup.py",
+        ),
+        ("tests.test_verification_repair_retirement", "tests.test_verification_config"),
+    ),
+    (
+        (
             "tools/autocode_phase_timing.py",
             "tools/autocode_unit_request.py",
             "tools/autocode.py",
