@@ -1,0 +1,46 @@
+name: publish-vscode-extension
+
+# Publishes the VS Code extension (vscode-extension/) to the Visual Studio Marketplace from each
+# master commit that changes it, so VS Code's auto-update brings every installation to master.
+# Marketplace trusted publishing (OIDC): the publisher's policy trusts this repository, this
+# workflow file and the "vscode-marketplace" environment, so no token is stored anywhere.
+# Nothing runs until the repository variable VSCODE_MARKETPLACE_PUBLISH is "true".
+# One-time setup: docs/releasing.md#vs-code-extension.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "vscode-extension/**"
+      - "scripts/publish-vscode-extension.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One publish at a time; a newer master commit waits rather than racing the version number.
+concurrency:
+  group: publish-vscode-extension
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/master' && vars.VSCODE_MARKETPLACE_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: vscode-marketplace
+      url: https://marketplace.visualstudio.com/items?itemName=ankurkothari.autocode-task-chat
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version's patch number is the commit count, which a shallow clone cannot give.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test, package and publish
+        run: scripts/publish-vscode-extension.sh

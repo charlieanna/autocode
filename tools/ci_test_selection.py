@@ -358,6 +358,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_requirements_handoff.py", ("tests.test_requirements_citation_cli",)),
     ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
     ("scripts/update-vscode-extension.sh", ("tests.test_update_vscode_extension",)),
+    ("scripts/publish-vscode-extension.sh", ("tests.test_publish_vscode_extension",)),
+    (".github/workflows/publish-vscode-extension.yml", ("tests.test_publish_vscode_extension",)),
     (
         "tools/prompts/fragments/stuck-repair-context/evidence-instruction-02.md",
         ("tests.test_stuck_repair_context", "tests.test_classification_recovery"),
