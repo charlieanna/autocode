@@ -884,7 +884,12 @@ def workflow_result(state: RunState):
             "outcome": "answered",
             "artifact": row.get("note_path") or row.get("output"),
             "artifact_sha256": None,
-            "summary": "Analyst answer recorded; code correctness is not established by an answer",
+            "summary": (
+                "Requirements answered in the conversation"
+                if row.get("answered_by") == "requirements_gather"
+                else "Analyst answer recorded"
+            )
+            + "; code correctness is not established by an answer",
         }
     return None
 

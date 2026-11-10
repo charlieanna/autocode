@@ -2199,12 +2199,17 @@ def report_for(stage: str, data: dict) -> dict:
             # acceptance tests describe code to build, so for a job that builds nothing it leaves them
             # empty, as the live model did in #1846.
             follow_up = data.get("follow_up")
-            named = recognize((follow_up or {}).get("message") or resolved_task() or CONFIG["brief"], follow_up)
+            asked = (follow_up or {}).get("message") or resolved_task() or CONFIG["brief"]
+            named = recognize(asked, follow_up)
             # A report repair has no task or follow-up context: it keeps the job its rejected draft named.
             rejected = ((data.get("rejected_report") or {}).get("content") or {}) if data.get("report_repair") else {}
             if rejected.get("job"):
                 named = {"workflow": rejected["job"], "design_document": rejected.get("design_document", "")}
-            if named["workflow"] in ("review", "design", "discuss"):
+            # A discussion whose answer is to be written into a file describes that file, as the prompt
+            # asks: it is planned and written like any other change. One with nothing to write is
+            # answered by Requirements itself (autocode_requirements_chat.answer_now).
+            writes_note = re.search(r"\bwrite\b[^.]*?\b[\w./-]+\.(?:json|md|txt)\b", asked, re.IGNORECASE)
+            if named["workflow"] in ("review", "design") or (named["workflow"] == "discuss" and not writes_note):
                 report.update(required_behaviors=[], acceptance_tests=[])
             report.update(job=named["workflow"], design_document=named["design_document"])
             earlier = ((data.get("previous_requirements_handoff") or {}).get("report") or {}).get("requirements")

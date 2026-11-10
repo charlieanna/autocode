@@ -37,6 +37,13 @@ PR template asks for an entry here; a change without one is incomplete.
   joint plan, and a saved external verification record, are refused instead of being sent to the
   removed verifier.
 
+### Changed
+
+- A question or discussion that asks for nothing to be written is answered by Requirements
+  itself, from the code, and the turn ends there: nothing is planned, approved or built, so it
+  costs one model call instead of a plan, a Builder and two reviews. A discussion whose answer is
+  to be written into a file still goes through the full pipeline.
+
 ### Fixed
 
 - After a design turn that went through the full pipeline (#3010), "Build it." again names the
