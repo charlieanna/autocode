@@ -26,6 +26,15 @@ PR template asks for an entry here; a change without one is incomplete.
 - **Python runtime identity resolves from task workspace**: relative Python executables are resolved
   against the workspace, not the controller cwd (#2982, fixed in #3033).
 
+## [0.10.2] - 2026-11-10
+
+### Fixed
+
+- **Heading sentence ids resolve to source span**: a Markdown heading's sentence id (`## Why`) resolves
+  to the source text as-is, so citing an id the runner listed never fails the verbatim check (#3054).
+- **All failing criteria named at once**: a citation rejection names every failing criterion joined
+  with "; ", so one repair can fix them all (#3054).
+
 ## [Unreleased]
 
 ### Changed
@@ -180,6 +189,15 @@ PR template asks for an entry here; a change without one is incomplete.
   `--resume-paused --test-command --regression-command` instead of the generic resolver response (#2973).
 - **Python runtime identity resolves from task workspace**: relative Python executables are resolved
   against the workspace, not the controller cwd (#2982, fixed in #3033).
+
+## [0.10.2] - 2026-11-10
+
+### Fixed
+
+- **Heading sentence ids resolve to source span**: a Markdown heading's sentence id (`## Why`) resolves
+  to the source text as-is, so citing an id the runner listed never fails the verbatim check (#3054).
+- **All failing criteria named at once**: a citation rejection names every failing criterion joined
+  with "; ", so one repair can fix them all (#3054).
 
 ## [Unreleased]
 
