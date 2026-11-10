@@ -20,6 +20,7 @@ try:
     from . import autocode_design_check_job as design_check_job
     from . import autocode_design_intake as design_intake
     from . import autocode_prompts as prompts
+    from . import autocode_requirements_answer as requirements_answer
     from . import autocode_stuck_job as stuck_job
 except ImportError:
     import autocode_acceptance_tests_job as acceptance_tests_job
@@ -28,6 +29,7 @@ except ImportError:
     import autocode_design_check_job as design_check_job
     import autocode_design_intake as design_intake
     import autocode_prompts as prompts
+    import autocode_requirements_answer as requirements_answer
     import autocode_stuck_job as stuck_job
 
 JOBS = (design_check_job, stuck_job, design_intake, acceptance_tests_job)
@@ -50,8 +52,10 @@ COUNTEREXAMPLE_STAGES = PROBING_STAGES
 
 
 def ended_in(state: RunState):
-    """The job that ended this run, or None when it ended in the build pipeline."""
-    return next((job for job in JOBS if job.owns(state)), None)
+    """The job that ended this run, or None when it ended in the build pipeline.
+
+    A discussion Requirements answered itself ends there too, rendered by autocode_requirements_answer."""
+    return next((job for job in (*JOBS, requirements_answer) if job.owns(state)), None)
 
 
 def render(state: RunState, fallback) -> str:

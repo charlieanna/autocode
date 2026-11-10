@@ -55,9 +55,9 @@ class JobCapChangeTests(JobHarness):
             retry.retry_job(need["job_retry_token"])
         self.assertEqual(1, self.count())
         completed = retry.retry_job(fresh)
-        self.assertEqual("TASK_COMPLETE", completed["status"])
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", completed["status"])
         self.assertEqual(2, self.count())
-        self.assertTrue(list(run.run_dir.rglob("archived-review-change-*")))
+        self.assertTrue(list(run.run_dir.rglob("archived-design-check-*")))
         self.assertGreater(
             completed["usage"]["tokens"]["input_tokens"], before["view"]["usage"]["tokens"]["input_tokens"]
         )

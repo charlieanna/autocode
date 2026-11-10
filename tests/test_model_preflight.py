@@ -297,18 +297,6 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
         self.assertEqual(["plan/glm", "plan/mimo"], sorted(self.calls))
 
-    def test_standalone_review_uses_its_real_request_instead_of_a_paid_access_ping(self):
-        self.state["next_stage"] = "review_change"
-        self.assertFalse(self.check({}))
-        self.assertFalse(self.check({}))
-        self.assertEqual([], self.calls)
-        self.assertFalse((self.run_dir / "model-preflight.json").exists())
-        self.assertNotIn("stages", self.state)
-        # A later build still needs its own admitted probes; review grants no receipt.
-        self.state["next_stage"] = "terra"
-        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
-        self.assertCountEqual(["plan/glm", "plan/mimo"], self.calls)
-
     def successful_stage(self):
         output = self.run_dir / "requirements.json"
         events = self.run_dir / "requirements.jsonl"

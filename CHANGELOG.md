@@ -9,6 +9,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Changed
+
+- **Every task takes the same path**: builds, bug fixes, reviews, designs and discussions that write something all go Requirements, Planner, Plan Reviewer, your approval, Builder, Tester, Completion Reviewer. The kind of job only labels the run. A flow without a Requirements stage is planned as a build instead of asking a separate Job recognizer.
+
+### Removed
+
+- **The Job recognizer, Code Reviewer, bug Investigator, Designer and Analyst stages**, with `--utility-model`/`--utility-reasoning-effort` and `--recover-job-report`. A run saved at one of those stages cannot continue: AutoCode says so and asks for a new task; its status and reports stay readable. The Design Reviewer, the stuck-stage Investigator and the acceptance-test writer stay.
+
 ### Fixed
 
 - **A question is answered while another chat works in the same folder**: Requirements only reads the code, so it no longer waits for another run that holds the checkout. A discussion it answers itself finishes there; a change waits only before planning. When a task does have to wait, it now says so in plain words (which task is working, that nothing was changed, try again once it finishes or pauses) instead of naming `--in-place`, workers and cleanup.

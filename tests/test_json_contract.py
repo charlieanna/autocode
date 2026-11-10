@@ -1,8 +1,8 @@
 """The commands a script drives a run with, under --json at each stop that waits on you (#714).
 
 The scripted provider (tools/fake_codex.py) takes a run through the stops that wait on a person
-(pause_category your_decision): a pause raised in the build loop (--pause-after-stage), a question,
-the plan approval, a human review, then completion. It never stops for its environment, a provider
+(pause_category your_decision): the Planner's question, the plan approval, a pause raised in the build
+loop (--pause-after-stage on the relaunch after the approval), a human review, then completion. It never stops for its environment, a provider
 or AutoCode; test_json_output covers those: the iteration and time limits (AutoCode), and a saved
 auth or rate-limit pause (your_environment / model_or_provider).
 
@@ -33,8 +33,9 @@ from . import test_subprocess
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = json.loads((ROOT / "docs" / "schemas" / "status-view.schema.json").read_text())
 EVENT_SCHEMA = json.loads((ROOT / "docs" / "schemas" / "run-event.schema.json").read_text())
-# The stops the fixture reaches in order; "resume" is the --pause-after-stage pause.
-PAUSES = ["resume", "answer", "approve_plan", "review"]
+# The stops the fixture reaches in order; "resume" is the --pause-after-stage pause. The Planner, the
+# first stage every task takes (#3010), asks its question before any stage boundary is reached.
+PAUSES = ["answer", "approve_plan", "resume", "review"]
 
 
 def exit_codes() -> dict[str, int]:
@@ -86,11 +87,11 @@ class JsonContractTests(unittest.TestCase):
         self.codes, self.seen = exit_codes(), set()
         self.assertEqual({"completed", "saved", "read", "stopped", "refused", "usage"}, set(self.codes))
 
-        # Stopped by a pause raised inside the build loop, right after the first stage.
-        brief = ("Build greeting and goodbye", "--engine", "codex", "--in-place", "--pause-after-stage", "--json")
+        # Stopped by the Planner's question, at the first stage.
+        brief = ("Build greeting and goodbye", "--engine", "codex", "--in-place", "--json")
         start = self.autocode(*brief, "--workspace", str(self.project))
         (self.run_dir,) = self.project.glob(".autocode/runs/*")
-        self.assertEqual("PAUSED_REQUESTED", self.run_payload("stopped", start)["status"])
+        self.assertEqual("WAITING_FOR_USER", self.run_payload("stopped", start)["status"])
         on_run = ("--run-dir", str(self.run_dir), "--workspace", str(self.project))
 
         # Refused before the run loads: the result alone.
@@ -105,7 +106,7 @@ class JsonContractTests(unittest.TestCase):
             self.assertTrue(error["message"].startswith(f"{setting[0]} "), error["message"])
             self.assertIn(f"autocode: {setting[0]} ", refused.stderr)
 
-        reached = []
+        reached, paused = [], False
         for _ in range(12):
             status = self.run_payload("read", self.autocode(*on_run, "--status"))
             self.assertNotIn("result", status)
@@ -113,7 +114,11 @@ class JsonContractTests(unittest.TestCase):
             need = view["needs"] or {}
             if need.get("kind") == "continue":
                 # Relaunching works until the run next stops, or completes.
-                advanced = self.autocode(*on_run, "--no-chat", "--json")
+                # The first relaunch after the plan approval also raises a pause inside the build loop, at
+                # the next stage boundary (planning stages run before the build loop).
+                pause = () if paused or reached[-1:] != ["approve_plan"] else ("--pause-after-stage",)
+                paused = paused or bool(pause)
+                advanced = self.autocode(*on_run, "--no-chat", *pause, "--json")
                 done = json.loads(advanced.stdout)["view"]["done"]
                 self.run_payload("completed" if done else "stopped", advanced)
                 continue

@@ -374,20 +374,23 @@ class ViewTests(unittest.TestCase):
                     summary,
                 )
 
-    def test_a_review_or_discussion_never_asks_for_an_approval_so_its_summary_does_not_say_none(self):
+    def test_a_saved_review_or_discussion_that_asked_for_no_approval_does_not_say_none(self):
+        # A run an earlier runtime's Code Reviewer or Analyst finished asked for no approval.
         resumed = {
             "at": "2026-10-15T08:30:00+00:00",
             "pause_status": "PAUSED_TIME_LIMIT",
             "provenance": {**IDENTITY, "host": "desk-7", "command": "autocode resume", "claimed_as": None},
         }
-        for state, last in (
-            ({"workflow": {"kind": "review"}, "review": {"verdict": "approve"}}, "Findings: "),
-            ({"workflow": {"kind": "discuss"}, "answer": {"answer": "Yes."}}, "Evidence:"),
+        for state in (
+            {"workflow": {"kind": "review"}, "review": {"verdict": "approve"}},
+            {"workflow": {"kind": "discuss"}, "answer": {"answer": "Yes."}},
         ):
             with self.subTest(workflow=state["workflow"]["kind"]):
                 summary = jobs.render(state, lambda _: "TASK COMPLETE\n")
                 self.assertNotIn("Approvals", summary)
-                self.assertIn(last, summary.splitlines()[-2])  # the job's own last line, just before the cost line
+                # A saved review completes as a build does; an answered discussion shows its answer.
+                ending = "TASK COMPLETE" if state["workflow"]["kind"] == "review" else "Evidence:"
+                self.assertEqual(ending, summary.splitlines()[-2])
                 self.assertTrue(summary.splitlines()[-1].startswith("Cost: "))
                 # A resume is still the run's own record: the local summary lists it, as --status does.
                 text = jobs.render({**state, "pause_acknowledgements": [resumed]}, lambda _: "TASK COMPLETE\n")
