@@ -8,11 +8,13 @@ It is the file ``autocode_support.workspace_lock`` locks, so Builder workers and
 ``autocode clean-worktrees`` respect it too. The holder is written into the file,
 so a run that finds the checkout busy can say which run has it.
 
-A run that finds it busy changes nothing: it says who holds the checkout and exits,
-and the same command works once the other run's agents have stopped. Saving an
-answer, approval or other action that launches no agent does not need the checkout
-and is not blocked. This runtime helper uses files, file locks (``autocode_util.lock_file``)
-and process identity.
+A run that finds it busy changes nothing: it says, in words a person can act on, that
+another task is working in this folder, and exits; the same command works once the other
+run's agents have stopped. Saving an answer, approval or other action that launches no
+agent does not need the checkout and is not blocked, and neither does Requirements
+(``needed_by``): it only reads the code and talks with the person, so a question asked in
+one chat is answered while another chat plans or builds. This runtime helper uses files,
+file locks (``autocode_util.lock_file``) and process identity.
 """
 
 from __future__ import annotations
@@ -44,13 +46,29 @@ class CheckoutBusy(RuntimeError):
     status = STATUS
 
 
+# Stages whose agents only read the checkout and talk with the person. Requirements answers a
+# discussion itself (autocode_requirements_answer) and, for a change, says what it understood; neither
+# writes a file, so it runs while another run's agents hold the checkout. Every other stage waits for it.
+READS_ONLY = ("requirements_gather",)
+
+
+def needed_by(state) -> bool:
+    """Whether the stage ``state`` launches next needs the checkout to itself.
+
+    A pending report repair is the repair of its original stage's report, so it needs what that stage needs."""
+    original = (state.get("pending_report_repair") or {}).get("original") or {}
+    return (original.get("stage") or state.get("next_stage")) not in READS_ONLY
+
+
 def busy_message(workspace) -> str:
-    other = holder(workspace).get("run_dir")
+    """What a person reads when another run holds the checkout: what is happening and what they can do.
+
+    No flag, process or lock is named: a client shows this text as it is (AGENTS.md, what a person is asked)."""
+    other = Path(str(holder(workspace).get("run_dir") or "")).name
     return (
-        f"Another AutoCode run is working in this checkout{f' ({other})' if other else ''}; "
-        "nothing was changed. Run the same command again once its workers have stopped and cleanup can be verified, "
-        "or give each task its own "
-        "worktree by starting it without --in-place."
+        f"Another AutoCode task{f' ({other})' if other else ''} is still working in this folder, "
+        "so this task waits rather than change the same files at the same time. Nothing was changed. "
+        "Try again once that task has finished or paused."
     )
 
 

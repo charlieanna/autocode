@@ -517,6 +517,17 @@ class CsiTabTests(unittest.TestCase):
         self.assertEqual([], ui._queued)
 
 
+def leave_at_question(ui):
+    """A ``_read_key`` that finds no type-ahead at the prompt boundary, then leaves the open question."""
+
+    def read():
+        if ui._asking:
+            raise KeyboardInterrupt
+        return None
+
+    return read
+
+
 def screen_ui(*keys):
     """A ChatTUI over a stand-in screen that delivers ``keys``, then times out like an idle terminal."""
     screen = mock.MagicMock()
@@ -853,6 +864,7 @@ class StatusLineTests(unittest.TestCase):
 
     def test_the_status_row_reads_in_plain_words_before_any_status_read(self):
         ui = screen_ui()
+        ui._asking = True  # the header speaks at a question; the spinner row speaks while AutoCode works
         shown = []
         ui._put = lambda line, col, text, attr=0: shown.append((line, text))
         ui._header(ui._layout(30, 120))
@@ -1331,9 +1343,71 @@ class AskTests(unittest.TestCase):
         ui.observe({"liveness": {"kind": "supervised"}})
         self.assertIsNone(ui.wait(0.3))
         self.assertEqual("hello", ui._composer.text)
-        self.assertEqual(
-            ["AutoCode is working\nType / for commands. AutoCode asks here when it needs you."], self.info(ui)
-        )
+        self.assertEqual(["\n".join(tui.NOT_SENT)], self.info(ui))
+
+    def test_an_answer_typed_while_autocode_works_waits_in_the_box_for_its_question(self):
+        """The person read the reply and typed their answer before the question's box opened. The box
+        moved it into history behind "The prompt changed... press Up"; it stays in the box instead."""
+        ui = screen_ui()
+        working = {
+            "workspace": "/project",
+            "run_dir": "/project/run",
+            "status": "RUNNING",
+            "liveness": {"kind": "supervised"},
+            "chat": {"context": "turn-1"},
+        }
+        ui.observe(working)
+        for key in "explain this project to me\n":
+            ui._handle(key, asking=False)
+        ui.observe({**working, "status": "WAITING_FOR_USER", "chat": {"context": "turn-2"}})
+        with (
+            mock.patch.object(tui.curses, "beep"),
+            mock.patch.object(ui, "_read_key", side_effect=leave_at_question(ui)),
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                ui.ask("You: ")
+        self.assertEqual("explain this project to me", ui._composer.text)
+        self.assertFalse(any("Earlier draft kept" in text for _, text in ui._transcript.blocks))
+
+    def test_text_typed_while_autocode_works_never_answers_an_approval(self):
+        ui = screen_ui()
+        working = {
+            "workspace": "/project",
+            "run_dir": "/project/run",
+            "status": "RUNNING",
+            "liveness": {"kind": "supervised"},
+            "chat": {"context": "turn-1"},
+        }
+        ui.observe(working)
+        for key in "y":
+            ui._handle(key, asking=False)
+        ui.observe({**working, "status": "AWAITING_GOAL_APPROVAL", "chat": {"context": "turn-2"}})
+        with (
+            mock.patch.object(tui.curses, "beep"),
+            mock.patch.object(ui, "_read_key", side_effect=leave_at_question(ui)),
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                ui.ask("Approve this plan? [y/N], or type what to change: ")
+        self.assertEqual("", ui._composer.text)
+        self.assertTrue(any("Earlier draft kept" in text for _, text in ui._transcript.blocks))
+
+    def test_only_questions_any_text_answers_take_a_typed_ahead_draft(self):
+        for prompt in (
+            "You: ",
+            "You (1-3): ",
+            "You (Enter for 'stdout'): ",
+            "You (1-2, Enter for 'a'): ",
+            "\nYour reply (Enter to leave it for now): ",
+        ):
+            self.assertTrue(tui.free_reply(prompt), prompt)
+        for prompt in (
+            "Approve this plan? [y/N], or type what to change: ",
+            "Resume? [y/N]: ",
+            "You (2 or Enter): ",
+            "What do you want done? ",
+            "Your choice (1-2, Enter to leave it paused): ",
+        ):
+            self.assertFalse(tui.free_reply(prompt), prompt)
 
     def test_repeated_enter_while_working_keeps_one_notice_and_the_unsent_draft(self):
         ui = screen_ui()
@@ -1341,9 +1415,7 @@ class AskTests(unittest.TestCase):
         for key in "hello\n\n\n":
             self.assertIsNone(ui._handle(key, asking=False))
         self.assertEqual("hello", ui._composer.text)
-        self.assertEqual(
-            ["AutoCode is working\nType / for commands. AutoCode asks here when it needs you."], self.info(ui)
-        )
+        self.assertEqual(["\n".join(tui.NOT_SENT)], self.info(ui))
 
     def test_escape_closes_the_menu_and_the_next_key_is_kept(self):
         ui = screen_ui(*"/pl", "\x1b", "h", *"i\n")
@@ -1666,11 +1738,15 @@ class LivePaneTests(unittest.TestCase):
     def test_waiting_stage_is_visible_without_a_sidebar_and_working_stage_is_not_repeated(self):
         ui = screen_ui()
         ui.observe({"status": "WAITING_FOR_USER", "progress": {"stage": "Planner", "headline": "Waiting for you"}})
+        ui._asking = True
         shown = " ".join(text for row, _, text in self.drawn(ui, cols=80) if row == 2)
         self.assertIn("Planner · Waiting for you", shown)
+        ui._asking = False
         ui.observe({"status": "RUNNING", "progress": {"stage": "Plan Reviewer", "headline": "Plan Reviewer working"}})
-        shown = " ".join(text for row, _, text in self.drawn(ui, cols=80) if row == 2)
-        self.assertEqual(1, shown.count("Plan Reviewer"))
+        puts = self.drawn(ui, cols=80)
+        status = ui._layout(30, 80).status_start
+        self.assertEqual("", " ".join(text for row, _, text in puts if row == 2), "the spinner row speaks alone")
+        self.assertEqual(1, " ".join(text for row, _, text in puts if row == status).count("Plan Reviewer"))
 
     def test_public_stage_keeps_full_width_until_the_panel_is_requested(self):
         ui = screen_ui()
@@ -1707,14 +1783,14 @@ class LivePaneTests(unittest.TestCase):
         ui._panel_on = True
         puts = self.drawn(ui)
         layout = ui._layout(30, 120)
-        for row in (2, layout.status_start):
-            self.assertIn("Preparing repository work", " ".join(text for r, _, text in puts if r == row))
+        self.assertIn("Preparing repository work", " ".join(text for r, _, text in puts if r == layout.status_start))
         # The pipeline panel legitimately lists stage names; the stale anchor label must not appear in status.
         status_text = " ".join(text for r, _, text in puts if r in (2, layout.status_start))
         self.assertNotIn("Requirements", status_text)
         self.assertNotIn("Waiting for you", status_text)
         self.assertEqual(anchor, ui._view, "rendering must not change the public action view")
         ui.observe({"run_dir": "/member/run", "progress": {"stage": "Planner", "headline": "Planner working"}})
+        ui._asking = True  # the header names the member's stage at a question
         puts = self.drawn(ui)
         self.assertIn("Planner working", " ".join(text for r, _, text in puts if r == 2))
         self.assertNotIn("Preparing repository work", " ".join(text for _, _, text in puts))
@@ -1723,6 +1799,7 @@ class LivePaneTests(unittest.TestCase):
         ui = screen_ui()
         ui.observe({"run_dir": "/task/run", "coordination": {"id": "task"}})
         ui.observe_conversation({"version": 1, "anchor": "/task/run", "needs": {"kind": "approval"}})
+        ui._asking = True
         self.assertIn("Waiting for plan approval", " ".join(text for r, _, text in self.drawn(ui) if r == 2))
         ui.status_unavailable("read failed")
         self.assertIn("Status unavailable", " ".join(text for r, _, text in self.drawn(ui) if r == 2))
@@ -1945,11 +2022,45 @@ class StartingStatusTests(unittest.TestCase):
         ui._draw()
         return [text for _, _, text in puts]
 
+    def test_a_sent_request_says_starting_at_once_in_one_place(self):
+        """After "hi" the screen read "New chat", "Reading run status…" and "reading run status" in three
+        places before it said "Starting the run…": one progression, said once, from the Enter on."""
+        ui = screen_ui(*"hi\n")
+        ui._context_key = ("/project", None)
+        self.assertEqual("hi", ui.ask("What do you want done? "))
+        shown = self.drawn_status(ui)
+        self.assertEqual(1, " ".join(shown).count(tui.STARTING), shown)
+        self.assertFalse(any("New chat" in text or "eading run status" in text for text in shown), shown)
+
+    def test_a_running_stage_is_said_once_on_the_status_row(self):
+        """ "Requirements working" was on the header row and the status row at once."""
+        ui = screen_ui()
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "liveness": {"kind": "supervised"},
+                "progress": {
+                    "stage": "Requirements",
+                    "headline": "Requirements working",
+                    "line": "Requirements working",
+                },
+            }
+        )
+        ui.say("  · Working on your request…")  # the client's running notice is a status, not a reply
+        puts = []
+        ui._put = lambda row, col, text, attr=0: puts.append((row, col, text))
+        ui._draw()
+        body = " ".join(text for row, col, text in puts if col < 70)  # the conversation, not the side panel
+        self.assertEqual(1, body.count("Requirements working"), body)
+        self.assertNotIn("Working on your request", body)
+        self.assertNotIn("Type / for commands", body, "the footer names / commands once")
+        self.assertEqual([], [text for row, _, text in puts if row == 2 and text.strip()])
+
     def test_a_launched_run_says_it_waits_for_the_first_view(self):
         ui = screen_ui()
         ui.worker_launch({"execution": {"mode": "owned"}})
         ui._launched = True
-        self.assertIn("Run started; waiting for its first status view", " ".join(self.drawn_status(ui)))
+        self.assertIn(tui.STARTING, " ".join(self.drawn_status(ui)))
 
     def test_without_a_launch_it_still_reads_status(self):
         ui = screen_ui()
@@ -2569,7 +2680,10 @@ class TuiUxScreenTests(unittest.TestCase):
         ui._asking = False
         ui._composer.reset()
         puts = drawn(ui)
-        self.assertIn("Type / for commands. AutoCode asks here when it needs you.", " ".join(t for _, t in puts))
+        shown = " ".join(t for _, t in puts)
+        self.assertIn(tui.WORKING_PLACEHOLDER, shown)
+        self.assertIn(tui.QUESTION_COMING, shown, "the spinner row says the question is coming, not 'waiting'")
+        self.assertNotIn("Type / for commands", shown, "the footer names / commands once")
 
     def test_repeated_refused_commands_show_once(self):
         ui = screen_ui()

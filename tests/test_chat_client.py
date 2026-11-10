@@ -2249,6 +2249,22 @@ class StreamAndNoticeTests(unittest.TestCase):
         self.assertIn("· Plan Reviewer working", client.text())
         self.assertIn("· Tester working", client.text())
 
+    def test_a_running_notice_is_a_status_line_and_a_paused_one_a_message(self):
+        """ "Working on your request…" read as AutoCode's reply beside the stage's own progress line: a
+        running run's notice is a progress line (the full-screen chat's status row); a pause notice is
+        still said in the conversation."""
+        from autocode_chat_tui import Transcript
+
+        client = ScriptedChat({})
+        client.show({"status": "RUNNING", "chat": {"notice": "Working on your request…"}})
+        client.show({"status": "PAUSED_REQUESTED", "chat": {"notice": "Paused as you asked."}})
+        transcript = Transcript()
+        for line in client.text().splitlines():
+            transcript.add(line)
+        self.assertIn("Paused as you asked.", [text for _, text in transcript.blocks])
+        self.assertFalse(any("Working on your request" in text for _, text in transcript.blocks))
+        self.assertIn("  · Working on your request…", client.text())
+
     def test_a_notice_that_returns_after_a_transient_gap_is_not_said_again(self):
         client = ScriptedChat({})
         working = {"chat": {"notice": "Working on your request…"}, "needs": {"kind": "continue"}}

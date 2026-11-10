@@ -72,8 +72,23 @@ EXAMPLES = (  # a new chat's welcome: the kinds of request AutoCode takes, in a 
 )
 NEW_CHAT_PLACEHOLDER = "Ask for a change, a fix, or a question…"
 REPLY_PLACEHOLDER = "Type your reply, then Enter"
-WORKING_PLACEHOLDER = "AutoCode is working… type / for commands"
+# The reply box while AutoCode works: what typing does now. The footer already names "/ commands", and
+# the status row says what is happening, so the box says neither again.
+WORKING_PLACEHOLDER = "AutoCode asks here when it needs you"
 STARTING = "Starting the run…"
+QUESTION_COMING = "AutoCode has a question for you…"
+# Enter while AutoCode works and offers no message: the text is kept, not sent, and says when it can be.
+NOT_SENT = ("Not sent yet", "AutoCode is still working. Your text stays here until AutoCode asks you something.")
+NOT_SENT_STEP_ENDED = (
+    "Not sent yet",
+    "AutoCode finished this step as you pressed Enter. Your text stays here; press Enter again when it asks you.",
+)
+# A question any text answers (autocode_chat_client's Requirements and resolver questions): a draft typed
+# while AutoCode worked is the person's answer to it, so it stays in the box. An approval or a choice is
+# never answered by text typed before it was shown.
+FREE_REPLY = re.compile(
+    r"(?:You(?: \((?:1-\d+)?(?:, )?(?:Enter for '.*')?\))?|Your reply \(Enter to leave it for now\)):"
+)
 STARTUP_GRACE_SECONDS = 30.0  # a launched run's first failed reads are its start, not an outage
 MIN_ROWS, MIN_COLS = 12, 32  # below either the chat cannot be drawn
 
@@ -286,6 +301,11 @@ def composer_label(prompt: str, asking: bool) -> str:
     if "new request" in prompt or "what do you want done" in prompt:
         return "New chat"
     return "Reply"
+
+
+def free_reply(prompt: str) -> bool:
+    """Whether any text answers this question, so a draft typed before it was asked may answer it."""
+    return bool(FREE_REPLY.fullmatch(" ".join(prompt.split())))
 
 
 def _same(block: tuple[str, str], other: tuple[str, str]) -> bool:
@@ -851,6 +871,7 @@ class ChatTUI:
         self._contexts = contexts.Contexts()
         self._context_key: tuple | None = None
         self._draft_context: tuple | None = None
+        self._draft_unasked = False  # the draft was begun while AutoCode worked, not at a question
         self._task_conversation: dict | None = None
         self._restore_context: tuple | None = None
         self._restored_session = False
@@ -1159,6 +1180,7 @@ class ChatTUI:
                 "_panel_on",
                 "_prompt",
                 "_draft_context",
+                "_draft_unasked",
                 "_history_file",
                 "_unsaved",
                 "_observation",
@@ -1181,7 +1203,7 @@ class ChatTUI:
                 self._log, self._live = panel.StageLog(), panel.LiveLog()
                 self._scroll, self._anchored, self._launched = 0, False, False
                 self._live_on, self._panel_on = None, None
-                self._prompt, self._draft_context = "", None
+                self._prompt, self._draft_context, self._draft_unasked = "", None, False
                 self._history_file, self._unsaved = None, []
                 self._observation = observation.Read()
                 self._message_retry = None
@@ -1301,6 +1323,23 @@ class ChatTUI:
         execution = self._launch_execution or (self._view or {}).get("execution") or {}
         return execution.get("mode") == "durable_local" and execution.get("detach_supported") is True
 
+    def _typed_ahead_for(self, prompt: str, current) -> bool:
+        """A draft the person began while this chat's run worked answers its next free-text question.
+
+        They read AutoCode's reply and started their answer before the question's box opened: moving
+        that text into history behind an "Earlier draft kept" notice lost it for no reason. Only a
+        question any text answers keeps it, and only in the chat it was typed in; an approval or a
+        choice never takes text typed before it was shown."""
+        typed = self._draft_context
+        return (
+            self._draft_unasked
+            and free_reply(prompt)
+            and typed is not None
+            and current is not None
+            and typed[0] == current[0]
+            and typed[1] in (None, current[1])
+        )
+
     def _draft_identity(self):
         current = contexts.draft_identity(self._view)
         if current is not None:
@@ -1386,11 +1425,9 @@ class ChatTUI:
                 and self._restore_context == current_context
                 and prompt == self._prompt
             )
-            keep_draft = (
-                bool(self._composer.text)
-                and self._draft_context is not None
-                and self._draft_context == current_context
-                and prompt == self._prompt
+            keep_draft = bool(self._composer.text) and (
+                (self._draft_context is not None and self._draft_context == current_context and prompt == self._prompt)
+                or self._typed_ahead_for(prompt, current_context)
             )
             if self._composer.text and not keep_draft:
                 self._composer.history = [*self._composer.history, self._composer.text][-HISTORY_LIMIT:]
@@ -1432,6 +1469,10 @@ class ChatTUI:
                 if key is not None:
                     self._draw()
                 if answer is not None:
+                    if composer_label(prompt, True) == "New chat" and answer.strip():
+                        # The request starts a run now: the screen says "Starting the run…" from this
+                        # key on, not "New chat" and then "Reading run status" first.
+                        self._launched, self._launched_at = True, time.monotonic()
                     return answer
         finally:
             with self._lock:
@@ -1521,6 +1562,7 @@ class ChatTUI:
             return None
         if not composer.text:
             self._draft_context = self._draft_identity()
+            self._draft_unasked = not asking
         menu = self._menu(asking)
         if not (menu and key in (curses.KEY_UP, curses.KEY_DOWN, "\t")):
             self._menu_index = 0
@@ -1647,6 +1689,12 @@ class ChatTUI:
             self._message_sending = True
             try:
                 self.send_message(sent, shown)
+            except messages.MessageClosed:
+                # The step ended between the box's offer and this Enter, usually at the question it
+                # was finishing: the text waits in the box for that question instead (_typed_ahead_for).
+                self._message_retry, self._draft_unasked = None, True
+                self._transcript.info(*NOT_SENT_STEP_ENDED, coalesce=True)
+                return None
             except messages.MessageError as error:
                 self._message_retry = (sent, shown)
                 self._transcript.info("Message not confirmed", str(error))
@@ -1662,12 +1710,10 @@ class ChatTUI:
             self._transcript.info("Message saved", "Requirements will reply after the current step is saved.")
             return None
         if not asking:
-            if self._view is None:
+            if self._view is None and not self._launched:
                 self._transcript.info("Reading run status", "Your text is kept; wait for the run's current view.")
             else:
-                self._transcript.info(
-                    "AutoCode is working", "Type / for commands. AutoCode asks here when it needs you.", coalesce=True
-                )
+                self._transcript.info(*NOT_SENT, coalesce=True)
             return None
         if text.startswith("//"):
             self._composer.text, self._composer.cursor = text[1:], max(0, self._composer.cursor - 1)
@@ -2035,7 +2081,12 @@ class ChatTUI:
             row.get("current") and row.get("state") == "unavailable" for row in self._tabs
         )
         label = "History · " if self._scroll else ""
-        if self._view is None and (self._new_chat() or self._starting()):
+        if self._status_row(layout) and not self._scroll and not unavailable:
+            # The status row above the reply box says what is happening now; this row said the same
+            # words a second time ("Requirements working" twice). It speaks again at a question, where
+            # that row gives way, and when the person pages back into the history.
+            pass
+        elif self._view is None and (self._new_chat() or self._starting()):
             status = "New chat" if self._new_chat() else STARTING
             self._put(2, 0, truncate(f"{label}{status}", layout.width), self._style("panel-now"))
         else:
@@ -2309,12 +2360,17 @@ class ChatTUI:
                 col = max(0, (width - display_width(text)) // 2)
             self._put(first + offset, col, truncate(text, width - col), self._style(role))
 
+    def _status_row(self, layout: Layout) -> bool:
+        """Whether the spinner row above the reply box is drawn: whenever no question holds the box and
+        a run is starting or running (a new chat's request not sent yet has nothing to report)."""
+        return not layout.question and not self._asking and not (self._view is None and self._new_chat())
+
     def _question_or_status(self, layout: Layout) -> None:
         if layout.question:
             for offset, line in enumerate(layout.question):
                 self._put(layout.status_start + offset, 2, truncate(line, layout.width - 2), self._style("question"))
             return
-        if self._asking:
+        if not self._status_row(layout):
             return
         spinner = self._glyphs.spinner
         marker = spinner[self._frame % len(spinner)] if spinner else "*"
@@ -2325,13 +2381,17 @@ class ChatTUI:
             if reading and self._starting()
             else f"Status unavailable; {self._observation.outage()}"
             if self._observation.error
-            else "Run started; waiting for its first status view…"
+            else STARTING
             if reading and self._launched
             else "Reading run status…"
             if reading
             else task
+            # The run reached a question and the box opens with it in a moment: "Waiting for you"
+            # beside a spinner, over a box that would not take the reply yet, read as a contradiction.
+            or (QUESTION_COMING if panel.needs_you(self._view) else None)
             or panel.doing(self._view)
             or panel.current_line(self._view)
+            or panel.headline(self._view)
             or self._transcript.activity
             or "AutoCode is working…"
         )
@@ -2379,16 +2439,11 @@ class ChatTUI:
         inner = max(1, width - 6)
         self._put(layout.box_text, 2, glyphs.prompt, self._style("prompt" if active else "dim"))
         if not active and not self._composer.text:
-            waiting = self._view and panel.needs_you(self._view)
             placeholder = (
-                "Type / for commands while the run starts"
-                if self._view is None and self._launched
-                else "Reading run status… type / for commands"
-                if self._view is None
-                else "Type a message, then Enter; work is saved before the reply"
+                "Reading run status…"
+                if self._view is None and not self._launched
+                else "Type a message for AutoCode, then Enter"
                 if self._can_message()
-                else "Type / for commands. AutoCode asks here when it needs you."
-                if waiting
                 else WORKING_PLACEHOLDER
             )
             self._put(layout.box_text, 4, truncate(placeholder, inner), self._style("placeholder"))
@@ -2429,7 +2484,7 @@ class ChatTUI:
         elif self._can_detach():
             hints = "/ commands · ctrl-d detaches · ctrl-c asks for a boundary pause"
         elif self._view is None:
-            hints = "/ commands · reading run status"
+            hints = "/ commands"  # the status row says it is starting or reading the run
         else:
             hints = "/ commands · ctrl-c asks AutoCode to pause after this step"
         stage = (
@@ -2463,7 +2518,7 @@ class ChatTUI:
                 elif self._view and self._view.get("coordination"):
                     hints = "/ commands · ^C cancel"
                 elif self._view is None:
-                    hints = "/ commands · reading"
+                    hints = "/ commands"
                 else:
                     hints = "/ commands · ^C pause"
             elif self._asking:
@@ -2473,7 +2528,7 @@ class ChatTUI:
             elif self._view and self._view.get("coordination"):
                 hints = "/ commands · ctrl-c cancel after step"
             elif self._view is None:
-                hints = "/ commands · reading run status"
+                hints = "/ commands"
             else:
                 hints = "/ commands · ctrl-c pause after step"
         elif status:

@@ -1,5 +1,6 @@
 """The build loop of one autocode invocation: the checks before each stage, launching the stage,
-and what happens after it, driven by the orchestrator under the checkout lock.
+and what happens after it, driven by the orchestrator. The checkout lock is taken before the first
+stage that needs the checkout to itself (every stage but Requirements, autocode_checkout_lock.needed_by).
 
 run() returns the exit code when the loop stops, or None when it runs to the end. Like
 autocode_run_actions, it is given the runner module and calls the runner's own functions as runner.X
@@ -10,6 +11,7 @@ runner.opencode is the provider selected for this invocation. It never imports a
 from __future__ import annotations
 
 import sys
+from contextlib import ExitStack
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -407,27 +409,50 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
     if not check_storage(state):
         return 2
 
-    try:  # One run's agents at a time in a checkout (autocode_checkout_lock).
-        from contextlib import nullcontext
+    checkout = ExitStack()
+    holding = [checkout_owned]
 
-        with nullcontext() if checkout_owned else checkout_lock.exclusive(workspace, run_dir):
-            if (
-                "base_commit" in state
-                and not state["base_commit"]
-                and not any(not row.get("runner_owned") for row in state.get("stages") or [])
-            ):
-                # Found the checkout busy at launch (autocode_run_setup.launch_base): it starts from here.
-                regression.start(state, workspace, run_dir)
-                if "launch_sources" in state and state["launch_sources"].get("base_commit") is None:
-                    # The launch record vouched for no base. Retake it for this base, under the same lock and
-                    # before any provider, as an idle launch takes both together; otherwise supply() distrusts
-                    # it and the proof cannot tell an inert base from behavior to preserve.
-                    launch_inputs.record(state, workspace, run_dir)
-                runner.write_json(state_path, state)
+    def hold_checkout(current):
+        """Take the checkout before the first stage that needs it: one run's agents at a time
+        (autocode_checkout_lock). Requirements only reads it, so while another run holds it Requirements
+        still runs (checkout_lock.needed_by), and the run waits only when a stage that needs it is next."""
+        if holding[0]:
+            return
+        try:
+            checkout.enter_context(checkout_lock.exclusive(workspace, run_dir))
+        except checkout_lock.CheckoutBusy:
+            if checkout_lock.needed_by(current):
+                raise
+            return
+        holding[0] = True
+        if (
+            "base_commit" in current
+            and not current["base_commit"]
+            and not any(
+                not row.get("runner_owned") and row.get("stage") not in checkout_lock.READS_ONLY
+                for row in current.get("stages") or []
+            )
+        ):
+            # Found the checkout busy at launch (autocode_run_setup.launch_base): it starts from here. A
+            # Requirements attempt made meanwhile read the checkout and changed nothing in it.
+            regression.start(current, workspace, run_dir)
+            if "launch_sources" in current and current["launch_sources"].get("base_commit") is None:
+                # The launch record vouched for no base. Retake it for this base, under the same lock and
+                # before any provider, as an idle launch takes both together; otherwise supply() distrusts
+                # it and the proof cannot tell an inert base from behavior to preserve.
+                launch_inputs.record(current, workspace, run_dir)
+            runner.write_json(state_path, current)
+
+    def before_stage(current):
+        hold_checkout(current)
+        return before_code_stage(current)
+
+    try:
+        with checkout:
             runner.orchestrator.drive(
                 state,
                 dispatch_code_stage,
-                before=before_code_stage,
+                before=before_stage,
                 persist=lambda current: (
                     autopilot.publish_handoffs(current, run_dir),
                     runner.write_json(state_path, current),
