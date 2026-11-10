@@ -143,7 +143,7 @@ raise SystemExit(code)
                 [sys.executable, str(viewer)],
                 cwd=root,
                 env={**os.environ, "TERM": "xterm-256color"},
-                cols=120,
+                cols=99,  # below the width that shows the side panel by itself (#3070)
                 rows=72,
                 tmux=require_tmux(self),
             )

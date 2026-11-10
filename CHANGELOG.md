@@ -85,6 +85,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Terminal chat, side panel on a wide window**: `/panel` hides the panel again at 100 or more
+  columns, where it now shows by itself (#3070), and the choice holds when the window is resized.
+  Before, `/panel` there did nothing.
+
 - A recovery hold waiting to publish its request (RESOLVER_PENDING) is no longer shown as a
   question for the person when its proposal is bound to AutoCode's own recovery receipt; the
   view names why the hold's retry waits instead. A Resolver-diagnosed decision is still shown.

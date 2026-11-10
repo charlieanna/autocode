@@ -878,7 +878,7 @@ class ChatTUI:
         self._log = panel.StageLog()
         self._live = panel.LiveLog()  # what each agent thinks and does, from the view's chat.log
         self._live_on: bool | None = None  # detailed agent pane appears only on request
-        self._panel_on = False  # the conversation owns the width until /panel asks for details
+        self._panel_on = None  # None: shown on a wide window (#3070); /panel then shows or hides it
         self._cost_cap: float | None = None  # session cost cap: warn and pause when hit (#3002)
         self._cost_cap_warned = False
         self._pause_requested = False
@@ -1914,8 +1914,11 @@ class ChatTUI:
         if not (cols >= 60 and rows >= 16):
             return False
         # Auto-show the panel on wide windows (#3070): pipeline, live log and spend
-        # details appear when there is room, without /panel.
-        return self._panel_on or cols >= 100
+        # details appear when there is room, without /panel. Once /panel shows or
+        # hides it, that choice holds at every width.
+        if self._panel_on is not None:
+            return self._panel_on
+        return cols >= 100
 
     def _live_visible(self, rows: int, cols: int) -> bool:
         if rows < 16 or cols < 40:
