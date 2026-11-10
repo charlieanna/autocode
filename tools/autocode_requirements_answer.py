@@ -14,6 +14,7 @@ without importing the discuss job's probe machinery.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -40,6 +41,87 @@ def conversational(report: dict) -> bool:
         and not report.get("required_behaviors")
         and not report.get("acceptance_tests")
     )
+
+
+# A small turn's message is only greeting or small talk: exact word sequences after contraction
+# expansion, and nothing else. Conservative toward the strict path: a message that states or
+# plausibly names code work (imperative change language, named files or artifacts) matches nothing
+# here and keeps the strict report contract, because a task whose report silently loses
+# required_behaviors is the corrupted-criteria failure mode.
+_CONTRACTIONS = {
+    "what's": "what is",
+    "whats": "what is",
+    "how's": "how is",
+    "hows": "how is",
+    "it's": "it is",
+    "its": "it is",
+    "that's": "that is",
+    "thats": "that is",
+    "i'm": "i am",
+    "im": "i am",
+}
+SMALL_TURN_MESSAGES = frozenset(
+    {
+        ("hi",),
+        ("hello",),
+        ("hey",),
+        ("yo",),
+        ("hiya",),
+        ("howdy",),
+        ("greetings",),
+        ("sup",),
+        ("hi", "there"),
+        ("hello", "there"),
+        ("hey", "there"),
+        ("good", "morning"),
+        ("good", "afternoon"),
+        ("good", "evening"),
+        ("good", "night"),
+        ("how", "are", "you"),
+        ("how", "are", "you", "doing"),
+        ("how", "are", "you", "today"),
+        ("how", "is", "it", "going"),
+        ("how", "is", "everything"),
+        ("what", "is", "up"),
+        ("what", "is", "your", "name"),
+        ("who", "are", "you"),
+        ("what", "can", "you", "do"),
+        ("nice", "to", "meet", "you"),
+        ("thanks",),
+        ("thank", "you"),
+        ("thank", "you", "very", "much"),
+        ("thanks", "a", "lot"),
+        ("bye",),
+        ("goodbye",),
+        ("see", "you"),
+        ("see", "you", "later"),
+        ("take", "care"),
+        ("ok",),
+        ("okay",),
+        ("sounds", "good"),
+        ("great",),
+        ("cool",),
+        ("nice",),
+        ("awesome",),
+        ("that", "is", "all"),
+        ("never", "mind"),
+        ("all", "good"),
+        ("no", "thanks"),
+    }
+)
+
+
+def names_no_goal(message) -> bool:
+    """Whether a turn's saved message is only greeting or small talk: it names no software goal.
+
+    Narrow and deterministic over the turn's own message, never over model text: only an exact
+    greeting or small-talk sequence matches, so a message that states or plausibly names code work
+    is never treated as a small turn. The missing-field tolerance in the Requirements acceptance
+    gate (autocode_requirements_handoff.no_goal_first_answer) is keyed to this."""
+    words: list[str] = []
+    for token in re.findall(r"[a-z']+", str(message or "").lower()):
+        words.extend(_CONTRACTIONS.get(token, token).split())
+    return tuple(words) in SMALL_TURN_MESSAGES
 
 
 def answer_from_requirements(state: RunState, report: dict, record: dict) -> None:

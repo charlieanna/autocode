@@ -464,6 +464,33 @@ class RequirementsChatTests(unittest.TestCase):
                 )
                 self.assertEqual(expected, chat.streaming_reply(state, root))
 
+    def test_ac3_streamed_reply_visible_during_stage(self):
+        # AC3 guard: while Requirements runs, a partial assistant_reply stream is
+        # projected as the streaming "requirements-live" chat message before any
+        # report is accepted. The fragment is a strict prefix of AC1's reply.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = root / "requirements-gather-01.jsonl"
+            events.write_text(
+                json.dumps(
+                    {
+                        "type": "item.updated",
+                        "item": {
+                            "id": "item_0",
+                            "type": "agent_message",
+                            "text": '{"assistant_reply":"Hi! I\'m AutoCode\'s requirements assistant"',
+                        },
+                    }
+                )
+                + "\n"
+            )
+            state = {"settings": {"spec_first": True}, "active_stage": {"stage": chat.STAGE, "events": str(events)}}
+            self.assertEqual("Hi! I'm AutoCode's requirements assistant", chat.streaming_reply(state, root))
+            shown = view.project(state, {"status": "RUNNING", "needs": {"kind": "continue"}}, run_dir=root)
+            live = shown["messages"][-1]
+            self.assertEqual(("requirements-live", "assistant", True), (live["id"], live["role"], live["streaming"]))
+            self.assertEqual("Hi! I'm AutoCode's requirements assistant", live["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

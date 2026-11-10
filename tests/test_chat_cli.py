@@ -237,3 +237,262 @@ class ChatCliTests(unittest.TestCase):
         self.assertIn(reply["text"], [row["text"] for row in saved["chat"]["messages"] if row["role"] == "assistant"])
         reattached = taskrun.TaskRun(self.workspace, run.run_dir, env=self.env)
         self.assertEqual(saved["chat"], reattached.status()["chat"])
+
+
+class SmallTurnChatTests(unittest.TestCase):
+    """The small-turn acceptance examples (greeting skip, single pass, goal-turn guards).
+
+    A wrapper provider delegates every dispatch to the copied offline fixture and then
+    overrides the Requirements answer with the exact shape the approved criterion gives,
+    so the turn is driven through the public task-run interface with the offline provider.
+    """
+
+    REPLY = "Hi! I'm AutoCode's requirements assistant."
+    GOAL = "Add a --shout option to the greeting CLI"
+    OUTCOME = "The greeting CLI gains a --shout option"
+    REQUIREMENT = {
+        "id": "R1",
+        "text": "With --shout the CLI prints the greeting in upper case",
+        "source_quote": "Add a --shout option to the greeting CLI",
+    }
+
+    def setUp(self):
+        root = Path(tempfile.mkdtemp(prefix="small-turn-", dir=os.environ.get("BUILD_AUDIT_ARTIFACTS")))
+        if not os.environ.get("BUILD_AUDIT_ARTIFACTS"):
+            self.addCleanup(shutil.rmtree, root)
+        self.root = root
+        self.workspace = root / "project"
+        self.workspace.mkdir()
+        # A goal turn's repaired report cites inspected source, so the folder names one.
+        (self.workspace / "README.md").write_text("# Greeting project\n")
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "base",
+            ],
+            check=True,
+        )
+        bindir = root / "bin"
+        bindir.mkdir()
+        shutil.copy2(HERE / "live_fixture_provider.py", bindir / "fixture-provider.py")
+        wrapper = bindir / "codex"
+        wrapper.write_text(
+            f"#!{sys.executable}\n"
+            "import json, os, subprocess, sys\n"
+            "fixture = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'fixture-provider.py')\n"
+            "prompt = sys.stdin.read()\n"
+            "try:\n"
+            "    data = json.loads(prompt.split('CURRENT HANDOFF DATA\\n', 1)[1])\n"
+            "except (IndexError, ValueError):\n"
+            "    data = {}\n"
+            "stage = data.get('stage') or (data.get('original') or {}).get('stage')\n"
+            "overrides = None\n"
+            "if stage == 'requirements_gather':\n"
+            "    key = 'AUTOCODE_TEST_REPAIR_ANSWER' if data.get('report_repair') else 'AUTOCODE_TEST_FIRST_ANSWER'\n"
+            "    path = os.environ.get(key)\n"
+            "    if path and os.path.isfile(path):\n"
+            "        with open(path) as source:\n"
+            "            overrides = json.load(source)\n"
+            "proc = subprocess.run(\n"
+            "    [sys.executable, fixture, *sys.argv[1:]], input=prompt, text=True, capture_output=True\n"
+            ")\n"
+            "if overrides is not None:\n"
+            "    output = sys.argv[sys.argv.index('-o') + 1]\n"
+            "    with open(output) as source:\n"
+            "        report = json.load(source)\n"
+            "    report.update(overrides)\n"
+            "    with open(output, 'w') as target:\n"
+            "        target.write(json.dumps(report))\n"
+            "sys.stdout.write(proc.stdout)\n"
+            "sys.stderr.write(proc.stderr)\n"
+            "sys.exit(proc.returncode)\n"
+        )
+        wrapper.chmod(0o755)
+        self.env = {
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "AUTOCODE_HOME": str(root / "registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+
+    def drive(self, message, first_answer, repair_answer):
+        """Run one chat turn to its person-facing stop; return (run, view, controller invocations).
+
+        Controller invocations are the task-run actions that advance the turn, one CLI
+        invocation each: the start invocation plus every advance until the run stops.
+        """
+        scripts = self.root / "answers"
+        scripts.mkdir(exist_ok=True)
+        first, repair = scripts / "first.json", scripts / "repair.json"
+        first.write_text(json.dumps(first_answer))
+        repair.write_text(json.dumps(repair_answer))
+        env = {
+            **self.env,
+            "AUTOCODE_TEST_FIRST_ANSWER": str(first),
+            "AUTOCODE_TEST_REPAIR_ANSWER": str(repair),
+        }
+        run = taskrun.TaskRun.start(
+            self.workspace, message, options=(*FIXTURE_OPTIONS, "--spec-first"), env=env, timeout=300
+        )
+        invocations = 1  # TaskRun.start's invocation already advanced the turn
+        view = run.status()
+        for _ in range(10):
+            if view["done"] or view["needs"]["kind"] != "continue":
+                return run, view, invocations
+            view = run.advance()
+            invocations += 1
+        raise AssertionError(f"the turn never stopped for the person: {view.get('needs')}")
+
+    @staticmethod
+    def dispatch_counts(run):
+        # A rejected dispatch is archived under iterations/NNN/archived-*, an accepted one
+        # stays live, so count the recorded dispatch artifacts recursively.
+        gather = [
+            path
+            for path in run.run_dir.glob("iterations/**/requirements-gather-*.jsonl")
+            if "report-repair" not in path.name
+        ]
+        repair = list(run.run_dir.glob("iterations/**/requirements-gather-report-repair-*.jsonl"))
+        return gather, repair
+
+    def greeting_answers(self):
+        first = {
+            "assistant_reply": self.REPLY,
+            "intended_outcome": "A friendly greeting, with no software named to build or change",
+            "requirements": [],
+            "required_behaviors": [],
+            "acceptance_tests": [],
+            "open_questions": [],
+            "job": "none",
+        }
+        # The repair keeps the fixture's requested-outcome question so today's code can
+        # accept the turn after one repair; after the fix this answer is never requested.
+        repair = {
+            "summary": "The user has not described a task yet.",
+            "assistant_reply": self.REPLY,
+            "intended_outcome": "A friendly greeting, with no software named to build or change",
+            "requirements": [],
+            "required_behaviors": [],
+            "acceptance_tests": [],
+            "constraints": [],
+            "proposed_assumptions": [],
+            "ignored_statements": [],
+            "source_refs": [],
+            "open_questions": [
+                {
+                    "id": "requested-outcome",
+                    "question": "What would you like to build or change?",
+                    "why": "No engineering outcome has been requested yet.",
+                    "options": [],
+                    "proposed_default": "",
+                    "kind": "decision",
+                    "category": "requested_outcome",
+                    "delegable": False,
+                }
+            ],
+            "job": "none",
+            "design_document": "",
+            "clarity": "clear",
+        }
+        return first, repair
+
+    def test_ac1_greeting_first_usable_answer_skips_report_repair(self):
+        first, repair = self.greeting_answers()
+        run, view, _ = self.drive("hi", first, repair)
+        self.assertEqual("answer", view["needs"]["kind"], view.get("needs"))
+        # The public view trims question categories, so recognize the runner's
+        # requested-outcome stop by what it asks the person for.
+        self.assertTrue(
+            any("build" in question.get("question", "").lower() for question in view["needs"]["questions"]),
+            view["needs"]["questions"],
+        )
+        self.assertIn(
+            self.REPLY,
+            [row["text"] for row in view["chat"]["messages"] if row["role"] == "assistant"],
+            view["chat"]["messages"],
+        )
+        gather, repaired = self.dispatch_counts(run)
+        self.assertEqual(1, len(gather), [str(path) for path in gather])
+        self.assertEqual(0, len(repaired), "a usable no-goal first answer must not pay a report repair")
+
+    def test_ac4_small_turn_single_pass_single_launch(self):
+        first, repair = self.greeting_answers()
+        run, view, invocations = self.drive("hi", first, repair)
+        self.assertEqual("answer", view["needs"]["kind"], view.get("needs"))
+        self.assertEqual(1, invocations, "one reply must cost one controller invocation")
+        gather, repaired = self.dispatch_counts(run)
+        self.assertEqual(1, len(gather), [str(path) for path in gather])
+        self.assertEqual(0, len(repaired), "one reply must cost one provider dispatch")
+        self.assertFalse((run.run_dir / "model-preflight").exists(), "a chat turn must not probe models")
+        state = json.loads((run.run_dir / "state.json").read_text())
+        intervals = [
+            row
+            for row in state.get("efficiency_observations") or []
+            if (row.get("provenance") or {}).get("phase") == "source_launcher_preparation"
+        ]
+        self.assertEqual(1, len(intervals), "launch preparation must run once for the reply's single launch")
+
+    def goal_answers(self, first):
+        repair = {
+            **first,
+            "summary": "The greeting CLI gains a --shout option",
+            "requirements": [self.REQUIREMENT],
+            "required_behaviors": ["With --shout the CLI prints the greeting in upper case"],
+            "acceptance_tests": ["Run the greeting CLI with --shout and one name and read the upper-case greeting"],
+            "constraints": [],
+            "proposed_assumptions": [],
+            "ignored_statements": [],
+            "source_refs": ["README.md"],
+            "open_questions": [],
+            "design_document": "",
+            "clarity": "clear",
+        }
+        return first, repair
+
+    def assert_goal_turn_still_repaired(self, first):
+        run, view, _ = self.drive(self.GOAL, *self.goal_answers(first))
+        self.assertEqual("answer", view["needs"]["kind"], view.get("needs"))
+        self.assertTrue(
+            view["needs"]["questions"][-1]["id"].startswith("requirements-review-"),
+            view["needs"]["questions"],
+        )
+        self.assertIsNone(view.get("displayed_plan"))
+        gather, repaired = self.dispatch_counts(run)
+        self.assertEqual(1, len(gather), [str(path) for path in gather])
+        self.assertEqual(1, len(repaired), "a goal turn omitting a required field must still be repaired")
+
+    def test_ac2_goal_turn_missing_field_still_repaired(self):
+        self.assert_goal_turn_still_repaired(
+            {
+                "job": "build",
+                "intended_outcome": self.OUTCOME,
+                "requirements": [self.REQUIREMENT],
+                "required_behaviors": [],
+                "acceptance_tests": [],
+                "open_questions": [],
+                "assistant_reply": "I understand you want a --shout option.",
+            }
+        )
+
+    def test_ac6_goal_turn_no_job_empty_lists_still_repaired(self):
+        self.assert_goal_turn_still_repaired(
+            {
+                "job": "none",
+                "intended_outcome": self.OUTCOME,
+                "requirements": [],
+                "required_behaviors": [],
+                "acceptance_tests": [],
+                "open_questions": [],
+                "assistant_reply": "I understand you want a --shout option.",
+            }
+        )
