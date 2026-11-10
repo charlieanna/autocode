@@ -643,6 +643,29 @@ class ChatViewTests(unittest.TestCase):
         self.assertEqual([spoken], [row["text"] for row in result["messages"]])
         self.assertTrue(result["messages"][0]["id"].startswith(chat.REQUIREMENTS_QUESTION))
 
+    def test_a_question_copied_without_its_code_marks_is_one_message(self):
+        """A live Claude run on the same ticket link (2026-11-10) copied its question word for word but
+        wrote `pages.py` in the reply and pages.py in the question, and its reply ends in a full stop."""
+        spoken = (
+            "I can't open the Jira ticket DTI-12447 from here, so I don't know what the bug is. What is the "
+            "wrong behavior, and what should happen instead? A short description, the ticket's text, or "
+            "reproduction steps would help. If it's in `pages.py`, tell me which page or function."
+        )
+        question = (
+            "What is the wrong behavior, and what should happen instead? A short description, the ticket's "
+            "text, or reproduction steps would help. If it's in pages.py, tell me which page or function."
+        )
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "next_stage": "requirements_gather",
+            "requirements_handoff": {"report": {"assistant_reply": spoken}},
+        }
+        need = {"kind": "answer", "questions": [{"id": "Q1", "question": question, "options": []}]}
+        result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
+        self.assertEqual([spoken], [row["text"] for row in result["messages"]])
+        self.assertTrue(result["messages"][0]["id"].startswith(chat.REQUIREMENTS_QUESTION))
+
     def test_prose_that_is_not_the_same_ask_keeps_the_question_beside_it(self):
         question = "Should the export include archived projects, or only the active ones in this workspace?"
         for spoken in (
