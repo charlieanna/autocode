@@ -824,6 +824,41 @@ def _pack(workspace, heads, secret_values):
     return payload
 
 
+def _moved_from(origin, run_root):
+    """The checkout run this run moved out of, as (workspace, run directory), when it says so.
+
+    A chat that answered Requirements in the person's folder and then moved to its own worktree
+    (#3077, #3081) keeps those first attempts' artifacts where they ran. They are read only when
+    the run left behind is saved as moved to exactly this run directory."""
+    if origin is None:
+        return []
+    if not isinstance(origin, dict) or not all(isinstance(origin.get(key), str) for key in ("workspace", "run_dir")):
+        raise RecordingError("Recording moved-from run is malformed")
+    workspace, root = _root(origin["workspace"]), _root(origin["run_dir"])
+    if root == run_root or root.parent != workspace / ".autocode" / "runs":
+        raise RecordingError("Recording moved-from run is outside its workspace")
+    saved = _json(_read(root, "state.json")[0])
+    moved = (saved.get("build_worktree") or {}) if isinstance(saved, dict) else {}
+    if moved.get("state") != "moved" or (moved.get("moved_to") or {}).get("run_dir") != str(run_root):
+        raise RecordingError("Recording moved-from run did not move to this run")
+    return [(workspace, root)]
+
+
+def _owner(owners, path, refusal):
+    """The (workspace, run directory) whose run directory holds ``path``."""
+    for workspace, root in owners:
+        if Path(path).is_relative_to(root):
+            return workspace, root
+    raise RecordingError(refusal)
+
+
+def _relative(root, path, refusal):
+    try:
+        return Path(path).relative_to(root).as_posix()
+    except ValueError:
+        raise RecordingError(refusal) from None
+
+
 def _source_snapshot(root, reference):
     path = Path(reference)
     if not path.is_absolute():
@@ -1009,11 +1044,12 @@ def export(projection, destination, secret_values=()):
             "actions",
             "checks",
         },
-        {"workflow_pin"},
+        {"workflow_pin", "moved_from"},
     )
     if projection["version"] != 1 or not projection["records"]:
         raise RecordingError("Recording has no replayable attempts")
     workspace, run_root = _root(projection["workspace"]), _root(projection["run_dir"])
+    owners = [(workspace, run_root), *_moved_from(projection.get("moved_from"), run_root)]
     destination = _root(destination)
     if destination.exists():
         raise RecordingError("Recording destination must be new")
@@ -1039,12 +1075,8 @@ def export(projection, destination, secret_values=()):
     original_values = {}
 
     def artifact(identity, path, format):
-        path = Path(path)
-        try:
-            name = path.relative_to(run_root).as_posix()
-        except ValueError:
-            raise RecordingError("Recording artifact is outside its owned run") from None
-        original = _read(run_root, name)[0]
+        owner_root = _owner(owners, path, "Recording artifact is outside its owned run")[1]
+        original = _read(owner_root, Path(path).relative_to(owner_root).as_posix())[0]
         if format in ("json", "receipt"):
             parsed = _json(original)
             if format == "json":
@@ -1076,7 +1108,10 @@ def export(projection, destination, secret_values=()):
     for ordinal, record in enumerate(projection["records"]):
         if not record.get("before_ref") or not record.get("after_ref"):
             raise RecordingError("Recording attempt lacks immutable source snapshots")
-        before, after = (_source_snapshot(run_root, record[key]) for key in ("before_ref", "after_ref"))
+        # A stage that ran before the run moved to its own worktree (#3085) is read from the run it
+        # left, which names this run as where it went; every other attempt only from this run.
+        record_workspace, record_root = _owner(owners, record["events"], "Recording artifact is outside its owned run")
+        before, after = (_source_snapshot(record_root, record[key]) for key in ("before_ref", "after_ref"))
         before_id, after_id = "source-" + str(ordinal * 2), "source-" + str(ordinal * 2 + 1)
         document["snapshots"].update({before_id: before, after_id: after})
         snapshots.extend((before, after))
@@ -1102,8 +1137,8 @@ def export(projection, destination, secret_values=()):
         row["original_stage"] = record.get("original_stage") if row["report_only"] else None
         packet = {}
         if record.get("prompt"):
-            prompt_name = Path(record["prompt"]).relative_to(run_root).as_posix()
-            prompt = _read(run_root, prompt_name)[0].decode("utf-8")
+            prompt_name = _relative(record_root, record["prompt"], "Recording prompt is outside its owned run")
+            prompt = _read(record_root, prompt_name)[0].decode("utf-8")
             marker = "\nCURRENT HANDOFF DATA\n"
             if marker in prompt:
                 packet = _json(prompt.rpartition(marker)[2])
@@ -1175,13 +1210,13 @@ def export(projection, destination, secret_values=()):
             source_contexts = [
                 {"revision": util.digest({"head": snap["head"], "files": snap["files"]})} for snap in (before, after)
             ]
-            identities = _identity_packet(packet, run_root)
+            identities = _identity_packet(packet, record_root)
             row["bindings"] = identity_bindings.bindings(
                 payload,
                 record,
                 row,
-                workspace,
-                run_root,
+                record_workspace,
+                record_root,
                 source_contexts,
                 gaps=identity_bindings.changed_line_gaps(identities),
                 proof=identity_bindings.proof_path(packet),

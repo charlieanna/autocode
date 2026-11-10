@@ -387,10 +387,18 @@ def _project(state: RunState, *, run_dir=None):
         and workflow["output"] is None
         else {}
     )
+    moved = state.get("build_worktree") or {}
+    # Stages before a move to the run's own worktree ran in the run it left (#3085).
+    origin = (
+        {"moved_from": {key: moved["moved_from"].get(key) for key in ("workspace", "run_dir")}}
+        if moved.get("state") == "building" and isinstance(moved.get("moved_from"), dict)
+        else {}
+    )
     return {
         "version": 1,
         "workspace": state.get("workspace"),
         "run_dir": run_dir,
+        **origin,
         "origin": {
             "run_name": (run_dir or "").rstrip("/").rsplit("/", 1)[-1],
             "runner_revision": None,

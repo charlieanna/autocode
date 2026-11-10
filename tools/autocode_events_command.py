@@ -34,10 +34,12 @@ import sys
 from pathlib import Path
 
 try:
+    from . import autocode_build_worktree as build_worktree
     from . import autocode_registry as registry
     from . import autocode_run_view as run_view
     from . import autocode_util as util
 except ImportError:
+    import autocode_build_worktree as build_worktree
     import autocode_registry as registry
     import autocode_run_view as run_view
     import autocode_util as util
@@ -62,12 +64,15 @@ def saved_workspace(run_dir: Path) -> Path | None:
 
 
 def resolve(workspace: Path | None, run_dir: Path | None) -> tuple[Path, Path]:
-    """(run directory, the workspace its checkpoint was written against)."""
+    """(run directory, the workspace its checkpoint was written against).
+
+    A chat that moved from this checkout to its own worktree (autocode_build_worktree) is read where it
+    is now, as its status is: the record left here holds only its events from before the move."""
     if run_dir is not None:
         run_dir = run_dir.expanduser().resolve()
         if workspace is not None:
-            return run_dir, workspace.expanduser().resolve()
-        return run_dir, saved_workspace(run_dir) or Path.cwd()
+            return _followed(run_dir, workspace.expanduser().resolve())
+        return _followed(run_dir, saved_workspace(run_dir) or Path.cwd())
     workspace = (workspace or Path.cwd()).expanduser().resolve()
     runs = saved_runs(workspace)
     if not runs:
@@ -75,7 +80,16 @@ def resolve(workspace: Path | None, run_dir: Path | None) -> tuple[Path, Path]:
     if len(runs) > 1:
         named = ", ".join(str(run) for run in runs)
         raise ValueError(f"{len(runs)} runs are saved in {workspace}; name one with --run-dir: {named}")
-    return runs[0], workspace
+    return _followed(runs[0], workspace)
+
+
+def _followed(run_dir: Path, workspace: Path) -> tuple[Path, Path]:
+    try:
+        state = json.loads((run_dir / "state.json").read_text())
+    except (OSError, ValueError):
+        return run_dir, workspace
+    found = build_worktree.resolve(workspace, run_dir, cast("RunState", state)) if isinstance(state, dict) else None
+    return (found[1], found[0]) if found else (run_dir, workspace)
 
 
 def events_of(state: RunState) -> list[dict]:

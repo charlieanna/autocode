@@ -107,10 +107,10 @@ STREAM_QUIET_POLLS = 8
 OTHERS_SECONDS = 10.0  # how often chats opened earlier this session are checked while AutoCode works
 YES = ("y", "yes")
 # What a relaunch must change, as TaskRun.advance_until_input and the scenario driver check.
-# A chat plans in the person's folder, and once its plan is approved builds on a branch and worktree of its
+# A chat gathers requirements in the person's folder, then plans and builds on a branch and worktree of its
 # own (autocode_build_worktree), so chats in one folder do not wait for each other and the folder is not written.
 PLACEMENT = ("--build-in-worktree",)
-# run_dir: a run planned in the person's folder moves to its own worktree to build (autocode_build_worktree).
+# run_dir: a run started in the person's folder moves to its own worktree to plan and build (autocode_build_worktree).
 PROGRESS_KEYS = ("status", "next_stage", "iteration", "phase", "needs", "run_dir")
 
 

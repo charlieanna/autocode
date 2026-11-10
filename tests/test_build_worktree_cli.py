@@ -1,11 +1,12 @@
-"""A chat plans in the person's folder and builds its approved plan on a branch of its own (#3077).
+"""A chat talks with the person in their folder and plans and builds on a branch of its own (#3077, #3081).
 
 Seen 2026-11-10: every terminal chat started its run with --in-place, so two chats in one folder waited
-for each other for the whole build, and each build wrote into the person's checkout. A run started with
---build-in-worktree plans there (Requirements and the Planner only read it), and once the plan is
-approved it moves to a new task worktree and branch to build. These drive the CLI through the task-run
-interface with the offline fixture provider; the status view, the checkout, the branch and the run
-listings are the oracles.
+for each other for the whole build, and each build wrote into the person's checkout. Then a pull in the
+person's folder, while a plan waited for approval there, stranded the plan's review (#3080). A run
+started with --build-in-worktree runs Requirements in the folder (it only reads it and talks with the
+person), then moves to a new task worktree and branch, where the plan is made, reviewed, approved and
+built. These drive the CLI through the task-run interface with the offline fixture provider; the
+status view, the checkout, the branch and the run listings are the oracles.
 """
 
 from __future__ import annotations
@@ -47,13 +48,20 @@ class BuildInWorktreeCliTests(unittest.TestCase):
     def git(self, *argv):
         return subprocess.run(["git", "-C", str(self.workspace), *argv], capture_output=True, text=True, check=True)
 
-    def test_the_plan_is_made_in_the_folder_and_built_on_a_branch_of_its_own(self):
+    def test_the_plan_is_made_and_built_on_a_branch_of_its_own(self):
         (self.workspace / "notes.txt").write_text("the person's own uncommitted note\n")
         run = self.start(self.workspace)
-        planned = run.status()
+        self.assertTrue(list(run.run_dir.glob("iterations/*/requirements-gather-*.jsonl")), "Requirements ran here")
+        self.assertEqual([], list(run.run_dir.glob("iterations/*/discovery-*.jsonl")), "the Planner did not")
+        planned = run.advance_until_input()  # the run is named by the path it had in the folder
         self.assertEqual("approve_plan", planned["needs"]["kind"], planned["needs"])
-        self.assertEqual(str(self.workspace), planned["workspace"], "the plan is made in the person's folder")
-        self.assertTrue(list(run.run_dir.glob("iterations/*/discovery-*.jsonl")), "the Planner ran there")
+        tree = Path(planned["workspace"])
+        self.assertEqual(self.workspace / ".autocode" / "worktrees", tree.parent, "the plan is made in the worktree")
+        self.assertTrue(list(Path(planned["run_dir"]).glob("iterations/*/discovery-*.jsonl")), "the Planner ran there")
+        # The folder moves on while the plan waits: its review stands, since it was made elsewhere (#3080).
+        (self.workspace / "upstream.txt").write_text("pulled meanwhile\n")
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.test", "add", "upstream.txt")
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "upstream change")
         # Another chat now works in the folder: the approved plan is built anyway, since it is built elsewhere.
         other = self.workspace / ".autocode" / "runs" / "20261110-090000-chat-a1b2c3"
         held = checkout_lock.exclusive(self.workspace, other)
@@ -64,8 +72,7 @@ class BuildInWorktreeCliTests(unittest.TestCase):
         view = run.advance_until_input()  # the run is named by the path it had in the folder
 
         self.assertTrue(view["done"], {key: view.get(key) for key in ("status", "needs", "stop_reason")})
-        tree = Path(view["workspace"])
-        self.assertEqual(self.workspace / ".autocode" / "worktrees", tree.parent)
+        self.assertEqual(str(tree), view["workspace"])
         self.assertEqual(
             tree / ".autocode" / "runs" / run.run_dir.name, Path(view["run_dir"]), "the run keeps its name"
         )
@@ -85,10 +92,10 @@ class BuildInWorktreeCliTests(unittest.TestCase):
         self.assertNotIn("autocode/", self.git("branch", "--show-current").stdout)
         self.assertNotIn("greet.py", self.git("ls-files").stdout)
 
-        # Said once, after the approval: where it builds, what it leaves out, and that merging is the person's.
+        # Said once, where the run moved: where it works, what it leaves out, and that merging is the person's.
         notices = [row["text"] for row in view["chat"]["messages"] if row["id"] == "build-worktree"]
         self.assertEqual(1, len(notices), view["chat"]["messages"])
-        self.assertIn(f"I build this on its own branch, {branches[0]}, in a separate copy of", notices[0])
+        self.assertIn(f"I plan and build this on its own branch, {branches[0]}, in a separate copy of", notices[0])
         self.assertIn("Not included from your folder: notes.txt.", notices[0])
         self.assertIn("review and merge the branch; I never merge it myself.", notices[0])
 

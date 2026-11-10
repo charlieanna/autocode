@@ -722,6 +722,29 @@ class ExportAndMaterializationTests(unittest.TestCase):
             recording.export(self.projection, self.destination)
         self.assertFalse(self.destination.exists())
 
+    def test_attempts_before_a_move_are_read_only_from_the_run_that_moved_here(self):
+        # A chat answers Requirements in the person's folder, then moves to its own worktree (#3085).
+        origin = Path(self.projection["run_dir"])
+        moved = origin.parent / "moved"
+        moved.mkdir()
+        self.projection.update(
+            run_dir=str(moved), moved_from={"workspace": self.projection["workspace"], "run_dir": str(origin)}
+        )
+        saved = origin / "state.json"
+        saved.write_text(json.dumps({"build_worktree": {"state": "moved", "moved_to": {"run_dir": str(origin)}}}))
+        with self.assertRaisesRegex(ValueError, "did not move to this run"):
+            recording.export(self.projection, self.destination)
+        self.assertFalse(self.destination.exists())
+
+        saved.write_text(json.dumps({"build_worktree": {"state": "moved", "moved_to": {"run_dir": str(moved)}}}))
+        manifest = recording.export(self.projection, self.destination)
+        self.assertEqual(["dispatch-0"], [row["id"] for row in recording.load(manifest).document["dispatches"]])
+
+        del self.projection["moved_from"]
+        with self.assertRaisesRegex(ValueError, "outside its owned run"):
+            recording.export(self.projection, self.root / "unmoved")
+        self.assertFalse((self.root / "unmoved").exists())
+
     def test_external_provider_configuration_is_not_portable_launch_authority(self):
         self.projection["settings"].update(
             {

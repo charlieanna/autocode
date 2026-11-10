@@ -198,7 +198,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--build-in-worktree",
         action="store_true",
-        help="Plan in this checkout, then build in a new task worktree and branch from HEAD once the plan is approved",
+        help="Gather requirements in this checkout, then plan and build in a new task worktree and branch from HEAD",
     )
     parser.add_argument(
         "--workflow",
@@ -767,7 +767,7 @@ def parse(unit, argv, default_models):
         args.resume_paused = True
     conversation_args.validate(args, parser)
     if args.build_in_worktree:
-        args.in_place = True  # planning reads this checkout; the build moves (autocode_build_worktree)
+        args.in_place = True  # Requirements reads this checkout; planning and the build move (autocode_build_worktree)
     if args.new_run_dir and (args.run_dir or not args.in_place or args.status or args.explain or args.dry_run):
         parser.error("--new-run-dir requires a fresh --in-place task invocation")
     if args.replay_checks == "recorded" and not args.replay_recording:

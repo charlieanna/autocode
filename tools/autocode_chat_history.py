@@ -30,7 +30,7 @@ CONFIRMED_REQUIREMENTS = "Looks right. Prepare the plan."
 APPROVED_PLAN = "Approved the plan."
 # A client shows a message id once, so the bootstrap disclosure keeps a stable one (#1908).
 BOOTSTRAP_NOTICE = "workspace-bootstrap"
-WORKTREE_NOTICE = "build-worktree"  # where an approved plan is built, said once (autocode_build_worktree)
+WORKTREE_NOTICE = "build-worktree"  # where the run plans and builds, said once (autocode_build_worktree)
 # What a completed build in a scratch project said about the named project it delivered, per turn.
 DELIVERY_NOTICE = "project-delivered"
 
@@ -141,7 +141,9 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
     initial = requirements_chat.opener(state) or initial
     rows = [{"id": "initial", "role": "user", "text": initial}] if initial else []
     notice = _bootstrap_notice(state)  # shown after the first approved plan, the first point files are written
-    worktree = build_worktree.notice(state)  # likewise: the approved plan is built on a branch of its own
+    worktree = build_worktree.notice(state)  # where the run plans and builds: a branch of its own
+    # A run that moved before planning says so after the person's last message before the move (#3081).
+    moved_after = (state.get(build_worktree.KEY) or {}).get("after_events")
     prior = {turn.get("event_id"): (turn.get("previous") or {}).get("chat_response") for turn in turns}
     # Turn k's response is shown where follow-up k was said; its delivery note follows it.
     turn_of = {turn.get("event_id"): number for number, turn in enumerate(turns)}
@@ -152,6 +154,9 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         return [{"id": f"{DELIVERY_NOTICE}-{number}", "role": "assistant", "text": note}] if note else []
 
     for index, event in enumerate(state.get("user_events") or []):
+        if worktree is not None and isinstance(moved_after, int) and index >= moved_after:
+            rows.append({"id": WORKTREE_NOTICE, "role": "assistant", "text": worktree})
+            worktree = None
         if event.get("kind") == "goal_approval" and event.get("token"):
             plan = _approved_plan(state, event)
             if plan:
@@ -160,7 +165,7 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
             if notice is not None:
                 rows.append(notice)
                 notice = None
-            if worktree is not None:
+            if worktree is not None and not isinstance(moved_after, int):
                 rows.append({"id": WORKTREE_NOTICE, "role": "assistant", "text": worktree})
                 worktree = None
             continue
@@ -196,6 +201,8 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
                     **message_context.receipt(event),
                 }
             )
+    if worktree is not None and isinstance(moved_after, int):
+        rows.append({"id": WORKTREE_NOTICE, "role": "assistant", "text": worktree})
     resolver = state.get("resolver") or {}
     for event in resolver.get("human_responses", []):
         if event.get("actor") != "user_cli" or not event.get("text"):

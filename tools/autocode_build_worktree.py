@@ -1,13 +1,15 @@
-"""A chat plans in the person's checkout and builds in a task worktree of its own (#3077).
+"""A chat talks with the person in their checkout and plans and builds in a task worktree of its own.
 
-A terminal chat starts its run in the folder the person chose. Requirements and the Planner only
-read the code and talk with the person, so they run there and see the folder as it is. Once the plan
-is approved, and before any stage that writes (the acceptance Tester, the build Planner, the
-Builder), ``move`` gives the run a task worktree and branch of its own (``autocode_workspaces.create``,
-from the checkout's committed HEAD) and carries the run there under the same run name. The person's
-folder is never written to, and two chats in one folder no longer wait for each other while they build.
+A terminal chat starts its run in the folder the person chose. Requirements only reads the code and
+talks with the person, so it runs there and sees the folder as it is. Before the first stage that
+needs the code to itself (the Planner, #3081), ``move`` gives the run a task worktree and branch of its
+own (``autocode_workspaces.create``, from the checkout's committed HEAD) and carries the run there under
+the same run name. The plan is reviewed, approved and built against that one fixed tree: a pull, commit
+or edit in the person's folder meanwhile cannot strand the plan's review or approval (#3080), the
+folder is never written to, and two chats in one folder no longer wait for each other. A run saved
+while planning in the folder (#3077) still moves once its plan is approved.
 
-The run's state, with its approved plan, conversation and history, is carried as it is. What only
+The run's state, with its requirements, conversation and history, is carried as it is. What only
 held for the person's checkout is not: the in-place launch records (``launch_sources``, the package
 launch record) and the provider sessions, which belong to the folder they ran in. The new run starts
 from the worktree's commit (``base_commit``), and its files there are what the build changes. The run
@@ -17,12 +19,14 @@ the new run (``moved_to``): a status read or action on the old path is answered 
 
 One key on the run state, ``build_worktree``, written only here:
 
-- ``{"state": "planning"}``: started with ``--build-in-worktree`` (``request``); planning in the checkout.
+- ``{"state": "planning"}``: started with ``--build-in-worktree`` (``request``); still in the checkout.
   A move saves where it goes (``moving_to``, ``left_out``) before it writes there, so a crashed move
   is finished, never started again in a second worktree.
 - ``{"state": "moved", "moved_to": {...}}``: the record left in the checkout.
-- ``{"state": "building", "moved_from": {...}, "branch": ..., "left_out": [...]}``: the moved run;
-  autocode_chat_history says once, after the plan's approval, where it builds and what it left out.
+- ``{"state": "building", "moved_from": {...}, "branch": ..., "left_out": [...], "after_events": N}``: the
+  moved run; autocode_chat_history says once where it works and what it left out, after the person's
+  N-th message (``after_events``, the messages before the move), or after the plan's approval in a run
+  that moved then.
 
 AutoCode never merges the branch; a completed run commits its delivery there (autocode_worktrees.deliver).
 Lower layer: Git, files, the registry and the controller-owner receipt; never ``autocode``.
@@ -41,6 +45,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_activity_log as activity_log
     from . import autocode_changeset_store as changeset_store
+    from . import autocode_checkout_lock as checkout_lock
     from . import autocode_contract_identity as contract
     from . import autocode_controller_owner as controller_owner
     from . import autocode_coordination_store as coordination_store
@@ -53,6 +58,7 @@ try:
 except ImportError:
     import autocode_activity_log as activity_log
     import autocode_changeset_store as changeset_store
+    import autocode_checkout_lock as checkout_lock
     import autocode_contract_identity as contract
     import autocode_controller_owner as controller_owner
     import autocode_coordination_store as coordination_store
@@ -91,13 +97,26 @@ def request(state: RunState, workspace) -> bool:
 
 
 def due(state: RunState) -> bool:
-    """Whether the run plans in the person's checkout and its approved plan is about to be built.
+    """Whether the run is about to launch its first stage that needs the code to itself (#3081).
+
+    Requirements only reads the person's folder and talks with them, so it runs there. Everything after
+    it, the Planner and the Plan Reviewer included, runs in the worktree: the plan is reviewed and
+    approved against the same fixed tree the Builder changes, so a pull, commit or edit in the person's
+    folder meanwhile cannot strand the plan's review or its approval (#3080). A run that already planned
+    in the folder (saved before this rule) still moves once its plan is approved.
 
     A run another run is linked to by its path (a change set, a coordination, a coordinated member)
     keeps building where it is, as every run did before: moving it would break that link."""
-    if (state.get(KEY) or {}).get("state") != PLANNING or not contract.approved(state):
+    if (state.get(KEY) or {}).get("state") != PLANNING or not checkout_lock.needed_by(state):
+        return False
+    if _planned_here(state) and not contract.approved(state):
         return False
     return not _linked(state)
+
+
+def _planned_here(state: RunState) -> bool:
+    """Whether the Planner already drafted a plan in the folder: that plan moves once it is approved."""
+    return bool(state.get("goal_contract"))
 
 
 def _linked(state: RunState) -> bool:
@@ -219,6 +238,8 @@ def move(state: RunState, workspace, run_dir, persist) -> dict:
             "base_commit": target["base_commit"],
             "left_out": record.get("left_out") or [],
         }
+        if not contract.approved(state):
+            child[KEY]["after_events"] = len(state.get("user_events") or [])
         with util.run_lock(child_dir):
             persist(child_dir / "state.json", child)
             _carry_activity(run_dir, child_dir)
@@ -244,14 +265,15 @@ def _carry_activity(source: Path, destination: Path) -> None:
 
 
 def notice(state: RunState) -> str | None:
-    """What the person reads once, after the plan's approval, about where the build happens."""
+    """What the person reads once, where the run moved, about where it plans and builds."""
     record = state.get(KEY) or {}
     if record.get("state") != BUILDING:
         return None
     origin = (record.get("moved_from") or {}).get("workspace") or "your folder"
     branch = record.get("branch") or "its own branch"
+    work = "plan and build" if "after_events" in record else "build"
     text = (
-        f"I build this on its own branch, {branch}, in a separate copy of {origin}, so your folder and "
+        f"I {work} this on its own branch, {branch}, in a separate copy of {origin}, so your folder and "
         "other chats there are not changed while I work. It starts from your last commit; uncommitted "
         "changes and ignored files (such as installed dependencies or local settings) are not part of it."
     )

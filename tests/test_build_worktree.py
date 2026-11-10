@@ -46,19 +46,36 @@ class RequestTests(unittest.TestCase):
 
 
 class DueTests(unittest.TestCase):
-    def test_an_approved_plan_moves_unless_another_run_is_linked_to_this_one(self):
-        planning = {"build_worktree": {"state": "planning"}, "run_dir": "/nowhere/.autocode/runs/r1"}
-        with mock.patch.object(build_worktree.contract, "approved", return_value=True):
-            self.assertTrue(build_worktree.due(planning))
-            self.assertFalse(build_worktree.due({**planning, "settings": {"coordination_member": True}}))
-            self.assertFalse(build_worktree.due({**planning, "build_worktree": {"state": "building"}}))
-            self.assertFalse(build_worktree.due({"run_dir": planning["run_dir"]}))
-            with mock.patch.object(build_worktree.changeset_store, "find", return_value={"id": "set"}):
-                self.assertFalse(build_worktree.due(planning))
-            with mock.patch.object(build_worktree.coordination_store, "read", side_effect=ValueError("unreadable")):
-                self.assertFalse(build_worktree.due(planning), "an unreadable link record is never moved past")
+    def test_a_run_moves_before_its_planner_unless_another_run_is_linked_to_this_one(self):
+        # #3081: the Planner and the Plan Reviewer work in the run's own worktree, so a pull in the folder
+        # cannot strand the plan's review or approval. Requirements stays in the folder.
+        planning = {
+            "build_worktree": {"state": "planning"},
+            "run_dir": "/nowhere/.autocode/runs/r1",
+            "next_stage": "astra_discovery",
+        }
+        self.assertTrue(build_worktree.due(planning))
+        self.assertFalse(build_worktree.due({**planning, "next_stage": "requirements_gather"}), "Requirements")
+        self.assertFalse(build_worktree.due({**planning, "settings": {"coordination_member": True}}))
+        self.assertFalse(build_worktree.due({**planning, "build_worktree": {"state": "building"}}))
+        self.assertFalse(build_worktree.due({"run_dir": planning["run_dir"], "next_stage": "astra_discovery"}))
+        with mock.patch.object(build_worktree.changeset_store, "find", return_value={"id": "set"}):
+            self.assertFalse(build_worktree.due(planning))
+        with mock.patch.object(build_worktree.coordination_store, "read", side_effect=ValueError("unreadable")):
+            self.assertFalse(build_worktree.due(planning), "an unreadable link record is never moved past")
+
+    def test_a_plan_drafted_in_the_folder_moves_only_once_it_is_approved(self):
+        # A run saved while planning in the folder (#3077) is not moved in the middle of its review.
+        drafted = {
+            "build_worktree": {"state": "planning"},
+            "run_dir": "/nowhere/.autocode/runs/r1",
+            "next_stage": "astra_challenge",
+            "goal_contract": {"approval_status": "draft"},
+        }
         with mock.patch.object(build_worktree.contract, "approved", return_value=False):
-            self.assertFalse(build_worktree.due(planning), "nothing moves before the plan is approved")
+            self.assertFalse(build_worktree.due(drafted))
+        with mock.patch.object(build_worktree.contract, "approved", return_value=True):
+            self.assertTrue(build_worktree.due({**drafted, "next_stage": "astra_plan"}))
 
 
 class ResolveTests(unittest.TestCase):
@@ -151,6 +168,29 @@ class NoticeTests(unittest.TestCase):
         )
         self.assertTrue(text.endswith("I never merge it myself."), text)
         self.assertNotIn("Not included", build_worktree.notice({"build_worktree": {**record, "left_out": []}}))
+
+    def test_a_run_that_moved_before_planning_says_so_after_the_message_before_the_move(self):
+        import autocode_chat_history as chat_history
+
+        record = {
+            "state": "building",
+            "moved_from": {"workspace": "/home/person/app"},
+            "branch": "autocode/add-greeting-0123456789",
+            "left_out": [],
+            "after_events": 1,
+        }
+        text = build_worktree.notice({"build_worktree": record})
+        self.assertTrue(text.startswith("I plan and build this on its own branch, autocode/add-greeting"), text)
+        events = [
+            {"kind": "answer", "id": "a1", "actor": "user_cli", "text": "a CLI"},
+            {"kind": "brief_feedback", "id": "f1", "actor": "user_cli", "text": "also a README"},
+        ]
+        state = {"task": "Add a greeting", "user_events": events, "build_worktree": record}
+        ids = [row["id"] for row in chat_history.messages(state)]
+        self.assertEqual(["initial", "a1", chat_history.WORKTREE_NOTICE, "f1"], ids)
+        # Nothing said since the move yet: the notice is the last message.
+        ids = [row["id"] for row in chat_history.messages({**state, "user_events": events[:1]})]
+        self.assertEqual(["initial", "a1", chat_history.WORKTREE_NOTICE], ids)
 
 
 class ClientPathTests(unittest.TestCase):
