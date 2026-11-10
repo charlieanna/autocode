@@ -37,6 +37,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- **Terminal chat, `/repos PATH`**: adds a folder AutoCode can read without leaving the chat. A Git
+  checkout is registered on its own and any other folder becomes a source root searched for the
+  checkouts under it, as `autocode registry repositories add` and `autocode registry roots add` do.
+  Before, `/repos PATH` only said the path was not registered, so a chat started outside the code
+  had no way to reach it.
+
 ### Changed
 
 - **Terminal chat, first run**: a new chat with no backend installed or signed in now opens with
