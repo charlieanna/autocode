@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import unittest
+from pathlib import Path
 
 from tests import ROOT
 from tests.terminal_screen import TerminalScreen, require_tmux
@@ -104,8 +105,8 @@ with ChatTUI() as ui:
         screen.wait_for(
             lambda shown: (
                 composer_text(shown) == "hello!"
-                and shown.count("▌ AutoCode is working") == 1
-                and "Type / for commands. AutoCode asks here when it needs you." in shown
+                and shown.count("▌ Not sent yet") == 1
+                and "Your text stays here until AutoCode asks you something." in shown
             ),
             what="one working notice with the complete unsent draft after repeated Enter",
         )
@@ -570,6 +571,28 @@ class ChatScreenTests(unittest.TestCase):
         self.assertIn("AutoCode chat", shown.splitlines()[0])
         self.assertIn("What do you want done?", shown)
 
+    def test_a_first_message_reads_as_one_progression_and_an_answer_typed_meanwhile_is_kept(self):
+        """After "hi" the chat said "Starting the run", "Requirements working" twice and "Working on your
+        request…" as if AutoCode had replied; text typed while Requirements worked was then moved into
+        history behind "The prompt changed… press Up" when its question opened."""
+        slow_model_calls(self.env)  # a live Requirements turn takes seconds; the fixture answers at once
+        screen = self.chat(cols=99, rows=30)  # below the width that shows the side panel by itself
+        screen.type("hi")
+        screen.keys("Enter")
+        shown = screen.wait_for(
+            lambda shown: "Requirements working" in status_row(shown), RUN_SECONDS, what="Requirements at work"
+        )
+        self.assertEqual(1, shown.count("Requirements working"), "the stage is said once, on the status row")
+        self.assertNotIn("Working on your request", shown)
+        self.assertNotIn("Type / for commands", shown, "the footer names / commands once")
+        screen.type("explain this project to me")
+        shown = screen.wait_for(
+            lambda shown: "? You:" in shown and composer_text(shown) == "explain this project to me",
+            RUN_SECONDS,
+            what="the question with the answer typed while Requirements worked",
+        )
+        self.assertNotIn("Earlier draft kept", shown)
+
     def test_a_pasted_request_type_ahead_and_a_complete_run(self):
         screen = self.chat(cols=99, rows=34)  # below the width that shows the side panel by itself (#3070)
         # A two-line paste is one request: the fixture provider recognizes only the whole brief.
@@ -663,6 +686,23 @@ class ChatScreenTests(unittest.TestCase):
 def chat_heading(screen: str) -> str:
     """The selected chat's identity, excluding the independently changing spend and attention badge."""
     return re.split(r"\s+(?:chat \$|\$|F8:)", screen.splitlines()[0], maxsplit=1)[0].rstrip()
+
+
+def slow_model_calls(env: dict, seconds: int = 4) -> None:
+    """Make each fixture model call take ``seconds``, as a live one does, so a test sees a stage at work."""
+    bindir = Path(env["PATH"].split(os.pathsep)[0])
+    (bindir / "codex").rename(bindir / "codex-fixture")
+    (bindir / "codex").write_text(
+        f'#!/bin/sh\ncase "$*" in *exec*) sleep {seconds};; esac\nexec "$(dirname "$0")/codex-fixture" "$@"\n'
+    )
+    (bindir / "codex").chmod(0o755)
+
+
+def status_row(screen: str) -> str:
+    """The spinner row above the reply box: the one line that says what AutoCode is doing now."""
+    lines = screen.splitlines()
+    top = next((n for n in range(len(lines) - 1, -1, -1) if lines[n].lstrip().startswith("╭")), None)
+    return lines[top - 1] if top else ""
 
 
 def composer_text(screen: str) -> str:

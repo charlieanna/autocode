@@ -17,7 +17,8 @@ import autocode_util as util
 from scenarios.harness.conformance import ConformanceDriver, ConformanceGap
 from tests import ROOT
 from tests import test_run_messages_boundary as boundary_fixture
-from tests.test_chat_tui import screen_ui
+from tests.test_chat_tui import leave_at_question, screen_ui
+from tests.test_chat_tui import tui as tui_module
 
 WORKSPACE = Path("/project")
 RUN = WORKSPACE / ".autocode/runs/chat"
@@ -339,6 +340,40 @@ class LiveSendTests(unittest.TestCase):
         ui.send_message.assert_called_with("What do you think?", original)
         self.assertEqual("", ui._composer.text)
         self.assertTrue(ui._asking, "Receipt reconciliation must leave the plan decision unanswered")
+
+    def test_a_step_that_ends_before_enter_closes_the_offer_without_sending(self):
+        """ "Message not confirmed" showed when Requirements finished as the person pressed Enter: the
+        fresh view no longer offered a message. Nothing is sent, and no retry is kept to repeat."""
+        view = working_view()
+        client = self.client({**view, "status": "WAITING_FOR_USER", "chat": {"context": "later", "input": None}})
+        sender = sending.Sender(client)
+        with self.assertRaises(sending.MessageClosed):
+            sender.send("two sum problem", view)
+        client.cli.assert_not_called()
+        self.assertEqual({}, sender.pending)
+
+    def test_a_closed_offer_keeps_the_text_for_the_question_that_ended_the_step(self):
+        ui = screen_ui()
+        view = working_view()
+        ui.observe(view)
+        ui._composer.insert("two sum problem")
+        ui._draft_context, ui._draft_unasked = ui._draft_identity(), True
+        ui.send_message = mock.Mock(side_effect=sending.MessageClosed("step ended"))
+        self.assertIsNone(ui._enter(False))
+        self.assertEqual("two sum problem", ui._composer.text)
+        self.assertIsNone(ui._message_retry, "nothing to reconcile: nothing was submitted")
+        text = str(ui._transcript.blocks)
+        self.assertIn("Not sent yet", text)
+        self.assertNotIn("Message not confirmed", text)
+        ui.observe({**view, "status": "WAITING_FOR_USER", "chat": {"context": "later", "input": None}})
+        with (
+            mock.patch.object(tui_module.curses, "beep"),
+            mock.patch.object(ui, "_read_key", side_effect=leave_at_question(ui)),
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                ui.ask("You: ")
+        self.assertEqual("two sum problem", ui._composer.text, "the question's box opens with the text")
+        self.assertNotIn("Earlier draft kept", str(ui._transcript.blocks))
 
     def test_sender_never_treats_a_checkpoint_feedback_offer_as_a_pending_message(self):
         view = working_view()
