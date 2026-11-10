@@ -1214,12 +1214,14 @@ class ChatClient:
         self.talk_to(self.others[row["run"]][0], Path(row["run"]))
         raise Switched
 
-    def begin(self, brief: str, start_args, options) -> None:
+    def begin(self, brief: str, start_args, options, *, notice: str | None = None) -> None:
         """Start a new run here and talk to it, as `start` does for the first one."""
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         workspace = self.workspace.resolve()
         self.talk_to(workspace, workspace / ".autocode" / "runs" / f"{stamp}-chat-{secrets.token_hex(3)}")
         self.say(f"\nYou: {brief}")
+        if notice:
+            self.say("\n" + notice)
         self.started = True
         self.advance(
             [brief, "--in-place", "--no-chat", *start_args, *options]
@@ -1253,10 +1255,11 @@ class ChatClient:
         if not confirm_launch(self.ask, self.say, chosen):
             self.say("Nothing started; this chat carries on.")
             return
-        if not guard_workspace(self.workspace, self.ask, self.say):
+        added = launch_sources(self.workspace, self.history)
+        if not added and not guard_workspace(self.workspace, self.ask, self.say):
             self.say("Nothing started; this chat carries on.")
             return
-        self.begin(brief, list(chosen.get("start_args") or []), options)
+        self.begin(brief, list(chosen.get("start_args") or []), options, notice=added)
 
     def check_others(self, every: float = OTHERS_SECONDS) -> None:
         """Admit due reads without waiting on other chats; the poller owns their cadence."""
@@ -1984,11 +1987,22 @@ def in_git_checkout(workspace: Path) -> bool:
     return any((parent / ".git").exists() for parent in (workspace, *workspace.parents))
 
 
+def launch_sources(workspace: Path, history: History | None) -> str | None:
+    """Add a launch folder of Git checkouts as a source folder, so a new chat there searches them.
+
+    The line that says so, shown after the person's request; None when the chat has no listing to
+    add it with, the folder is itself in a checkout or holds none, or the core refused it."""
+    if history is None or in_git_checkout(workspace):
+        return None
+    return coordination.include_launch_folder(history)
+
+
 def guard_workspace(workspace: Path, ask, say) -> bool:
     """Confirm a new chat in a directory no Git checkout covers; True to proceed.
 
     Only a person at the chat is asked: a scripted caller (tests, piping a brief)
-    keeps the old behavior instead of blocking on input.
+    keeps the old behavior instead of blocking on input. A folder of checkouts is
+    not asked about: ``launch_sources`` adds it as a source folder instead.
     """
     if in_git_checkout(workspace) or not (sys.stdin.isatty() or ask is not input):
         return True
@@ -2001,20 +2015,31 @@ def guard_workspace(workspace: Path, ask, say) -> bool:
 
 
 def start(
-    workspace: Path, brief: str, start_args, options, *, command=AUTOCODE, env=None, created=None, **kwargs
+    workspace: Path,
+    brief: str,
+    start_args,
+    options,
+    *,
+    command=AUTOCODE,
+    env=None,
+    created=None,
+    notice: str | None = None,
+    **kwargs,
 ) -> ChatClient:
     """A client for a fresh run directory it names, so it watches the run it created.
 
     ``created(client)`` runs before the first step is launched, so the full-screen chat can bind
     the client's commands to it: the first stage runs inside this call, and without that binding
     ``/live``, ``/log``, ``/plan``, ``/panel`` and ``/pause`` answered "is not available right now"
-    until it returned (#2879).
+    until it returned (#2879). ``notice`` is said after the request, as ``launch_sources`` words it.
     """
     workspace = workspace.resolve()
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir = workspace / ".autocode" / "runs" / f"{stamp}-chat-{secrets.token_hex(3)}"
     client = ChatClient(workspace, run_dir, command=command, env=env, **kwargs)
     client.say(f"\nYou: {brief}")
+    if notice:
+        client.say("\n" + notice)
     client.started = True
     if created is not None:
         created(client)
@@ -2202,6 +2227,7 @@ def open_chat(
     intro: str | None = None,
     new: setup.NewChat | None = None,
     slash: Callable[[str, str], str | None] | None = None,
+    history: History | None = None,
     **kwargs,
 ):
     """`autocode chat` with nothing named: pick up the run left open here, or ask what to do.
@@ -2301,7 +2327,10 @@ def open_chat(
     if not confirm_launch(ask, say, chosen):
         say("Nothing started.")
         return None
-    return start(workspace, brief, list(chosen.get("start_args") or []), options, ask=ask, say=say, **kwargs)
+    added = launch_sources(workspace, history)  # a folder of checkouts: its run searches them
+    return start(
+        workspace, brief, list(chosen.get("start_args") or []), options, ask=ask, say=say, notice=added, **kwargs
+    )
 
 
 RUN_OPTIONS_HINT = (
@@ -2435,7 +2464,8 @@ def cli(argv: list[str] | None = None) -> int:
             if not confirm_launch(ask, say, chosen):
                 say("Nothing started.")
                 return 2
-            if not guard_workspace(workspace, ask, say):
+            added = launch_sources(workspace, history)
+            if not added and not guard_workspace(workspace, ask, say):
                 say("Nothing started.")
                 return 2
             client = start(
@@ -2446,6 +2476,7 @@ def cli(argv: list[str] | None = None) -> int:
                 ask=ask,
                 say=say,
                 created=handover(ui, history),
+                notice=added,
                 **seen,
             )
         elif args.run_dir is not None:
@@ -2462,6 +2493,7 @@ def cli(argv: list[str] | None = None) -> int:
                 intro=history.summary() if ui is not None else history.notice(),
                 new=new,  # /mode, /engine and /connect at the first question change it (#2009)
                 slash=history.slash if ui is None else None,  # the full-screen chat binds them itself
+                history=history,
                 **seen,
             )
             if client is None:

@@ -705,6 +705,30 @@ class CoordinatedDisplayTests(unittest.TestCase):
                 coordination.repositories(history, "~/services")
             self.assertEqual(str(root / "services"), history.read.call_args_list[0].args[0][3], "~ is the home folder")
 
+    def test_a_launch_folder_finds_checkouts_two_levels_down_and_skips_dependency_folders(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            for path in ("api", "teams/web", "teams/web/nested", "node_modules/left", "deep/one/two"):
+                (root / path / ".git").mkdir(parents=True)
+            (root / "link").symlink_to(root / "api")
+            found = coordination.checkouts_in(root)
+            self.assertEqual([root / "api", root / "teams" / "web"], found)
+            with patch.object(coordination, "LAUNCH_BUDGET", 1):
+                self.assertEqual([root / "api"], coordination.checkouts_in(root), "the scan is bounded")
+
+    def test_a_launch_folder_that_cannot_be_added_keeps_the_usual_question(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            (root / "api" / ".git").mkdir(parents=True)
+            history = Mock(workspace=root)
+            history.read.side_effect = [{"roots": []}, {"error": {"message": "refused"}}]
+            self.assertIsNone(coordination.include_launch_folder(history))
+            history.read.side_effect = coordination.actions.ClientGap("timed out")
+            self.assertIsNone(coordination.include_launch_folder(history))
+            empty = Mock(workspace=root / "api")
+            self.assertIsNone(coordination.include_launch_folder(empty))
+            empty.read.assert_not_called()
+
     def test_approval_display_includes_each_member_location_revision_role_and_grounding(self):
         root = Path("/work/history")
         run_dir = root / ".autocode/runs/fix"

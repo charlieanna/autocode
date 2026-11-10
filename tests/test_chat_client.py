@@ -3099,3 +3099,89 @@ class WorkspaceGuardTests(unittest.TestCase):
             self.assertTrue(any("not in a Git checkout" in row for row in client.out))
             self.assertTrue(any("Nothing started; this chat carries on." in row for row in client.out))
             self.assertFalse((workspace / ".autocode").exists())
+
+    def test_a_folder_of_checkouts_is_added_as_a_source_folder(self):
+        """Starting the chat in a folder of repositories gave a run that found "no application source"."""
+        with tempfile.TemporaryDirectory() as folder, tempfile.TemporaryDirectory() as catalog_home:
+            workspace = Path(folder).resolve()
+            for name in ("billing", "dns"):
+                (workspace / name / ".git").mkdir(parents=True)
+            history = chat.History(workspace, env={"AUTOCODE_SOURCE_CATALOG_HOME": catalog_home})
+            added = chat.launch_sources(workspace, history)
+            self.assertIn("holds Git checkouts (billing, dns), so AutoCode added it as a source folder", added)
+            roots = history.read(["registry", "roots", "list", "--json"])["roots"]
+            self.assertEqual([str(workspace)], [row["path"] for row in roots])
+
+            # A second chat here is not added again, and a folder under a source folder is already searched.
+            self.assertIn("AutoCode already searches them", chat.launch_sources(workspace, history))
+            (workspace / "teams" / "web" / ".git").mkdir(parents=True)
+            inner = chat.History(workspace / "teams", env={"AUTOCODE_SOURCE_CATALOG_HOME": catalog_home})
+            self.assertIn("(web); AutoCode already searches them", chat.launch_sources(workspace / "teams", inner))
+            roots = history.read(["registry", "roots", "list", "--json"])["roots"]
+            self.assertEqual([str(workspace)], [row["path"] for row in roots])
+
+            # A checkout, or a folder inside one, is the run's own project: nothing is added.
+            self.assertIsNone(chat.launch_sources(workspace / "dns", history))
+            self.assertIsNone(chat.launch_sources(workspace, None))
+
+    def test_a_new_chat_in_a_folder_of_checkouts_starts_without_the_question_and_says_why(self):
+        with tempfile.TemporaryDirectory() as folder, tempfile.TemporaryDirectory() as catalog_home:
+            workspace = Path(folder).resolve()
+            (workspace / "dns" / ".git").mkdir(parents=True)
+            client = ScriptedChat({"status": "TASK_COMPLETE", "done": True}, replies=["fix the DNSSEC removal"])
+            client.workspace = workspace
+            client.history = chat.History(workspace, env={"AUTOCODE_SOURCE_CATALOG_HOME": catalog_home})
+            begun = []
+            with (
+                mock.patch.object(chat, "mode_row", return_value={"spend_confirmation": "planning"}),
+                mock.patch.object(client.history, "summary", return_value=""),
+                mock.patch.object(chat.ChatClient, "advance", side_effect=lambda argv: begun.append(argv[0])),
+            ):
+                client.new_chat()
+            self.assertEqual(["fix the DNSSEC removal"], begun)
+            self.assertFalse(any("[y/N]" in row for row in client.out), client.out)
+            spoken = [row.strip() for row in client.out if row.strip()]
+            request = spoken.index("You: fix the DNSSEC removal")
+            self.assertIn("holds Git checkouts (dns)", spoken[request + 1], "said after the request, not between")
+
+    def test_a_folder_without_checkouts_is_still_confirmed_and_nothing_is_added(self):
+        with tempfile.TemporaryDirectory() as folder, tempfile.TemporaryDirectory() as catalog_home:
+            workspace = Path(folder).resolve()
+            (workspace / "notes").mkdir()
+            client = ScriptedChat({"status": "TASK_COMPLETE", "done": True}, replies=["fix it", "n"])
+            client.workspace = workspace
+            client.history = chat.History(workspace, env={"AUTOCODE_SOURCE_CATALOG_HOME": catalog_home})
+            with (
+                mock.patch.object(chat, "mode_row", return_value={"spend_confirmation": "planning"}),
+                mock.patch.object(client.history, "summary", return_value=""),
+            ):
+                client.new_chat()
+            self.assertTrue(any("not in a Git checkout" in row for row in client.out))
+            self.assertTrue(any("Nothing started; this chat carries on." in row for row in client.out))
+            self.assertEqual([], client.history.read(["registry", "roots", "list", "--json"])["roots"])
+
+    def test_the_first_question_in_a_folder_of_checkouts_adds_it_before_the_run_starts(self):
+        """The full-screen chat's first question starts the run through open_chat, which had no check at all."""
+        with tempfile.TemporaryDirectory() as folder, tempfile.TemporaryDirectory() as catalog_home:
+            workspace = Path(folder).resolve()
+            (workspace / "dns" / ".git").mkdir(parents=True)
+            history = chat.History(workspace, env={"AUTOCODE_SOURCE_CATALOG_HOME": catalog_home})
+            said, order = [], []
+            with (
+                mock.patch.object(chat, "project_runs", return_value=[]),
+                mock.patch.object(chat, "mode_row", return_value={"start_args": [], "spend_confirmation": "planning"}),
+                mock.patch.object(
+                    chat,
+                    "start",
+                    side_effect=lambda ws, brief, *_, notice=None, **__: order.append(
+                        (
+                            notice,
+                            [row["path"] for row in history.read(["registry", "roots", "list", "--json"])["roots"]],
+                        )
+                    ),
+                ),
+            ):
+                chat.open_chat(workspace, ask=lambda prompt: "Fix DNSSEC removal", say=said.append, history=history)
+            ((notice, roots),) = order
+            self.assertEqual([str(workspace)], roots, "the folder is a source folder when the run starts")
+            self.assertIn("holds Git checkouts (dns)", notice)
