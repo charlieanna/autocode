@@ -440,8 +440,8 @@ flag takes; a switch takes `true` or `false`.
 | --- | --- |
 | Engine | `engine` |
 | Review routing | `review-routing` |
-| Models | `single-model`, `astra-model`, `terra-model`, `sol-model`, `completion-model`, `glm-model`, `requirements-model`, `plan-reviewer-model`, `resolver-model`, `investigator-model`, `builder-strong-model` |
-| Reasoning efforts | `reasoning-effort`, `astra-reasoning-effort`, `terra-reasoning-effort`, `sol-reasoning-effort`, `completion-reasoning-effort`, `glm-reasoning-effort`, `requirements-reasoning-effort`, `plan-reviewer-reasoning-effort`, `resolver-reasoning-effort`, `investigator-reasoning-effort` |
+| Models | `single-model`, `task-planner-model`, `astra-model`, `builder-model`, `terra-model`, `tester-model`, `sol-model`, `completion-model`, `planner-model`, `glm-model`, `requirements-model`, `plan-reviewer-model`, `resolver-model`, `investigator-model`, `builder-strong-model` |
+| Reasoning efforts | `reasoning-effort`, `task-planner-reasoning-effort`, `astra-reasoning-effort`, `builder-reasoning-effort`, `terra-reasoning-effort`, `tester-reasoning-effort`, `sol-reasoning-effort`, `completion-reasoning-effort`, `planner-reasoning-effort`, `glm-reasoning-effort`, `requirements-reasoning-effort`, `plan-reviewer-reasoning-effort`, `resolver-reasoning-effort`, `investigator-reasoning-effort` |
 | Test command/report | `test-command`, `test-report` |
 | Budgets | `max-iterations`, `unlimited-iterations`, `max-seconds`, `max-cost-usd`, `max-stage-seconds`, `max-idle-seconds`, `max-tool-seconds`, `no-progress-limit`, `max-milestone-seconds`, `max-milestone-replans`, `max-milestone-stalled-reviews`, `max-findings-per-task`, `max-parallel-builders` |
 | Approvals (no flag) | `require-approver` |
