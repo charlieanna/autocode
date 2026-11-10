@@ -2378,7 +2378,7 @@
 
 
 <h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/486130672e0a9e97f8284156baec9787220fca34/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/401cd415cb2976c2ff0d7065d0ad075d3adc791d/README.md">← Back to README</a></p>
 <p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
 (<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
 <h2 id="you-do-not-need-to-choose-a-model">You do not need to choose a model<a class="headerlink" href="#you-do-not-need-to-choose-a-model" title="Permanent link">&para;</a></h2>
@@ -2769,11 +2769,11 @@ models_command = [&quot;gocode&quot;, &quot;models&quot;]
 version_command = [&quot;gocode&quot;, &quot;--version&quot;]
 
 [roles]
-astra = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
+task_planner = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
 terra = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;low&quot; }
 sol = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
 completion = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
-glm = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;low&quot; }
+planner = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;low&quot; }
 plan_reviewer = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
 </code></pre>
 <p>In <code>~/.codex/config.toml</code>, under <code>[model_providers.gocode.auth]</code>, set
@@ -2933,7 +2933,7 @@ ids. <code>components</code> takes <code>--provider claude</code> rather than <c
 <code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
 scenario's <code>--out</code> outside this repository. In a root cloud container, the CLI drops the two
 prohibited capabilities automatically; see <a href="#provider-process-ownership">provider process ownership</a>
-for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/486130672e0a9e97f8284156baec9787220fca34/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/401cd415cb2976c2ff0d7065d0ad075d3adc791d/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
 <h2 id="add-a-tool">Add a tool<a class="headerlink" href="#add-a-tool" title="Permanent link">&para;</a></h2>
 <p>OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
 package. <code>--provider &lt;name&gt;</code> loads <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> and,
@@ -2949,11 +2949,11 @@ models_command = [&quot;kilo&quot;, &quot;models&quot;]     # optional; or a sta
 version_command = [&quot;kilo&quot;, &quot;--version&quot;]
 
 [roles]
-astra = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
+task_planner = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
 terra = { model = &quot;openai/gpt-5.6-terra&quot;, effort = &quot;medium&quot; }
 sol = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
 completion = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;medium&quot; }
-glm = { model = &quot;zhipuai-coding-plan/glm-5.3&quot;, effort = &quot;high&quot; }
+planner = { model = &quot;zhipuai-coding-plan/glm-5.3&quot;, effort = &quot;high&quot; }
 plan_reviewer = { model = &quot;openai/gpt-6-sol&quot;, effort = &quot;high&quot;, light_effort = &quot;medium&quot; }
 </code></pre>
 <p>A connection whose <code>command</code> runs <code>kilo</code> under another name (a copy of this file in
@@ -2966,7 +2966,10 @@ An explicit reviewer effort, including a project effort setting, wins. Saved
 runs without effort provenance retain their existing effort on upgrade; model
 pins alone do not establish effort provenance. The review-call allowance still
 applies independently of this effort choice.</p>
-<p><code>[roles]</code> must keep each verifier on a different model family from what it checks
+<p><code>[roles]</code> names the routes <code>task_planner</code>, <code>terra</code>, <code>sol</code>, <code>completion</code>, <code>planner</code> and
+<code>plan_reviewer</code>. A config written before the rename may still say <code>astra</code> for <code>task_planner</code>
+and <code>glm</code> for <code>planner</code>; it keeps working, but one route spelled both ways is refused.
+<code>[roles]</code> must keep each verifier on a different model family from what it checks
 (Planner/Plan Reviewer, Builder/Validator, Builder/Completion Owner); a run whose
 roles break that pauses with <code>PAUSED_CROSS_MODEL</code> before any agent is launched.</p>
 <p>Placeholders are <code>{model}</code>, <code>{effort}</code>, <code>{workspace}</code>, <code>{report}</code>, <code>{schema}</code>,
@@ -3124,11 +3127,11 @@ output = &quot;report_file&quot;
 version_command = [&quot;codex&quot;, &quot;--version&quot;]
 
 [roles]
-astra = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
+task_planner = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
 terra = { model = &quot;gpt-6-luna&quot;, effort = &quot;medium&quot; }
 sol = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
 completion = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
-glm = { model = &quot;gpt-6-luna&quot;, effort = &quot;medium&quot; }
+planner = { model = &quot;gpt-6-luna&quot;, effort = &quot;medium&quot; }
 plan_reviewer = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
 
 [auth]
@@ -3142,10 +3145,10 @@ expect = &quot;ChatGPT&quot;
 <p>Save this as <code>~/.config/autocode/providers/codex_receipts.toml</code>, then select it
 with <code>autocode "Your task" --provider codex_receipts</code>. Choose models available
 to your login. Registered command providers synthesize Requirements defaults
-from the config's own <code>glm</code> model and effort. For a new provider-configured task,
-<code>--glm-model</code> overrides the model for both Planner and Requirements;
+from the config's own <code>planner</code> model and effort. For a new provider-configured task,
+<code>--planner-model</code> overrides the model for both Planner and Requirements;
 <code>--requirements-model</code> wins for Requirements when given. The provider's Requirements reasoning default stays
-independent of <code>--glm-reasoning-effort</code>; use <code>--requirements-reasoning-effort</code> to
+independent of <code>--planner-reasoning-effort</code>; use <code>--requirements-reasoning-effort</code> to
 change it. OpenCode keeps its separately defined Requirements defaults when
 neither model override is given.</p>
 <p>An existing Requirements route keeps its saved model when <code>--glm-model</code> changes
@@ -3233,11 +3236,11 @@ models_command = [&quot;kilo&quot;, &quot;models&quot;]
 version_command = [&quot;kilo&quot;, &quot;--version&quot;]
 
 [roles]
-astra = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
+task_planner = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
 terra = { model = &quot;openai/gpt-5.6-terra&quot;, effort = &quot;medium&quot; }
 sol = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
 completion = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;medium&quot; }
-glm = { model = &quot;zhipuai-coding-plan/glm-5.3&quot;, effort = &quot;high&quot; }
+planner = { model = &quot;zhipuai-coding-plan/glm-5.3&quot;, effort = &quot;high&quot; }
 plan_reviewer = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
 
 [auth]
@@ -3442,7 +3445,7 @@ dashboard; its model pickers list that tool's models.</p>
 <!-- BEGIN provider conformance matrix -->
 
 <p>Generated by <code>python tools/provider_matrix.py --write</code> from
-<a href="https://github.com/charlieanna/autocode/blob/486130672e0a9e97f8284156baec9787220fca34/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+<a href="https://github.com/charlieanna/autocode/blob/401cd415cb2976c2ff0d7065d0ad075d3adc791d/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
 A version the offline conformance suite has not been run against is
 <code>untested</code> — never guess. Run the suite with
 <code>python tools/provider_conformance.py --fake</code> (no model calls).</p>
