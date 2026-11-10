@@ -29,6 +29,7 @@ try:
     from . import autocode_chat_stage_policy as stage_policy
     from . import autocode_chat_verification as verification
     from . import autocode_progress_view as progress_view
+    from . import autocode_roles as roles
 except ImportError:
     import autocode_chat_changeset as changeset
     import autocode_chat_cost as cost
@@ -38,6 +39,7 @@ except ImportError:
     import autocode_chat_stage_policy as stage_policy
     import autocode_chat_verification as verification
     import autocode_progress_view as progress_view
+    import autocode_roles as roles
 
 LOG_LIMIT = 200
 STAGE_ROWS = 4  # the newest stages the panel lists; /details has every attempt
@@ -565,29 +567,26 @@ def pipeline_section(view: dict | None) -> Section | None:
     decisions = _rows(view.get("stage_decisions"))
     ran_jobs = {str(row.get("job")) for row in decisions if row.get("decision") == "run"}
     skipped_jobs = {str(row.get("job")) for row in decisions if row.get("decision") == "skip"} - ran_jobs
-
-    # The standard pipeline jobs in order.
-    pipeline = ["requirements", "planner", "plan_reviewer", "builder", "tester", "completion"]
-    # Map job to the route record that names its model.
-    job_to_role = {
-        "requirements": "requirements",
-        "planner": "glm",
-        "plan_reviewer": "astra",
-        "builder": "terra",
-        "tester": "sol",
-        "completion": "completion",
+    # The level a job last ran at, which AutoCode may set below or above the saved one
+    # (autocode_review_effort, autocode_plan_difficulty); before it runs, its route's level.
+    ran_levels = {
+        str(row.get("job")): str(_mapping(row.get("effort_choice")).get("level"))
+        for row in decisions
+        if row.get("decision") == "run" and _mapping(row.get("effort_choice")).get("level")
     }
+
     rows: list[Row] = []
     # Per-job cost from the breakdown.
     breakdown = _mapping(_mapping(_mapping(view.get("cost")).get("breakdown")))
     by_job = {str(r.get("job")): r for r in _rows(breakdown.get("by_stage"))}
 
-    for job in pipeline:
-        role = job_to_role.get(job, job)
-        route = _mapping(routes.get(role))
+    for job in roles.PIPELINE:
+        route = _mapping(routes.get(roles.route_for_job(job, routes)))
         model = str(route.get("model") or "?")
         short_model = model.rsplit("/", 1)[-1] if "/" in model else model
-        screen_name = SCREEN_NAMES.get(job, job.title())
+        screen_name = roles.SCREEN[job]
+        level = ran_levels.get(job) or route.get("reasoning_effort")
+        level_text = f" · {level}" if level else ""
 
         skipped = False
         if _is_current_job(job, current_stage, next_stage):
@@ -602,7 +601,7 @@ def pipeline_section(view: dict | None) -> Section | None:
         else:
             mark, style = "·", "dim"
 
-        # One row per stage: mark, name, model, cost — compact for the panel.
+        # One row per stage: mark, name, model, reasoning level, cost — compact for the panel.
         cost_text = ""
         job_cost = by_job.get(screen_name)
         if job_cost:
@@ -610,14 +609,18 @@ def pipeline_section(view: dict | None) -> Section | None:
             if spent is not None and spent > 0:
                 cost_text = f" · ${spent:.2f}"
         rows.append(
-            Row(mark, f"{screen_name} · skipped" if skipped else f"{screen_name} · {short_model}{cost_text}", style)
+            Row(
+                mark,
+                f"{screen_name} · skipped" if skipped else f"{screen_name} · {short_model}{level_text}{cost_text}",
+                style,
+            )
         )
 
     summary = ""
     if status == "TASK_COMPLETE":
         summary = "All stages done"
     elif current_stage:
-        summary = f"Running: {SCREEN_NAMES.get(current_stage, current_stage)}"
+        summary = f"Running: {roles.screen_name(current_stage)}"
     # Total cost and tokens in the summary line.
     cost = _mapping(view.get("cost"))
     usage = _mapping(view.get("usage"))
@@ -637,23 +640,8 @@ def pipeline_section(view: dict | None) -> Section | None:
     return Section("Pipeline", summary, tuple(rows))
 
 
-SCREEN_NAMES = {
-    "requirements": "Requirements",
-    "planner": "Planner",
-    "plan_reviewer": "Plan Reviewer",
-    "builder": "Builder",
-    "tester": "Tester",
-    "completion": "Completion Reviewer",
-}
-
-
 def _is_current_job(job: str, current_stage: str, next_stage: str) -> bool:
     """Whether this job is the one currently running or next."""
-    try:
-        from . import autocode_roles as roles
-    except ImportError:
-        import autocode_roles as roles
-
     return any(stage and roles.job_for_stage(stage) == job for stage in (current_stage, next_stage))
 
 

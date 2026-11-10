@@ -288,6 +288,34 @@ class PipelineTests(unittest.TestCase):
         )
         self.assertEqual("-", panel.ascii_mark("–"))
 
+    def test_the_plan_reviewer_and_completion_rows_show_their_own_slots_not_the_resolvers(self):
+        # #3087: the Plan Reviewer row read the Resolver's astra slot, so a run whose Plan Reviewer was
+        # independent of the Planner showed the Planner's model on it.
+        current = view()
+        current["routes"] = {
+            **ROUTES,
+            "glm": {"model": "openai/gpt-6.1-sol", "reasoning_effort": "high"},
+            "astra": {"model": "openai/gpt-6.1-sol", "reasoning_effort": "xhigh"},
+            "plan_reviewer": {"model": "anthropic/claude-opus-5-5", "reasoning_effort": "high"},
+            "completion": {"model": "anthropic/claude-sonnet-5-5"},
+        }
+        texts = [text for _mark, text in self.marks(current)]
+        self.assertEqual("Planner · gpt-6.1-sol · high", texts[1])
+        self.assertEqual("Plan Reviewer · claude-opus-5-5 · high", texts[2])
+        self.assertEqual("Completion Reviewer · claude-sonnet-5-5", texts[5], "no level saved: none shown")
+
+    def test_a_row_shows_the_level_the_job_last_ran_at_over_the_saved_one(self):
+        current = decided(*EARLY_APPROVAL)
+        current["routes"] = {
+            **ROUTES,
+            "astra": {"model": "opus", "reasoning_effort": "high"},
+            "completion": {"model": "opus", "reasoning_effort": "high"},
+        }
+        current["stage_decisions"][2]["effort_choice"] = {"level": "medium", "ceiling": "high", "lowered": True}
+        texts = [text for _mark, text in self.marks(current)]
+        self.assertEqual("Plan Reviewer · opus · medium", texts[2], "the review ran one level below the saved high")
+        self.assertEqual("Completion Reviewer · opus · high", texts[5], "not run yet: the saved level")
+
     def test_an_older_core_without_the_record_marks_nothing_done(self):
         older = view()
         older["routes"] = ROUTES

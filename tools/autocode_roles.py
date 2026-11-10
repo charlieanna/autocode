@@ -110,6 +110,27 @@ ROUTE_JOB = {
 }
 
 
+# The configured slot each job of the standard pipeline runs on, preferred first: the first one a run
+# configures is the one its stages launch on (units/autoplanner._resolve_route). Without its own slot,
+# the Plan Reviewer and the Completion Reviewer run on ``astra``, and so does the Planner of a run that
+# does not plan jointly. A client that shows a job's model reads it through route_for_job, never a
+# private table: one pointed the Plan Reviewer at the Resolver's ``astra`` slot (#3087).
+PIPELINE = ("requirements", "planner", "plan_reviewer", "builder", "tester", "completion")
+JOB_ROUTES = {
+    "requirements": ("requirements",),
+    "planner": ("glm", "astra"),
+    "plan_reviewer": ("plan_reviewer", "astra"),
+    "builder": ("terra",),
+    "tester": ("sol",),
+    "completion": ("completion", "astra"),
+}
+
+
+def route_for_job(job: str, configured: Mapping[str, Any]) -> str | None:
+    """The slot ``job`` runs on among the ``configured`` slots (a run's routes), or None."""
+    return next((slot for slot in JOB_ROUTES.get(job, ()) if slot in configured), None)
+
+
 def route_name(role: str, state: Mapping[str, Any]) -> str:
     """Primary job of a configured slot; actual stage names use screen_name.
 
