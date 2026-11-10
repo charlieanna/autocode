@@ -30,6 +30,9 @@ ENGINE_LABELS = {"opencode": "OpenCode", "codex": "Codex", "claude": "Claude Cod
 SETTINGS_FILE = "chat-settings.json"  # in the project's .autocode directory
 # Connection states a backend cannot start a chat in (the extension disables "Use for new chats").
 NOT_USABLE = ("unavailable", "setup_required", "sdk_required")
+# States in which no chat can start, for the getting-started note: not installed, or installed and asking for a sign-in.
+NOT_CONNECTED = (*NOT_USABLE, "sign_in_required")
+RETIRED = ("autocode",)  # the direct API-key connection (#2049) is never offered to a new user
 
 
 def strip_flag(options: list[str], flag: str) -> list[str]:
@@ -167,6 +170,33 @@ def default_notice(chosen: NewChat, rows: list[dict] | None = None) -> str | Non
     )
     names = ", ".join(backend_label(str(other["id"]), rows) for other in usable)
     return f"{head} Installed here: {names}. Type {picks} to run new chats on it."
+
+
+def getting_started(rows: list[dict] | None) -> str | None:
+    """The first screen's note when no backend is connected: what to do, one step per backend, in the
+    chat's own words (`/connect ID login` is a listed action, never a flag or token). None when the listing
+    could not be read or any backend can start a chat, so a working setup sees nothing new."""
+    rows = [row for row in rows or [] if row.get("id") not in RETIRED]
+    if not rows or any(row.get("connection_status") not in NOT_CONNECTED for row in rows):
+        return None
+    steps = [
+        f"Sign in to {backend_label(str(row['id']), rows)}: /connect {row['id']} login"
+        for row in rows
+        if row.get("connection_status") == "sign_in_required" and action(rows, str(row["id"]), "login")
+    ]
+    if any(row.get("connection_status") in NOT_USABLE for row in rows):
+        steps.append("Install OpenCode or Kilo: leave the chat and run autocode setup, which asks which")
+    if not steps:
+        return None
+    lines = ["Nothing is connected yet, so a task cannot start. To get going:"]
+    lines += [f"  {number}. {step}" for number, step in enumerate(steps, 1)]
+    return "\n".join(lines)
+
+
+def first_notice(chosen: NewChat, rows: list[dict] | None = None) -> str | None:
+    """What a new chat says about its backend before the first question: the getting-started steps
+    when nothing is connected, else the default backend's warning (`default_notice`)."""
+    return getting_started(rows) or default_notice(chosen, rows)
 
 
 def modes_text(listed: dict, chosen: NewChat) -> str:
