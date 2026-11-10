@@ -1550,7 +1550,9 @@ client that reads only `view` sees what it saw before, "no view yet"; what chang
 that it can now say why.
 
 The note is `launch.json` in the run directory, written by `autocode_launch_record`. It
-is display only: nothing reads it as a checkpoint and it grants no authority. The run
+is display only: nothing reads it as a checkpoint and it grants no authority. Only a
+launch that will run writes one — a read-only `--explain`, `--dry-run` or `--status` of a
+task that has not started leaves the project exactly as it found it. The run
 clears it as soon as its first checkpoint is saved, so a status read sees one of the
 two and never both. A start that is refused before saving anything leaves no run
 directory behind — `autocode_run_destination.discard_unsaved` removes one holding only
