@@ -51,6 +51,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- One checkout under a configured source root that Git cannot read (for example a `git init`
+  with no commit) no longer stops a task at Requirements as "the model or its provider failed".
+  It is skipped and listed under `unreadable` in the task's pinned source inventory. A missing
+  root, a discovery bound or a link out of a root still stops, now as a stop in your environment
+  that names the paths.
 - The review mutation scenario matches the unified pipeline (#3010): the Code Reviewer's
   mutation check of a reviewed patch's tests is exercised on a review launched as an earlier
   runtime saved it.

@@ -101,19 +101,29 @@ class CatalogReadScopeTests(unittest.TestCase):
             self.assertEqual(2, discover.call_count)
 
     def test_failed_inventory_is_not_retained_in_a_response(self):
-        incomplete = {**self.discovery(), "complete": False, "diagnostics": [{"code": "repository_unreadable"}]}
+        incomplete = {**self.discovery(), "complete": False, "diagnostics": [{"code": "depth_limit"}]}
         with patch.object(repositories.source_catalog, "discover", side_effect=[incomplete, self.discovery("fixed")]):
             with reads().snapshot():
-                with self.assertRaisesRegex(repositories.CoordinationError, "repository_unreadable"):
+                with self.assertRaisesRegex(repositories.CoordinationError, "depth_limit"):
                     repositories.source_snapshot()
                 self.assertEqual("fixed", repositories.source_snapshot()["source_snapshot"])
 
+    def test_an_unreadable_checkout_does_not_stop_coordination_discovery(self):
+        skipped = {
+            **self.discovery(),
+            "complete": False,
+            "diagnostics": [{"code": "repository_unreadable", "path": "/sources/unborn", "message": "no HEAD"}],
+        }
+        with patch.object(repositories.source_catalog, "discover", return_value=skipped):
+            with reads().snapshot():
+                self.assertEqual(skipped["source_snapshot"], repositories.source_snapshot()["source_snapshot"])
+
     def test_incomplete_discovery_cannot_authorize_resolution(self):
-        incomplete = {**self.discovery(), "complete": False, "diagnostics": [{"code": "repository_unreadable"}]}
+        incomplete = {**self.discovery(), "complete": False, "diagnostics": [{"code": "depth_limit"}]}
         with patch.object(repositories.source_catalog, "discover", return_value=incomplete):
             with reads().snapshot():
                 for call in (repositories.source_snapshot, repositories.catalog):
-                    with self.assertRaisesRegex(repositories.CoordinationError, "repository_unreadable"):
+                    with self.assertRaisesRegex(repositories.CoordinationError, "depth_limit"):
                         call()
 
 

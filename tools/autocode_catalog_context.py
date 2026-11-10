@@ -38,15 +38,34 @@ INSTRUCTION = (
 )
 
 
+UNREADABLE_INSTRUCTION = (
+    "AutoCode could not read the checkouts listed in unreadable, so they are not in this inventory and "
+    "cannot be cited. If the ticket points at one of them, say so in the report rather than guessing its code."
+)
+
+
+class DiscoveryIncomplete(ValueError):
+    """Discovery could not see every readable source: the person's source roots need a change."""
+
+    status = "PAUSED_SOURCE_UNAVAILABLE"
+
+    def __init__(self, rows):
+        shown = "; ".join(row["code"] + (f" at {row['path']}" if row.get("path") else "") for row in rows[:3])
+        more = f"; and {len(rows) - 3} more" if len(rows) > 3 else ""
+        super().__init__(
+            f"Source discovery is incomplete: {shown}{more}. "
+            "Change the configured source roots so discovery can see every checkout, then continue."
+        )
+
+
 def context(state: RunState):
     """Expose the same pinned catalog to intake stages, independent of launch cwd."""
     run = state.get("run_dir")
     receipt = Path(run) / "planning/source-catalog.json" if run else None
     saved = util.read_object(receipt) if receipt and receipt.is_file() else None
     discovery = catalog.discover()
-    if not discovery["complete"]:
-        codes = ", ".join(sorted({row["code"] for row in discovery["diagnostics"]}))
-        raise ValueError("Source discovery is incomplete: " + codes)
+    if stopped := catalog.blocking(discovery):
+        raise DiscoveryIncomplete(stopped)
     if saved and any(
         saved.get(key) != discovery.get(key) for key in ("catalog", "catalog_identity", "source_snapshot")
     ):
@@ -74,6 +93,10 @@ def context(state: RunState):
         "repositories": rows,
         "instruction": INSTRUCTION,
     }
+    if skipped := catalog.unreadable(discovery):
+        # Recorded in the task's pinned inventory, so the stages and reviewers see what was left out and why.
+        result["unreadable"] = skipped
+        result["instruction"] = INSTRUCTION + " " + UNREADABLE_INSTRUCTION
     if saved is not None:
         if saved != result:
             raise ValueError("The task's saved source inventory changed; rediscover the task scope")
