@@ -90,15 +90,15 @@ verified. Completion is evidence, not proof: the person still reviews the diff.
 
 ## Verify a change you made
 
-To have AutoCode's independent Code Reviewer judge your own uncommitted change,
-start a review run and describe the change and what it should do:
+To have AutoCode judge your own uncommitted change, start a review run and
+describe the change and what it should do:
 
 ```sh
 $STEP start "Review the uncommitted change in this workspace (git diff HEAD). It should ..." --workflow review -- --engine claude
 ```
 
-A review changes nothing outside `review/` and needs no plan approval. Report
-`$STEP evidence --markdown` when it completes.
+A review takes the same path as every task: its plan needs the person's approval
+like any other. Report `$STEP evidence --markdown` when it completes.
 
 ## Never
 

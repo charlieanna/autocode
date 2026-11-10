@@ -34,7 +34,6 @@ def planning_flow(source: Mapping[str, Any]) -> str:
 
 # Job key -> the name printed for a person.
 SCREEN = {
-    "recognizer": "Job recognizer",
     "requirements": "Requirements",
     "planner": "Planner",
     "plan_reviewer": "Plan Reviewer",
@@ -43,18 +42,20 @@ SCREEN = {
     "completion": "Completion Reviewer",
     "resolver": "Resolver",
     "design_inventory": "Design inventory",
-    "designer": "Designer",
     "design_reviewer": "Design Reviewer",
-    "code_reviewer": "Code Reviewer",
     "investigator": "Investigator",
-    "analyst": "Analyst",
     "orchestrator": "Orchestrator",
+    # Jobs AutoCode no longer runs (every task takes the same path, #3010): a run an earlier runtime
+    # saved still names them in its stages and reports, and is refused at them (autocode_workflows).
+    "recognizer": "Job recognizer",
+    "designer": "Designer",
+    "code_reviewer": "Code Reviewer",
+    "analyst": "Analyst",
 }
 
 # Stage code name -> job key. ``_report_repair`` is stripped before the lookup.
 # A stage that can do more than one job is overridden in job_for_stage.
 STAGE_JOB = {
-    "recognize_workflow": "recognizer",
     "requirements_gather": "requirements",
     "astra_discovery": "planner",
     "glm_revise": "planner",
@@ -82,11 +83,13 @@ STAGE_JOB = {
     "astra_resolve": "resolver",
     "astra_diagnose": "resolver",
     "collect_design": "design_inventory",
-    "review_design": "designer",
     "check_design": "design_reviewer",
+    "investigate_stuck": "investigator",
+    # Retired stages, for a saved run's history (autocode_workflows.RETIRED_STAGES).
+    "recognize_workflow": "recognizer",
+    "review_design": "designer",
     "review_change": "code_reviewer",
     "investigate_bug": "investigator",
-    "investigate_stuck": "investigator",
     "answer_question": "analyst",
 }
 
@@ -101,12 +104,9 @@ ROUTE_JOB = {
     "sol": "tester",
     "completion": "completion",
     "resolver": "resolver",
-    "architect": "designer",
-    "analyst": "analyst",
-    "investigator": "investigator",
+    "architect": "design_reviewer",
     "stuck_investigator": "investigator",
     "acceptance_tester": "tester",
-    "utility": "recognizer",
 }
 
 
@@ -124,30 +124,6 @@ def route_name(role: str, state: Mapping[str, Any]) -> str:
 # (autocode_workflow.MODE). Their astra_checkpoint stage runs the Tester's job.
 # Keep in sync with autocode_workflow.MODE — tested in tests/test_status_updates.py.
 VALIDATION_ROUTING_MODES = ("glm_first_v1",)
-
-
-# The utility route (``--utility-model``, autocode_utility_route, #710): a cheaper model for the
-# stages that only classify or reformat. A stage is listed here only if its answer can misroute
-# work but can neither produce it nor accept it: never a stage whose job writes code (planner,
-# builder) or judges evidence (plan_reviewer, tester, completion, resolver, investigator,
-# code/design reviewer). Builder-failure classification runs as investigate_stuck and judges the
-# failure's evidence, so it stays on the Investigator. Report repair is not listed yet: it
-# rewrites the report of the stage it repairs, so it keeps that stage's route.
-# tests/test_utility_route.py enforces the exclusions.
-UTILITY_ROUTE = "utility"
-UTILITY_STAGES = ("recognize_workflow",)
-UTILITY_EXCLUDED_JOBS = (
-    "planner",
-    "plan_reviewer",
-    "builder",
-    "tester",
-    "completion",
-    "resolver",
-    "designer",
-    "design_reviewer",
-    "code_reviewer",
-    "investigator",
-)
 
 
 def base_stage(stage: str) -> str:

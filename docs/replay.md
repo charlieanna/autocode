@@ -26,7 +26,7 @@ symlink destinations are refused. A replay is created at its selected path;
 its bound artifacts are never moved from a temporary run directory.
 
 An explicit initial `--workflow` choice is replayed only at creation. A job
-chosen by the model keeps its recorded Job recognizer dispatch; replay does not
+Requirements named keeps its recorded Requirements dispatch; replay does not
 infer a workflow pin from the final job or skip that dispatch. Older bundles
 without this explicit choice retain their original validation behavior.
 

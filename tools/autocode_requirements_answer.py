@@ -3,7 +3,7 @@
 Every task that changes something goes through the full pipeline (#3010). A discussion changes nothing,
 so planning, approving and building it spent a Planner, a Builder and two reviews on a reply. Instead,
 Requirements' own reply is recorded as the turn's answer under ``state["answer"]``, the record the discuss
-job has always written (autocode_discuss_job renders it, autocode_chat_history and the status view show it),
+job wrote before it was removed (``render`` here shows it, autocode_chat_history and the status view show it),
 with ``answered_by: "requirements_gather"``; the run finishes the turn. The person's next message is a
 follow-up turn that starts at Requirements again (autocode_follow_up), and may ask for a change.
 
@@ -14,6 +14,7 @@ without importing the discuss job's probe machinery.
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -69,3 +70,28 @@ def answer_from_requirements(state: RunState, report: dict, record: dict) -> Non
         "answered_by": STAGE,
     }
     run_status.complete(state, completed_at=dt.datetime.now(dt.UTC).isoformat())
+
+
+def owns(state: RunState) -> bool:
+    """Whether this run's turn ended with a discussion Requirements answered (autocode_jobs.ended_in)."""
+    return (state.get("workflow") or {}).get("kind") == "discuss" and bool(state.get("answer"))
+
+
+def render(state: RunState) -> str:
+    """The completion summary of an answered discussion: the answer, where it was read and what is still open."""
+    found = state.get("answer") or {}
+    lines = ["ANSWER — nothing was changed", "", str(found.get("answer", "")), "", "Evidence:"]
+    probed = {row["claim"] for row in found.get("probes") or []}
+    lines += [
+        f"  - {row['claim']} ({row['source']})"
+        + ("; shown by running: " + row["probe"] if row["claim"] in probed else "; read from the source, not run")
+        for row in found.get("evidence") or []
+    ]
+    lines += ["Question for you: " + question for question in found.get("questions") or []]
+    if found.get("note_path"):
+        lines.append("Note written: " + str(Path(state.get("workspace", "")) / found["note_path"]))
+    if found.get("output"):
+        lines.append("Requirements report: " + str(found["output"]))
+    if found.get("questions"):
+        lines.append("Reply with --follow-up TEXT to answer them in this run.")
+    return "\n".join(lines)

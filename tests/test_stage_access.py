@@ -12,8 +12,7 @@ from units import common
 class JobPromptsKeepScratchInTheWorkspace(unittest.TestCase):
     def test_no_job_sends_the_model_outside_the_workspace(self):
         # OpenCode stops a stage that touches an external directory, and the attempt is lost
-        # (#228, #301). The review and bug prompts were moved inside the workspace; the design,
-        # design-check and discussion prompts still told the model to work OUTSIDE it.
+        # (#228, #301). The design-check prompt once told the model to work OUTSIDE it.
         for job in jobs.JOBS:
             with self.subTest(stage=job.STAGE):
                 self.assertNotIn("OUTSIDE the workspace", job.PROMPT)
@@ -27,8 +26,8 @@ class JobPromptsKeepScratchInTheWorkspace(unittest.TestCase):
                     self.assertIn(".autocode/", job.PROMPT)
 
     def test_the_scratch_rule_names_the_stage_directory_and_forbids_external_paths(self):
-        rule = access.scratch_rule("review_design")
-        self.assertIn(".autocode/scratch/review_design/", rule)
+        rule = access.scratch_rule("check_design")
+        self.assertIn(".autocode/scratch/check_design/", rule)
         self.assertIn("Never use /tmp", rule)
 
 
@@ -37,12 +36,6 @@ class GuardsAgreeWithTheRules(unittest.TestCase):
     # the report is validated, so a minimal report is enough to tell a stray write from a bad report.
     CHECKS = {
         "collect_design": lambda changed: jobs.design_intake.apply({}, {}, {"changed_files": changed}, "/repo"),
-        "review_change": lambda changed: jobs.review_job.apply({}, {}, {"changed_files": changed}, "/repo"),
-        "investigate_bug": lambda changed: jobs.bug_job.check({"note_path": ""}, changed),
-        "review_design": lambda changed: jobs.design_job.check({"mode": ""}, changed),
-        "answer_question": lambda changed: jobs.discuss_job.check(
-            {"note_path": "docs/answer.md", "answer": ""}, changed, "/repo"
-        ),
         "check_design": lambda changed: jobs.design_check_job.check({}, {"design_document": ""}, changed, "/repo"),
         "investigate_stuck": lambda changed: jobs.stuck_job.check({"diagnosis": ""}, changed),
         # Test files only, wherever the project keeps them (autocode_verify.is_test_path), not a prefix.
@@ -72,15 +65,6 @@ class GuardsAgreeWithTheRules(unittest.TestCase):
 
     def test_only_job_stages_are_listed(self):
         self.assertLessEqual(set(access.JOB_WRITES), set(jobs.STAGES))
-
-    def test_opencode_additions_stay_within_what_the_job_may_change(self):
-        for stage, prefixes in access.OPENCODE_ADDITIONS.items():
-            with self.subTest(stage=stage):
-                self.assertTrue(all(prefix.startswith(access.job_writes(stage)) for prefix in prefixes))
-
-    def test_a_report_repair_keeps_its_stage_s_opencode_additions(self):
-        self.assertEqual(("review/",), access.opencode_additions("review_change_report_repair"))
-        self.assertEqual((), access.opencode_additions("sol"))
 
     def test_judging_stages_launch_able_to_write_evidence_and_planning_does_not(self):
         # The Resolver (astra_resolve) joins them: its report and probe evidence are runner-owned

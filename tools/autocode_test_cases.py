@@ -1,7 +1,7 @@
 """Tests described in plain English, and the runner's link from each one to the test that proves it.
 
-Two places write them. A bug fix's Investigator writes ``test_cases`` (id,
-given, when, then) in its diagnosis (autocode_bug_job). A small feature's
+Two places write them. An earlier runtime's bug-fix Investigator wrote ``test_cases``
+(id, given, when, then) in its diagnosis, which a run saved past that stage still holds. A small feature's
 Planner writes acceptance criteria as concrete examples and marks the ones a
 test proves with a verification_method of ``test: test_<id>_...``, or of
 ``guard: test_<id>_...`` for behavior that already works and must keep working
@@ -159,7 +159,7 @@ def current_diagnosis(state: RunState) -> dict:
 
 
 def diagnosis_cases(state: RunState) -> list[dict]:
-    """A reproduced bug's English test cases (autocode_bug_job), or [] (bugs planned without an
+    """A reproduced bug's English test cases (an earlier runtime's Investigator), or [] (bugs planned without an
     investigation, older runs)."""
     found = current_diagnosis(state)
     return list(found.get("test_cases") or []) if found.get("outcome") == "reproduced" else []

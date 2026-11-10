@@ -228,8 +228,6 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "tools/prompts/discovery.md",
         (
-            "tests.test_investigation_evidence",
-            "tests.test_investigation_handoff_cli",
             "tests.test_requirements_observations",
             "tests.test_requirements_observations_cli",
         ),
@@ -243,15 +241,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/autoplanner/retained-review-observations.md",
         ("tests.test_planning_recovery_observations",),
     ),
-    (
-        "tools/prompts/fragments/autoplanner/bug-diagnosis-rule.md",
-        ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli"),
-    ),
-    ("tools/prompts/review-change.md", ("tests.test_review_attribution_cli",)),
     ("tools/prompts/fragments/check-replay/validator-note.md", ("tests.test_check_replay",)),
     (
         "tools/prompts/fragments/provider-opencode/review-output.md",
-        ("tests.test_review_attribution_cli", "tests.test_schema_prompt_formatting", "tests.test_tool_handoff"),
+        ("tests.test_schema_prompt_formatting", "tests.test_tool_handoff"),
     ),
     (
         "tools/prompts/validator.md",
@@ -287,37 +280,9 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tests/coordination_provider.py",
         ("tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli", "tests.test_coordination_gate_cli"),
     ),
-    (
-        "tests/legacy_bugfix_fixture.py",
-        (
-            "tests.test_legacy_bugfix_fixture",
-            "tests.test_bug_job",
-            "tests.test_bug_questions",
-            "tests.test_package_investigator_cli",
-            "tests.test_pilot_investigator_cli",
-            "tests.test_stale_diagnosis_feedback_cli",
-            "tests.test_investigation_handoff_cli",
-            "tests.test_provider_auth_cli",
-            "tests.test_job_failure_recovery",
-            "tests.test_job_report_recovery",
-            "tests.test_investigation_progress",
-            "tests.test_acceptance_tests",
-            "tests.test_go_reproduction",
-            # The historical launch of a saved review, design or discuss job (#3010).
-            "tests.test_job_route",
-            "tests.test_job_cap_change",
-            "tests.test_output_length_route_cli",
-            "tests.test_kilo_wrapper_idle_cli",
-            "tests.test_direct_connections_cli",
-            "tests.test_follow_up",
-            "tests.test_review_attribution_cli",
-            "tests.test_verification_supervision",
-            "scenarios.test_review_mutation",
-        ),
-    ),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
     ("scenarios/catalog/greenfield-todo-cli/reference/", ("tests.test_brief_cli",)),
-    ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
+    ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture",)),
     ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
     ("scenarios/harness/components_driver.py", ("tests.test_local_compose_scenario",)),
     ("tools/prompts/fragments/provider-launch/tool-free-report-repair.md", ("tests.test_provider_launch",)),
@@ -358,23 +323,13 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/fake_codex.py", ("tests.test_subprocess",)),
     # The #2133 CLI regression drives the box through the fake provider; its tests import neither module.
     ("tools/autocode_current_behavior.py", ("tests.test_bugfix_workflow",)),
-    ("tools/prompts/fragments/autoplanner/bug-diagnosis-rule.md", ("tests.test_bugfix_workflow",)),
-    ("tools/prompts/bug-investigation.md", ("tests.test_bug_job",)),
-    (
-        "tools/prompts/fragments/bug-job/diagnosis-correction.md",
-        ("tests.test_diagnosis_refresh", "tests.test_stale_diagnosis_feedback_cli"),
-    ),
     (
         "tools/autocode_prices.json",
         ("tests.test_prices", "tests.test_cost", "tests.test_cost_cap", "tests.test_route_selector"),
     ),
     (
         "tools/autocode-schemas/evidence-report.schema.json",
-        (
-            "tests.test_evidence_report",
-            "tests.test_review_mutation_evidence",
-            "tests.test_review_attribution_cli",
-        ),
+        ("tests.test_evidence_report",),
     ),
     ("scenarios/harness/conformance.py", ("tests.test_planning_allowance_cli",)),
     (
@@ -402,7 +357,6 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scenarios/harness/clarifying_requirements_provider.py", ("tests.test_requirements_review",)),
     ("tools/autocode_requirements_handoff.py", ("tests.test_requirements_citation_cli",)),
     ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
-    ("scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/", ("tests.test_review_attribution_cli",)),
     (
         "tools/prompts/fragments/stuck-repair-context/evidence-instruction-02.md",
         ("tests.test_stuck_repair_context", "tests.test_classification_recovery"),
@@ -426,7 +380,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "tools/prompts/fragments/report-repair-context/evidence-counterexample.md",
-        ("tests.test_report_repair", "tests.test_discuss_job"),
+        ("tests.test_report_repair",),
     ),
     ("tools/providers/requirements_stream.mjs", ("tests.test_requirements_stream", "tests.test_requirements_chat")),
     ("tools/providers/opencode_activity.mjs", ("tests.test_opencode_activity", "tests.test_kilo_progress")),
@@ -520,7 +474,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/fragments/provider-", ("tests.test_command_source_schema",)),
     ("tools/prompts/fragments/output-policy/", ("tests.test_autocode_output_policy",)),
     ("tools/prompts/fragments/protected-oracles/", ("tests.test_autocode_protected_oracles",)),
-    ("tools/prompts/fragments/package-scope/", ("tests.test_package_writes", "tests.test_package_investigator_cli")),
+    ("tools/prompts/fragments/package-scope/", ("tests.test_package_writes",)),
 )
 
 # A CLI consumer is selected even if marked slow: otherwise the import-only gap
@@ -571,7 +525,6 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ),
         ("tests.test_provider_route_recovery_cli",),
     ),
-    (("tools/autocode_workspace_inventory.py",), ("tests.test_review_attribution_cli",)),
     (
         (
             "tools/autocode_python_packaging.py",
@@ -660,14 +613,6 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_resolver.py",
         ),
         ("tests.test_validation_evidence_cli",),
-    ),
-    (
-        ("tools/autocode_investigation_evidence.py", "tools/units/autoplanner.py", "tools/units/autoresolver.py"),
-        ("tests.test_investigation_handoff_cli",),
-    ),
-    (
-        ("tools/autocode_review_result.py", "tools/autocode_requirements_chat.py", "tools/autocode_model_preflight.py"),
-        ("tests.test_review_attribution_cli",),
     ),
     (
         (
@@ -799,7 +744,6 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         (
             "tools/autocode_review_source.py",
             "tools/autocode_stage_context.py",
-            "tools/autocode_bug_job.py",
         ),
         ("tests.test_run_state", "tests.test_follow_up_acceptance_cli"),
     ),
@@ -1034,15 +978,6 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tools/autocode_requirements_chat.py", "tools/autocode_chat_view.py", "tools/units/autoplanner.py"),
         ("tests.test_requirements_job_cli",),
     ),
-    (
-        (
-            "tools/autocode_review_",
-            "tools/autocode_scratch_preparation.py",
-            "tools/autocode_verify.py",
-            "tools/units/autoreview.py",
-        ),
-        ("tests.test_review_attribution_cli",),
-    ),
     (("tools/autocode_chat_", "tools/autocode_run_view.py", "tools/autocode_follow_up.py"), ("tests.test_chat_cli",)),
     (
         (
@@ -1110,19 +1045,16 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tests.test_registry_project_cli",
             "tests.test_changeset_cli",
             "tests.test_changeset_delivery_cli",
-            "tests.test_bug_questions",
         ),
     ),
     (
         (
             "tools/autocode_workspace_scope",
             "tools/autocode_scope_question.py",
-            "tools/autocode_bug_questions.py",
-            "tools/autocode_bug_job.py",
             "tools/autocode_requirements_handoff.py",
             "tools/autocode_requirements_review.py",
         ),
-        ("tests.test_scope_question_cli", "tests.test_bug_questions"),
+        ("tests.test_scope_question_cli",),
     ),
     (
         (
@@ -1215,34 +1147,6 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_regression.py",
         ),
         ("tests.test_package_scope_cli",),
-    ),
-    # A --package bug fix's Investigator (#711): units.autoresolver hands it the package from
-    # autocode_package_writes.context, and autocode_bug_job.check refuses a diagnosis outside the package by
-    # autocode_package_scope's path rules. Only the CLI module drives them through TaskRun, with a stand-in
-    # Investigator.
-    (
-        (
-            "tools/autocode_bug_job",
-            "tools/units/autoresolver",
-            "tools/autocode_package_writes",
-            "tools/autocode_package_scope",
-        ),
-        ("tests.test_package_investigator_cli",),
-    ),
-    # A mapped path no longer gets the fake flows every unmapped tools/ module selects (``dependencies``); these
-    # two had them before the row above, and keep them.
-    (("tools/autocode_bug_job", "tools/units/autoresolver"), (*CORE_CONSUMERS, *PUBLIC_FLOW_CONSUMERS)),
-    (
-        (
-            "tools/autocode_diagnosis_refresh",
-            "tools/autocode_run_view",
-            "tools/autocode_bug_job",
-            "tools/autocode_goal_lifecycle",
-            "tools/autocode_run_actions",
-            "tools/autocode_build_loop",
-            "tools/autopilot",
-        ),
-        ("tests.test_stale_diagnosis_feedback_cli",),
     ),
 )
 

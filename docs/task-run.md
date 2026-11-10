@@ -568,8 +568,8 @@ sources. Requirements names the job it understood (#1846), as it does on every
 run (#1860). A discussion with nothing to write is answered by Requirements itself, without a
 confirmation, and the turn ends with that answer (the status view's `workflow` is `discuss`,
 `evidence.workflow_result.outcome` is `answered`); the next message is a follow-up turn. Any
-other job starts once the person approves what Requirements understood. The Job
-recognizer runs, after that approval, only when Requirements named no job. Model access probes for
+other job starts once the person approves what Requirements understood; when Requirements
+named no job, it is planned as a build. Model access probes for
 planning and execution roles wait until the user confirms the requirements.
 
 When the only pending question is the core's current requirements review,
@@ -1314,7 +1314,6 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Resume a pause | `autocode resume --no-chat [options]`; after editing the design at `PAUSED_DESIGN_CONFLICT`, `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
-| Adopt an inspected interrupted Investigator report | `autocode --recover-job-report TOKEN [options]` | 0 applied, 2 rejected; no model launched |
 | Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable); a question with `options` takes only one of its option labels or its `proposed_default`, exactly | 0 saved, 2 rejected |
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
 | Name the model a role stopped on quota, a content-filter refusal or an authenticated output limit continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
@@ -2238,17 +2237,20 @@ human decisions remain intact and hold the handoff before either route. Modified
 sealed evidence pauses before dispatch. Every assigned repair still requires
 fresh verification and independent completion acceptance.
 
-`workflow` is the kind of job AutoCode recognized from the request, named by
-Requirements, the first stage of every new run and follow-up turn (#1846,
-#1860): one of `build`, `bugfix`, `review`, `design` or `discuss` (see
-`scenarios/README.md`, "Workflows"). A flow without a Requirements stage (the
-v2 planning flow, a run without a Requirements role) still begins with the Job
-recognizer (`recognize_workflow`). It is `null` until that stage has run, and
-for runs that predate it. `workflow_source` is `"model"` when a model decided
-it (Requirements or the recognizer) and `"user"` when `--workflow` named it;
+`workflow` is the kind of job, named by Requirements, the first stage of every
+new run and follow-up turn (#1846, #1860): one of `build`, `bugfix`, `review`,
+`design` or `discuss` (see `scenarios/README.md`, "Workflows"). The kind labels
+the run and its report; every kind then takes the same path (#3010). A flow
+without a Requirements stage (the v2 planning flow, a run without a Requirements
+role) is planned as a `build` from its first stage, unless `--workflow` names
+another kind. It is `null` until Requirements has named the job, and for runs
+that predate it. `workflow_source` is `"model"` when a model decided it
+(Requirements, or the Job recognizer an earlier runtime ran), `"user"` when
+`--workflow` named it and `"default"` when no stage names it on the run's flow;
 `workflow_reason` is `Requirements understood: <outcome>` (`Requirements named
-no job; planned as a build` when its report named none), or the recognizer's
-one-sentence reason. Both are `null` whenever `workflow` is.
+no job; planned as a build` when its report named none), the default's reason,
+or an earlier runtime's recognizer's one-sentence reason. Both are `null`
+whenever `workflow` is.
 
 `planning_depth` shows how much planning the run chose and why
 ([adaptive planning](adaptive-planning.md)). It is always present:
@@ -2256,7 +2258,7 @@ one-sentence reason. Both are `null` whenever `workflow` is.
 | Field | Meaning |
 | --- | --- |
 | `adaptive` | Whether the run plans adaptively (`--adaptive-planning`, the default where it applies); `false` on the fixed sequence |
-| `clarity` | `"clear"` or `"vague"`: the judgment of the request text by the stage that names the job, Requirements (or the recognizer on a flow without Requirements); `null` on the fixed sequence, under `--workflow`, and before the job is named. It no longer skips Requirements; a small clear brief keeps its reduced plan-review depth |
+| `clarity` | `"clear"` or `"vague"`: the judgment of the request text by Requirements when it names the job (an earlier runtime's recognizer on a flow without Requirements); `null` on the fixed sequence, on a flow without Requirements, under `--workflow`, and before the job is named. It no longer skips Requirements; a small clear brief keeps its reduced plan-review depth |
 | `requirements_skipped` | `true` only on a run saved before 2026-10-22 whose recognizer judged a build request clear and sent it straight to the Planner, `false` where such a run's judgment kept the Requirements stage; `null` on every newer run, which always runs Requirements first (#1860), and wherever clarity decided nothing |
 | `plan_size` | `"small"`, `"medium"` or `"large"`, measured from the draft's milestones and the files they touch at its first review; `null` before that review |
 | `size_signals` | The counts behind `plan_size`: `milestones`, `affected_paths`, `acceptance_criteria`, `dependency_edges`; `null` before the first review |
@@ -2616,28 +2618,12 @@ approval, retry, proof reuse or completion authority.
 
 ### Failed workflow jobs
 
-When a sessionless `report_file` bug Investigator lost its controller after
-writing a report but before the exit/result checkpoint, `status()` may expose
-`job_report_recovery`: the exact owned `report` path, its `sha256`, `attempt_id`,
-original `source_identity`, and a bound `token`. Read the report and inspect the
-attempt before calling `run.recover_job_report(token)` (CLI:
-`--recover-job-report TOKEN`). This is explicit adoption of those exact bytes,
-not a claim that the provider completed successfully. The raw exit remains
-unknown and stage history records operator recovery provenance. The action
-loads and applies the report normally, including the reproduction probe, and
-launches no model; continue separately afterwards.
+`job_report_recovery` is always null: it offered an interrupted bug Investigator's report for
+adoption, and that stage is retired (every task takes the same path, #3010). The field stays
+in the view, which never removes a field.
 
-The offer is read-only and disappears if the report, source capture, original
-source, configuration, or cleanup evidence is invalid or changed. All recorded
-workers and the independent keeper must be conclusively dead, with an authenticated
-owner-loss receipt proving cleanup. Timeouts, uncertain cleanup, rejected or
-malformed output, foreign/symlink paths, session/event reports, writers and
-report-repair attempts are not eligible. There is no durable provider report
-finalization seal, so presence/schema validity alone never authorizes automatic
-adoption. Plain attach/resume retains a valid offered attempt without applying
-or replaying it. No offer is inferred for an already archived job failure.
-
-A stopped Reviewer, Architect, Analyst or Investigator publishes
+A stopped workflow job (the Design Reviewer, the stuck-stage Investigator or the acceptance-test
+writer) publishes
 `needs.kind = "retry_job"`, retaining its owning stage and archived transcript.
 Inspect `needs.archive`, `needs.reason` and `needs.write_diagnosis`; then call
 `run.retry_job(view["needs"]["job_retry_token"])` for one fresh attempt under the
@@ -2688,8 +2674,8 @@ the quota resets. Once a model
 is named, `progress.needs_you` and the recovery card's `what_happened` ask only for
 the retry on it, and `action` and the card's `retry_job` carry that retry. The
 same holds when the job's uncertain attempt was set aside with `--abandon-stage`:
-the reason keeps the refusal or quota, the model and the provider's words. The Architect, Analyst
-and Investigator routes have no flag; only this answer moves them (an
+the reason keeps the refusal or quota, the model and the provider's words. The Design Reviewer
+(`architect`) and acceptance-test writer routes have no flag; only this answer moves them (an
 `--investigator-model` in the options pins the stuck-stage Investigator and is left
 as it is).
 

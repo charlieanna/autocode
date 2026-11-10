@@ -82,7 +82,6 @@ try:
     from . import autocode_verify as verify
     from . import autocode_worker_binding as worker_binding
     from . import autocode_worker_quota as worker_quota
-    from . import autocode_workflows as workflows
     from . import autocode_workspaces as task_workspaces
     from . import model_catalogue
 except ImportError:
@@ -132,7 +131,6 @@ except ImportError:
     import autocode_verify as verify
     import autocode_worker_binding as worker_binding
     import autocode_worker_quota as worker_quota
-    import autocode_workflows as workflows
     import autocode_workspaces as task_workspaces
     import model_catalogue
 
@@ -558,22 +556,17 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     args._recovery_grant_settings = copy.deepcopy(state.get("settings"))
     # The stop an explicit resume finds holding the run, for the build loop to record who resumed it (#722).
     args._resumed_pause = resumed_pause(state) if args.resume_paused else None
-    recovering_report = getattr(args, "recover_job_report", None) is not None
     changing_job_caps = getattr(args, "_job_cap_change", False)
     if not args.run_dir:
         # configure() and the model catalogue ask the connected tools what they serve, which is the
         # slowest part of a start and the last thing a client can see before the first checkpoint.
         launch_record.write(run_dir, "resolving_models", workspace=workspace)
     try:
-        settings = runner.configure(args, copy.deepcopy(state) if recovering_report or changing_job_caps else state)
+        settings = runner.configure(args, copy.deepcopy(state) if changing_job_caps else state)
     except ValueError as error:
         raise SettingRefused(
             runner.status_command.rejection_message(runner, state, workspace, run_dir, error)
         ) from None
-    if recovering_report:
-        if settings != state.get("settings"):
-            parser.error("Provider configuration or limits changed; report recovery requires unchanged saved settings")
-        return state  # Standalone adoption must not save configuration, migrations or other actions first.
     if changing_job_caps:
         # The recovery action validates the exact stop before committing these settings.
         args._job_cap_settings = settings
@@ -613,11 +606,10 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             named_strong=getattr(args, "builder_strong_model", None),
         )
         if roles.planning_flow(settings) == "v2":
-            if state.get("next_stage") == workflows.STAGE:
-                # Recognition still runs first; v2 only moves where the build pipeline starts.
-                state["workflow"]["then"] = planning.entry_stage(state)
-            else:
-                state["next_stage"] = planning.entry_stage(state)
+            # v2 moves where the build pipeline starts.
+            state["next_stage"] = planning.entry_stage(state)
+            if isinstance(state.get("workflow"), dict) and "then" in state["workflow"]:
+                state["workflow"]["then"] = state["next_stage"]
         runner.write_json(state_path, state)
         launch_record.clear(run_dir)  # from here the checkpoint is the only thing a status read answers with
     try:

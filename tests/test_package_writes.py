@@ -8,30 +8,24 @@ refusal (autocode_package_writes.refuse) on the same checkout.
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-import autocode_bug_job as bug_job
 import autocode_completion as completion
 import autocode_findings as findings_ledger
-import autocode_follow_up as follow_up
 import autocode_package_writes as package_writes
 import autocode_regression as regression
 import autocode_util as util
-import autocode_workflows as workflows
 from autocode_contract_identity import token
 
-from tests.test_bug_job import diagnosis
 from tests.test_package_scope import GREET, MONOREPO, OTHER
 from tests.test_verify import Project
 
 BASE = "b" * 40
 AUTHOR = ["-c", "user.name=t", "-c", "user.email=t@example.test"]
-NOTE = "docs/bugs/duplicate-renew.json"  # where tests.test_bug_job's diagnosis asks the runner to write it
 
 
 def package_state(package=GREET):
@@ -175,23 +169,6 @@ class Reconcile(unittest.TestCase):
         )
         self.assertNotIn("leave those as they are too", scope["instruction"])
 
-    def test_the_investigator_handoff_names_the_package_and_the_suite_the_run_has(self):
-        suite = f"cd {GREET} && python3 -m unittest discover -v"
-        settings = {"package": GREET, "protected_tests": {"command": suite}}
-        scope = package_writes.context(settings, bug_job.STAGE)
-        self.assertEqual((f"{GREET}/", suite), (scope["package"], scope["suite"]))
-        self.assertIn(f"inside {GREET}/: the runner rejects a report that names anything else", scope["instruction"])
-        # A root-form --test-command runs from the root as given: the suite is not said to enter the package.
-        self.assertIn("run it exactly as given from the root of investigation_workspace", scope["instruction"])
-        self.assertNotIn(f"enters {GREET}/ first", scope["instruction"])
-        # A fix that does need a file outside the package keeps it named, so the report is refused and the run pauses.
-        self.assertIn(f"outside {GREET}/, name that file anyway", scope["instruction"])
-        self.assertNotIn("{", scope["instruction"])
-        # A package with no tests and no --test-command has no suite to name; the Builder's scope never names one.
-        self.assertNotIn("suite", package_writes.context({"package": GREET, "protected_tests": {}}, bug_job.STAGE))
-        self.assertNotIn("suite", package_writes.context(settings))
-        self.assertIsNone(package_writes.context({}, bug_job.STAGE))
-
 
 class Checkout(unittest.TestCase):
     """The check before review and the --accept-completion refusal, on a real checkout, in a build that owes
@@ -311,61 +288,6 @@ class RunnerFiles(unittest.TestCase):
     def check(self):
         regression.before_review(self.state, "sol", self.project.root, self.run_dir)
         return runner_rows(self.state)
-
-    @staticmethod
-    def report():
-        """A reproduced diagnosis inside the package, as a package run's Investigator must give it."""
-        return diagnosis(affected_paths=[f"{GREET}/greet.py"], test_paths=[f"{GREET}/test_greet.py"])
-
-    def write_note(self):
-        """The bug-fix workflow's runner note, written as autocode_bug_job.apply writes it."""
-        report = self.report()
-        output = self.run_dir / "bug-investigation-01.json"
-        output.write_text(json.dumps(report))
-        bug_job.apply(self.state, report, {"changed_files": [], "output": str(output)}, self.project.root)
-        return self.project.root / NOTE
-
-    def test_the_unchanged_runner_note_is_left_out_and_a_modified_one_is_reported(self):
-        note = self.write_note()
-        self.assertEqual([], self.check())
-        rewritten = json.loads(note.read_text())
-        rewritten["conclusion"] = "the Builder's own conclusion"
-        note.write_text(json.dumps(rewritten, indent=2) + "\n")
-        (row,) = self.check()
-        self.assertEqual(({}, {NOTE: "added"}, {}), (row["paths"], row["runner_files"], row["held"]))
-        self.assertIn(f"The runner wrote {NOTE} for this run, and it changed since", row["finding"])
-        self.assertIn("do not delete it", row["finding"])
-        self.assertNotIn("remove an added file", row["finding"])
-        # Put back, it is the runner's again and the finding closes.
-        note.write_text(json.dumps({**bug_job.note(self.report()), "proven_by": ""}, indent=2) + "\n")
-        self.assertEqual([], [row for row in self.check() if row["status"] == "open"])
-        self.assertEqual("resolved", row["status"])
-
-    def test_the_note_of_an_investigation_that_did_not_reproduce_is_compared_by_its_content(self):
-        """Such a note has no proof for diagnosis_artifact to identify. Its turn completes; a follow-up build
-        keeps the investigation, owes no proof and is still checked before the Tester."""
-        self.state = {"base_commit": self.project.base, "settings": {"package": GREET}, "workflow": {"kind": "bugfix"}}
-        package_writes.at_launch(self.state, self.project.root)
-        report = diagnosis("not_reproduced", questions=[])
-        output = self.run_dir / "bug-investigation-01.json"
-        output.write_text(json.dumps(report))
-        bug_job.apply(self.state, report, {"changed_files": [], "output": str(output)}, self.project.root)
-        self.assertEqual("TASK_COMPLETE", self.state["status"])
-        follow_up.accept(self.state, "Add a None guard to greet anyway", self.project.root, "2026-10-16T00:00:00+00:00")
-        workflows.apply(self.state, {"workflow": "build", "reason": "", "signals": []}, {})
-        self.assertFalse(regression.required(self.state))
-        self.assertEqual([], self.check())
-        self.assertIsNone(package_writes.refuse(self.state, self.project.root))
-        # An edit to it is seen, as the runner's file, and putting it back closes the finding.
-        path = report["note_path"]
-        note = self.project.root / path
-        written = note.read_text()
-        note.write_text(json.dumps({**json.loads(written), "conclusion": "the Builder's own"}, indent=2) + "\n")
-        (row,) = self.check()
-        self.assertEqual(({}, {path: "added"}), (row["paths"], row["runner_files"]))
-        note.write_text(written)
-        self.assertEqual([], [row for row in self.check() if row["status"] == "open"])
-        self.assertEqual("resolved", row["status"])
 
     def test_a_report_with_a_saved_hash_is_compared_and_path_only_files_are_left_out_unread(self):
         report = self.project.root / "review/findings.json"

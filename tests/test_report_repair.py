@@ -1874,25 +1874,20 @@ class RepairTests(unittest.TestCase):
         self.assertEqual("", runner.jobs.repair_rules("terra"))
 
     def test_a_probing_job_repair_keeps_its_own_rules_and_the_probe_definition(self):
-        # Live run 2026-10-21: the Analyst repair wrote "probe": "event:prt_…" because the repair prompt
+        # Live run 2026-10-21: a job's repair wrote "probe": "event:prt_…" because the repair prompt
         # carries the report schema, where a probe is only a string, and no stage prompt to define it (#1769).
-        for stage in ("answer_question", "investigate_bug", "review_design", "check_design"):
-            with self.subTest(stage=stage):
-                rules = runner.jobs.repair_rules(stage)
-                self.assertIn("A probe is a shell command run from the repository root", rules)
-                self.assertIn("is not a citation", rules)
-        # The Designer keeps its own repair rules beside it, and a build-pipeline stage keeps none.
-        self.assertIn("Keep every concern id from previous_review", runner.jobs.repair_rules("review_design"))
+        rules = runner.jobs.repair_rules("check_design")
+        self.assertIn("A probe is a shell command run from the repository root", rules)
+        self.assertIn("is not a citation", rules)
+        # A build-pipeline stage keeps none.
         self.assertEqual("", runner.jobs.repair_rules("terra"))
 
-    def test_an_analyst_repair_is_told_its_probe_must_fail_on_a_counterexample(self):
+    def test_a_probing_job_repair_is_told_its_probe_must_fail_on_a_counterexample(self):
         # Live run 20261021-001305-chat-25ca74: the second repair's probe was `python3 -c 'assert 2 + 2 == 4'`,
         # which the runner accepted; a repair that is now refused for it must be told why (#1769).
-        for stage in ("answer_question", "review_design", "check_design", "investigate_bug"):
-            with self.subTest(stage=stage):
-                rules = runner.jobs.repair_rules(stage)
-                self.assertIn("A probed row also needs counterexample", rules)
-                self.assertIn("read from the source, not run", rules)
+        rules = runner.jobs.repair_rules("check_design")
+        self.assertIn("A probed row also needs counterexample", rules)
+        self.assertIn("read from the source, not run", rules)
 
     def test_a_validator_pass_without_checks_gets_a_report_repair(self):
         # Live run 2026-09-29: the Validator ran its check but returned "checks": [], and the run paused.
@@ -2350,7 +2345,7 @@ raise SystemExit(subprocess.run([sys.executable, {str(real)!r}, *sys.argv[1:]], 
         # Merely opening/continuing without explicit retry cannot replay it.
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
         _, opened = self.saved()
-        self.assertEqual(2, len(opened["stages"]), (opened["status"], [r["stage"] for r in opened["stages"]]))
+        self.assertEqual(1, len(opened["stages"]), (opened["status"], [r["stage"] for r in opened["stages"]]))
         self.launch(["--run-dir", str(run), "--no-chat", "--resume-paused"], 2)
         _, saved = self.saved()
         self.assertEqual("WAITING_FOR_USER", saved["status"])
@@ -2378,7 +2373,7 @@ raise SystemExit(subprocess.run([sys.executable, {str(real)!r}, *sys.argv[1:]], 
         _, state = self.saved()
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.assertEqual(
-            ["recognize_workflow", "astra_discovery", "astra_discovery_report_repair"],
+            ["astra_discovery", "astra_discovery_report_repair"],
             [r["stage"] for r in state["stages"]],
         )
         self.assertNotEqual("approved", state["goal_contract"]["approval_status"])

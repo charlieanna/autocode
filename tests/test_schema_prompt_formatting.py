@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import autocode_goals as goals
 from autocode_util import validate_schema
-from providers import command, opencode
+from providers import opencode
 from units import autoplanner
 
 
@@ -31,67 +31,6 @@ class CompactSchemaPromptTests(unittest.TestCase):
                 self.assertNotIn("builder-01.jsonl", prefix_a)
                 self.assertEqual("/run/iterations/001/builder-01.jsonl", json.loads(packet_a)["stage_events_log"])
                 self.assertEqual("/run/iterations/002/builder-02.jsonl", json.loads(packet_b)["stage_events_log"])
-
-    def test_standalone_review_keeps_its_schema_and_boundary_without_build_receipt_work(self):
-        import autocode_review_job as review
-
-        original, _ = review.prompt({"task": "Review greeting.patch", "workspace": "/project"})
-        packet = original.split("\nCURRENT HANDOFF DATA\n", 1)[1]
-        rendered = opencode.prompt_for_schema(original, review.SCHEMA, Path("/run/events.jsonl"))
-        configured = command.CommandProvider(
-            {"name": "fixture-kilo", "roles": {}, "output": "opencode_events"}, Path("unused.toml")
-        )
-        self.assertEqual(rendered, configured.prompt_for_schema(original, review.SCHEMA, Path("/run/events.jsonl")))
-        self.assertIn("Review report only.", rendered)
-        self.assertIn(json.dumps(review.SCHEMA, separators=(",", ":")), rendered)
-        self.assertEqual(packet, rendered.split("\nCURRENT HANDOFF DATA\n", 1)[1])
-        self.assertIn("runner independently proves", rendered)
-        self.assertIn("strict\nfilesystem boundary", rendered)
-        self.assertIn("Never write, truncate", rendered)
-        self.assertIn("/run/events.jsonl", rendered)
-        self.assertNotIn("For a captured Validator check", rendered)
-        self.assertNotIn("A PASS report", rendered)
-        self.assertNotIn("capture_command", rendered)
-        self.assertIn("every blocking finding", rendered)
-        # A report that actually declares build evidence must retain its protocol,
-        # even when it has all the review fields too.
-        schema = {**review.SCHEMA, "properties": {**review.SCHEMA["properties"], "checks": {"type": "array"}}}
-        mixed = opencode.prompt_for_schema(original, schema, Path("/run/events.jsonl"))
-        self.assertIn("For a captured Validator check", mixed)
-        self.assertIn("capture_command", mixed)
-
-    def test_review_verification_is_focused_fresh_and_never_discards_requested_or_blocking_proof(self):
-        import autocode_review_job as review
-
-        task = "Review HEAD^..HEAD. Run python -m unittest tests.test_calc once; independent CI runs the full affected suite."
-        original, _ = review.prompt({"task": task, "workspace": "/project"})
-        rendered = opencode.prompt_for_schema(original, review.SCHEMA, Path("/run/events.jsonl"))
-        packet = json.loads(rendered.split("\nCURRENT HANDOFF DATA\n", 1)[1])
-        self.assertEqual(task, packet["task"])
-        for rule in (
-            "named verification commands early, once",
-            "source and check inputs stay unchanged",
-            "old supplied logs are",
-            "concrete suspected regression",
-            "request requires it",
-            "demonstrated affected consumer",
-            "Retain every requested check",
-            "including failures",
-            "Batch independent diff",
-            "necessary remainder of truncated output",
-            "test that source without applying it again",
-            "Prove every blocking finding with a test",
-            "each blocking finding's test must FAIL",
-            "runner independently proves",
-            "only the runner can exempt a proven pre-existing observation",
-        ):
-            with self.subTest(rule=rule):
-                self.assertIn(rule, rendered)
-        self.assertLess(
-            rendered.index("named verification commands early, once"), rendered.index("Read the change AND")
-        )
-        self.assertNotIn("run the test suite there", rendered)
-        self.assertIn(json.dumps(review.SCHEMA, separators=(",", ":")), rendered)
 
     def test_compiled_validator_prefers_receipt_fields_without_retyping_commands(self):
         import autocode_support as support

@@ -1,6 +1,5 @@
-"""Real Go collection and public investigation replay, using scripted answers."""
+"""Real Go collection of a probe command, using scripted answers."""
 
-import hashlib
 import json
 import os
 import shlex
@@ -13,9 +12,6 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_verify as verify
-from autocode_taskrun import TaskRun, TaskRunError
-
-from . import legacy_bugfix_fixture
 
 GO = shutil.which("go")
 SOURCE = "package pager\n\nfunc PageCount(total, size int) int { return total / size }\n"
@@ -206,170 +202,6 @@ class GoReproductionTests(unittest.TestCase):
         self.assertEqual("", receipt["error"], receipt)
         self.assertIsNone(receipt["results"])
 
-    def investigate(self, selector, *flags, executable=GO):
-        command = self.command(selector, *flags, executable=executable)
-        report = self.root / "report.json"
-        report.write_text(
-            json.dumps(
-                {
-                    "outcome": "reproduced",
-                    "note_path": "docs/bugs/pager.json",
-                    "observed": "PageCount(5, 2) returns 2",
-                    "reproduction": "PageCount(5, 2) == 2",
-                    "root_cause": "integer division truncates partial pages",
-                    "affected_paths": ["pager.go"],
-                    "test_paths": ["pager_test.go"],
-                    "invariant": "round partial pages up",
-                    "test_cases": [
-                        {
-                            "id": "T1",
-                            "given": "total=5 and size=2",
-                            "when": "PageCount(5, 2)",
-                            "then": "returns 3",
-                            "kind": "restore",
-                        }
-                    ],
-                    "probe": command,
-                    # The bug removed (#1769): the probe must fail here.
-                    "counterexample": {
-                        "file": "pager.go",
-                        "find": "return total / size",
-                        "replace": "return (total + size - 1) / size",
-                    },
-                    "untestable": "",
-                    "conclusion": "Round up partial pages.",
-                    "fix_size": "large",
-                    "fix_plan": ["round partial pages up"],
-                    "questions": [],
-                    "tests_run": [],
-                    "plan_approval_requested": False,
-                    "workspace_scope": {"spans_repositories": False, "external_parts": []},
-                }
-            )
-        )
-        provider = self.root / "provider.py"
-        provider.write_text("""import json,subprocess,sys,shlex,hashlib
-from pathlib import Path
-schema=json.loads(Path(sys.argv[2]).read_text())
-if 'outcome' not in schema.get('properties',{}):
-    raise SystemExit(2)  # This fixture exercises investigation only.
-data=json.loads(sys.stdin.read().split('CURRENT HANDOFF DATA\\n',1)[1])
-value=json.loads(Path(sys.argv[3]).read_text())
-native=Path(sys.argv[3]).with_suffix('.probe.json')
-if data.get('report_repair'):
-    previous=json.loads(native.read_text())
-    if previous['command'] != shlex.split(value['probe']) or previous['exit_code'] != 0:
-        raise RuntimeError('Repair requires the matching prior native probe receipt')
-    Path(sys.argv[3]).with_suffix('.repair.json').write_text(json.dumps({
-        'original_stage':data['original']['stage'],'validation_error':data['error'],
-        'native_probe':str(native),'native_probe_sha256':hashlib.sha256(native.read_bytes()).hexdigest(),
-        'probe_reran':False}))
-else:
-    result=subprocess.run(shlex.split(value['probe']),cwd=data['investigation_workspace'],capture_output=True,text=True,timeout=30)
-    native.write_text(json.dumps({'command':shlex.split(value['probe']),'exit_code':result.returncode,'stdout':result.stdout,'stderr':result.stderr}))
-    if result.returncode:
-        print(result.stderr,file=sys.stderr)
-        raise SystemExit(3)
-value['tests_run']=[value['probe']+' exited 0 in the prepared source copy']
-Path(sys.argv[1]).write_text(json.dumps(value))
-print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_tokens':1}}))
-""")
-        config = Path(self.environment["XDG_CONFIG_HOME"]) / "autocode/providers/offline.toml"
-        config.parent.mkdir(parents=True)
-        config.write_text(
-            'name="offline"\nprompt="stdin"\noutput="report_file"\ncommand='
-            + json.dumps([sys.executable, str(provider), "{report}", "{schema}", str(report)])
-            + '\nmodels=["producer","verifier","planner","reviewer"]\n[roles]\n'
-            + "\n".join(
-                f'{role}={{ model="{model}", effort="medium" }}'
-                for role, model in (
-                    ("astra", "reviewer"),
-                    ("terra", "producer"),
-                    ("sol", "verifier"),
-                    ("completion", "verifier"),
-                    ("glm", "planner"),
-                    ("plan_reviewer", "reviewer"),
-                )
-            )
-            + "\n"
-        )
-        options = (
-            "--provider",
-            "offline",
-            "--workflow",
-            "bugfix",
-            "--joint-planning",
-            "--test-command",
-            command,
-            "--max-stage-seconds",
-            "30",
-            "--max-seconds",
-            "60",
-            "--max-idle-seconds",
-            "0",
-            "--max-tool-seconds",
-            "0",
-        )
-        try:
-            # The standard implementation flow sends a pinned bugfix to Requirements and the
-            # Planner; this test exercises the Investigator's Go probe, so it launches as the
-            # retained Investigator compatibility flow does.
-            run = TaskRun.start(
-                self.workspace,
-                "Fix PageCount(5, 2) returning 2 instead of 3.",
-                options=options,
-                env=self.environment,
-                timeout=60,
-                command=legacy_bugfix_fixture.COMMAND,
-            )
-        except TaskRunError as error:
-            self.assertIsNotNone(error.run_dir, str(error))
-            run = TaskRun(self.workspace, error.run_dir, options=options, env=self.environment, timeout=30)
-        view = run.status()
-        (self.root / "public-status.json").write_text(json.dumps(view, indent=2) + "\n")
-        return view, report.with_suffix(".probe.json")
 
-    def assert_original_public_rejection(self, native):
-        repair = json.loads((self.root / "report.repair.json").read_text())
-        self.assertEqual("investigate_bug", repair["original_stage"], repair)
-        self.assertIn("reproduction claims' probes", repair["validation_error"])
-        self.assertEqual(str(native), repair["native_probe"], repair)
-        self.assertEqual(hashlib.sha256(native.read_bytes()).hexdigest(), repair["native_probe_sha256"])
-        self.assertIs(False, repair["probe_reran"], repair)
-
-    def test_public_investigation_rejects_native_zero_with_empty_absolute_go_selector(self):
-        view, native = self.investigate("^TestMissing$")
-        self.assertEqual(0, json.loads(native.read_text())["exit_code"])
-        self.assertIn("[no tests to run]", json.loads(native.read_text())["stdout"])
-        self.assertFalse((self.workspace / "docs/bugs/pager.json").exists(), view)
-        self.assertEqual([], view["evidence"]["test_cases"], view)
-        self.assertFalse(view["done"], view)
-        self.assert_original_public_rejection(native)
-
-    def test_public_investigation_accepts_self_contained_actual_named_go_probe(self):
-        view, native = self.investigate("^Test_t1_truncationProbe$")
-        self.assertEqual(0, json.loads(native.read_text())["exit_code"])
-        note = self.workspace / "docs/bugs/pager.json"
-        self.assertTrue(note.is_file(), view)
-        accepted = json.loads(note.read_text())
-        self.assertIn(shlex.quote(GO), accepted["proven_by"])
-        self.assertIn("Test_t1_truncationProbe", accepted["proven_by"])
-        self.assertEqual(["T1"], [case["id"] for case in view["evidence"]["test_cases"]], view)
-        self.assertEqual(SOURCE, (self.workspace / "pager.go").read_text())
-        self.assertEqual(TEST, (self.workspace / "pager_test.go").read_text())
-
-    def test_public_investigation_rejects_all_skipped_probe_with_native_named_skip(self):
-        view, native = self.investigate("Test_skipProbe", "-json", executable="go")
-        observed = json.loads(native.read_text())
-        self.assertEqual(0, observed["exit_code"])
-        events = [json.loads(line) for line in observed["stdout"].splitlines()]
-        self.assertTrue(
-            any(event.get("Action") == "skip" and event.get("Test") == "Test_skipProbe" for event in events), observed
-        )
-        self.assertFalse(
-            any(event.get("Action") in ("pass", "fail") and event.get("Test") for event in events), observed
-        )
-        self.assertFalse((self.workspace / "docs/bugs/pager.json").exists(), view)
-        self.assertEqual([], view["evidence"]["test_cases"], view)
-        self.assertFalse(view["done"], view)
-        self.assert_original_public_rejection(native)
+if __name__ == "__main__":
+    unittest.main()

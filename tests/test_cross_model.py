@@ -160,15 +160,12 @@ class CrossModelTest(unittest.TestCase):
         state["settings"]["single_model_mode"] = True
         dispatch.enforce_cross_model_verification(state)  # explicit single-subscription opt-in
 
-    def test_a_review_run_has_no_builder_whose_work_its_tester_could_grade(self):
-        # `autocode verify --engine codex --model gpt-5.6-terra` (#2502): the Codex Builder default
-        # is the same model, but a review run never launches the Builder.
+    def test_every_kind_of_job_is_held_to_the_same_independence(self):
+        # Every task takes the same path (#3010): a review or a discussion has a Builder too, so its
+        # Tester may not grade work its own model wrote, as in a build.
         state = roles(terra="gpt-5.6-terra", sol="gpt-5.6-terra", completion="gpt-5.6-terra")
         state["settings"]["engine"] = "codex"
-        state["workflow"] = {"kind": "review", "source": "user"}
-        dispatch.enforce_cross_model_verification(state)
-
-        for kind in ("build", "bugfix", None):
+        for kind in ("build", "bugfix", "review", "discuss", None):
             with self.subTest(kind=kind):
                 state["workflow"] = {"kind": kind}
                 with self.assertRaises(support.Paused) as ctx:

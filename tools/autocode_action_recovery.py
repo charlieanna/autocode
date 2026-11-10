@@ -27,7 +27,6 @@ try:
     from . import autocode_accepted_source as accepted_source
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_job_failure as job_failure
-    from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_job_route as job_route
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_recovery_dispatch as recovery_dispatch
@@ -42,7 +41,6 @@ except ImportError:
     import autocode_accepted_source as accepted_source
     import autocode_classification_recovery as classification_recovery
     import autocode_job_failure as job_failure
-    import autocode_job_report_recovery as job_report_recovery
     import autocode_job_route as job_route
     import autocode_recovery_accounting as recovery_accounting
     import autocode_recovery_dispatch as recovery_dispatch
@@ -117,10 +115,8 @@ def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, wo
     if classification_gate:
         print(f"Input rejected: {classification_gate}", file=sys.stderr)
         return 2
-    retained_report = job_report_recovery.offer(runner, state, run_dir, workspace)
     if (
         not args.abandon_stage
-        and not retained_report
         and job_failure.recover(runner, state, run_dir, workspace)
         and not args.retry_failed_stage
     ):
@@ -146,12 +142,11 @@ def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, wo
             print(gate)
         return 2
     decided.gate = gate
-    decided.retained_report = retained_report
 
 
 def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Set a stage aside (--abandon-stage), or apply an explicit resume's recovery to the saved run."""
-    gate, retained_report, information_admitted = decided.gate, decided.retained_report, decided.information_admitted
+    gate, information_admitted = decided.gate, decided.information_admitted
     if args.abandon_stage is not None:
         try:
             runner.abandon_stage(state, run_dir, workspace, args.abandon_stage, launch=runner)
@@ -280,8 +275,6 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
     except runner.ReportRepairQueued:
         pass  # Durable pending repair is dispatched below, not original work.
     except support.Paused as error:
-        if retained_report:
-            raise  # An inspected report offer is not authority to adopt, archive or replay it.
         fired = recovery_dispatch.recover(runner, state, run_dir, workspace, error)
         if fired == "job_failure":
             print(state["stop_reason"])

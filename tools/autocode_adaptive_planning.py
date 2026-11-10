@@ -10,9 +10,8 @@ the first stage that has the evidence:
 - Clarity no longer skips anything. Requirements is the first stage of every run and
   follow-up turn (owner decision 2026-10-22, #1860), so a build request judged ``clear``
   is gathered like any other. The judgment is still made, by the stage that names the
-  job: Requirements, by the recognizer's rule (``requirements_judge_clarity``), or the
-  recognizer where it still runs. It keeps a small clear brief's Plan Reviewer at
-  reduced depth (units.autoplanner.review_depth_reduced, #1564).
+  job, Requirements (``requirements_judge_clarity``). It keeps a small clear brief's
+  Plan Reviewer at reduced depth (units.autoplanner.review_depth_reduced, #1564).
 - Convergence, from the Plan Reviewer. The Planner's draft carries its initial_task,
   so a first review with no blocking concern approves an ordinary draft as written and it
   goes to the user. Progressive delegations retain revision and final independent review.
@@ -77,9 +76,7 @@ LARGE_PLAN_REVIEW_LIMIT = 3
 # With an unlimited allowance (0), stop re-reviewing after this many challenges.
 MAX_CHALLENGES = 3
 
-RECOGNIZER_RULE = prompts.get("fragments/adaptive-planning/recognizer-rule.md")
-
-# Requirements names the job instead of the recognizer (#1846, #1860), so it judges clarity too.
+# Requirements names the job (#1846, #1860), so it judges clarity too.
 REQUIREMENTS_CLARITY_RULE = prompts.get("fragments/adaptive-planning/requirements-clarity-rule.md")
 
 PLANNER_RULE = prompts.get("fragments/adaptive-planning/planner-rule.md")
@@ -124,28 +121,14 @@ def resume_refused(saved_settings: dict, requested) -> bool:
     return bool(requested) != bool(saved_settings.get(SETTING))
 
 
-def recognizer_rule(state: RunState) -> str:
-    return RECOGNIZER_RULE if enabled(state) else ""
-
-
 def requirements_judge_clarity(state: RunState) -> bool:
     """Whether Requirements reports clarity: in an adaptive run, while it names the job (#1846, #1860).
 
-    The recognizer judged clarity before; Requirements is now the first stage of every run and names
-    the job instead, so it judges clarity by the same rule. Without it units.autoplanner.review_depth_reduced
+    Requirements is the first stage of every run and names the job, so it judges clarity. Without it units.autoplanner.review_depth_reduced
     never saw a small clear brief. A known job (pinned with --workflow, or named earlier in the turn) is
     not judged again."""
     workflow = state.get("workflow")
     return enabled(state) and isinstance(workflow, dict) and workflow.get("kind") is None
-
-
-def recognizer_schema(state: RunState, base: dict) -> dict:
-    """The recognizer's report schema; adaptive runs also report clarity."""
-    if not enabled(state):
-        return base
-    schema = copy.deepcopy(base)
-    schema["properties"]["clarity"] = {"type": "string", "enum": list(CLARITY)}
-    return schema
 
 
 def report_schema(state: RunState, stage: str, base: dict, planning_body: dict) -> dict:

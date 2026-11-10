@@ -51,18 +51,18 @@ class RequirementsChatTests(unittest.TestCase):
             self.assertFalse(preflight.check(SimpleNamespace(), state, "/run", "/project"))
             groups.assert_called_once()
 
-    def test_a_chat_run_talks_with_requirements_before_recognizing_the_job(self):
+    def test_a_chat_run_talks_with_requirements_before_the_job_is_named(self):
         for opener in ("hi", "What is your name?", "What's the weather today?", "Add a CSV export"):
             with self.subTest(opener=opener):
                 state = {"task": opener, "settings": {"spec_first": True}}
-                workflows.begin(state, chat.STAGE)
+                workflows.begin_requirements(state)
                 self.assertTrue(chat.gather_first(state))
                 self.assertEqual(chat.STAGE, state["next_stage"])
                 self.assertIsNone(state["workflow"]["kind"])
         # #3010: every kind, including a pinned review, starts at Requirements first.
         for kind in ("review", "build", "discuss", "design", "bugfix"):
             state = {"task": "Work on this", "settings": {"spec_first": True}}
-            workflows.begin(state, chat.STAGE)
+            workflows.begin_requirements(state)
             workflows.pin(state, kind)
             self.assertTrue(chat.gather_first(state), kind)
         for state in (
@@ -70,15 +70,9 @@ class RequirementsChatTests(unittest.TestCase):
             {"task": "hi", "settings": {"spec_first": True}, "turns": [{"say": "hi"}]},
         ):
             with self.subTest(state=state):
-                workflows.begin(state, chat.STAGE)
+                workflows.begin_requirements(state)
                 self.assertFalse(chat.gather_first(state))
-                self.assertEqual(workflows.STAGE, state["next_stage"])
-
-    def test_recognition_does_not_probe_other_models_in_a_conversation(self):
-        state = {"settings": {"spec_first": True}, "next_stage": workflows.STAGE}
-        with mock.patch.object(preflight, "_billing_groups", return_value=[]) as groups:
-            self.assertFalse(preflight.check(SimpleNamespace(), state, "/run", "/project"))
-            groups.assert_not_called()
+                self.assertEqual(chat.STAGE, state["next_stage"])
 
     @staticmethod
     def conversation(*replies, requirements=()):
@@ -170,22 +164,25 @@ class RequirementsChatTests(unittest.TestCase):
         state.update(change)
         return state
 
-    def test_the_job_is_recognized_once_the_person_approves_the_understanding(self):
+    def test_the_job_starts_once_the_person_approves_the_understanding(self):
         state = self.approved(" Plan ")
-        self.assertTrue(chat.recognize_after_approval(state))
-        self.assertEqual(workflows.STAGE, state["next_stage"])
-        self.assertEqual((None, chat.STAGE), (state["workflow"]["kind"], state["workflow"]["then"]))
+        self.assertTrue(chat.start_after_approval(state))
+        self.assertEqual(review.NEXT, state["next_stage"])
+        # A report that names no job is planned as a build; a later request is gathered again.
+        self.assertEqual(("build", chat.STAGE), (state["workflow"]["kind"], state["workflow"]["then"]))
+        self.assertTrue(state["workflow"]["requirements_approved"])
         pinned = self.approved(workflow={"kind": "review", "then": chat.STAGE})
-        self.assertTrue(chat.recognize_after_approval(pinned))
+        self.assertTrue(chat.start_after_approval(pinned))
         # #3010: every kind goes through the full pipeline; the pinned kind is labeling only.
         self.assertTrue(pinned["workflow"]["requirements_approved"])
+        self.assertEqual("review", pinned["workflow"]["kind"])
         # Every chat turn begins at Requirements (#1860), so a follow-up's approval starts its job too.
         follow_up = self.approved(turns=[{"say": "earlier"}])
-        self.assertTrue(chat.recognize_after_approval(follow_up))
-        self.assertEqual(workflows.STAGE, follow_up["next_stage"])
+        self.assertTrue(chat.start_after_approval(follow_up))
+        self.assertEqual(review.NEXT, follow_up["next_stage"])
         # #3010: an already-pinned job's approval is still processed (marks approved).
         already = self.approved(workflow={"kind": "build", "then": chat.STAGE})
-        self.assertTrue(chat.recognize_after_approval(already))
+        self.assertTrue(chat.start_after_approval(already))
         self.assertTrue(already["workflow"]["requirements_approved"])
         for state in (
             self.approved("Also add a total row", next_stage=chat.STAGE),
@@ -194,11 +191,11 @@ class RequirementsChatTests(unittest.TestCase):
         ):
             with self.subTest(state=state):
                 before = copy.deepcopy(state)
-                self.assertFalse(chat.recognize_after_approval(state))
+                self.assertFalse(chat.start_after_approval(state))
                 self.assertEqual(before, state)
         legacy = self.approved()
         legacy.pop("workflow")
-        self.assertFalse(chat.recognize_after_approval(legacy))
+        self.assertFalse(chat.start_after_approval(legacy))
 
     def named(self, job, **change):
         """An approved chat whose Requirements report named ``job`` (#1846)."""
@@ -208,7 +205,7 @@ class RequirementsChatTests(unittest.TestCase):
         state["answers"] = {review.review_question(state)["id"]: {"text": "plan"}}
         return state
 
-    def test_an_approval_starts_the_job_requirements_named_without_the_recognizer(self):
+    def test_an_approval_starts_the_job_requirements_named(self):
         for job, first in (
             ("build", review.NEXT),
             ("bugfix", review.NEXT),
@@ -217,19 +214,20 @@ class RequirementsChatTests(unittest.TestCase):
         ):
             with self.subTest(job=job):
                 state = self.named(job)
-                self.assertTrue(chat.recognize_after_approval(state))
+                self.assertTrue(chat.start_after_approval(state))
                 self.assertEqual(first, state["next_stage"])
                 self.assertEqual(
                     (job, "model", "requirements_gather"),
                     tuple(state["workflow"].get(key) for key in ("kind", "source", "named_by")),
                 )
                 self.assertIn("Requirements understood: CSV export", workflows.approval_note(state))
-        # "none" (still chatting) or an unknown value names no job: the recognizer decides, as before.
+        # "none" (still chatting) or an unknown value names no job: it is planned as a build.
         for job in ("none", "deploy"):
             with self.subTest(job=job):
                 state = self.named(job)
-                self.assertTrue(chat.recognize_after_approval(state))
-                self.assertEqual(workflows.STAGE, state["next_stage"])
+                self.assertTrue(chat.start_after_approval(state))
+                self.assertEqual(("build", review.NEXT), (state["workflow"]["kind"], state["next_stage"]))
+                self.assertEqual("Requirements named no job; planned as a build", state["workflow"]["reason"])
 
     def test_standard_bugfix_confirmation_starts_planner_for_named_and_pinned_jobs(self):
         for pinned in (False, True):
@@ -240,7 +238,7 @@ class RequirementsChatTests(unittest.TestCase):
                     state["workflow"]["kind"] = "bugfix"
                     state["workflow"]["source"] = "user"
                 self.assertNotIn("investigate", review.review_question(state)["question"])
-                chat.recognize_after_approval(state)
+                chat.start_after_approval(state)
                 self.assertEqual("astra_discovery", state["next_stage"])
 
     @staticmethod
@@ -327,21 +325,19 @@ class RequirementsChatTests(unittest.TestCase):
         self.assertEqual("review", review.job({**state, "workflow": {"kind": "review"}}), "A known kind wins")
 
     def test_an_approved_build_is_planned_and_a_later_request_is_gathered_again(self):
-        build = {"workflow": "build", "reason": "Adds a feature", "signals": []}
         state = self.approved()
-        self.assertTrue(chat.recognize_after_approval(state))
-        workflows.apply(state, build, {"output": None})
+        self.assertTrue(chat.start_after_approval(state))
         self.assertEqual(review.NEXT, state["next_stage"], "Requirements already ran and was approved")
         self.assertFalse(state["workflow"].get("requirements_skipped"))
         # A follow-up starts from the saved pipeline entry (autocode_follow_up reads workflow.then).
         self.assertEqual(chat.STAGE, state["workflow"]["then"])
-        workflows.begin(state, state["workflow"]["then"])
-        workflows.apply(state, build, {"output": None})
+        state["settings"]["roles"] = {"requirements": {}}
+        workflows.begin_requirements(state)
         self.assertEqual(chat.STAGE, state["next_stage"])
 
     def test_an_approval_starts_a_job_only_once(self):
         pinned = self.approved(workflow={"kind": "design", "then": chat.STAGE}, stages=[{"stage": chat.STAGE}])
-        self.assertTrue(chat.recognize_after_approval(pinned))
+        self.assertTrue(chat.start_after_approval(pinned))
         # #3010: every kind goes through the full pipeline after Requirements.
         self.assertTrue(pinned["workflow"]["requirements_approved"])
         for kind in ("design", "bugfix", "review"):
@@ -351,26 +347,8 @@ class RequirementsChatTests(unittest.TestCase):
                     stages=[{"stage": chat.STAGE}, {"stage": "astra_discovery"}],
                 )
                 before = copy.deepcopy(later)
-                self.assertFalse(chat.recognize_after_approval(later), "already approved")
+                self.assertFalse(chat.start_after_approval(later), "already approved")
                 self.assertEqual(before, later)
-
-    def test_the_recognizer_judges_the_job_from_the_confirmed_understanding(self):
-        outcome = "Reports can be exported as CSV with a total row"
-        state = {
-            "task": "Add a CSV export",
-            "settings": {"spec_first": True},
-            "workflow": {"kind": None},
-            "requirements_handoff": {"report": {"intended_outcome": outcome}},
-        }
-        text, _ = workflows.prompt(state)
-        rules, data = text.split("\nCURRENT HANDOFF DATA\n", 1)
-        self.assertEqual(outcome, json.loads(data)["confirmed_understanding"])
-        self.assertIn("confirmed_understanding", rules)
-        self.assertNotIn("greeting", rules.lower())
-        for other in ({**state, "settings": {}}, {**state, "turns": [{"say": "x", "previous": {}}]}):
-            with self.subTest(other=other):
-                text, _ = workflows.prompt(other)
-                self.assertNotIn("confirmed_understanding", json.loads(text.split("\nCURRENT HANDOFF DATA\n", 1)[1]))
 
     def test_requirements_reads_the_workspace_once_the_request_is_named(self):
         from units import autoplanner

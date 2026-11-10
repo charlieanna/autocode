@@ -19,7 +19,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode as runner
-import autocode_bug_job as bug_job
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_planning as planning
@@ -167,9 +166,9 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(1, state["goal_contract"]["revision"])
 
     def test_a_draft_no_model_writes_at_install_is_not_refused(self):
-        # The Plan Reviewer's approval installs the Planner's draft again, and a bug job's small correction is
-        # built by the runner: a refusal of their wording would go to a stage that cannot change it.
-        self.assertIn(bug_job.ORIGIN, lifecycle.UNAUTHORED_DRAFTS)
+        # The Plan Reviewer's approval installs the Planner's draft again, and the runner builds its own
+        # corrections: a refusal of their wording would go to a stage that cannot change it.
+        self.assertIn("adaptive_review_approval", lifecycle.UNAUTHORED_DRAFTS)
         for origin in lifecycle.UNAUTHORED_DRAFTS:
             with self.subTest(origin=origin):
                 state = {"task_id": "t", "answers": {}, "user_events": []}

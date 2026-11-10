@@ -1,8 +1,4 @@
 {
-  "bug/prepared-scratch": {
-    "bytes": 12173,
-    "sha256": "7457bfdcd4bf41eec279c3246937acf68c6b064f3d040eb7c50f7b2f05912f43"
-  },
   "containment/astra_checkpoint/False": {
     "bytes": 693,
     "sha256": "e776318ba62fd41447034d68d2da0e121930231abdd2a6f1f94680f4ae1be459"
@@ -46,10 +42,6 @@
   "context/protected-tests": {
     "bytes": 738,
     "sha256": "77567b8a3387c9046a45847f19df7e48950fcc1878b8b3a0db04500cde080f00"
-  },
-  "design/revise": {
-    "bytes": 7183,
-    "sha256": "5883c63a754280e24fe61bd6c20570c72050055402d0603a47b6a022a9a64f6d"
   },
   "execution/astra_discovery/v3": {
     "bytes": 14441,
@@ -147,14 +139,6 @@
     "bytes": 6149,
     "sha256": "fe353d07decc9ac95fcefce97a112855608e669e44c162cac23f4da33971a580"
   },
-  "job/autocode_bug_job/codex": {
-    "bytes": 10964,
-    "sha256": "552f1311416b4bb016609ee8be698c9e95552e4edfcd62e60bdcdb59c3905994"
-  },
-  "job/autocode_bug_job/opencode": {
-    "bytes": 10967,
-    "sha256": "2c80c88d8f24073e8eb104b9aa9a7a063029137cfcf2a93b626325caa554ab41"
-  },
   "job/autocode_design_check_job/codex": {
     "bytes": 3290,
     "sha256": "976bc503dc25ecd08c1e6853a0ffacac3b6005ef2e5bf4d8dc7572fb492d488c"
@@ -170,30 +154,6 @@
   "job/autocode_design_intake/opencode": {
     "bytes": 22926,
     "sha256": "651308bdf6534e09c1c24dc9e4a0c28a27bd90bbcd66d878f301c1f39f11816e"
-  },
-  "job/autocode_design_job/codex": {
-    "bytes": 5162,
-    "sha256": "a7a342aedb4e22490d8fa1c2e18bc33b61779b702b7c07b2ade7503845230b5f"
-  },
-  "job/autocode_design_job/opencode": {
-    "bytes": 5165,
-    "sha256": "733fd70352c98d03f8819a86e7ed9fa627ebf55afdeab6636164b3298743e623"
-  },
-  "job/autocode_discuss_job/codex": {
-    "bytes": 3420,
-    "sha256": "ccf9cedbd8f6971e1d2a6d98431d3f2098a37160fb21ae81f6a1fda5da9260e6"
-  },
-  "job/autocode_discuss_job/opencode": {
-    "bytes": 3423,
-    "sha256": "527db9d1736ef6566519e2c7563af4798ddd5bfb5eab484844812418543f68f9"
-  },
-  "job/autocode_workflows/codex": {
-    "bytes": 4572,
-    "sha256": "c50b902d0c0a0af88e8b9c193aee6bcb26f2b7665d0670dbd3536d43273b67f1"
-  },
-  "job/autocode_workflows/opencode": {
-    "bytes": 4575,
-    "sha256": "c8a743ca2a62432c01f1b77c06038f19cb6cee148d740720f206c74f9ccbef33"
   },
   "milestone/constraint/0/0/False": {
     "bytes": 0,
@@ -258,10 +218,6 @@
   "milestones/terra/True": {
     "bytes": 15387,
     "sha256": "15225afef9ddee10eb386c88f66318c532f2a4e9751016bcfe45c09bcff6e68f"
-  },
-  "package/investigate_bug": {
-    "bytes": 13402,
-    "sha256": "0608ec4850e48380d8f536947d73b8437f77bfe3de8beeb3820fe21f1a46b06f"
   },
   "package/terra": {
     "bytes": 13313,
@@ -494,10 +450,6 @@
   "provider/opencode-output-contract": {
     "bytes": 5684,
     "sha256": "830c782968f019c302cf6eba4ce9e97d88e7c5a41886398dc81e6189f0f1835e"
-  },
-  "provider/opencode-review-output-contract": {
-    "bytes": 8375,
-    "sha256": "0fa75e35f22c390c777de9cd7496e2dc68251382dd656f2daeaa99828b7bc9b6"
   },
   "repair/baseline/astra_challenge": {
     "bytes": 4394,

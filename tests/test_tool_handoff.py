@@ -11,11 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import autocode_bug_job as bug
 import autocode_design_check_job as check_design
-import autocode_design_job as design
-import autocode_discuss_job as discuss
-import autocode_review_job as review
 import autocode_stuck_job as stuck
 from providers import command, opencode
 
@@ -42,7 +38,7 @@ class ToolHandoffTests(unittest.TestCase):
                 "identity": "current",
             },
         }
-        prompts = [(module.STAGE, module.prompt(state)[0]) for module in (bug, review, design, check_design, discuss)]
+        prompts = [(module.STAGE, module.prompt(state)[0]) for module in (check_design,)]
         prompts.append((stuck.STAGE, stuck.prompt(state, "/run/state.json")[0]))
         for name, render in renderers():
             for stage, prompt in prompts:
@@ -74,7 +70,7 @@ class ToolHandoffTests(unittest.TestCase):
                 self.assertEqual(packet, result.split(MARKER, 1)[1])
 
     def test_helper_executes_the_public_cli_and_preserves_evidence_and_exit(self):
-        prompt = bug.prompt({"task": "Inspect result.", "workspace": "/project"})[0]
+        prompt = check_design.prompt({"task": "Inspect result.", "workspace": "/project"})[0]
         rendered = next(renderers())[1](prompt, {}, Path("/run/attempt.jsonl"))
         data = json.loads(rendered.split(MARKER, 1)[1])
         self.assertIn("capture_command", data)

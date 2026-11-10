@@ -17,26 +17,15 @@ After approval, Autocode handles the handoffs:
 
 ```text
 You → Requirements first, on every run and follow-up turn: it names the kind of job (build, bugfix,
-   review, design, discuss), saved as `workflow`; `--workflow KIND` names it instead (a pinned build or bug fix
-   still runs Requirements; review, design and discuss start their own first stages). A flow without Requirements
-   (v2 planning, no Requirements role) has the Job recognizer name it first
-   review → Reviewer only: findings written to review/findings.json, repository untouched, run complete
-   bugfix → the standard implementation pipeline below: Requirements → Planner → Plan Reviewer → approval
-   design → Architect first: a design review is written to review/design-review.json (goals met,
-            blocking/advisory concerns, questions for you), repository untouched, run complete;
-            a request for a NEW design → the build pipeline below; its plan may not change a file an
-            earlier turn of the same conversation wrote (a discussion's decision record) unless your
-            newest message names it, so the design job writes its design and only reads the rest
+   review, design, discuss), saved as `workflow`; `--workflow KIND` names it instead. Every kind then
+   takes the same path (#3010): Requirements → Planner → Plan Reviewer → your approval → Builder →
+   Tester → Completion Reviewer. The kind labels the run and its report. A flow without Requirements
+   (v2 planning, no Requirements role) is planned as a build.
    discuss → nothing to write: Requirements answers it itself from the code, citing the files it
-            read, repository untouched, turn complete; a note to write → the build pipeline below
-   (a design review's or a discussion's questions do not hold the run: it completes, and you
-    answer them with --follow-up, the next turn of the same run; a reply to a design review
-    → the Architect revises that review in review/design-review.json as revision n+1, the same
-    concern ids kept, settled ones marked resolved, the repository outside review/ untouched)
-   build → the build pipeline below;
-           implementing an APPROVED design document as written, or "Build it." after a design turn
-             (the design that turn wrote) → Architect checks it against the repository first,
-             repository untouched:
+            read, repository untouched, turn complete; a note to write → the pipeline below
+   build of an APPROVED design document as written, or "Build it." after a design turn
+             (the design that turn wrote) → the Design Reviewer checks it against the repository
+             first, repository untouched:
              conflicts (a frozen API, a documented invariant) → written to <design>.blockers.json,
                run stops (PAUSED_DESIGN_CONFLICT), nothing built, you decide;
              no conflicts → the design's binding decisions become a constraint and the pipeline starts
@@ -753,8 +742,8 @@ What the package changes:
   package. Before each Tester and
   Completion Reviewer dispatch, in every package run, whether or not it owes a
   regression proof, the runner compares the candidate with the run's base, as
-  the regression proof reads it. The Code Reviewer, Designer and Design
-  Reviewer dispatches are not checked. A file added, modified (its content or
+  the regression proof reads it. The Design Reviewer's dispatch is not
+  checked. A file added, modified (its content or
   its mode) or deleted outside the package (another package, a file at the
   repository root, a shared lockfile or workspace file; a rename counts on both
   sides) opens one blocking finding with source `runner` that names each path
@@ -926,17 +915,9 @@ and the runner, not a model, runs something that shows it.
 
 ### Design: a concern about today's code carries a probe
 
-The design workflow's Architect judges a document, so nothing is applied. The
+The Design Reviewer judges a document against the code, so nothing is applied. The
 same probe rule as discussions applies to what it says about the code.
 
-- **Reviewing a design (`review_design`).** Every blocking concern carries
-  `example`, the problem as one concrete case in plain English. A concern that
-  rests on what the code does today (an ordering check, a charge per call)
-  also carries `probe`, a command that exits 0 exactly when the code behaves
-  that way. The runner runs every probe in a scratch copy and rejects the
-  review if one fails. A concern about the design text alone (a missing
-  rollback step) has no probe. Probed concerns are recorded in
-  `design_review.probes`.
 - **Checking an approved design (`check_design`).** Every conflict carries
   `example`. A conflict with something the code enforces today carries
   `probe`; a constraint that lives in prose (a README rule) has none. The

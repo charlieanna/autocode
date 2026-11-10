@@ -56,7 +56,6 @@ try:
     from . import autocode_support as support
     from . import autocode_task_preflight as task_preflight
     from . import autocode_transport_recovery as transport_recovery
-    from . import autocode_utility_route as utility_route
     from . import autocode_verification_config as verification_config
     from . import autocode_verifier_independence as independence
     from . import autocode_workflows as workflows
@@ -92,7 +91,6 @@ except ImportError:
     import autocode_support as support
     import autocode_task_preflight as task_preflight
     import autocode_transport_recovery as transport_recovery
-    import autocode_utility_route as utility_route
     import autocode_verification_config as verification_config
     import autocode_verifier_independence as independence
     import autocode_workflows as workflows
@@ -405,8 +403,6 @@ def _refuse_new_run_flags(args, state: RunState, *, started, single_model):
         raise ValueError("--single-model cannot be combined with per-role provider flags")
     if single_model and getattr(args, "builder_strong_model", None):
         raise ValueError("--single-model cannot be combined with --builder-strong-model")
-    if started:
-        utility_route.configure({}, args, started=True)  # refuses --utility-model on a saved run
     if started and getattr(args, "auto_select", None) is True:
         raise ValueError("--auto-select is a new-run choice; a saved run keeps the routes it started with")
     if started and getattr(args, "builder_strong_model", None):
@@ -1022,16 +1018,6 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         settings[acceptance_tests.SETTING_BLIND] = True
     if getattr(args, "unlimited_iterations", False):
         settings["limits"]["iteration_ceiling"] = None
-    if utility := utility_route.configure(settings, args, started=False):
-        problem = quota_route.model_problem(
-            utility,
-            settings["roles"][utility]["model"],
-            role_engine=planning.engine_for(settings, utility),
-            configured_tool=getattr(opencode, "CONFIGURED", False),
-            label="--utility-model",
-        )
-        if problem:
-            raise ValueError(problem)
     if single_model:
         # One model for every role: each role keeps its profile effort, which the model may not declare
         # (#2006). After every role exists, a runner-chosen effort moves to the nearest declared variant

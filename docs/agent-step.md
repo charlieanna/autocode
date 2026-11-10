@@ -104,15 +104,13 @@ name, such as `options`, is refused.
 
 ## Verify a change you made
 
-To have AutoCode's independent Code Reviewer judge a change the agent already
-made, start a review run that names the change and what it should do, then read
-the evidence:
+To have AutoCode judge a change the agent already made, start a review run that
+names the change and what it should do, then read the evidence:
 
 - skill: `$STEP start "Review the uncommitted change in this workspace (git diff HEAD). It should ..." --workflow review -- FLAGS`, then `$STEP evidence --markdown`;
 - MCP: `autocode_start` with `{"brief": "Review the uncommitted change ...", "workflow": "review"}`, then `autocode_evidence`.
 
-A review run goes straight to the Code Reviewer (`review_change`), changes nothing
-outside `review/`, needs no plan approval, and proves each blocking finding with a
-test that fails on the change ([the review workflow](workflow.md#the-flow)). Its
-evidence is the report it recorded (`availability` `recorded`): a review delivers no
-build, so unlike a build's report it is not rechecked against the workspace.
+A review run takes the same path as every task (#3010): Requirements, the Planner and
+the Plan Reviewer plan what the review delivers, the person approves that plan, and the
+Builder, Tester and Completion Reviewer deliver and check it
+([the flow](workflow.md#the-flow)). `--workflow review` labels the run and its report.

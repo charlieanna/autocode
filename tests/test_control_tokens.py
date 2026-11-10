@@ -33,7 +33,6 @@ class ControlTokenTests(unittest.TestCase):
         names = {
             "AUTOCODE_RESOLVER_TOKEN",
             "AUTOCODE_JOB_RETRY_TOKEN",
-            "AUTOCODE_RECOVER_JOB_REPORT",
             "AUTOCODE_APPROVE_GOAL_TOKEN",
             "AUTOCODE_CHANGESET_TOKEN",
             "AUTOCODE_REVIEW_TOKEN",

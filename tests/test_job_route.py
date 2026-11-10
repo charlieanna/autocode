@@ -2,7 +2,7 @@
 
 The job harness of test_job_failure_recovery (copied Git seed, wrapper, TaskRun), with a fake
 provider that refuses one model: a ContentFilterError error event, or a quota message, and exit 1.
-Every other model writes a valid review. The provider's call log (one line per request, with its
+Every other model writes a valid design check. The provider's call log (one line per request, with its
 model) and the saved state file are the oracles. No test sleeps or reaches a real provider.
 """
 
@@ -49,7 +49,7 @@ if os.environ.get('REFUSE_MODEL') in ('*',model):
  error=({'name':'ContentFilterError','message':'The response was blocked by the content filter'}
         if os.environ.get('REFUSE_KIND','filter')=='filter' else {'message':'subscription usage limit reached'})
  print(json.dumps({'type':'error','error':error}),flush=True);raise SystemExit(1)
-result={'verdict':'approve','summary':'Equivalent integer addition','change_under_review':'pr-double.patch','findings':[],'change_patch':'pr-double.patch','tests_run':[],'delivered_tests':[]}
+result={'design_document':'docs/double.md','summary':'double() adds n to itself','constraints':[],'conflicts':[{'design_says':'double() returns n + n','conflicts_with':'calc.py multiplies by 2','files':['calc.py'],'options':['keep the multiplication','change the design'],'example':'double(3) is computed as 3 * 2','probe':'','counterexample':{'file':'','find':'','replace':''}}]}
 Path(argv[argv.index('-o')+1]).write_text(json.dumps(result))
 print(json.dumps({'type':'turn.completed','usage':{'input_tokens':10,'output_tokens':5}}),flush=True)
 """
@@ -61,9 +61,9 @@ class JobModelRouteTests(JobHarness):
         super().setUp()
         (self.workspace / ".autocode" / "bin" / "codex").write_text(REFUSING)
 
-    def refused(self, kind="filter", workflow="review", model="gpt-6-sol", mode="exit42"):
+    def refused(self, kind="filter", model="gpt-6-sol", mode="exit42"):
         self.env.update(REFUSE_KIND=kind, REFUSE_MODEL=model)
-        return self.start(mode, workflow)
+        return self.start(mode)
 
     def test_a_stage_deadline_stop_asks_no_model_question_and_takes_its_exact_retry(self):
         # #2605: the deadline is AutoCode's own limit. Once its extensions are spent (none fit under
@@ -80,13 +80,13 @@ class JobModelRouteTests(JobHarness):
         self.assertNotIn("--", held["stop_reason"])
         calls, before = self.calls.read_text(), self.saved(run)
         with self.assertRaises(TaskRunError):
-            run.assign_model("sol", "gpt-6-luna")
+            run.assign_model("architect", "gpt-6-luna")
         self.assertEqual(calls, self.calls.read_text())
         self.assertEqual(before, self.saved(run))
         run.env["JOB_MODE"] = "success"
         done = run.retry_job(need["job_retry_token"])
-        self.assertEqual("TASK_COMPLETE", done["status"])
-        self.assertEqual(held["routes"]["sol"]["model"], done["routes"]["sol"]["model"])
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", done["status"])
+        self.assertEqual(held["routes"]["architect"]["model"], done["routes"]["architect"]["model"])
 
     def models(self):
         return [line.split(" ", 1)[1] for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
@@ -111,7 +111,7 @@ class JobModelRouteTests(JobHarness):
         self.assertIn(message, proc.stderr)
         self.assertEqual(before, self.saved(run), "a rejected answer changes nothing")
 
-    def stopped(self, run, stage="review_change"):
+    def stopped(self, run, stage="check_design"):
         view = run.status()
         self.assertEqual(
             ("PAUSED_JOB_FAILURE", "retry_job", stage),
@@ -121,15 +121,15 @@ class JobModelRouteTests(JobHarness):
         self.assertFalse(view["needs"].get("questions"))
         return view["needs"]
 
-    def test_a_refused_review_names_another_model_and_retries_once_on_it(self):
+    def test_a_refused_design_check_names_another_model_and_retries_once_on_it(self):
         run = self.refused()
         need = self.stopped(run)
         route = need["route"]
         self.assertEqual(
             {
-                "question_id": "route-sol",
-                "role": "sol",
-                "job": "Code Reviewer",
+                "question_id": "route-architect",
+                "role": "architect",
+                "job": "Design Reviewer",
                 "current_model": "gpt-6-sol",
                 "engine": "codex",
                 "cause": "content_filter",
@@ -140,9 +140,13 @@ class JobModelRouteTests(JobHarness):
         self.assertIn("candidates", route)
         # After a refusal the answer is the next step itself; it is still named on the route too (#2005).
         self.assertEqual(need["route"]["command"], run.status()["next_command"])
-        self.assertIn("Code Reviewer: the provider's content filter refused the response on gpt-6-sol", need["reason"])
+        self.assertIn(
+            "Design Reviewer: the provider's content filter refused the response on gpt-6-sol", need["reason"]
+        )
         self.assertIn("the same model is likely to refuse it again", need["reason"])
-        self.assertIn("--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["reason"])
+        self.assertIn(
+            "--answer route-architect=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["reason"]
+        )
         self.assertIn("--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN", need["reason"])
         self.assertNotIn("--abandon-stage", need["reason"])
         self.assertNotRegex(need["reason"], MODEL_FLAG)
@@ -150,58 +154,61 @@ class JobModelRouteTests(JobHarness):
         # The exact retry would replay the refused model: the next step the need and the card name is another
         # model, and no card action retries until one is named.
         self.assertEqual(
-            "--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["action"]
+            "--answer route-architect=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["action"]
         )
         view = run.status()
         recovery = view["recovery"]
-        self.assertIn("content filter refused the Code Reviewer", recovery["what_happened"])
+        self.assertIn("content filter refused the Design Reviewer", recovery["what_happened"])
         self.assertIn("name another model for this job", recovery["what_happened"])
         self.assertEqual(["inspect", "feedback"], [action["kind"] for action in recovery["actions"]])
-        self.assertEqual("name another model for the Code Reviewer, then retry it", view["progress"]["needs_you"])
+        self.assertEqual("name another model for the Design Reviewer, then retry it", view["progress"]["needs_you"])
         old = need["job_retry_token"]
         self.rejected(
             run,
             "--answer",
-            "route-sol=gpt-6-luna",
+            "route-architect=gpt-6-luna",
             message="--job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)",
         )
-        self.rejected(run, "--answer", "route-sol=gpt-6-luna", "--job-retry-token", "jr:wrong", message="token")
-        self.rejected(run, "--answer", "route-sol=gpt-6-sol", "--job-retry-token", old, message="refused gpt-6-sol")
+        self.rejected(run, "--answer", "route-architect=gpt-6-luna", "--job-retry-token", "jr:wrong", message="token")
+        self.rejected(
+            run, "--answer", "route-architect=gpt-6-sol", "--job-retry-token", old, message="refused gpt-6-sol"
+        )
         self.rejected(
             run, "--answer", "route-terra=gpt-6-luna", "--job-retry-token", old, message="not the model question"
         )
-        self.rejected(run, "--answer", "route-sol=gpt 6", "--job-retry-token", old, message="without spaces")
+        self.rejected(run, "--answer", "route-architect=gpt 6", "--job-retry-token", old, message="without spaces")
 
-        view = run.assign_model("sol", "gpt-6-luna")
+        view = run.assign_model("architect", "gpt-6-luna")
         need = self.stopped(run)
         self.assertNotEqual(old, need["job_retry_token"])
         self.assertEqual("gpt-6-luna", need["route"]["current_model"])
-        self.assertIn("The Code Reviewer now runs on gpt-6-luna (was gpt-6-sol)", need["reason"])
+        self.assertIn("The Design Reviewer now runs on gpt-6-luna (was gpt-6-sol)", need["reason"])
         [assignment] = view["route_assignments"]
         self.assertEqual(
             (
-                "sol",
+                "architect",
                 "gpt-6-sol",
                 "gpt-6-luna",
                 "answer",
                 "PAUSED_CONTENT_FILTER",
-                "review_change",
+                "check_design",
                 need["attempt_id"],
-                "Code Reviewer",
+                "Design Reviewer",
             ),
             tuple(
                 assignment[key] for key in ("role", "from", "to", "via", "pause_status", "stage", "attempt_id", "job")
             ),
         )
-        self.assertEqual("gpt-6-luna", run.options[run.options.index("--sol-model") + 1])
+        # The Design Reviewer's model has no flag of its own: the Tester's stays as it was.
+        self.assertEqual("gpt-6-sol", run.options[run.options.index("--sol-model") + 1])
         # Once a model is named, the card and the progress line ask only for the retry on it.
         view = run.status()
         self.assertIn(
-            "The Code Reviewer now runs on gpt-6-luna; retry it once with the new token.",
+            "The Design Reviewer now runs on gpt-6-luna; retry it once with the new token.",
             view["recovery"]["what_happened"],
         )
         self.assertNotIn("name another model", view["recovery"]["what_happened"])
-        self.assertEqual("retry the Code Reviewer on gpt-6-luna", view["progress"]["needs_you"])
+        self.assertEqual("retry the Design Reviewer on gpt-6-luna", view["progress"]["needs_you"])
         self.assertEqual(
             "--resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)",
             view["needs"]["action"],
@@ -214,7 +221,7 @@ class JobModelRouteTests(JobHarness):
         self.rejected(
             run,
             "--answer",
-            "route-sol=gpt-6-sol",
+            "route-architect=gpt-6-sol",
             "--job-retry-token",
             need["job_retry_token"],
             message="refused gpt-6-sol",
@@ -224,7 +231,7 @@ class JobModelRouteTests(JobHarness):
         self.assertEqual(["gpt-6-sol"], self.models())
 
         view = run.retry_job(need["job_retry_token"])
-        self.assertTrue(view["done"], view)
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", view["status"], view)
         self.assertEqual(["gpt-6-sol", "gpt-6-luna"], self.models())
         self.assertEqual(ORIGINAL, (self.workspace / "calc.py").read_text())
 
@@ -244,8 +251,9 @@ class JobModelRouteTests(JobHarness):
             with self.assertRaises(TaskRunError) as caught:
                 attempt()
             message = str(caught.exception)
-            self.assertIn("set aside for one exact retry bound to its configuration; --sol-model is not saved", message)
-            self.assertIn("--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", message)
+            # The Design Reviewer has no model flag: any other role's flag would leave its exact retry stale.
+            self.assertIn("at a stopped job are bound to its exact retry; nothing is saved", message)
+            self.assertIn("Use the token-bound model answer to change only the failed role", message)
             self.assertNotIn("--abandon-stage", message)
             self.assertEqual(before, self.saved(run))
         self.assertEqual(["gpt-6-sol"], self.models())
@@ -257,7 +265,7 @@ class JobModelRouteTests(JobHarness):
         need = self.stopped(run)
         self.assertEqual(("quota", "gpt-6-sol"), (need["route"]["cause"], need["route"]["stopped_model"]))
         self.assertIn(
-            "Code Reviewer: the provider reported its quota, usage limit or credits used up on gpt-6-sol "
+            "Design Reviewer: the provider reported its quota, usage limit or credits used up on gpt-6-sol "
             "(subscription usage limit reached)",
             need["reason"],
         )
@@ -275,15 +283,15 @@ class JobModelRouteTests(JobHarness):
         import autocode_client_actions as client_actions
 
         command = client_actions.parse(need["route"]["command"], run.workspace, run.run_dir)
-        self.assertEqual(["--answer", "route-sol=MODEL", "--job-retry-token", "-"], command.argv)
+        self.assertEqual(["--answer", "route-architect=MODEL", "--job-retry-token", "-"], command.argv)
         self.assertEqual(need["job_retry_token"], command.env.get("AUTOCODE_JOB_RETRY_TOKEN"))
         recovery = run.status()["recovery"]
         self.assertIn("quota", recovery["what_happened"])
         self.assertEqual(["inspect", "retry_job", "feedback"], [action["kind"] for action in recovery["actions"]])
-        view = run.assign_model("sol", "gpt-6-luna")
+        view = run.assign_model("architect", "gpt-6-luna")
         self.assertEqual("PAUSED_BUDGET", view["route_assignments"][0]["pause_status"])
         view = run.retry_job(self.stopped(run)["job_retry_token"])
-        self.assertTrue(view["done"], view)
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", view["status"], view)
         self.assertEqual(["gpt-6-sol", "gpt-6-luna"], self.models())
 
     def test_after_a_quota_reset_the_shown_token_retries_unchanged(self):
@@ -291,55 +299,41 @@ class JobModelRouteTests(JobHarness):
         need = self.stopped(run)
         run.env["REFUSE_MODEL"] = ""
         view = run.retry_job(need["job_retry_token"])
-        self.assertTrue(view["done"], view)
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", view["status"], view)
         self.assertEqual(["gpt-6-sol", "gpt-6-sol"], self.models())
 
     def test_a_job_route_without_a_flag_is_named_only_by_its_answer(self):
-        for workflow, stage, role, job in (
-            ("bugfix", "investigate_bug", "investigator", "Investigator"),
-            ("design", "review_design", "architect", "Designer"),
-        ):
-            with self.subTest(workflow=workflow):
-                self.setUp()  # a fresh workspace and call log for each workflow's run
-                # --investigator-model pins the stuck-stage Investigator, never the bug Investigator's route.
-                self.options = (*self.options, "--investigator-model", "gpt-6-stuck")
-                run = self.refused(workflow=workflow, model="*")
-                need = self.stopped(run, stage)
-                self.assertEqual((role, job), (need["route"]["role"], need["route"]["job"]))
-                self.assertIn(
-                    f"--answer route-{role}=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["reason"]
-                )
-                self.assertNotRegex(need["reason"], MODEL_FLAG)
-                self.assertNotIn("--abandon-stage", need["reason"])
-                stopped_on = need["route"]["stopped_model"]
-                view = run.assign_model(role, "gpt-6-nova")
-                [assignment] = view["route_assignments"]
-                self.assertEqual(
-                    (role, stopped_on, "gpt-6-nova", stage),
-                    (assignment["role"], assignment["from"], assignment["to"], assignment["stage"]),
-                )
-                self.assertEqual("gpt-6-stuck", run.options[run.options.index("--investigator-model") + 1])
-                run.retry_job(self.stopped(run, stage)["job_retry_token"])
-                self.assertEqual([stopped_on, "gpt-6-nova"], self.models())
+        stage, role, job = "check_design", "architect", "Design Reviewer"
+        # --investigator-model pins the stuck-stage Investigator, never the Design Reviewer's route.
+        self.options = (*self.options, "--investigator-model", "gpt-6-stuck")
+        run = self.refused(model="*")
+        need = self.stopped(run, stage)
+        self.assertEqual((role, job), (need["route"]["role"], need["route"]["job"]))
+        self.assertIn(
+            f"--answer route-{role}=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["reason"]
+        )
+        self.assertNotRegex(need["reason"], MODEL_FLAG)
+        self.assertNotIn("--abandon-stage", need["reason"])
+        stopped_on = need["route"]["stopped_model"]
+        view = run.assign_model(role, "gpt-6-nova")
+        [assignment] = view["route_assignments"]
+        self.assertEqual(
+            (role, stopped_on, "gpt-6-nova", stage),
+            (assignment["role"], assignment["from"], assignment["to"], assignment["stage"]),
+        )
+        self.assertEqual("gpt-6-stuck", run.options[run.options.index("--investigator-model") + 1])
+        run.retry_job(self.stopped(run, stage)["job_retry_token"])
+        self.assertEqual([stopped_on, "gpt-6-nova"], self.models())
 
     def test_a_refused_job_set_aside_after_a_crash_takes_a_model_too(self):
         run = self.refused(mode="abandon")
         attempt = json.loads(self.cli(run, "--status").stdout)["attempt_id"]
-        # Setting the job aside binds its exact retry to the model it ran on; a model flag in the same
-        # invocation would be saved beside it and leave that retry (and the answer) stale: refused.
-        before = self.saved(run)
-        proc = self.cli(run, "--abandon-stage", attempt, "--resume-paused", "--sol-model", "gpt-6-luna")
-        self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
-        self.assertIn("is a workflow job", proc.stderr)
-        self.assertIn(f"Set it aside first with --abandon-stage {attempt} alone", proc.stderr)
-        self.assertIn("--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", proc.stderr)
-        self.assertEqual(before, self.saved(run), "nothing is saved")
         proc = self.cli(run, "--abandon-stage", attempt)
         self.assertEqual(0, proc.returncode, proc.stderr)
         view = run.status()
         need = view["needs"]
         self.assertEqual(
-            ("PAUSED_STAGE_ABANDONED", "retry_job", "route-sol"),
+            ("PAUSED_STAGE_ABANDONED", "retry_job", "route-architect"),
             (view["status"], need["kind"], need["route"]["question_id"]),
         )
         # Set aside by a person, the stop is the one a direct refusal makes: the runner's launch rules list the
@@ -347,21 +341,23 @@ class JobModelRouteTests(JobHarness):
         self.assertTrue(need["route"]["candidates"], "the run configures another model that passes the launch rules")
         self.assertNotIn("gpt-6-sol", need["route"]["candidates"])
         self.assertIn(
-            "Code Reviewer: the provider's content filter refused the response on gpt-6-sol "
+            "Design Reviewer: the provider's content filter refused the response on gpt-6-sol "
             "(ContentFilterError: The response was blocked by the content filter)",
             need["reason"],
         )
-        self.assertIn(f"Operator abandoned Code Reviewer attempt {attempt}", need["reason"])
-        self.assertIn("--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["reason"])
+        self.assertIn(f"Operator abandoned Design Reviewer attempt {attempt}", need["reason"])
+        self.assertIn(
+            "--answer route-architect=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["reason"]
+        )
         self.assertIn(need["route"]["candidates"][0], need["reason"])
         self.assertEqual(need["reason"], view["stop_reason"])
         self.assertEqual(
-            "--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["action"]
+            "--answer route-architect=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["action"]
         )
         self.assertEqual(["inspect", "feedback"], [action["kind"] for action in view["recovery"]["actions"]])
-        run.assign_model("sol", "gpt-6-luna")
+        run.assign_model("architect", "gpt-6-luna")
         view = run.retry_job(run.status()["needs"]["job_retry_token"])
-        self.assertTrue(view["done"], view)
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", view["status"], view)
         self.assertEqual(["gpt-6-sol", "gpt-6-luna"], self.models())
 
     def test_a_model_answer_keeps_the_exact_retry_guarantees(self):
@@ -370,7 +366,7 @@ class JobModelRouteTests(JobHarness):
         # The answer changes only the job's model: any other setting with it is refused before it is saved,
         # in every form a model answer takes (without its token too, and next to the retry it cannot make).
         answer, only = (
-            ("--answer", "route-sol=gpt-6-luna"),
+            ("--answer", "route-architect=gpt-6-luna"),
             "A stopped job's model answer changes only that job's model",
         )
         for flags, message in (
@@ -399,26 +395,18 @@ class JobModelRouteTests(JobHarness):
                 self.assertEqual(before, self.saved(run), "nothing is saved")
         # A source edit after the stop makes the answer stale, as it does the retry.
         (self.workspace / "calc.py").write_text(BROKEN)
-        self.rejected(run, "--answer", "route-sol=gpt-6-luna", "--job-retry-token", token, message="Source changed")
-        # A model the cross-model rule refuses (the Builder's own model for the Code Reviewer).
-        (self.workspace / "calc.py").write_text(ORIGINAL)
-        builder = json.loads(self.saved(run))["settings"]["roles"]["terra"]["model"]
         self.rejected(
-            run,
-            "--answer",
-            f"route-sol={builder}",
-            "--job-retry-token",
-            token,
-            message="Cross-model verification violated",
+            run, "--answer", "route-architect=gpt-6-luna", "--job-retry-token", token, message="Source changed"
         )
+        (self.workspace / "calc.py").write_text(ORIGINAL)
         # Restored exactly, the answer applies and prints the command that retries once on the named model.
         need = self.stopped(run)
         self.assertEqual(token, need["job_retry_token"])
-        proc = self.cli(run, "--answer", "route-sol=gpt-6-luna", "--job-retry-token", token)
+        proc = self.cli(run, "--answer", "route-architect=gpt-6-luna", "--job-retry-token", token)
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         new = self.stopped(run)["job_retry_token"]
         self.assertIn(
-            "PAUSED_JOB_FAILURE: The Code Reviewer now runs on gpt-6-luna (was gpt-6-sol). Retry it with "
+            "PAUSED_JOB_FAILURE: The Design Reviewer now runs on gpt-6-luna (was gpt-6-sol). Retry it with "
             f"--resume-paused --retry-failed-stage --job-retry-token {new}. Saved; no agent launched.",
             proc.stdout,
         )
@@ -428,8 +416,9 @@ class JobModelRouteTests(JobHarness):
             r"Retry it with (--resume-paused --retry-failed-stage --job-retry-token \S+)\.", proc.stdout
         )
         proc = self.cli(run, *printed.group(1).split(), "--no-chat")
-        self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
-        self.assertTrue(run.status()["done"])
+        # The retried check applies its report, whose conflict pauses the run (exit 2) before any planning.
+        self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", run.status()["status"])
         self.assertEqual(["gpt-6-sol", "gpt-6-luna"], self.models())
 
     def test_a_delegated_or_queued_model_answer_is_refused(self):
@@ -438,9 +427,9 @@ class JobModelRouteTests(JobHarness):
         self.rejected(
             run,
             "--answer",
-            "route-sol=gpt-6-luna",
+            "route-architect=gpt-6-luna",
             "--delegate",
-            "route-sol",
+            "route-architect",
             "--job-retry-token",
             token,
             message="A model question has no default to delegate",
@@ -449,7 +438,7 @@ class JobModelRouteTests(JobHarness):
         self.rejected(
             run,
             "--answer",
-            "route-sol=gpt-6-luna",
+            "route-architect=gpt-6-luna",
             "--job-retry-token",
             token,
             message="Apply the queued intervention before answering",
@@ -460,7 +449,7 @@ class JobModelRouteTests(JobHarness):
         run = self.refused()
         listed = self.stopped(run)["route"]["candidates"]
         self.assertTrue(listed, "the run configures another model that passes the launch rules")
-        run.assign_model("sol", listed[0])
+        run.assign_model("architect", listed[0])
         route = self.stopped(run)["route"]
         self.assertEqual(listed[0], route["current_model"])
         # The answer refuses the model already set ('already uses'), so the need no longer offers it.
@@ -485,7 +474,7 @@ class JobModelRouteTests(JobHarness):
         host = Runner()
         host.opencode = Catalogue
         args = argparse.Namespace(
-            answer=["route-sol=openai/gpt-6-luna"],
+            answer=["route-architect=openai/gpt-6-luna"],
             delegate=[],
             delegate_all=False,
             job_retry_token=state["job_failure"]["job_retry_token"],
@@ -510,30 +499,30 @@ class JobModelRouteTests(JobHarness):
         self.rejected(
             run,
             "--answer",
-            "route-sol=gpt-6-luna",
+            "route-architect=gpt-6-luna",
             "--job-retry-token",
             need["job_retry_token"],
             message="did not stop on quota, a content-filter refusal, output limit, context window, provider authentication or a stopped-job timeout",
         )
 
 
-ATTEMPT = "001/review-change-01"
+ATTEMPT = "001/design-check-01"
 
 
-def bound_state(settings_sol="gpt-6-sol"):
+def bound_state(settings_model="gpt-6-sol"):
     """A job stopped by the content filter on gpt-6-sol, as job_failure.recover saves it; settings may have drifted."""
     config = {
         "engine": "codex",
-        "roles": {"sol": {"model": "gpt-6-sol"}, "terra": {"model": "gpt-5.6-terra"}},
+        "roles": {"architect": {"model": "gpt-6-sol"}, "terra": {"model": "gpt-5.6-terra"}},
         "limits": {"max_stage_seconds": 900},
     }
     settings = copy.deepcopy(config)
-    settings["roles"]["sol"]["model"] = settings_sol
+    settings["roles"]["architect"]["model"] = settings_model
     route = {
-        "id": "route-sol",
-        "route_role": "sol",
-        "job": "Code Reviewer",
-        "current_model": settings_sol,
+        "id": "route-architect",
+        "route_role": "architect",
+        "job": "Design Reviewer",
+        "current_model": settings_model,
         "stopped_model": "gpt-6-sol",
         "cause": "content_filter",
     }
@@ -542,7 +531,7 @@ def bound_state(settings_sol="gpt-6-sol"):
         "settings": settings,
         "job_retry_authorization": {"token": "jr:old"},
         "job_failure": {
-            "stage": "review_change",
+            "stage": "check_design",
             "attempt_id": ATTEMPT,
             "job_retry_token": "jr:old",
             "source_identity": "source",
@@ -559,13 +548,13 @@ class RerouteTests(unittest.TestCase):
 
     def reroute(self, state, to="gpt-6-luna", *, matches=True, runtime=None, **changes):
         assignment = {
-            "role": "sol",
+            "role": "architect",
             "attempt_id": ATTEMPT,
-            "from": state["settings"]["roles"]["sol"]["model"],
+            "from": state["settings"]["roles"]["architect"]["model"],
             "to": to,
             **changes,
         }
-        state["settings"]["roles"]["sol"]["model"] = to  # as quota_route.assign applies it
+        state["settings"]["roles"]["architect"]["model"] = to  # as quota_route.assign applies it
         with mock.patch.object(job_failure.source, "matches_original", return_value=matches):
             return job_failure.reroute(runtime, state, "/run", "/workspace", assignment)
 
@@ -573,14 +562,14 @@ class RerouteTests(unittest.TestCase):
         """#2006: quota_route.assign moves the role's effort to a variant the named model declares and records
         it on the assignment; the exact retry must bind that too, not call the run's configuration stale."""
         state = bound_state()
-        state["settings"]["roles"]["sol"]["reasoning_effort"] = "high"  # as assign fitted it (was medium)
+        state["settings"]["roles"]["architect"]["reasoning_effort"] = "high"  # as assign fitted it (was medium)
         with self.assertRaisesRegex(ValueError, "retry is stale"):
             self.reroute(bound_state() | {"settings": state["settings"]})  # without the fit on the assignment
         state = bound_state()
-        state["settings"]["roles"]["sol"]["reasoning_effort"] = "high"
+        state["settings"]["roles"]["architect"]["reasoning_effort"] = "high"
         token = self.reroute(state, effort={"from": "medium", "to": "high"})
         self.assertTrue(token.startswith("jr:"))
-        self.assertEqual("high", state["job_failure"]["configuration"]["roles"]["sol"]["reasoning_effort"])
+        self.assertEqual("high", state["job_failure"]["configuration"]["roles"]["architect"]["reasoning_effort"])
 
     def test_the_route_never_lists_the_model_the_job_now_runs_on(self):
         # With the runtime's launch rules the question is asked again against the new configuration.
@@ -593,12 +582,12 @@ class RerouteTests(unittest.TestCase):
         self.reroute(state, runtime=runtime)
         route = state["job_failure"]["route"]
         self.assertEqual(
-            ("route-sol", "sol", "Code Reviewer", "gpt-6-luna", "gpt-6-sol", "content_filter"),
+            ("route-architect", "architect", "Design Reviewer", "gpt-6-luna", "gpt-6-sol", "content_filter"),
             tuple(route[key] for key in ("id", "route_role", "job", "current_model", "stopped_model", "cause")),
         )
         self.assertEqual(["gpt-5.6-terra"], route["candidates"])
         self.assertEqual(
-            "Configured models that pass the launch rules for the Code Reviewer: gpt-5.6-terra.",
+            "Configured models that pass the launch rules for the Design Reviewer: gpt-5.6-terra.",
             route["recommendation"],
         )
         # Without them (a pure caller), only the model now set is dropped from the saved candidates.
@@ -615,29 +604,29 @@ class RerouteTests(unittest.TestCase):
         failure = state["job_failure"]
         self.assertEqual(token, failure["job_retry_token"])
         self.assertNotEqual("jr:old", token)
-        self.assertEqual("gpt-6-luna", failure["configuration"]["roles"]["sol"]["model"])
+        self.assertEqual("gpt-6-luna", failure["configuration"]["roles"]["architect"]["model"])
         self.assertEqual(
             ("gpt-6-luna", "gpt-6-luna"), (failure["route"]["current_model"], failure["route_assignment"]["to"])
         )
         self.assertNotIn("job_retry_authorization", state)
-        self.assertIn("The Code Reviewer now runs on gpt-6-luna", state["stop_reason"])
+        self.assertIn("The Design Reviewer now runs on gpt-6-luna", state["stop_reason"])
 
     def test_a_route_moved_off_the_bound_model_is_rebound_by_the_answer(self):
-        # A --sol-model flag saved at a job stop before #463 left the route on gpt-6-nova; the answer still applies.
-        state = bound_state(settings_sol="gpt-6-nova")
+        # A model change saved at a job stop before #463 left the route on gpt-6-nova; the answer still applies.
+        state = bound_state(settings_model="gpt-6-nova")
         self.reroute(state)
         self.assertEqual(job_failure.configuration(state), state["job_failure"]["configuration"])
 
     def test_anything_else_changed_refuses_and_keeps_the_shown_token(self):
         cases = {
-            "another role": ({"role": "terra"}, True, None, "does not name the stopped Code Reviewer"),
-            "another attempt": ({"attempt_id": "001/review-change-02"}, True, None, "does not name the stopped"),
+            "another role": ({"role": "terra"}, True, None, "does not name the stopped Design Reviewer"),
+            "another attempt": ({"attempt_id": "001/design-check-02"}, True, None, "does not name the stopped"),
             "source": ({}, False, None, "Source changed since the failed attempt"),
             "limits": ({}, True, ("limits", {"max_stage_seconds": 60}), "Provider configuration or limits changed"),
             "other route": (
                 {},
                 True,
-                ("roles", {"sol": {"model": "x"}, "terra": {"model": "gpt-6-nova"}}),
+                ("roles", {"architect": {"model": "x"}, "terra": {"model": "gpt-6-nova"}}),
                 "Provider configuration or limits changed",
             ),
         }
@@ -651,7 +640,7 @@ class RerouteTests(unittest.TestCase):
                 failure = state["job_failure"]
                 self.assertEqual(
                     ("jr:old", "gpt-6-sol"),
-                    (failure["job_retry_token"], failure["configuration"]["roles"]["sol"]["model"]),
+                    (failure["job_retry_token"], failure["configuration"]["roles"]["architect"]["model"]),
                 )
                 self.assertNotIn("route_assignment", failure)
         state = bound_state()
@@ -717,7 +706,7 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
                     events = Path(temp) / f"{name}.jsonl"
                     events.write_text(json.dumps(row) + "\n")
                     record = {
-                        "stage": "review_change",
+                        "stage": "check_design",
                         "events": str(events),
                         "exit_code": 0,
                         "launch_route": {"model": "gpt-6-sol"},
@@ -754,19 +743,19 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         archive.mkdir()
         events = archive / "reviewer-01.jsonl"
         events.write_text(json.dumps({"type": "error", "error": error}) + "\n")
-        state = unrouted_stop("review_change", kind="exit", pause_status=None)
+        state = unrouted_stop("check_design", kind="exit", pause_status=None)
         state["job_failure"].update(
             archive=str(archive),
-            reason="Code Reviewer: provider exited 1 without a terminal report; " + error["message"],
+            reason="Design Reviewer: provider exited 1 without a terminal report; " + error["message"],
         )
-        state["stages"] = [{"stage": "review_change", "iteration": 2, "events": str(events), "rejected": True}]
+        state["stages"] = [{"stage": "check_design", "iteration": 2, "events": str(events), "rejected": True}]
         return state
 
     def test_a_quota_stop_saved_before_jobs_took_a_model_says_quota(self):
         state = self.legacy_exit({"message": "subscription usage limit reached"})
         message = self.answer(state, runner)  # the runner's provider-error classifier reads the archived events
         self.assertIn(
-            "The stopped Code Reviewer stopped on quota, but this stop was saved before a stopped job "
+            "The stopped Design Reviewer stopped on quota, but this stop was saved before a stopped job "
             "could take another model",
             message,
         )
@@ -779,7 +768,7 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         # Without a classifier the cause is unknown, and the refusal claims none.
         message = self.answer(state)
         self.assertIn(
-            "The stopped Code Reviewer takes no other model: only a job stopped on quota, a "
+            "The stopped Design Reviewer takes no other model: only a job stopped on quota, a "
             "content-filter refusal, output limit, context window, provider authentication or a stopped-job timeout does",
             message,
         )
@@ -817,13 +806,13 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         self.assertIn("Retry it once the quota resets.", run_view.view(quota)["recovery"]["what_happened"])
 
     def test_a_refusal_saved_before_jobs_took_a_model_says_so(self):
-        state = unrouted_stop("review_change", pause_status=None)
+        state = unrouted_stop("check_design", pause_status=None)
         self.assertIn(
-            "content filter refused the Code Reviewer's response", run_view.view(state)["recovery"]["what_happened"]
+            "content filter refused the Design Reviewer's response", run_view.view(state)["recovery"]["what_happened"]
         )
         message = self.answer(state)
         self.assertIn(
-            "The stopped Code Reviewer was refused by its provider's content filter, but this stop was saved "
+            "The stopped Design Reviewer was refused by its provider's content filter, but this stop was saved "
             "before a stopped job could take another model",
             message,
         )

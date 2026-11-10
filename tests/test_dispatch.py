@@ -895,7 +895,6 @@ class DispatchCliTests(unittest.TestCase):
         stages = [r["stage"] for r in state["stages"]]
         self.assertEqual(
             [
-                "recognize_workflow",
                 "astra_discovery",
                 "astra_plan",
                 "terra",

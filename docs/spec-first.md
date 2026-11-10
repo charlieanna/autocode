@@ -10,8 +10,7 @@ Every time Requirements produces a handoff, the run stops with one question (`ne
 the outcome, the behaviors, the acceptance examples, the constraints, what it left out and its
 assumptions.
 
-- Answer `plan` to start the job: the Planner for a build, the Investigator for a bug fix, the Code
-  Reviewer or the Designer for a review or a design.
+- Answer `plan` to start the job: the Planner, for every kind of job (#3010).
 - Answer anything else to correct it: Requirements runs again with your answer and asks again.
 - `--feedback` works as usual.
 
@@ -21,8 +20,8 @@ build or a bug fix needs behaviors and acceptance tests; a review, a design or a
 outcome and nothing else. A discussion is never asked to be approved: when it asks for nothing to be written and
 Requirements has nothing left to ask, Requirements answers it itself, from the code, and the turn
 ends. Nothing is planned or built. A discussion whose answer is to be written into a file
-describes that file in its behaviors and acceptance tests, and is planned like any other change. The Job recognizer runs only when
-Requirements named no job (#1846). Every run, chat or not, starts at Requirements and has it name the
+describes that file in its behaviors and acceptance tests, and is planned like any other change. When Requirements names no job,
+the run is planned as a build. Every run, chat or not, starts at Requirements and has it name the
 job (#1860); what spec-first adds is the confirmation before the job starts.
 
 Adaptive planning never skips Requirements on such a run. Planning, plan review and plan approval are

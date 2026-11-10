@@ -41,7 +41,6 @@ try:
     from .. import autocode_brief_acceptance as brief_acceptance
     from .. import autocode_brief_literals as brief_literals
     from .. import autocode_brief_obligations as brief_obligations
-    from .. import autocode_bug_job as bug_job
     from .. import autocode_compact_planning as compact_planning
     from .. import autocode_design_plan as design_plan
     from .. import autocode_draft_examples as examples
@@ -49,7 +48,6 @@ try:
     from .. import autocode_failures as failures
     from .. import autocode_follow_up as follow_up
     from .. import autocode_goals as goals
-    from .. import autocode_investigation_evidence as investigation_evidence
     from .. import autocode_native_test_names as native_test_names
     from .. import autocode_planner_escalation as planner_escalation
     from .. import autocode_planning_artifacts as artifacts
@@ -74,7 +72,6 @@ try:
     from .. import autocode_test_cases as test_cases
     from .. import autocode_trace_coverage as trace_coverage
     from .. import autocode_util as util
-    from .. import autocode_utility_route as utility_route
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_workflows as workflows
     from .. import autocode_workspace_inventory as workspace_inventory_impl
@@ -85,7 +82,6 @@ except ImportError:
     import autocode_brief_acceptance as brief_acceptance
     import autocode_brief_literals as brief_literals
     import autocode_brief_obligations as brief_obligations
-    import autocode_bug_job as bug_job
     import autocode_compact_planning as compact_planning
     import autocode_design_plan as design_plan
     import autocode_draft_examples as examples
@@ -93,7 +89,6 @@ except ImportError:
     import autocode_failures as failures
     import autocode_follow_up as follow_up
     import autocode_goals as goals
-    import autocode_investigation_evidence as investigation_evidence
     import autocode_native_test_names as native_test_names
     import autocode_planner_escalation as planner_escalation
     import autocode_planning_artifacts as artifacts
@@ -118,7 +113,6 @@ except ImportError:
     import autocode_test_cases as test_cases
     import autocode_trace_coverage as trace_coverage
     import autocode_util as util
-    import autocode_utility_route as utility_route
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
     import autocode_workspace_inventory as workspace_inventory_impl
@@ -128,7 +122,6 @@ except ImportError:
 try:
     from ..autocode_planning_cycle import admit_requirements, new_cycle, planning_inputs, start  # noqa: F401 - planning API
     from ..autocode_stage_roles import (
-        RECOGNIZE,
         STAGES,
         V2_STAGE_ROLES,
         V2_STAGES,
@@ -140,7 +133,6 @@ try:
 except ImportError:
     from autocode_planning_cycle import admit_requirements, new_cycle, planning_inputs, start  # noqa: F401 - planning API
     from autocode_stage_roles import (
-        RECOGNIZE,
         STAGES,
         V2_STAGE_ROLES,
         V2_STAGES,
@@ -154,9 +146,6 @@ from .model_request import ModelRequest
 # A build that implements an approved design (autocode_design_check_job) skips requirements
 # gathering; every planning stage gets this rule and the design's binding decisions.
 APPROVED_DESIGN_RULE = prompts.get("fragments/autoplanner/approved-design-rule.md")
-# A reproduced bug the Investigator sized large (autocode_bug_job.large_correction)
-# uses the diagnosis as technical evidence; the human task remains authoritative.
-BUG_DIAGNOSIS_RULE = prompts.get("fragments/autoplanner/bug-diagnosis-rule.md")
 # A follow-up that acts on an earlier review in the same run (autocode_follow_up) is planned
 # from the review's findings; requirements gathering is skipped.
 REVIEW_FINDINGS_RULE = prompts.get("fragments/autoplanner/review-findings-rule.md")
@@ -663,7 +652,6 @@ for _requirements_stage in ("requirements_gather", "requirements"):
         "uniqueItems": True,
         "items": {"type": "string", "minLength": 1, "maxLength": 128},
     }
-SCHEMAS[RECOGNIZE] = workflows.SCHEMA
 # Optional; required only when a refreshed handoff drops a requirement the
 # previous handoff had (goals.check_requirement_handoff enforces the citation).
 SCHEMAS["requirements_gather"]["properties"]["ignored_requirements"] = {"type": "array", "items": IGNORED_REQUIREMENT}
@@ -672,7 +660,7 @@ SCHEMAS["requirements_gather"]["properties"]["assistant_reply"] = S
 # while no software outcome is named yet. Optional for saved reports; asked for in every run.
 SCHEMAS["requirements_gather"]["properties"]["job"] = {"type": "string", "enum": [*workflows.WORKFLOWS, "none"]}
 SCHEMAS["requirements_gather"]["properties"]["design_document"] = S
-# Judged with the job in an adaptive run (adaptive.requirements_judge_clarity), as the recognizer did.
+# Judged with the job in an adaptive run (adaptive.requirements_judge_clarity).
 SCHEMAS["requirements_gather"]["properties"]["clarity"] = {"type": "string", "enum": list(adaptive.CLARITY)}
 # A discoverable question is answered from the workspace, never by the user.
 # machine_resolutions are accepted only during the runner's one investigation
@@ -771,10 +759,7 @@ def next_after(state: RunState, stage):
 # derives engine, effort and session from route_for, so without this they silently ran on the
 # Plan Reviewer's route: its effort, and its saved session (context leaking between stages).
 JOB_ROUTES = {
-    "investigate_bug": "investigator",
-    "review_design": "architect",
     "check_design": "architect",
-    "answer_question": "analyst",
     "investigate_stuck": "stuck_investigator",
     "write_acceptance_tests": "acceptance_tester",
 }
@@ -789,14 +774,10 @@ def _resolve_route(state: RunState, stage, role=None):
     """
     if stage in ("astra_resolve", "astra_diagnose"):
         return "resolver"
-    if utility := utility_route.route(state, stage):  # --utility-model (autocode_roles.UTILITY_STAGES)
-        return utility
     if JOB_ROUTES.get(stage) in state.get("settings", {}).get("roles", {}):
         return JOB_ROUTES[stage]
     if stage == "requirements_gather":
         return "requirements"
-    if stage == RECOGNIZE:
-        return role_for(state, stage)
     if role_names.planning_flow(state) == "v2" and stage in V2_STAGE_ROLES:
         route = V2_STAGE_ROLES[stage]
         if route not in state.get("settings", {}).get("roles", {}):
@@ -1393,7 +1374,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
     coordinated = stage_context.coordination_context.context(state)
     if coordinated:
         packet["coordinated_member"] = coordinated
-    elif stage in ("requirements_gather", "requirements", "recognize_workflow"):
+    elif stage in ("requirements_gather", "requirements"):
         try:
             from .. import autocode_catalog_context as source_catalog
         except ImportError:
@@ -1509,11 +1490,6 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         packet["architecture_runtime_contract"] = runtime_contract
     if state.get("design_constraint"):
         packet["approved_design"] = state["design_constraint"]
-    diagnosis = bug_job.large_correction(state)
-    if diagnosis:
-        packet["bug_diagnosis"] = diagnosis
-        if stage in ("requirements_gather", "requirements", "astra_discovery", "plan"):
-            packet["bug_diagnosis_evidence"] = investigation_evidence.context(state, Path(state_path).parent)
     findings = follow_up.review_findings(state)
     if findings:
         packet["review_findings"] = findings
@@ -1522,7 +1498,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         packet["compact_draft_fallback"] = fallback
     if stage == "requirements_gather":
         packet["previous_requirements_handoff"] = state.get("requirements_handoff")
-        # Requirements names a follow-up's job (#1860): the earlier turn, as the recognizer was told it.
+        # Requirements names a follow-up's job (#1860) from the earlier turn.
         earlier_turn = workflows.follow_up(state)
         if earlier_turn:
             packet["follow_up"] = earlier_turn
@@ -1599,9 +1575,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         # everything it needs explicitly.
         packet["investigation_request"] = request
         clarification_policy += INVESTIGATION_POLICY
-    design_rule = (APPROVED_DESIGN_RULE if state.get("design_constraint") else "") + (
-        BUG_DIAGNOSIS_RULE if diagnosis else ""
-    )
+    design_rule = APPROVED_DESIGN_RULE if state.get("design_constraint") else ""
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
     design_rule += compact_planning.fallback_rule(state)
     design_rule += task_authority.instruction(test_cases.current_diagnosis(state))
@@ -1814,16 +1788,6 @@ def prepare(state: RunState, stage, state_path, schema_dir):
             schema,
             False,
         )
-    if stage == RECOGNIZE:
-        state["phase"] = "DISCOVERING"
-        role = role_for(state, stage)
-        prompt, metrics = workflows.prompt(
-            state,
-            workspace_inventory(state["workspace"], state["task"]),
-            state["settings"].get("context_soft_tokens", 10000),
-            engine_for(state["settings"], route_for(state, stage, role)),
-        )
-        return ModelRequest(role, route_for(state, stage, role), prompt, metrics, schema_for(state, stage), False)
     if stage not in STAGES + V2_STAGES:
         raise ValueError(f"Autoplanner cannot run {stage}")
     joint = is_planning(state, stage)
@@ -1891,8 +1855,6 @@ def schema_for(state: RunState, stage):
         and state.get("next_stage") == stage
     ):
         return plan_chat.message_context.schema(plan_chat.SCHEMA, plan_chat.pending(state))
-    if stage == RECOGNIZE:
-        return adaptive.recognizer_schema(state, SCHEMAS[stage])
     return design_plan.report_schema(
         adaptive.report_schema(state, stage, SCHEMAS[stage], goals.PLANNING_BODY_SCHEMA),
         (state.get("settings") or {}).get("design_manifest"),
@@ -2077,9 +2039,3 @@ def after_revise(state: RunState):
     return adaptive.after_revise(
         review_call_limit(state), planning["astra_calls"], (planning.get("adaptive") or {}).get("challenges", 0)
     )
-
-
-def recognize(state: RunState, value, record):
-    """Save the recognized kind of job; the run then continues with its first real stage."""
-    workflows.apply(state, value, record)
-    state["phase"] = "DISCOVERING"

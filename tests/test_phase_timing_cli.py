@@ -61,5 +61,6 @@ class PhaseTimingCLI(unittest.TestCase):
                     self.assertLessEqual(right, start)
         self.assertEqual(0, view["efficiency"]["by_category"]["deterministic_setup"]["attempts"])
         self.assertEqual(len(attempts), view["efficiency"]["by_category"]["planning"]["attempts"])
-        self.assertEqual("PAUSED_REQUESTED", view["status"])
+        # The first stage is the Planner (#3010), whose question is the boundary the run stops at.
+        self.assertEqual("WAITING_FOR_USER", view["status"])
         self.assertFalse(view["done"])

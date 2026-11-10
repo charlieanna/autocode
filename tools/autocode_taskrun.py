@@ -609,17 +609,6 @@ class TaskRun:
         )
         return self.status()
 
-    def recover_job_report(self, token: str) -> dict:
-        """Adopt an inspected owner-lost Investigator report; never launch a model."""
-        self._invoke(
-            "recover job report",
-            "--recover-job-report",
-            "-",
-            *self.options,
-            secret_env={"AUTOCODE_RECOVER_JOB_REPORT": token},
-        )
-        return self.status()
-
     def grant_recovery(self, amount: int) -> dict:
         """Grant exactly N new recoveries after the operator resolves the pause cause."""
         if type(amount) is not int or amount < 1:

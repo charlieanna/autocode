@@ -68,7 +68,6 @@ FORBIDDEN_OPTIONS = {
     "--accept-source-edit",
     "--accept-transport-change",
     "--abandon-stage",
-    "--recover-job-report",
     "--request-milestone-checkpoints",
     "--planning-review-call-limit",
     "--bind-dependency",

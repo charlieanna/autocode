@@ -11,7 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- **Every task takes the same path**: builds, bug fixes, reviews, designs and discussions that write something all go Requirements, Planner, Plan Reviewer, your approval, Builder, Tester, Completion Reviewer. The kind of job only labels the run. A flow without a Requirements stage is planned as a build instead of asking a separate Job recognizer.
 - **Each terminal chat builds on a branch of its own**: a chat still plans in your folder (Requirements and the Planner only read it), and once you approve the plan it moves to a new task worktree and `autocode/<task>-<id>` branch made from your last commit and builds there (`--build-in-worktree`). Your folder is not written, and chats in one folder no longer wait for each other while they build. The chat says which branch it builds on and which uncommitted files it left out; merge the branch when it is done.
+
+### Removed
+
+- **The Job recognizer, Code Reviewer, bug Investigator, Designer and Analyst stages**, with `--utility-model`/`--utility-reasoning-effort` and `--recover-job-report`. A run saved at one of those stages cannot continue: AutoCode says so and asks for a new task; its status and reports stay readable. The Design Reviewer, the stuck-stage Investigator and the acceptance-test writer stay.
 
 ### Fixed
 

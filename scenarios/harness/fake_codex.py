@@ -1252,185 +1252,7 @@ def check_design(data: dict) -> dict:
     }
 
 
-def stray_edits(allowed: str) -> None:
-    """Behave like a model that edits files it was told not to: copy every solution file outside
-    ``allowed`` into the workspace. A read-only job's runner must then reject the attempt, which is
-    how a broken solution such as review-planted-defects/broken/edits-code is proven to be caught."""
-    root = Path(CONFIG["reference"])
-    for path in sorted(root.rglob("*")):
-        relative = path.relative_to(root).as_posix()
-        if (
-            path.is_file()
-            and not relative.startswith(allowed)
-            and "__pycache__" not in relative
-            and not relative.startswith(".fake-turns/")
-        ):
-            target = Path.cwd() / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target)
-
-
-def review() -> dict:
-    """The fake's review: the findings from the solution it was told to apply (reference or broken).
-    The runner writes review/findings.json from this report. In a scenario with
-    follow-up turns the solution is the end state of the whole conversation, whose
-    code changes belong to a later turn, so the review does not play them as stray edits."""
-    if not CONFIG.get("turns"):
-        stray_edits("review/")
-    path = Path(CONFIG["reference"]) / "review" / "findings.json"
-    saved = json.loads(path.read_text()) if path.is_file() else {}
-    # Targeted tests in the solution are delivered into the workspace under review/tests/,
-    # the one place a review may write (autocode_review_job.TESTS_PREFIX).
-    tests = Path(CONFIG["reference"]) / "review" / "tests"
-    delivered = []
-    if tests.is_dir():
-        shutil.copytree(
-            tests,
-            Path.cwd() / "review" / "tests",
-            dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-        )
-        delivered = sorted(f"review/tests/{p.name}" for p in tests.glob("test_*.py"))
-    # A blocking finding is proven by the runner when the solution delivers a test named after it
-    # (F1 -> test_f1_...); otherwise the scripted review says why it is not tested.
-    names = " ".join(
-        re.findall(r"def (test_\w+)", " ".join((Path(CONFIG["reference"]) / path).read_text() for path in delivered))
-    ).lower()
-    patches = sorted(p.name for p in Path.cwd().glob("*.patch"))
-
-    def finding(f):
-        row = {
-            key: f.get(key, [] if key == "lines" else "")
-            for key in ("id", "severity", "file", "lines", "summary", "evidence")
-        }
-        tested = f"test_{str(f.get('id', '')).lower()}_" in names
-        row["example"] = f.get("example") or "Scripted example: " + str(f.get("summary", ""))
-        row["untestable"] = (
-            ""
-            if tested
-            else (
-                f.get("untestable")
-                or "Scripted review: the scenario solution delivers no test named after this finding"
-            )
-        )
-        return row
-
-    return {
-        "verdict": saved.get("verdict", "approve"),
-        "summary": "Scripted review from the scenario solution",
-        "change_under_review": "the change named in the request",
-        "change_patch": patches[0] if patches else "",
-        "findings": [finding(f) for f in saved.get("findings", [])],
-        "tests_run": [str(t) for t in saved.get("tests_run", [])],
-        "delivered_tests": delivered,
-    }
-
-
-def investigate(data: dict) -> dict:
-    """The fake's investigation: the diagnosis note in the solution it was told to apply, if any.
-    A note with "reproduced": false ends the run; anything else hands over to the build pipeline,
-    where the fake Builder applies the solution. The runner writes the note; the fake writes nothing.
-    In a package run, whose handoff names the package (``package_scope``), it names only the files inside
-    it, as the handoff asks (#711); the fake Builder still applies the whole solution."""
-    package = (data.get("package_scope") or {}).get("package")
-    scoped = lambda paths: [path for path in paths if not package or path.startswith(package)]
-    notes = sorted((Path(CONFIG["reference"]) / "docs" / "bugs").glob("*.json"))
-    saved = json.loads(notes[0].read_text()) if notes else {}
-    reproduced = saved.get("reproduced", True) is not False
-    text = lambda *keys: next((str(saved[key]) for key in keys if saved.get(key)), "")
-    return {
-        "outcome": "reproduced" if reproduced else "not_reproduced",
-        "note_path": f"docs/bugs/{notes[0].name}" if notes else "docs/bugs/scripted-diagnosis.json",
-        "observed": text("observed", "observed_by_reporter") or CONFIG["title"],
-        "reproduction": text("reproduction", "reproduction_attempted") or "Scripted reproduction",
-        "root_cause": text("root_cause") or ("Scripted root cause" if reproduced else ""),
-        "affected_paths": scoped(
-            saved.get("affected_paths")
-            or [
-                p
-                for p in PATHS
-                if Path(p).suffix in {".py", ".go", ".js", ".cjs", ".mjs", ".ts", ".tsx"} and "test" not in p
-            ]
-        )
-        if reproduced
-        else [],
-        "test_paths": (scoped([p for p in PATHS if "test" in p]) or [package or "tests/"]) if reproduced else [],
-        "invariant": text("invariant") or ("Scripted invariant" if reproduced else ""),
-        "test_cases": (saved.get("test_cases") or scripted_cases()) if reproduced else [],
-        "conclusion": text("conclusion", "finding", "fix") or "Scripted conclusion",
-        "fix_size": (saved.get("fix_size") or "small") if reproduced else "none",
-        "fix_plan": [text("fix")] if reproduced and saved.get("fix") else [],
-        "questions": [str(q) for q in saved.get("questions", [])],
-        "tests_run": ["scripted"],
-        "plan_approval_requested": bool(saved.get("plan_approval_requested")),
-        "workspace_scope": saved.get("workspace_scope") or {"spans_repositories": False, "external_parts": []},
-        # The runner checks the reproduction: [fake] probe in scenario.toml exits 0 while the seed's
-        # bug is present; a scenario without one takes the untestable path.
-        "probe": (CONFIG.get("probe") or "") if reproduced else "",
-        "counterexample": fix_counterexample(data) if reproduced and CONFIG.get("probe") else BLANK_COUNTEREXAMPLE,
-        "untestable": (
-            "" if CONFIG.get("probe") else "Scripted investigation: this scenario configures no reproduction probe"
-        )
-        if reproduced
-        else "",
-    }
-
-
 BLANK_COUNTEREXAMPLE = {"file": "", "find": "", "replace": ""}
-
-
-def fix_counterexample(data: dict) -> dict:
-    """The edit that removes the seed's bug, where the runner requires the probe to fail (#1769): the
-    solution's version of the one source file it changes, in place of today's text."""
-    workspace = Path(data.get("workspace") or Path.cwd())
-    for path in PATHS:
-        if Path(path).suffix not in {".py", ".go", ".js", ".cjs", ".mjs", ".ts", ".tsx"} or "test" in path:
-            continue
-        current, solved = workspace / path, Path(CONFIG["reference"]) / path
-        if current.is_file() and solved.is_file() and current.read_text() != solved.read_text():
-            return {"file": path, "find": current.read_text(), "replace": solved.read_text()}
-    return BLANK_COUNTEREXAMPLE
-
-
-def scripted_cases() -> list[dict]:
-    """English test cases for a scripted diagnosis: one per test function the solution adds, with the
-    test's own name as the case id, so the runner can match each case to its test. A solution with no
-    new test (a fix without a test) still gets one case, which then has nothing to prove it."""
-    # Native scenarios name the cases in their scripted plan instead of asking
-    # this fixture to parse three languages' test source. Existing Python
-    # scenarios keep their added-function discovery when no names are declared.
-    # A criterion id starting PLAN_ is the plan's own case, beside the diagnosis (#1868): it never becomes one.
-    declared = [
-        match[1]
-        for cid, text in (CONFIG.get("criteria") or {}).items()
-        if not cid.startswith("PLAN_") and (match := re.search(r"test:\s*(\w+)", text))
-    ]
-    if declared:
-        return [
-            {
-                "id": name.removeprefix("test_"),
-                "given": "the scripted seed",
-                "when": f"{name} runs",
-                "then": "it passes only with the fix",
-            }
-            for name in declared
-        ]
-    root, names = Path(CONFIG["reference"]), []
-    for relative in PATHS:
-        if "test" not in Path(relative).name or not relative.endswith(".py"):
-            continue
-        before = Path.cwd() / relative
-        existing = set(re.findall(r"def (test_\w+)", before.read_text())) if before.is_file() else set()
-        names += [name for name in re.findall(r"def (test_\w+)", (root / relative).read_text()) if name not in existing]
-    return [
-        {
-            "id": name.removeprefix("test_"),
-            "given": "the scripted seed",
-            "when": f"{name} runs",
-            "then": "it passes only with the fix",
-        }
-        for name in names
-    ] or [{"id": "T1", "given": "the scripted seed", "when": "the reported case runs", "then": "it is fixed"}]
 
 
 def write_turn_design_review() -> None:
@@ -1455,90 +1277,6 @@ def write_turn_design_review() -> None:
     destination = Path.cwd() / "review" / "design-review.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(report, indent=2) + "\n")
-
-
-def design() -> dict:
-    """The fake's Architect: the design review in the solution it was told to apply, if any. With none
-    (a request for a new design, such as architecture-two-services), it hands over to the build pipeline.
-    In a conversation each turn's review can be scripted apart (``turn_report``); a revision (the runner
-    sends previous_review, or a repair's schema asks for a resolution) passes each concern's status and
-    resolution through."""
-    path = Path(CONFIG["reference"]) / "review" / "design-review.json"
-    scripted = turn_report("review_design")
-    if path.is_file() or scripted:
-        stray_edits("review/")
-    if not path.is_file() and not scripted:
-        return {
-            "mode": "propose",
-            "design_under_review": "",
-            "verdict": "not_applicable",
-            "summary": "A new design is requested",
-            "satisfied": [],
-            "concerns": [],
-            "questions": [],
-        }
-    saved = scripted or json.loads(path.read_text())
-    schema = Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text() if "--output-schema" in sys.argv else ""
-    revising = "previous_review" in DATA or '"resolution"' in schema
-    # A blocking concern needs its example; a scripted review probes nothing (probe "").
-    concerns = [
-        {
-            **{key: str(c.get(key, "")) for key in ("id", "area", "severity", "summary", "evidence")},
-            "example": str(c.get("example") or "Scripted example: " + str(c.get("summary", ""))),
-            "probe": str(c.get("probe", "")),
-            **(
-                {"status": str(c.get("status") or "open"), "resolution": str(c.get("resolution", ""))}
-                if revising
-                else {}
-            ),
-        }
-        for c in saved.get("concerns", [])
-    ]
-    open_blocking = any(c["severity"] == "blocking" and c.get("status", "open") == "open" for c in concerns)
-    return {
-        "mode": "review",
-        "design_under_review": str(saved.get("design_under_review") or "the design named in the request"),
-        "verdict": "request_changes" if open_blocking else "approve",
-        "summary": "Scripted design review from the scenario solution",
-        "satisfied": [str(s) for s in saved.get("satisfied", [])],
-        "concerns": concerns,
-        "questions": [
-            {
-                "id": str(q.get("id", "")),
-                "question": str(q.get("question", "")),
-                "options": [str(o) for o in q.get("options", [])],
-            }
-            for q in saved.get("questions", [])
-        ],
-    }
-
-
-def answer() -> dict:
-    """The fake's Analyst: the note in the solution it was told to apply (the one file under docs/),
-    returned as note_path/note_content for the runner to write; stray solution files are applied
-    like a model that edits code it was told not to, so the runner's read-only check is exercised."""
-    root = Path(CONFIG["reference"])
-    notes = (
-        sorted(
-            p
-            for p in (root / "docs").rglob("*")
-            if p.is_file() and p.name != "README.md" and p.relative_to(root).as_posix() in PATHS
-        )
-        if (root / "docs").is_dir()
-        else []
-    )
-    # In a conversation the solution's code belongs to later turns, so it is not played as stray edits.
-    if not CONFIG.get("turns"):
-        stray_edits("docs/")
-    tracked = [ref for ref in source_refs() if ref != "task"]
-    note = notes[0] if notes else None
-    return {
-        "answer": "Scripted answer from the scenario solution",
-        "evidence": [{"claim": "Scripted evidence", "source": tracked[0] if tracked else "README.md"}],
-        "questions": [],
-        "note_path": note.relative_to(root).as_posix() if note else "",
-        "note_content": note.read_text() if note else "",
-    }
 
 
 def brief_observation_changes(data: dict) -> list[dict]:
@@ -2007,10 +1745,6 @@ def report_for(stage: str, data: dict) -> dict:
             return report
         if execution_repair:
             raise SystemExit("fake_codex: report-only repair is missing its rejected report")
-    if stage == "recognize_workflow":
-        return recognize(resolved_task() or CONFIG["brief"], data.get("follow_up"))
-    if stage == "answer_question":
-        return answer()
     if stage == "check_design":
         return check_design(data)
     if stage.startswith("investigate_stuck"):
@@ -2070,12 +1804,6 @@ def report_for(stage: str, data: dict) -> dict:
         return report
     if stage == "write_acceptance_tests":
         return acceptance_tests(data)
-    if stage == "review_change":
-        return review()
-    if stage == "review_design":
-        return design()
-    if stage == "investigate_bug":
-        return investigate(data)
     task = data.get("current_task") or {}
     if stage in ("sol", "astra_checkpoint", "astra_review") and os.environ.get(
         "SCENARIO_FAKE_REQUIRE_DIAGNOSIS_PROVENANCE"
@@ -2228,7 +1956,7 @@ def report_for(stage: str, data: dict) -> dict:
             # An adaptive run's Requirements judges clarity as the recognizer did (#1846, #1860); same script.
             report["clarity"] = os.environ.get("SCENARIO_FAKE_CLARITY") or "clear"
         if CONFIG.get("title") == "A bug report that does not reproduce on this code":
-            # Standard bug fixes now start here, rather than in investigate_bug.
+            # A bug fix starts at Requirements, like every task (#3010).
             # This fixture is missing reporter facts; it must not invent a fix.
             note = json.loads((Path(CONFIG["reference"]) / "docs/bugs/none-cells.json").read_text())
             report.update(

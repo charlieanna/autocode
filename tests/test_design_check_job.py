@@ -67,41 +67,43 @@ CONFLICT = {
 
 
 class RecognitionTests(unittest.TestCase):
+    """Requirements names the job and, for a build of an approved design, the design document."""
+
     def recognize(self, workspace, value):
         state = state_for(workspace)
-        workflows.begin(state, "requirements_gather")
-        workflows.apply(state, {"reason": "", "signals": [], **value}, {})
+        workflows.begin_requirements(state)
+        workflows.from_requirements(state, {"intended_outcome": "Build the rate limiter", **value})
         return state
 
     def test_a_build_naming_an_existing_design_starts_with_the_check(self):
         with tempfile.TemporaryDirectory() as root:
-            state = self.recognize(workspace_with_design(root), {"workflow": "build", "design_document": DESIGN})
+            state = self.recognize(workspace_with_design(root), {"job": "build", "design_document": DESIGN})
         self.assertEqual(check_job.STAGE, state["next_stage"])
         self.assertEqual(DESIGN, state["workflow"]["design_document"])
-        self.assertEqual("requirements_gather", state["workflow"]["then"])
+        self.assertEqual("astra_discovery", state["workflow"]["then"])
         self.assertEqual("autoreview", autopilot.unit_for(check_job.STAGE))
         self.assertIn(check_job.STAGE, jobs.STAGES)
 
     def test_a_design_path_is_ignored_unless_it_is_a_build_of_an_existing_file_in_the_workspace(self):
         with tempfile.TemporaryDirectory() as root:
             workspace_with_design(root)
-            for value, first in (
-                ({"workflow": "build", "design_document": ""}, "requirements_gather"),
-                ({"workflow": "build", "design_document": "docs/design/missing.md"}, "requirements_gather"),
-                ({"workflow": "build", "design_document": "../outside.md"}, "requirements_gather"),
-                ({"workflow": "build", "design_document": root + "/" + DESIGN}, "requirements_gather"),
+            for value in (
+                {"job": "build", "design_document": ""},
+                {"job": "build", "design_document": "docs/design/missing.md"},
+                {"job": "build", "design_document": "../outside.md"},
+                {"job": "build", "design_document": root + "/" + DESIGN},
                 # #3010: a design job goes through the full pipeline like a build.
-                ({"workflow": "design", "design_document": DESIGN}, "requirements_gather"),
+                {"job": "design", "design_document": DESIGN},
             ):
                 with self.subTest(value=value):
                     state = self.recognize(root, value)
-                    self.assertEqual(first, state["next_stage"])
+                    self.assertEqual("astra_discovery", state["next_stage"])
                     self.assertNotIn("design_document", state["workflow"])
 
-    def test_older_recognizer_reports_without_the_field_still_apply(self):
+    def test_a_report_without_the_field_plans_as_usual(self):
         with tempfile.TemporaryDirectory() as root:
-            state = self.recognize(root, {"workflow": "build"})
-        self.assertEqual("requirements_gather", state["next_stage"])
+            state = self.recognize(root, {"job": "build"})
+        self.assertEqual("astra_discovery", state["next_stage"])
 
 
 class PrepareTests(unittest.TestCase):

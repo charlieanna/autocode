@@ -114,7 +114,6 @@ STATUS_WRITERS = frozenset(
     {
         "autocode",
         "autocode_action_authority",
-        "autocode_bug_job",
         "autocode_builder_failure",
         "autocode_builder_policy",
         "autocode_builder_worker",
@@ -123,9 +122,7 @@ STATUS_WRITERS = frozenset(
         "autocode_dependency",
         "autocode_design_check_job",
         "autocode_design_intake",
-        "autocode_design_job",
         "autocode_design_revision",
-        "autocode_discuss_job",
         "autocode_dispatch",
         "autocode_efficiency",
         "autocode_finding_cause",
@@ -148,7 +145,6 @@ STATUS_WRITERS = frozenset(
         "autocode_resolver_human",
         "autocode_resolver_recovery",
         "autocode_resolver_runtime",
-        "autocode_review_job",
         "autocode_rework_policy",
         "autocode_run_actions",
         "autocode_run_records",
@@ -177,7 +173,6 @@ STATUS_WRITERS = frozenset(
         "live_diagnosis_trial",
         "provider_conformance",
         "units.autoplanner",
-        "units.autoresolver",
     }
 )
 

@@ -7,11 +7,7 @@ import unittest
 from pathlib import Path
 
 import autocode_brief_acceptance as brief_acceptance
-import autocode_bug_job as bug_job
 import autocode_design_check_job as design_check_job
-import autocode_design_job as design_job
-import autocode_discuss_job as discuss_job
-import autocode_review_job as review_job
 import autocode_risk_acceptance as risk_acceptance
 import autocode_role_schema as role_schema
 import autocode_stuck_job as stuck_job
@@ -84,11 +80,7 @@ class ModelOutputSchemaTests(unittest.TestCase):
                 except (KeyError, ValueError, TypeError):
                     continue
         for name, schema in (
-            ("bug_job", bug_job.SCHEMA),
-            ("discuss_job", discuss_job.SCHEMA),
-            ("review_job", review_job.SCHEMA),
             ("design_check_job", design_check_job.SCHEMA),
-            ("design_job.REVISION_SCHEMA", design_job.REVISION_SCHEMA),
             ("stuck_job", stuck_job.SCHEMA),
         ):
             schemas.append((name, schema))

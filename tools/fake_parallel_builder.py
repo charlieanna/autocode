@@ -63,13 +63,6 @@ def plan():
 
 
 def report(data):
-    if data["stage"] == "recognize_workflow":
-        return {
-            "workflow": "build",
-            "reason": "Fixture: every request is a build",
-            "signals": [],
-            "design_document": "",
-        }
     if data["stage"] == "investigate_stuck":
         return {
             "diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.",

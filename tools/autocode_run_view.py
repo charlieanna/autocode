@@ -47,7 +47,6 @@ try:
     from . import autocode_cost as cost
     from . import autocode_criterion_changes as criterion_changes
     from . import autocode_design_coverage as design_coverage
-    from . import autocode_diagnosis_refresh as diagnosis_refresh
     from . import autocode_efficiency, autocode_run_metrics, autocode_usage
     from . import autocode_effort_question as effort_question
     from . import autocode_escalation_view as escalation_view
@@ -87,6 +86,7 @@ try:
     from . import autocode_transport_recovery as transport_recovery
     from . import autocode_validation_exhaustion_recovery as validation_recovery
     from . import autocode_verification_view as verification_view
+    from . import autocode_workflows as workflows
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
@@ -103,7 +103,6 @@ except ImportError:
     import autocode_cost as cost
     import autocode_criterion_changes as criterion_changes
     import autocode_design_coverage as design_coverage
-    import autocode_diagnosis_refresh as diagnosis_refresh
     import autocode_efficiency
     import autocode_effort_question as effort_question
     import autocode_escalation_view as escalation_view
@@ -145,6 +144,7 @@ except ImportError:
     import autocode_usage
     import autocode_validation_exhaustion_recovery as validation_recovery
     import autocode_verification_view as verification_view
+    import autocode_workflows as workflows
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -302,10 +302,11 @@ def view(
             ready=(controller or {}).get("kind") == "ready",
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
-        # The kind of job recognized from the request (autocode_workflows.WORKFLOWS);
-        # None until the first stage has run, and for runs that predate recognition.
+        # The kind of job named for the request (autocode_workflows.WORKFLOWS);
+        # None until it is named, and for runs that predate naming it.
         "workflow": (state.get("workflow") or {}).get("kind"),
-        # "model" when the recognizer decided it, "user" when --workflow named it; the reason it gave.
+        # "model" when Requirements (or an earlier runtime's recognizer) named it, "user" when --workflow
+        # named it, "default" on a flow without Requirements, where every task is a build; the reason.
         "workflow_source": (state.get("workflow") or {}).get("source"),
         "workflow_reason": (state.get("workflow") or {}).get("reason"),
         # How much planning the run chose and why (autocode_adaptive_planning.view, #697): whether recognition
@@ -364,7 +365,8 @@ def view(
         "tool_containment_backend": tool_containment.recorded_backend(launches),
         # The monorepo package the run works in (--package, autocode_package_scope); None for the whole repository.
         "package": package_scope.of(state.get("settings")),
-        # Status inspection supplies a fresh offer; saved state alone grants no adoption.
+        # Retired with the bug-fix Investigator, the only stage that offered report recovery (2026-11-10);
+        # always null, kept because the status view never drops a field.
         "job_report_recovery": None,
         "report_repair": report_repair_view.project(state, stale=stale_report_repair),
         # The pause a client may request while the run works (autocode_pause_offer, #1598); status supplies it.
@@ -887,7 +889,7 @@ def workflow_result(state: RunState):
             "summary": (
                 "Requirements answered in the conversation"
                 if row.get("answered_by") == "requirements_gather"
-                else "Analyst answer recorded"
+                else "Analyst answer recorded"  # saved by an earlier runtime's Analyst
             )
             + "; code correctness is not established by an answer",
         }
@@ -1069,6 +1071,8 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      (after a refusal, `action` is that answer until a
                                                      model is named)
     recover_source missing original identity       inspect archive and source before a new run
+                                                     (a run saved at a stage this runtime no longer
+                                                     runs is a `resume` with `new_run_required`)
     dependency    another run's accepted delivery   autocode wait --run-dir PRODUCER — returns when the
                                                      producer needs a person or ends; the delivery and
                                                      the resume are the dependency worker's, not a
@@ -1080,6 +1084,17 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
     status = state.get("status", "")
     if status in COMPLETE:
         return None
+    if retired := workflows.retired_stage(state):
+        # Saved at a stage this runtime no longer runs (owner decision 2026-11-10): nothing resumes it.
+        return {
+            "kind": "resume",
+            "reason": retired,
+            "new_run_required": True,
+            "edit_required": False,
+            "action": "fresh_run",
+            "feedback_action": None,
+            "recovery_hint": retired,
+        }
     if scope_pause.can_resume(state):
         return {
             "kind": "resume",
@@ -1288,12 +1303,6 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                     answer["retry_action"] = retry
         return answer
     if status == "AWAITING_GOAL_APPROVAL":
-        if (state.get("goal_contract") or {}).get("approval_status") == "draft" and diagnosis_refresh.conflicts(state):
-            return {
-                "kind": "resume",
-                "action": "--resume-paused",
-                "reason": "Refresh the conflicting accepted diagnosis before plan approval",
-            }
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
         return (
             {"kind": "approve_plan", "token": state["displayed_goal"]}

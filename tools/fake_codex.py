@@ -293,17 +293,7 @@ IMPLEMENT_TASK = {
     "acceptance_criteria": ["C1"],
     "validation_plan": ["Execute valid, empty and whitespace input"],
 }
-if stage == "recognize_workflow":
-    result = {
-        "workflow": "build",
-        "reason": "Offline fixture: every request is treated as a build",
-        "signals": [],
-        "design_document": "",
-    }
-    if 'Add "clarity"' in prompt:
-        # Vague keeps the Requirements stage, so a default (adaptive) run plans in the same stages as before.
-        result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
-elif stage == "investigate_stuck":
+if stage == "investigate_stuck":
     result = {
         "diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.",
         "cause": "other",
@@ -380,7 +370,7 @@ elif stage == "requirements_gather":
             "external_parts": [{"target": target, "work": work, "source_quote": quote, "evidence": ""}],
         }
     if 'Add "clarity"' in prompt or "clarity" in schema.get("properties", {}):
-        # Vague, as the recognizer answered: the review allowance counts per planning cycle as before. A report
+        # Vague: the review allowance counts per planning cycle as before. A report
         # repair's prompt has no rule, but its schema still asks for clarity.
         result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
 elif stage == "astra_discovery":

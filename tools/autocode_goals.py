@@ -36,7 +36,6 @@ try:
     from . import autocode_adaptive_planning as adaptive
     from . import autocode_answer_options as answer_options
     from . import autocode_brief_literals as brief_literals
-    from . import autocode_bug_questions as bug_questions
     from . import autocode_changeset_barrier as changeset_barrier
     from . import autocode_component_plan as component_plan
     from . import autocode_finding_cause as finding_cause
@@ -65,7 +64,6 @@ except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_answer_options as answer_options
     import autocode_brief_literals as brief_literals
-    import autocode_bug_questions as bug_questions
     import autocode_changeset_barrier as changeset_barrier
     import autocode_component_plan as component_plan
     import autocode_finding_cause as finding_cause
@@ -858,9 +856,8 @@ def answer(state: RunState, question_id, text, *, delegated=False, source=None, 
     if not state["pending_questions"]:
         cast(dict, state).update(
             status="RUNNING",
-            **bug_questions.answer_frontier(
-                state, "requirements" if roles.planning_flow(state) == "v2" else "astra_discovery"
-            ),
+            phase="DISCOVERING",
+            next_stage="requirements" if roles.planning_flow(state) == "v2" else "astra_discovery",
         )
         state["discovery_summary"] = ""
     # Answers are inputs to a new draft, never goal approvals.

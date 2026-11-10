@@ -46,7 +46,7 @@ if mode=='filtered':print(Path(os.environ['JOB_REPLAY']).read_text(),end='',flus
 print(json.dumps({'type':'thread.started','thread_id':str(uuid.uuid4())}),flush=True)
 for i in range(4):print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'fragment '+str(i)}}),flush=True)
 if mode in ('success','terminal'):
- result={'verdict':'approve','summary':'Equivalent integer addition','change_under_review':'pr-double.patch','findings':[],'change_patch':'pr-double.patch','tests_run':[],'delivered_tests':[]}
+ result={'design_document':'docs/double.md','summary':'double() adds n to itself','constraints':[],'conflicts':[{'design_says':'double() returns n + n','conflicts_with':'calc.py multiplies by 2','files':['calc.py'],'options':['keep the multiplication','change the design'],'example':'double(3) is computed as 3 * 2','probe':'','counterexample':{'file':'','find':'','replace':''}}]}
  Path(sys.argv[sys.argv.index('-o')+1]).write_text(json.dumps(result))
  print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1200,'output_tokens':450}}),flush=True);raise SystemExit(42 if mode=='terminal' else 0)
 if mode in ('write','later','missing','corrupt','replace_error','staging_error','mode','cleanup'):
@@ -65,10 +65,13 @@ WRAPPER = r"""import json,os,sys
 from pathlib import Path
 sys.path.insert(0,os.environ['JOB_RUNTIME']+'/tools')
 import autocode
-if os.environ.get('JOB_HISTORICAL_LAUNCH') or os.environ.get('JOB_LEGACY_BUGFIX'):
- sys.path.insert(0,os.environ['JOB_RUNTIME'])
- from tests.legacy_bugfix_fixture import install
- install(autocode,drop_marker=bool(os.environ.get('JOB_LEGACY_BUGFIX')))
+import autocode_workflows as workflows
+# A new run starts as one whose Requirements named the approved design docs/double.md: the build's
+# first stage is then the Design Reviewer's job (check_design). Requirements itself is not modelled.
+def named_design(state,*args):
+ workflows.from_requirements(state,{'job':'build','intended_outcome':'Build the approved design','design_document':'docs/double.md'})
+workflows.begin_requirements=named_design
+workflows.begin=named_design
 try:import autocode_job_source as source
 except ImportError:source=None
 mode=os.environ['JOB_MODE']
@@ -153,11 +156,10 @@ class JobHarness(unittest.TestCase):
         cls.seed_temp = tempfile.TemporaryDirectory(prefix="job-failure-seed-")
         cls.seed = Path(cls.seed_temp.name) / "seed"
         cls.seed.mkdir()
-        (cls.seed / ".gitignore").write_text(".autocode/\n__pycache__/\nreview/\ndesign/\ndiscussion/\n")
+        (cls.seed / ".gitignore").write_text(".autocode/\n__pycache__/\n")
         (cls.seed / "calc.py").write_text(ORIGINAL)
-        (cls.seed / "pr-double.patch").write_text(
-            "diff --git a/calc.py b/calc.py\n--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n def double(n):\n-    return n * 2\n+    return n + n\n"
-        )
+        (cls.seed / "docs").mkdir()
+        (cls.seed / "docs" / "double.md").write_text("# Double\n\ndouble(n) returns n + n.\n")
         subprocess.run(["git", "init", "-q", str(cls.seed)], check=True)
         # A copied seed must stay immutable while each case copies its objects.
         subprocess.run(["git", "-C", str(cls.seed), "config", "maintenance.auto", "false"], check=True)
@@ -227,19 +229,13 @@ class JobHarness(unittest.TestCase):
             "0",
         )
 
-    def start(self, mode="timeout", workflow="review"):
+    def start(self, mode="timeout"):
         self.env["JOB_MODE"] = mode
-        # Every new task goes through the full pipeline (#3010); these cases exercise a run an earlier
-        # runtime saved at its job's own first stage, which the current runtime still resumes and retries.
-        self.env["JOB_HISTORICAL_LAUNCH"] = "1"
-        if workflow == "bugfix":
-            self.env["JOB_LEGACY_BUGFIX"] = "1"
         return TaskRun.start(
             self.workspace,
-            "Review pr-double.patch against calc.py for built-in integer equivalence.",
+            "Implement the approved design docs/double.md as written.",
             command=(sys.executable, "-B", str(self.wrapper)),
             options=self.options,
-            start_options=("--workflow", workflow),
             env=self.env,
             timeout=60,
         )
@@ -247,7 +243,12 @@ class JobHarness(unittest.TestCase):
     def count(self):
         return len(self.calls.read_text().splitlines()) if self.calls.exists() else 0
 
-    def paused(self, run, stage="review_change"):
+    def finished(self, view):
+        """The Design Reviewer's report was accepted: its conflict stops the run before any planning."""
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", view["status"], view)
+        self.assertTrue((self.workspace / "docs/double.blockers.json").is_file())
+
+    def paused(self, run, stage="check_design"):
         view = run.status()
         self.assertEqual("PAUSED_JOB_FAILURE", view["status"], view)
         self.assertEqual(stage, view["next_stage"])
@@ -286,7 +287,7 @@ class JobDeadlineExtensionTests(JobHarness):
         self.roomy(timeouts=1)
         run = self.start()
         view = run.status()
-        self.assertTrue(view["done"], view.get("needs"))
+        self.finished(view)
         self.assertEqual(2, self.count())
         # #2823: the longer deadline was the retry's own; the run keeps the limit the person set.
         self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
@@ -316,10 +317,10 @@ class JobDeadlineExtensionTests(JobHarness):
 
 
 class JobFailureTaskRunTests(JobHarness):
-    def test_t1_timed_out_review_change_pauses_under_review_owner(self):
+    def test_t1_timed_out_design_check_pauses_under_its_owner(self):
         run = self.start()
         need = self.paused(run)
-        self.assertEqual("review", run.status()["workflow"])
+        self.assertEqual("build", run.status()["workflow"])
         self.assertIn("900-second", need["reason"])
         self.assertEqual(ORIGINAL, (self.workspace / "calc.py").read_text())
         usage = run.status()["usage"]["tokens"]
@@ -332,7 +333,7 @@ class JobFailureTaskRunTests(JobHarness):
         finished = [
             json.loads(line)
             for line in (run.run_dir / "activity.jsonl").read_text().splitlines()
-            if json.loads(line).get("event") == "stage_finished" and json.loads(line).get("stage") == "review_change"
+            if json.loads(line).get("event") == "stage_finished" and json.loads(line).get("stage") == "check_design"
         ]
         self.assertEqual(1, len(finished))
         self.assertTrue(finished[0]["timed_out"])
@@ -348,14 +349,14 @@ class JobFailureTaskRunTests(JobHarness):
         run = self.start("idle")
         need = self.paused(run)
         self.assertIn(
-            "Code Reviewer: No new provider activity within the inactivity limit (240 seconds, set explicitly; "
+            "Design Reviewer: No new provider activity within the inactivity limit (240 seconds, set explicitly; "
             "an exact job retry runs under the same limit; a different limit needs a new run)",
             need["reason"],
         )
         self.assertNotIn("--max-idle-seconds", need["reason"])
         run.env["JOB_MODE"] = "success"
         view = run.retry_job(need["job_retry_token"])
-        self.assertTrue(view["done"], view)
+        self.finished(view)
         self.assertEqual(2, self.count())
 
     def test_t2_abandon_names_the_owning_reviewer_and_retains_fragments(self):
@@ -388,7 +389,7 @@ class JobFailureTaskRunTests(JobHarness):
         self.assertEqual(0, action.returncode, action.stderr)
         view = run.status()
         self.assertEqual("PAUSED_STAGE_ABANDONED", view["status"], view)
-        self.assertEqual("review_change", view["next_stage"])
+        self.assertEqual("check_design", view["next_stage"])
         self.assertIn("Reviewer", view["stop_reason"])
         self.assertIn("explicit fresh retry", view["stop_reason"])
         self.assertEqual(1, self.count())
@@ -402,15 +403,15 @@ class JobFailureTaskRunTests(JobHarness):
         view = run.status()
         self.assertNotEqual("PAUSED_JOB_FAILURE", view["status"], view)
         self.assertEqual(1, self.count())
-        self.assertFalse(list(run.run_dir.rglob("archived-review-change-*")))
-        self.assertTrue(list(run.run_dir.rglob("review-change-01.jsonl")))
+        self.assertFalse(list(run.run_dir.rglob("archived-design-check-*")))
+        self.assertTrue(list(run.run_dir.rglob("design-check-01.jsonl")))
 
     def test_t3_explicit_retry_launches_exactly_one_fresh_attempt(self):
         run = self.start()
         token = self.paused(run)["job_retry_token"]
         run.env["JOB_MODE"] = "success"
         view = run.retry_job(token)
-        self.assertTrue(view["done"], view)
+        self.finished(view)
         self.assertEqual(2, self.count())
         with self.assertRaises(TaskRunError):
             run.retry_job(token)
@@ -424,24 +425,6 @@ class JobFailureTaskRunTests(JobHarness):
             run.retry_job(token)
         self.assertEqual(1, self.count())
         self.assertEqual(BROKEN, (self.workspace / "calc.py").read_text())
-
-    def test_t5_design_discuss_and_bug_jobs_keep_their_owner(self):
-        for workflow, stage in (
-            ("design", "review_design"),
-            ("discuss", "answer_question"),
-            ("bugfix", "investigate_bug"),
-        ):
-            with self.subTest(workflow=workflow):
-                # Each workflow owns a separate real CLI run and provider attempt.
-                other = self.workspace.with_name("project-" + workflow)
-                shutil.copytree(self.seed, other)
-                prior = self.workspace
-                self.workspace = other
-                try:
-                    self.paused(self.start(workflow=workflow), stage)
-                finally:
-                    self.workspace = prior
-                self.calls.unlink()
 
     def test_t6_special_failures_pause_without_automatic_retry(self):
         for mode, reason in (
@@ -461,12 +444,14 @@ class JobFailureTaskRunTests(JobHarness):
     def test_a_content_filter_finish_at_a_clean_exit_names_the_refusal(self):
         self.env["JOB_REPLAY"] = str(HERE / "tools" / "fixtures" / "opencode-content-filter-finish-run.jsonl")
         need = self.paused(self.start("filtered"))
-        # The refusal is named first; #520 then adds the route-sol answer that continues on another model.
+        # The refusal is named first; #520 then adds the route-architect answer that continues on another model.
         self.assertTrue(
-            need["reason"].startswith("Code Reviewer: the provider's content filter refused the response on gpt-6-sol"),
+            need["reason"].startswith(
+                "Design Reviewer: the provider's content filter refused the response on gpt-6-sol"
+            ),
             need["reason"],
         )
-        self.assertIn("--answer route-sol=MODEL", need["reason"])
+        self.assertIn("--answer route-architect=MODEL", need["reason"])
 
     def test_a_compacted_context_at_a_clean_exit_names_the_stop_and_refuses_the_report(self):
         """The Kilo overflow log (#1942): the provider compacted and wrote a report, then exited 0."""
@@ -474,22 +459,22 @@ class JobFailureTaskRunTests(JobHarness):
         need = self.paused(self.start("filtered"))
         self.assertTrue(
             need["reason"].startswith(
-                "Code Reviewer: the request exceeded the model's context window on gpt-6-sol (ContextOverflowError"
+                "Design Reviewer: the request exceeded the model's context window on gpt-6-sol (ContextOverflowError"
             ),
             need["reason"],
         )
         self.assertIn("a request held 2422 tokens after the previous one held 533595", need["reason"])
-        self.assertIn("--answer route-sol=MODEL", need["reason"])
-        self.assertFalse((self.workspace / "review/findings.json").exists())
+        self.assertIn("--answer route-architect=MODEL", need["reason"])
+        self.assertFalse((self.workspace / "docs/double.blockers.json").exists())
 
-    def test_t7_successful_read_only_review_completion_preserved(self):
+    def test_t7_successful_read_only_check_is_applied(self):
         run = self.start("success")
         view = run.status()
-        self.assertTrue(view["done"], view)
-        self.assertIsNone(view["needs"])
+        self.finished(view)
         self.assertEqual(ORIGINAL, (self.workspace / "calc.py").read_text())
         self.assertEqual(1, self.count())
-        self.assertEqual("approve", json.loads((self.workspace / "review/findings.json").read_text())["verdict"])
+        blockers = json.loads((self.workspace / "docs/double.blockers.json").read_text())
+        self.assertEqual(["calc.py"], blockers["conflicts"][0]["files"])
 
     def test_ac14_plain_resume_keeps_pause_and_spends_nothing(self):
         run = self.start()
@@ -535,7 +520,7 @@ class JobFailureTaskRunTests(JobHarness):
         token = self.paused(run)["job_retry_token"]
         run.env.update(JOB_TRANSPORT_PATH="/new/install/provider.toml", JOB_MODE="success")
         after = run.retry_job(token)
-        self.assertTrue(after["done"], after)
+        self.finished(after)
         self.assertEqual(2, self.count())
         self.assertEqual(ORIGINAL, (self.workspace / "calc.py").read_text())
 
@@ -576,7 +561,7 @@ class JobFailureTaskRunTests(JobHarness):
             )
             again.advance()
             self.paused(again)
-        self.assertEqual(1, len(list(Path(need["archive"]).parent.glob("archived-review-change-01-*"))))
+        self.assertEqual(1, len(list(Path(need["archive"]).parent.glob("archived-design-check-01-*"))))
 
     def test_ac29_crash_before_capture_with_unchanged_source_keeps_exact_retry(self):
         run = self.start("nocapture")
@@ -648,7 +633,7 @@ class JobFailureTaskRunTests(JobHarness):
                 self.assertTrue(list(archive.glob("*.jsonl")))
                 run.env["JOB_MODE"] = "success"
                 view = run.retry_job(need["job_retry_token"])
-                self.assertTrue(view["done"], view)
+                self.finished(view)
                 self.assertEqual(2, self.count())
                 self.assertEqual(ORIGINAL, (self.workspace / "calc.py").read_text())
                 self.assertEqual("memo\n", (self.workspace / "notes.txt").read_text())
@@ -664,7 +649,7 @@ class JobFailureTaskRunTests(JobHarness):
         (self.workspace / "notes.txt").write_text("memo\n")
         run.env["JOB_MODE"] = "success"
         view = run.retry_job(need["job_retry_token"])
-        self.assertTrue(view["done"], view)
+        self.finished(view)
         self.assertEqual(2, self.count())
         self.assertTrue(list(Path(need["archive"]).glob("*.jsonl")))
 
@@ -724,11 +709,11 @@ class JobFailureTaskRunTests(JobHarness):
         run = self.start("cleanup")
         view = run.status()
         self.assertNotEqual("PAUSED_JOB_FAILURE", view["status"], view)
-        self.assertEqual("review_change", view["next_stage"])
+        self.assertEqual("check_design", view["next_stage"])
         self.assertEqual(1, self.count())
         self.assertEqual(BROKEN, (self.workspace / "calc.py").read_text())
         self.assertFalse(list(run.run_dir.rglob("*.witness.json")))
-        self.assertFalse(list(run.run_dir.rglob("archived-review-change-*")))
+        self.assertFalse(list(run.run_dir.rglob("archived-design-check-*")))
 
     def test_generic_retry_boolean_does_not_authorize_a_job(self):
         run = self.start()
@@ -749,15 +734,8 @@ class JobRecoveryRouteTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self.assertEqual(expected, records.timeout_recovery_route({}, {"stage": stage, "role": role}))
 
-    def test_all_six_jobs_keep_their_stage(self):
-        for stage in (
-            "review_change",
-            "review_design",
-            "check_design",
-            "answer_question",
-            "investigate_bug",
-            "investigate_stuck",
-        ):
+    def test_every_job_keeps_its_stage(self):
+        for stage in ("check_design", "investigate_stuck", "collect_design", "write_acceptance_tests"):
             with self.subTest(stage=stage):
                 self.assertEqual(
                     (stage, "PAUSED_OR_BLOCKED"), records.timeout_recovery_route({}, {"stage": stage, "role": "sol"})

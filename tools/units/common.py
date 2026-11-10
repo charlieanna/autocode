@@ -11,7 +11,6 @@ import copy
 try:
     from .. import autocode_acceptance_tests as acceptance_tests
     from .. import autocode_assignment as assignment
-    from .. import autocode_bug_job as bug_job
     from .. import autocode_check_replay as check_replay
     from .. import autocode_goals as goals
     from .. import autocode_stage_access as stage_access
@@ -24,7 +23,6 @@ try:
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_assignment as assignment
-    import autocode_bug_job as bug_job
     import autocode_check_replay as check_replay
     import autocode_goals as goals
     import autocode_stage_access as stage_access
@@ -55,7 +53,7 @@ def launch_sandbox(stage, allow_write):
 def capped_route(route, cap="medium"):
     """A copy of ``route`` whose reasoning effort is at most ``cap`` (unset or unknown become ``cap``).
 
-    Read-only job stages (Architect, Analyst) copy a planning route's model but not its
+    Read-only job stages (the Design Reviewer) copy a planning route's model but not its
     highest efforts: at "high" a model twice spent its whole reasoning budget on a job
     report and returned nothing (2026-09-27)."""
     route = copy.deepcopy(route)
@@ -87,16 +85,13 @@ def execution_request(state: "RunState", stage, state_path, schema_dir, *, repor
             prompt,
             state["workspace"],
             state.get("current_task"),
-            notes=test_cases.builder_note(state)
-            + acceptance_tests.builder_note(state)
-            + bug_job.builder_note(state)
-            + assignment.BUILD_OUTPUT_NOTE,
+            notes=test_cases.builder_note(state) + acceptance_tests.builder_note(state) + assignment.BUILD_OUTPUT_NOTE,
         )
         metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
     if stage == "sol":
         prompt = prompt.replace(
             "\nCURRENT HANDOFF DATA\n",
-            check_replay.VALIDATOR_NOTE + bug_job.validator_note(state) + "\nCURRENT HANDOFF DATA\n",
+            check_replay.VALIDATOR_NOTE + "\nCURRENT HANDOFF DATA\n",
             1,
         )
         metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}

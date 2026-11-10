@@ -276,7 +276,6 @@ class CliMacOsNativeTests(unittest.TestCase):
                 write=util.atomic_json,
                 snapshot=lambda _s: self.raw,
                 planning_stages=frozenset({"plan_finalize"}),
-                recognizer="recognize_workflow",
             )
             with self.assertRaises(runner.ReportRepairQueued):
                 native.reject_launch(self.state, record, MALFORMED, prepared, after)

@@ -16,15 +16,10 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_roles as role_names
-    from . import autocode_workflows as workflows
 except ImportError:
     import autocode_roles as role_names
-    import autocode_workflows as workflows
 
 STAGES = role_names.PLANNING_STAGES
-# The first stage of every new run: which kind of job this is (autocode_workflows).
-# It runs read-only with the requirements route when there is one, else the Plan Reviewer's.
-RECOGNIZE = workflows.STAGE
 V2_STAGES = role_names.PLANNING_V2_STAGES
 V2_STAGE_ROLES = {
     "requirements": "requirements",
@@ -41,13 +36,10 @@ def enabled(state: RunState):
 
 def is_planning(state: RunState, stage):
     stages = V2_STAGES if role_names.planning_flow(state) == "v2" else STAGES
-    # Recognition is a read-only planning stage on every run, joint or not.
-    return stage == RECOGNIZE or (enabled(state) and stage in stages)
+    return enabled(state) and stage in stages
 
 
 def role_for(state: RunState, stage):
-    if stage == RECOGNIZE:
-        return "requirements" if "requirements" in state.get("settings", {}).get("roles", {}) else "astra"
     if role_names.planning_flow(state) == "v2" and stage in V2_STAGE_ROLES:
         return V2_STAGE_ROLES[stage]
     if is_planning(state, stage) and stage == "requirements_gather":

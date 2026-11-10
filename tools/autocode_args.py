@@ -41,7 +41,6 @@ try:
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_subcommands as subcommands
     from . import autocode_task_input as task_input
-    from . import autocode_utility_route as utility_route
     from . import autocode_verification_config as verification_config
     from . import autocode_workflows as workflows
     from . import autopilot
@@ -67,7 +66,6 @@ except ImportError:
     import autocode_skip_requirements as skip_requirements
     import autocode_subcommands as subcommands
     import autocode_task_input as task_input
-    import autocode_utility_route as utility_route
     import autocode_verification_config as verification_config
     import autocode_workflows as workflows
     import autopilot
@@ -324,7 +322,6 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--plan-reviewer-reasoning-effort", choices=EFFORTS, help="Override independent plan-reviewer reasoning effort"
     )
-    utility_route.add_arguments(parser)
 
     verification_config.add_arguments(parser)
     package_scope.add_arguments(parser)
@@ -579,12 +576,6 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Set aside exactly this stopped uncertain attempt, preserving edits and logs; no agent is launched",
     )
     parser.add_argument(
-        "--recover-job-report",
-        metavar="TOKEN",
-        help="Adopt the exact inspected owner-lost Investigator file report from --status; no model launches and "
-        "the provider exit stays unknown; `-` reads AUTOCODE_RECOVER_JOB_REPORT so the secret stays out of argv",
-    )
-    parser.add_argument(
         "--export-repair",
         action="store_true",
         help="Write the dispatched bounded repair as handoff/repair-spec.{json,md} beside the run so any "
@@ -688,7 +679,6 @@ def user_actions(args) -> dict[str, bool]:
         "--follow-up": args.follow_up is not None,
         "--accept-completion": bool(args.accept_completion),
         "--abandon-stage": args.abandon_stage is not None,
-        "--recover-job-report": args.recover_job_report is not None,
         "--export-repair": bool(args.export_repair),
         "--submit-repair": args.submit_repair is not None,
         "--close-finding": bool(args.close_finding),
@@ -792,16 +782,6 @@ def parse(unit, argv, default_models):
         parser.error("--max-parallel-builders must be positive")
     if args.retry_builder:
         _requires_resume(parser, args, "--retry-builder")
-    if args.recover_job_report and any(
-        (
-            args.resume_paused,
-            args.retry_failed_stage,
-            args.retry_report,
-            args.diagnose_failed_stage,
-            args.grant_recovery is not None,
-        )
-    ):
-        parser.error("--recover-job-report adopts an inspected report on its own; resume or retry separately")
     if args.unlimited_iterations and (args.max_iterations is not None or args.legacy_iteration_ceiling is not None):
         parser.error("--unlimited-iterations cannot be combined with an explicit iteration ceiling")
     if args.accept_transport_change:

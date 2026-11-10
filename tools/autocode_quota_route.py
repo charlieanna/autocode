@@ -13,8 +13,9 @@ applies. Applying it is a recorded ``route_assignment`` in ``user_events``.
 A workflow job (autocode_jobs.STAGES) stopped this way pauses under autocode_job_failure with
 one exact retry bound to the run's configuration (#463). Its question is kept on that failure,
 not published: it is answered with ``--answer route-<role>=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)``
-(autocode_job_route), which issues a new exact-retry token for the named model. The Architect,
-Analyst and Investigator routes have no --<role>-model flag, so only that answer routes them.
+(autocode_job_route), which issues a new exact-retry token for the named model. The Design
+Reviewer's and the stuck-stage Investigator's routes have no --<role>-model flag, so only that
+answer routes them.
 
 Pure functions over the saved state. This module imports nothing from the runner:
 the provider-error classifier (``failure_status``) and the cross-model rule
@@ -84,7 +85,7 @@ KIND = "route_assignment"
 ROLES = ("astra", "terra", "sol", "completion", "glm", "requirements", "resolver", "plan_reviewer")
 # Workflow-job models are changed by an answer with the exact job token, never a
 # resume flag. The stuck-stage Investigator answer also saves its preparation pin.
-JOB_ROLES = ("architect", "analyst", "investigator", "stuck_investigator", "acceptance_tester")
+JOB_ROLES = ("architect", "stuck_investigator", "acceptance_tester")
 ROUTABLE = ROLES + JOB_ROLES
 _JOB_PAUSES = ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED")  # autocode_job_failure.PAUSES
 _OPENCODE_MODEL = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}")
@@ -238,7 +239,7 @@ def _job_row(state: RunState) -> dict | None:
 def job_question(state: RunState) -> dict | None:
     """The saved model question, or a bound legacy stopped-job projection.
 
-    Older Investigator and acceptance-writer stops omitted the question. Reconstruct only from that
+    Older acceptance-writer stops omitted the question. Reconstruct only from that
     exact archived physical attempt, its captured source and launch configuration;
     this read grants no retry authority and never changes the saved state.
     """
@@ -247,9 +248,7 @@ def job_question(state: RunState) -> dict | None:
         return failure["route"]
     row = _job_row(state)
     timeout_role = (
-        {"investigate_bug": "investigator", "write_acceptance_tests": "acceptance_tester"}.get(
-            str(failure.get("stage") or "")
-        )
+        {"write_acceptance_tests": "acceptance_tester"}.get(str(failure.get("stage") or ""))
         if failure.get("kind") == "timeout"
         else None
     )

@@ -542,8 +542,8 @@ class RunState(TypedDict, total=False):
     intake_input_hash: Any
     intervention_ack_pending: Any
     intervention_capability: Any
-    investigation_refresh: dict  # diagnosis_refresh owns pending report/feedback/source pins and accepted history
-    investigation: Any  # bug_job report; investigation_evidence owns nested discovery_evidence, read by planning
+    investigation_refresh: dict  # saved by an earlier runtime's diagnosis refresh; nothing writes or reads it now
+    investigation: Any  # an earlier runtime's bug-fix Investigator report; read by test_cases and current_behavior
     investigation_request: Any
     job_retry_authorization: Any
     key: Any
@@ -617,7 +617,7 @@ class RunState(TypedDict, total=False):
     resolver_human_proposal: Any  # a Resolver proposal awaiting a human; goals writes, dependency pops
     resolver_human_request: Any
     retained_candidate_handoffs: Any
-    review: Any  # review_job writes outcome, report digest and post-report source_revision; status inspects freshness
+    review: Any  # an earlier runtime's Code Reviewer saved outcome, report digest and source_revision; status inspects freshness
     session_rotations: Any
     # Person-authorized exact rewords of authenticated peer exclusions (#2467):
     # appended only by autocode_scope_question.record_installed_corrections through

@@ -15,7 +15,7 @@ from units.autoplanner import V2_STAGE_ROLES
 class RoleNamesTests(unittest.TestCase):
     def test_every_dispatched_stage_and_report_repair_has_a_display_name(self):
         tree = ast.parse(inspect.getsource(autopilot.unit_for))
-        declared = set(STAGES) | set(V2_STAGE_ROLES) | {"recognize_workflow"}
+        declared = set(STAGES) | set(V2_STAGE_ROLES)
         for node in ast.walk(tree):
             if isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) and node.left.id == "stage":
                 for value in node.comparators:

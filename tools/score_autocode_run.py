@@ -81,7 +81,8 @@ def load_state(run_dir: Path) -> RunState:
 
 
 def stage_token_rows(state: RunState) -> list[dict]:
-    # stage id -> role key used in settings
+    # stage id -> role key used in settings. The stages this runtime no longer runs
+    # (autocode_workflows.RETIRED_STAGES) stay, so a saved run that reached one still scores.
     stage_role = {
         "recognize_workflow": "requirements",
         "review_change": "sol",

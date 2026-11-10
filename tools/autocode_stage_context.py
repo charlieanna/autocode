@@ -85,7 +85,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
     coordinated = coordination_context.context(state)
     if coordinated:
         base["coordinated_member"] = coordinated
-    elif stage in ("requirements_gather", "requirements", "recognize_workflow"):
+    elif stage in ("requirements_gather", "requirements"):
         try:
             from . import autocode_catalog_context as source_catalog
         except ImportError:
@@ -366,15 +366,6 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
             base["consultation_reports"] = state.get("consultation_reports", [])[-1:]
             if stage == "astra_checkpoint":
                 instruction += workflow.FINAL_CHECKPOINT
-    if stage in ("sol", "astra_checkpoint", "astra_review"):
-        try:
-            from . import autocode_bug_job as bug_job
-        except ImportError:
-            import autocode_bug_job as bug_job
-        artifact = bug_job.diagnosis_artifact(state, state["workspace"])
-        if artifact:
-            base["runner_artifacts"] = [artifact]
-            instruction += prompts.get("fragments/stage-context/context-packet-08.md")
     try:
         from . import autocode_context
     except ImportError:

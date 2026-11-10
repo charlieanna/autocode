@@ -359,12 +359,6 @@ def due(routes: dict, next_stage) -> dict:
     With no next stage known (a standalone caller), every route is due."""
     if not next_stage:
         return dict(routes)
-    # A standalone review has one execution stage: that request establishes access.
-    # A separate paid ping cannot prevent partially built work here and duplicates
-    # provider startup. Local transport/auth/model/effort admission still runs;
-    # a failed review remains an accounted stage failure, never a successful probe.
-    if next_stage == "review_change":
-        return {}
     return {role: route for role, route in routes.items() if next_stage in DEFERRED.get(role, (next_stage,))}
 
 
@@ -481,12 +475,8 @@ def check(
         # Native calls require their original held, accounted launch authority.
         # Standalone access probes cannot borrow that authority or its budget.
         return False
-    if (state.get("settings") or {}).get("spec_first") and state.get("next_stage") in (
-        "recognize_workflow",
-        "requirements_gather",
-    ):
-        # Recognition and the read-only conversation are themselves the
-        # requested model calls. Future execution roles are probed when
+    if (state.get("settings") or {}).get("spec_first") and state.get("next_stage") == "requirements_gather":
+        # The read-only conversation is itself the requested model call. Future execution roles are probed when
         # approved requirements release planning; do not make the user wait.
         return False
     settings = state.get("settings") or {}

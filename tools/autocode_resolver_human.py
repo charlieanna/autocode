@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
-    from . import autocode_bug_questions as bug_questions
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_information as information
     from . import autocode_pause_command as pause_command
@@ -34,7 +33,6 @@ try:
     from . import autocode_support as support
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 except ImportError:
-    import autocode_bug_questions as bug_questions
     import autocode_member_stop as member_stop
     import autocode_operational_information as information
     import autocode_pause_command as pause_command
@@ -228,16 +226,6 @@ def queue(
         raise ValueError("Goal approval must keep its own approval boundary")
     if scope != "goal_approval" and not proposal["questions"] and not proposal["request"]:
         raise ValueError("A human proposal must retain its actual question or request")
-    if scope == "clarification" and bug_questions.matches_questions(state, proposal["questions"]):
-        # Remaining answers are republished by the ordinary response path. Keep
-        # the original report pins even though that path has a new origin.
-        pins = bug_questions.evidence(state)["hashes"]
-        if not pins:
-            raise ValueError("Investigator questions require a retained report hash")
-        retained = proposal["evidence"].setdefault("hashes", {})
-        if any(path in retained and retained[path] != digest for path, digest in pins.items()):
-            raise ValueError("Investigator question evidence differs from the retained report")
-        retained.update(pins)
     previous = state.get(PRIVATE)
     if previous is None:
         key = (state.get(PUBLIC) or {}).get("request_id")
@@ -350,12 +338,9 @@ def _decision(state: RunState, proposal):
     if scope == "clarification":
         questions = proposal["questions"]
         declared = body.get("open_blocking_questions") or []
-        investigation = bug_questions.accepts(state, proposal)
         review = requirements_review.accepts(state, proposal)
         approved_wording = rewording.accepts(state, proposal)
-        if not (investigation or review or approved_wording) and (
-            not questions or any(q not in declared for q in questions)
-        ):
+        if not (review or approved_wording) and (not questions or any(q not in declared for q in questions)):
             return "reject", "Clarification must match the validated draft questions"
         for question in questions:
             answer = state.get("answers", {}).get(question.get("id"))
@@ -367,9 +352,7 @@ def _decision(state: RunState, proposal):
             ):
                 return "defer", "An authenticated answer already exists; resolve it internally first"
         return "escalate", (
-            "The Investigator needs reproduction context absent from authenticated saved answers"
-            if investigation
-            else "Only the user can confirm what Requirements understood before planning"
+            "Only the user can confirm what Requirements understood before planning"
             if review
             else "Only the user can change wording they approved"
             if approved_wording

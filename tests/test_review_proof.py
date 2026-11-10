@@ -14,7 +14,14 @@ import autocode_source_snapshot as source_snapshot
 import autocode_util as util
 import autocode_verify as verify
 
-from tests.test_review_job import PATCH
+PATCH = """diff --git a/calc.py b/calc.py
+--- a/calc.py
++++ b/calc.py
+@@ -1,2 +1,2 @@
+ def double(n):
+-    return n * 2
++    return n + 2
+"""
 
 NAME = "review.tests.test_example.Probes.test_f1_empty"
 

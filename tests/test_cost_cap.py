@@ -72,6 +72,22 @@ class CostCapCliTests(unittest.TestCase):
     def model_stages(view):
         return sum(not row["runner_owned"] for row in view["usage"]["accounting"]["attempts"])
 
+    def past_question(self, run_dir, view):
+        """Answer the Planner's question, the first stop every task reaches (#3010), and go on to the next stop.
+
+        The fixture's first model stage is the Planner, which asks its one question; a question costs nothing,
+        so the cap pause comes at the next launch."""
+        self.assertEqual("answer", view["needs"]["kind"], view)
+        self.assertEqual(1, self.model_stages(view))
+        question = view["needs"]["questions"][0]
+        task = self.task(run_dir)
+        task.answer(
+            question["id"],
+            question["proposed_default"] or question["options"][0],
+            resolver_token=view["needs"].get("resolver_token"),
+        )
+        return task.advance_until_input()
+
     def assert_cost_pause(self, view, cap=CAP):
         self.assertEqual("PAUSED_COST_LIMIT", view["needs"].get("pause_origin") or view["status"], view)
         self.assertEqual("your_decision", view["pause_category"])
@@ -83,7 +99,7 @@ class CostCapCliTests(unittest.TestCase):
         started = taskrun.TaskRun.start(
             self.workspace, BRIEF, options=OPTIONS, start_options=("--max-cost-usd", CAP), env=self.env, timeout=300
         )
-        view = started.status()
+        view = self.past_question(started.run_dir, started.status())
         self.assert_cost_pause(view)
         self.assertEqual(1, self.model_stages(view), "nothing launches past the stage that reached the cap")
         status = self.cli(started.run_dir, "--status")
@@ -122,32 +138,21 @@ class CostCapCliTests(unittest.TestCase):
     def test_a_next_attempt_projected_past_the_cap_pauses_before_it_launches(self):
         """#2019: an attempt of a job that already ran is priced before it launches, not only a climb. The fixture's
         Planner runs twice, around its one question (astra_discovery drafts, glm_revise revises), on gpt-5.6-sol at
-        100 input and 50 output tokens a stage,
-        (100 x $4 + 50 x $20) / 1M = $0.0014, after the Job recognizer's $0.0014. A cap of $0.0035 admits those two
-        stages, and the second Planner attempt, projected at another $0.0014, would pass it."""
-        cap = "0.0035"
+        100 input and 50 output tokens a stage, (100 x $4 + 50 x $20) / 1M = $0.0014. A cap of $0.0021 admits the
+        first stage, and the second Planner attempt, projected at another $0.0014, would pass it."""
+        cap = "0.0021"
         started = taskrun.TaskRun.start(
             self.workspace, BRIEF, options=OPTIONS, start_options=("--max-cost-usd", cap), env=self.env, timeout=300
         )
-        view = started.status()
-        self.assertEqual("answer", view["needs"]["kind"], view)
-        self.assertEqual(2, self.model_stages(view))
-        question = view["needs"]["questions"][0]
-        task = self.task(started.run_dir)
-        view = task.answer(
-            question["id"],
-            question["proposed_default"] or question["options"][0],
-            resolver_token=view["needs"].get("resolver_token"),
-        )
-        view = task.advance_until_input()
+        view = self.past_question(started.run_dir, started.status())
         self.assertEqual("PAUSED_COST_LIMIT", view["needs"].get("pause_origin") or view["status"], view)
         self.assertEqual("your_decision", view["pause_category"])
-        self.assertEqual(2, self.model_stages(view), "the projected attempt must not launch")
-        self.assertEqual(0.0028, view["cost"]["spent_usd"])
+        self.assertEqual(1, self.model_stages(view), "the projected attempt must not launch")
+        self.assertEqual(0.0014, view["cost"]["spent_usd"])
         for part in (
             "The next Planner attempt (gpt-5.6-sol at high effort) did not launch: projected at $0.0014",
             "the last Planner attempt's 100 input and 50 output tokens at gpt-5.6-sol's price",
-            "it would take the spend from $0.0028 to $0.0042, past the $0.0035 cost cap",
+            "it would take the spend from $0.0014 to $0.0028, past the $0.0021 cost cap",
             "resume with --max-cost-usd 0.01 or more",
         ):
             self.assertIn(part, view["stop_reason"])
@@ -156,7 +161,7 @@ class CostCapCliTests(unittest.TestCase):
             with self.subTest(options=options):
                 held = self.task(started.run_dir, *options).resume_paused()
                 self.assertEqual("PAUSED_COST_LIMIT", held["needs"].get("pause_origin") or held["status"], held)
-                self.assertEqual(2, self.model_stages(held))
+                self.assertEqual(1, self.model_stages(held))
         # Raising the cap to at least what the stop names lets that attempt launch; the run then completes under it.
         raised = self.task(started.run_dir, "--max-cost-usd", "5")
         view = raised.resume_paused()
@@ -172,7 +177,7 @@ class CostCapCliTests(unittest.TestCase):
                 view = raised.approve_plan(need["token"])
             view = raised.advance_until_input()
         self.assertEqual("TASK_COMPLETE", view["status"], view)
-        self.assertEqual(10, self.model_stages(view))
+        self.assertEqual(9, self.model_stages(view))
 
     def test_qualified_claude_aliases_stop_at_the_cap_and_show_the_charged_attempt(self):
         for alias in ("anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5-5"):
@@ -185,7 +190,7 @@ class CostCapCliTests(unittest.TestCase):
                     env=self.env,
                     timeout=300,
                 )
-                view = started.status()
+                view = self.past_question(started.run_dir, started.status())
                 self.assert_cost_pause(view)
                 self.assertEqual(1, self.model_stages(view))
                 [attempt] = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]

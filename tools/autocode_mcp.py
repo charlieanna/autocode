@@ -63,7 +63,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
                 "workflow": {
                     "type": "string",
                     "enum": list(agent_step.WORKFLOWS),
-                    "description": "Name the kind of job instead of having AutoCode recognize it. "
+                    "description": "Name the kind of job instead of having Requirements name it. "
                     "review: judge an existing change, changing nothing.",
                 },
             },

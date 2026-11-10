@@ -162,9 +162,7 @@ def run(base, args, parser, resolved, *, failure_routing=True):
         # The existing loop receives the same checkout, not a second lock/tree.
         with base.checkout_lock.exclusive(workspace, run_dir) as checkout_handle:
             current = base.source_scope.snapshot(workspace, state, base_snapshot=base.support.snapshot)
-            recovery_intent = stage_recovery.constructor_intent(
-                args, state, {*base.planning.V2_STAGES, base.workflows.STAGE}
-            )
+            recovery_intent = stage_recovery.constructor_intent(args, state, set(base.planning.V2_STAGES))
             context = native_launch.NativeRunContext(
                 workspace,
                 run_dir,
@@ -186,7 +184,6 @@ def run(base, args, parser, resolved, *, failure_routing=True):
                     workspace, value, base_snapshot=base.support.snapshot
                 ),
                 planning_stages=base.planning.V2_STAGES,
-                recognizer=base.workflows.STAGE,
             )
             calls.require_supported_action(args, state)  # Before config/probes/artifacts/charge.
             if args.run_dir:

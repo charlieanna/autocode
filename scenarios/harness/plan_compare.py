@@ -361,7 +361,6 @@ def feedback_totals(rows: list[dict]) -> str:
 
 
 SHORT = {
-    "recognize_workflow": "recognize",
     "requirements_gather": "requirements",
     "astra_discovery": "plan",
     "astra_challenge": "review",

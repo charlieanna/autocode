@@ -31,7 +31,7 @@ class UnitFlow(unittest.TestCase):
         self.launch(["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat"], 0, answers="yes\n")
         run, state = self.saved()
         token = state["goal_contract"]["hash"]
-        self.assertEqual(["recognize_workflow", "astra_discovery"], [r["stage"] for r in state["stages"]])
+        self.assertEqual(["astra_discovery"], [r["stage"] for r in state["stages"]])
         self.assertEqual("autocode", orchestrator.pending_unit(state))
         self.assertFalse((self.project / "a.txt").exists())
         self.assertEqual("approved-plan", state["unit_handoffs"]["autoplanner"]["kind"])
@@ -120,7 +120,6 @@ class ResolverFlow(unittest.TestCase):
         stages = [r["stage"] for r in state["stages"]]
         self.assertEqual(
             [
-                "recognize_workflow",
                 "astra_discovery",
                 "astra_discovery",
                 "astra_plan",

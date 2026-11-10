@@ -17,14 +17,11 @@ from unittest.mock import patch
 
 import autocode as cli
 import autocode_artifacts as artifacts
-import autocode_bug_job as bug
 import autocode_catalog_context as catalog_context
 import autocode_cmd_only_report as command_only
 import autocode_component_runtime as component_runtime
 import autocode_design_check_job as design_check
 import autocode_design_intake as design_intake
-import autocode_design_job as design
-import autocode_discuss_job as discuss
 import autocode_failures as failures
 import autocode_figma as figma
 import autocode_format_correction as correction
@@ -32,20 +29,17 @@ import autocode_goals as goals
 import autocode_milestone_replan as replan
 import autocode_milestones as milestones
 import autocode_output_policy as output_policy
-import autocode_package_writes as package_writes
 import autocode_progressive_state as progressive
 import autocode_protected_oracles as protected_oracles
 import autocode_provider_launch as provider_launch
 import autocode_report_repair_context as repair
 import autocode_report_source as report_source
-import autocode_review_job as review_job
 import autocode_stage_access as access
 import autocode_stage_context as stage_context
 import autocode_stuck_job as stuck
 import autocode_stuck_repair_context as stuck_repair
 import autocode_support as support
 import autocode_workflow as workflow
-import autocode_workflows as workflows
 from providers import codex_sandbox, command, opencode
 from units import autoplanner as planner
 from units import autoresolver, autoreview, common
@@ -149,7 +143,7 @@ def rendered_cases():
                 f"requirements-final/{'conversational' if conversational else 'batch'}",
                 opencode.prompt_for_schema(request.prompt, request.schema, STATE_PATH.with_name("events.jsonl")),
             )
-        for job in (workflows, bug, design, design_check, discuss, design_intake):
+        for job in (design_check, design_intake):
             for engine in ("codex", "opencode"):
                 add(
                     f"job/{job.__name__}/{engine}", job.prompt(fixed_state(), {"files": ["greeting.py"]}, engine=engine)
@@ -193,50 +187,12 @@ def rendered_cases():
                 "context/protected-tests",
                 json.dumps(protected_oracles.context({"protected_tests": record}, ["tests/"]), sort_keys=True),
             )
-        review_prompt, _ = review_job.prompt({"task": "Review greeting.patch", "workspace": WORKSPACE})
-        add(
-            "provider/opencode-review-output-contract",
-            opencode.prompt_for_schema(review_prompt, review_job.SCHEMA, Path("/prompt-fixture/run/events.jsonl")),
-        )
-        # A package run's Builder is told its write scope, and its Investigator the package and its suite (#711).
+        # A package run's Builder is told its write scope (#711).
         state = fixed_state()
         state["settings"]["package"] = "packages/greeting"
         add("package/terra", stage_context.context_packet(state, "terra", STATE_PATH))
-        state["settings"]["protected_tests"] = {"command": "cd packages/greeting && python3 -m unittest discover -v"}
-        add(
-            "package/investigate_bug",
-            bug.prompt(
-                state,
-                {"files": ["packages/greeting/greeting.py"]},
-                engine="codex",
-                scratch_workspace=WORKSPACE + "/.autocode/investigation/fixed",
-                python_executable="/prompt-fixture/python",
-                package_context=package_writes.context(state["settings"], bug.STAGE),
-            ),
-        )
-        previous = {
-            "revision": 1,
-            "design_under_review": "docs/design.md",
-            "verdict": "request_changes",
-            "summary": "fixed review",
-            "satisfied": [],
-            "concerns": [],
-            "questions": [],
-            "said": "Keep the interface",
-        }
-        with patch.object(design, "revising", return_value=previous):
-            add("design/revise", design.prompt(fixed_state()))
         add("repair/command-only-correction", correction.prompt(command_only.ERROR))
         add("repair/command-only-source", report_source.repair_report_instruction({"error": command_only.ERROR}))
-        add(
-            "bug/prepared-scratch",
-            bug.prompt(
-                fixed_state(),
-                engine="opencode",
-                scratch_workspace=WORKSPACE + "/.autocode/investigation/fixed",
-                python_executable="/prompt-fixture/python",
-            ),
-        )
         add("stuck/ordinary", stuck.prompt(fixed_state(), STATE_PATH))
         state = fixed_state()
         state["stuck_investigation"].update(

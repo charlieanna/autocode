@@ -290,7 +290,7 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(0, resumed.returncode, resumed.stdout + resumed.stderr)
         self.assertEqual([str(run.resolve())], [item["run_dir"] for item in json.loads(resumed.stdout)["runs"]])
         observed = [json.loads(line) for line in probe.read_text().splitlines()]
-        self.assertEqual(3, len(observed))  # job recognition, then discovery on the first and the resumed launch
+        self.assertEqual(2, len(observed))  # discovery on the first and the resumed launch
         self.assertTrue(all(str(run.resolve()) in item["runs"] for item in observed))
 
     def test_registry_failure_preserves_new_run_for_retry_without_a_stage_launch(self):
@@ -494,7 +494,7 @@ class SubprocessFlow(unittest.TestCase):
         published = assert_operational_wait(self, paused, "PAUSED_UNCERTAIN_STAGE")
         self.assertEqual(initial["sessions"], paused["sessions"])
         self.assertEqual(
-            2, len([r for r in paused["stages"] if not r.get("runner_owned")]), [r["stage"] for r in paused["stages"]]
+            1, len([r for r in paused["stages"] if not r.get("runner_owned")]), [r["stage"] for r in paused["stages"]]
         )
         status = json.loads(self.launch([*args, "--status"], 0).stdout)
         unchanged = (run / "state.json").read_bytes()
@@ -503,7 +503,7 @@ class SubprocessFlow(unittest.TestCase):
         self.launch([*args, "--abandon-stage", status["attempt_id"]], 0)
         _, abandoned = self.saved()
         self.assertEqual("PAUSED_STAGE_ABANDONED", abandoned["status"])
-        self.assertEqual(3, len([r for r in abandoned["stages"] if not r.get("runner_owned")]))
+        self.assertEqual(2, len([r for r in abandoned["stages"] if not r.get("runner_owned")]))
         self.assertTrue(abandoned["stages"][-1]["abandoned"])
         self.assertEqual("superseded", abandoned["resolver"]["human_escalations"][published["request_id"]]["status"])
         self.assertNotIn("astra", abandoned["sessions"])
@@ -551,7 +551,7 @@ class SubprocessFlow(unittest.TestCase):
         )
         self.assertFalse((project / "greet.py").exists())
         launch([*args, "--answer", "Q1=CLI"], 0)
-        self.assertEqual(2, len(state()["stages"]), [r["stage"] for r in state()["stages"]])
+        self.assertEqual(1, len(state()["stages"]), [r["stage"] for r in state()["stages"]])
         launch(args, 2)
         self.assertEqual("AWAITING_GOAL_APPROVAL", state()["phase"])
         self.assertEqual("CLI", state()["answers"]["Q1"]["text"])
@@ -559,7 +559,7 @@ class SubprocessFlow(unittest.TestCase):
         self.assertFalse((project / "greet.py").exists())
         launch([*args, "--approve-goal", state()["displayed_goal"]], 0)
         self.assertEqual("READY_TO_EXECUTE", state()["phase"])
-        self.assertEqual(3, len(state()["stages"]))
+        self.assertEqual(2, len(state()["stages"]))
         launch(args, 2)
         self.assertEqual("WAITING_FOR_USER", state()["phase"])
         self.assertEqual("human_review", state()["user_request"]["kind"])

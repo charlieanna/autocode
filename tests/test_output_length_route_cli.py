@@ -131,17 +131,17 @@ class OutputLengthJobCliTests(JobHarness):
         self.env.update(REFUSE_MODEL="gpt-6-sol")
 
     def test_length_stopped_job_requires_fresh_answer_token_and_never_routes_back(self):
-        run = self.start("exit42", "review")
+        run = self.start("exit42")
         need = self.stopped(run)
         self.assertEqual("output_limit", need["route"]["cause"])
         self.assertEqual(
-            "--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["action"]
+            "--answer route-architect=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["action"]
         )
         self.assertEqual(["inspect", "feedback"], [action["kind"] for action in run.status()["recovery"]["actions"]])
         self.assertIn("output limit", run.status()["recovery"]["what_happened"])
         old_token = need["job_retry_token"]
         before_usage = run.status()["usage"]["accounting"]
-        run.assign_model("sol", "gpt-6-luna")
+        run.assign_model("architect", "gpt-6-luna")
         need = self.stopped(run)
         self.assertNotEqual(old_token, need["job_retry_token"])
         self.assertEqual(["gpt-6-sol"], self.models(), "answering never launches another provider")
@@ -149,10 +149,15 @@ class OutputLengthJobCliTests(JobHarness):
         for key in ("attempt_count", "tokens", "provider_requests", "cost"):
             self.assertEqual(before_usage[key], after_usage[key], key)
         self.rejected(
-            run, "--answer", "route-sol=gpt-6-sol", "--job-retry-token", need["job_retry_token"], message="output limit"
+            run,
+            "--answer",
+            "route-architect=gpt-6-sol",
+            "--job-retry-token",
+            need["job_retry_token"],
+            message="output limit",
         )
         with self.assertRaisesRegex(TaskRunError, "token"):
             run.retry_job(old_token)
         self.assertEqual(["gpt-6-sol"], self.models())
-        self.assertTrue(run.retry_job(need["job_retry_token"])["done"])
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", run.retry_job(need["job_retry_token"])["status"])
         self.assertEqual(["gpt-6-sol", "gpt-6-luna"], self.models())

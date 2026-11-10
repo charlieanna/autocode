@@ -7,8 +7,8 @@ ends the turn (``answer_now``), and any other job starts once nothing stands in 
 it (``start_named_job``). In a chat run
 (spec-first) Requirements answers every message first, whatever it says; until
 it finds work to do, the person's newest reply becomes the run's task, and a job
-other than a question starts once the person approves what Requirements understood.
-Only a chat report that names no job leaves the job to the recognizer after that approval.
+other than a question starts once the person approves what Requirements understood; a
+chat report that names no job is then planned as a build.
 This module also reads only the active stage's assistant reply, never tool
 output or reasoning. A partial reply carries no planning authority.
 """
@@ -94,12 +94,11 @@ def adopt_reply(state: RunState):
     return True
 
 
-def recognize_after_approval(state: RunState):
-    """Once the person approves what Requirements understood, start the job it named, else recognize it.
+def start_after_approval(state: RunState):
+    """Once the person approves what Requirements understood, start the job it named, a build when it named none.
 
-    Recognition keeps ``workflow.then`` as the build pipeline's entry, so a later request is gathered
-    again; ``requirements_approved`` tells workflows.apply that this one already was. A job with its
-    own first stage starts there once; when it hands back for planning, the approval stands.
+    The job keeps ``workflow.then`` as the build pipeline's entry, so a later request is gathered
+    again; ``requirements_approved`` tells workflows._start that this one already was.
     """
     # Every turn of a chat begins at Requirements (#1860), so a follow-up's approval starts its job too.
     if not enabled(state) or "workflow" not in state or state.get("pending_questions"):
@@ -111,13 +110,10 @@ def recognize_after_approval(state: RunState):
         return False
     kind = state["workflow"].get("kind")
     handoff = state["requirements_handoff"]
-    if kind is None and workflows.named_by_requirements(handoff.get("report") or {}):
-        # Requirements named the job the person just approved (#1846): start it, no second model call.
+    if kind is None:
+        # Requirements named the job the person just approved (#1846), or none, which plans as a build.
         state["workflow"]["requirements_approved"] = True
         workflows.from_requirements(state, handoff.get("report") or {}, {"output": handoff.get("output")})
-    elif kind is None:
-        workflows.begin(state, state["workflow"].get("then") or STAGE)
-        state["workflow"]["requirements_approved"] = True
     elif not state["workflow"].get("requirements_approved"):
         # Already pinned but not yet approved (#3010): mark approved; the full pipeline is set up.
         state["workflow"]["requirements_approved"] = True
@@ -159,8 +155,8 @@ def start_named_job(state: RunState, record: dict) -> bool:
 
     A plain CLI run has no confirmation stop, and neither has a follow-up turn whose earlier plan
     still stands; a chat's first handoff waits for the person's approval instead
-    (recognize_after_approval). A report that names no job plans as a build. A job already known
-    (pinned with --workflow, or recognized) keeps the stage the handoff chose."""
+    (start_after_approval). A report that names no job plans as a build. A job already known
+    (pinned with --workflow) keeps the stage the handoff chose."""
     if (state.get("workflow") or {}).get("kind") is not None or "workflow" not in state:
         return False
     workflows.from_requirements(state, (state.get("requirements_handoff") or {}).get("report") or {}, record)

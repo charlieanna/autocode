@@ -100,18 +100,15 @@ class StageChoiceTests(unittest.TestCase):
             self.assertTrue(stage["does"] and stage["advice"], stage["id"])
 
     def test_each_stage_names_the_jobs_that_run_on_its_choice(self):
-        # A workflow job copies its route from a stage the person chooses (role_transport.DERIVED_ROLES; the Code
-        # Reviewer and Design Reviewer in units/autoreview), so that stage says so. A live bug fix ran its
-        # Investigator on the Plan Reviewer's model while no stage's text named the Investigator.
+        # A workflow job copies its route from a stage the person chooses (role_transport.DERIVED_ROLES; the
+        # Design Reviewer in units/autoreview), so that stage says so. A live bug fix ran its Investigator on
+        # the Plan Reviewer's model while no stage's text named the Investigator.
         current = choices.view("claude", **self.kw)
         text = {stage["id"]: f"{stage['label']}: {stage['does']}" for stage in current["stages"]}
         named = {role: role_names.SCREEN[role_names.ROUTE_JOB[role]] for role in role_transport.DERIVED_ROLES}
         named["acceptance_tester"] = "acceptance tests"
-        # The utility route is its own --utility-model, never a stage choice.
-        jobs = [
-            (sources[0], named[role]) for role, sources in role_transport.DERIVED_ROLES.items() if role != "utility"
-        ]
-        jobs += [("plan_reviewer", role_names.SCREEN["design_reviewer"]), ("sol", role_names.SCREEN["code_reviewer"])]
+        jobs = [(sources[0], named[role]) for role, sources in role_transport.DERIVED_ROLES.items()]
+        jobs += [("plan_reviewer", role_names.SCREEN["design_reviewer"])]
         for stage, job in jobs:
             self.assertIn(job, text[stage], stage)
 

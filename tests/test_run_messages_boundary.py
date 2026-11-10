@@ -175,7 +175,7 @@ class MessageBoundaryTests(unittest.TestCase):
         self.assertFalse(self.consume(), "reopen cannot reapply or relaunch the same message")
 
     def test_cli_explains_queued_discussion_handoff_without_releasing_pause(self):
-        self.state.update(next_stage="answer_question", iteration=1, sessions={})
+        self.state.update(next_stage="astra_discovery", iteration=1, sessions={})
         self.save()
         self.submit("fix-request")
         self.submit("pause-request", "pause")
@@ -196,7 +196,7 @@ class MessageBoundaryTests(unittest.TestCase):
         self.assertFalse((self.run / "iterations").exists(), "Reading the handoff must not launch a provider")
 
     def controller_boundary(self, *, hold=None):
-        self.state.update(next_stage="answer_question", iteration=1, sessions={})
+        self.state.update(next_stage="astra_discovery", iteration=1, sessions={})
         stop.run_messages.receive(self.state, receipt(text="Please fix it."))
         self.save()
         if hold:

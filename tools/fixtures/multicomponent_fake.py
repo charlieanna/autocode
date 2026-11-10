@@ -266,15 +266,6 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
         "conflict_resolutions": [],
         "requirement_trace": [{"requirement_id": "R1", "disposition": "covered", "evidence": spec["description"]}],
     }
-    if stage == "recognize_workflow":
-        # Vague keeps the Requirements stage this fake's requirement trace relies on (adaptive planning is the default).
-        return {
-            "workflow": "build",
-            "reason": "Scripted: component builds are builds",
-            "signals": [],
-            "design_document": "",
-            **({"clarity": "vague"} if 'Add "clarity"' in PROMPT else {}),
-        }
     if stage == "investigate_stuck":
         report = {
             "diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.",

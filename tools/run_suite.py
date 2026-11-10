@@ -34,7 +34,7 @@ report (#545).
 
 --changed runs the tests for the files changed since a base (committed,
 staged, unstaged and untracked): a changed test module, the tests named after a
-changed tools/ module (autocode_review_job.py -> test_review_job*), the tests
+changed tools/ module (autocode_stuck_job.py -> test_stuck_job*), the tests
 that import it directly, the tests that mention a changed resource by name,
 explicit resource/public-CLI consumers, and always test_architecture. Suite
 machinery changes select the gate's own controls and small public contracts.

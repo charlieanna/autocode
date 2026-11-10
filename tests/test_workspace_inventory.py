@@ -1,14 +1,11 @@
 """Navigation preserves exact task inputs without widening filesystem access."""
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-import autocode_review_job as review
 from units import autoplanner as planner
-from units import autoreview
 
 
 class WorkspaceInventoryTests(unittest.TestCase):
@@ -45,20 +42,6 @@ class WorkspaceInventoryTests(unittest.TestCase):
         self.assertEqual("zzz/target.py", result["files"][0])
         self.assertLessEqual(len(result["files"]), 2)
         self.assertTrue(result["truncated"])
-
-    def test_real_reviewer_handoff_retains_task_and_explicit_inputs(self):
-        for n in range(45):
-            self.write(f"archive/review/report/findings{n}.json")
-        self.write("review-change.diff")
-        self.write("tests/test_actual.py")
-        task = "Review review-change.diff; report findings. Run tests.test_actual.Case.test_guard."
-        state = {"task": task, "workspace": str(self.root), "settings": {"engine": "codex"}}
-        request = autoreview.job_request(state, review, "sol", "sol")
-        packet = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
-        self.assertEqual(task, packet["task"])
-        self.assertEqual(["review-change.diff", "tests/test_actual.py"], packet["workspace_inventory"]["files"][:2])
-        self.assertEqual(review.SCHEMA, request.schema)
-        self.assertIn("Prove every blocking finding", request.prompt)
 
     def test_explicit_input_cannot_bypass_exclusions_or_symlink_policy(self):
         for name in (".autocode/private.py", ".git/config", "node_modules/x.py", "cache.pyc"):

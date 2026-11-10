@@ -756,9 +756,9 @@ class ValidatorNoteTests(unittest.TestCase):
     def test_the_validator_is_told_and_the_builder_is_not(self):
         from units import common
 
-        from tests.test_bug_job import approved_small_fix
+        from tests.saved_diagnosis import approved_fix
 
-        state = approved_small_fix()
+        state = approved_fix()
         schemas = Path(check_replay.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"
         validator = common.execution_request(state, "sol", state_path, schemas)

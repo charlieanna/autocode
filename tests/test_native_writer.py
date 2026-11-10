@@ -395,7 +395,6 @@ class FirstWriterAuthorityTests(unittest.TestCase):
             write=util.atomic_json,
             snapshot=lambda value: source_scope.snapshot(self.root, value),
             planning_stages=("requirements_gather",),
-            recognizer="recognize_workflow",
         )
         native.guard(state, "terra", allow_write=True)
         state["next_stage"] = "terra"

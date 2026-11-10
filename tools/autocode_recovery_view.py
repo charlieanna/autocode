@@ -332,13 +332,11 @@ def native_cleanup_need(state: RunState):
         from . import autocode_roles as roles
         from . import autocode_util as util
         from . import autocode_visual_profile as profile
-        from . import autocode_workflows as workflows
     except ImportError:
         import autocode_native_stage_recovery as native_recovery
         import autocode_roles as roles
         import autocode_util as util
         import autocode_visual_profile as profile
-        import autocode_workflows as workflows
     valid_intent = True
     try:
         native = profile.initial_intent(state.get("task") or "") is not None
@@ -355,7 +353,7 @@ def native_cleanup_need(state: RunState):
     )
     if attempt is not None and valid_intent:
         try:
-            native_recovery.request(state, attempt, {*roles.PLANNING_V2_STAGES, workflows.STAGE})
+            native_recovery.request(state, attempt, set(roles.PLANNING_V2_STAGES))
         except util.Paused:
             pass
         else:

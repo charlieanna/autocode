@@ -211,9 +211,9 @@ class BuilderRequestTests(unittest.TestCase):
     def test_a_small_clear_bugfix_reuses_its_complete_test_source_without_changing_the_handoff(self):
         from units import common
 
-        from tests.test_bug_job import approved_small_fix
+        from tests.saved_diagnosis import approved_fix
 
-        state = approved_small_fix()
+        state = approved_fix()
         state["workflow"].update(clarity="clear", brief_size="small")
         root = Path(state["workspace"])
         (root / "tests").mkdir(exist_ok=True)
@@ -238,9 +238,9 @@ class BuilderRequestTests(unittest.TestCase):
     def test_the_builders_request_carries_the_examples_and_the_validators_does_not(self):
         from units import common
 
-        from tests.test_bug_job import approved_small_fix
+        from tests.saved_diagnosis import approved_fix
 
-        state = approved_small_fix()
+        state = approved_fix()
         root = Path(state["workspace"])
         (root / "tests").mkdir(exist_ok=True)
         (root / "tests" / "test_client.py").write_text("import unittest  # the house style\n")
@@ -255,9 +255,9 @@ class BuilderRequestTests(unittest.TestCase):
     def test_the_examples_follow_the_static_notes_in_the_builders_request(self):
         from units import common
 
-        from tests.test_bug_job import approved_small_fix
+        from tests.saved_diagnosis import approved_fix
 
-        state = approved_small_fix()
+        state = approved_fix()
         root = Path(state["workspace"])
         (root / "tests").mkdir(exist_ok=True)
         (root / "tests" / "test_client.py").write_text("import unittest\n")

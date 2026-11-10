@@ -28,23 +28,13 @@ JUDGING_STAGES = ("sol", "astra_review", "astra_checkpoint", "astra_resolve")
 
 # Repository paths a workflow job's model may change, by stage. Any other change is a stray write:
 # the job rejects the attempt and the runner puts the files back (autocode_stray_writes). A job not
-# listed may change nothing; answer_question may change only the note its report names.
-JOB_WRITES = {
-    "review_change": ("review/",),
-    "review_design": ("review/",),
-    "investigate_bug": ("docs/bugs/",),
-}
+# listed may change nothing; today no job is listed.
+JOB_WRITES: dict[str, tuple[str, ...]] = {}
 # write_acceptance_tests (a spec-first run's Tester) may change test files only, wherever the project keeps
 # them; its job checks autocode_verify.is_test_path rather than a prefix (autocode_acceptance_tests_job).
 # Like the Builder it writes while it runs, so the native OpenCode snapshot guard, which pauses a stage whose
 # repository changed mid-run (autocode_readonly_events), does not apply; its report repair stays read-only.
 WRITING_JOBS = ("write_acceptance_tests",)
-
-# What a native OpenCode snapshot may gain while a stage runs: new files only, proved with Git;
-# an edit or deletion still pauses (#332). Always within that stage's JOB_WRITES.
-OPENCODE_ADDITIONS = {
-    "review_change": ("review/",),
-}
 
 # Where a workflow job keeps scratch copies and test output: inside the workspace, because OpenCode
 # stops a stage that touches an external directory (#228, #301), and under .autocode/, which every
@@ -63,13 +53,8 @@ def stray(stage: str, changed_files) -> list[str]:
     return sorted(str(path) for path in (changed_files or []) if not str(path).startswith(allowed))
 
 
-def opencode_additions(stage: str) -> tuple[str, ...]:
-    """The prefixes under which a native OpenCode snapshot of ``stage`` may gain new files."""
-    return OPENCODE_ADDITIONS.get(stage.removesuffix("_report_repair"), ())
-
-
 def scratch(stage: str) -> str:
-    """The workspace-relative scratch directory a job's prompt names, e.g. .autocode/scratch/review_design."""
+    """The workspace-relative scratch directory a job's prompt names, e.g. .autocode/scratch/check_design."""
     return SCRATCH_ROOT + stage
 
 

@@ -38,13 +38,8 @@ ACTIVITIES = {
     "astra_diagnose": "Diagnosing a failure",
     "resolver": "Runner decision (no model call)",
     "orchestrator": "Coordinating Builders",
-    "recognize_workflow": "Recognizing the job",
-    "review_change": "Reviewing changes",
-    "investigate_bug": "Investigating",
     "investigate_stuck": "Investigating",
-    "review_design": "Checking the design",
     "check_design": "Checking the design",
-    "answer_question": "Answering the question",
 }
 ALIASES = {
     "glm": "planner",
@@ -58,8 +53,7 @@ ALIASES = {
     "autoresolver": "resolver",
     "validator": "tester",
     "completion reviewer": "completion",
-    "reviewer": "code_reviewer",
-    "architect": "designer",
+    "architect": "design_reviewer",
 }
 # Actual V2 stages are in the canonical catalogue; only legacy aliases belong here.
 STAGE_ALIASES = {"astra_diagnose": "astra_resolve", "resolver": "astra_resolve"}
@@ -80,8 +74,7 @@ CATALOGUE: dict[str, Any] = {
     "roles": {
         **roles.SCREEN,
         "validator": roles.SCREEN["tester"],
-        "reviewer": roles.SCREEN["code_reviewer"],
-        "architect": roles.SCREEN["designer"],
+        "architect": roles.SCREEN["design_reviewer"],
     },
     "aliases": ALIASES,
     "stages": {

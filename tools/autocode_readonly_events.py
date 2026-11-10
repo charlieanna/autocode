@@ -7,7 +7,6 @@ covered. Never interpret model text or a tool's output as filesystem evidence.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -17,15 +16,13 @@ from pathlib import Path
 try:
     from . import autocode_agent_env as agent_env
     from . import autocode_opencode_snapshots as native_snapshots
-    from . import autocode_review_job as review_job
     from . import autocode_stage_access as stage_access
-    from .autocode_util import Paused, digest
+    from .autocode_util import Paused
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_opencode_snapshots as native_snapshots
-    import autocode_review_job as review_job
     import autocode_stage_access as stage_access
-    from autocode_util import Paused, digest
+    from autocode_util import Paused
 
 
 records_native_snapshots = native_snapshots.records_native_snapshots  # the launch site and the guard share it
@@ -68,41 +65,11 @@ def assert_unchanged_review(record, *, workspace=None):
                 changes.add((baseline, snapshot))
     if not changes:
         return
-    protected = _protected_paths(record)
-    if workspace is not None and native_snapshots.workspace(record) != Path(workspace).resolve():
-        protected = None
-    if protected is not None and native_snapshots.only_new_artifacts(
-        record, sorted(changes), protected, stage_access.opencode_additions(review_job.STAGE)
-    ):
-        return
     raise Paused(
         "PAUSED_STALE_VALIDATION",
         "Repository changed during read-only review in OpenCode's recorded snapshots, "
         "even if restored before the final report; inspect saved events and revalidate",
     )
-
-
-def _protected_paths(record):
-    """Only a normal Code Review may add evidence; its source capture binds existing paths."""
-    if record.get("stage") != review_job.STAGE or record.get("report_only"):
-        return None
-    try:
-        capture = record["job_source"]
-        raw = Path(capture["capture"]).read_bytes()
-        if hashlib.sha256(raw).hexdigest() != capture["capture_hash"]:
-            return None
-        original = json.loads(raw)["original"]
-        files = original["files"]
-        if (
-            not isinstance(files, dict)
-            or not all(isinstance(name, str) for name in files)
-            or digest(original) != capture["before_identity"]
-            or sorted(files) != capture["paths"]
-        ):
-            return None
-        return set(files)
-    except (KeyError, TypeError, ValueError, OSError):
-        return None
 
 
 def launch_excludes(workspace, engine, adapter, environment=None, *, dry_run=False):
@@ -133,10 +100,6 @@ def prepare_opencode_snapshots(workspace, *, record=None, env=None, excludes=Non
         record.get("engine"), record.get("output_mode", "opencode_events")
     ):
         return  # Codex and report_file tools record no native snapshots; nothing to align.
-    # Written only here, before provider admission; the native-tree reader uses
-    # this stage-record metadata on immediate parsing and saved-report recovery.
-    if record is not None and record.get("stage") == review_job.STAGE and not record.get("report_only"):
-        record["opencode_snapshot_context"] = native_snapshots.context(workspace, env, native_snapshots.app(record))
     try:
         name = subprocess.check_output(
             ["git", "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],

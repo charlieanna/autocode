@@ -10,9 +10,7 @@
   package command's per-test results inside the package (``recognize``);
 - the regression proof leaves a change outside the package unverified (``uncovered``), and in every
   package run a change outside it is a runner finding (``changes_outside``, read by
-  autocode_package_writes); neither counts the paths autocode_package_writes.exempt names;
-- the bug-fix Investigator's diagnosis may name only paths inside the package (``named_outside``, read
-  by autocode_bug_job.check).
+  autocode_package_writes); neither counts the paths autocode_package_writes.exempt names.
 
 An explicit ``--test-command`` still runs from the repository root, exactly as given. Written as
 ``cd PATH && RUNNER`` for the run's own package, the proof reads it with that runner inside the

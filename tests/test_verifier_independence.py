@@ -54,15 +54,10 @@ class VerifierIndependenceTests(unittest.TestCase):
         self.assertNotEqual([], independence.violations(same))
         self.assertEqual([], independence.violations({**same, "single_model_mode": True}))
 
-    def test_a_workflow_without_producers_has_no_pairs_to_break(self):
+    def test_every_kind_of_job_is_checked_the_same(self):
+        # Every task takes the same path (#3010): a review or discussion builds and is checked too.
         same = settings(terra=GLM, sol=GLM, completion=GLM, glm=MIMO, plan_reviewer=MIMO)
-        self.assertEqual([], independence.clashes(same, "review"))
-        self.assertEqual([], independence.violations(same, "review"))
-        # The discuss workflow's only stage is the Analyst's answer: nothing is built to grade.
-        self.assertEqual([], independence.clashes(same, "discuss"))
-        self.assertEqual([], independence.violations(same, "discuss"))
-        self.assertEqual(3, len(independence.violations(same, "build")))
-        self.assertEqual(3, len(independence.violations(same, "bugfix")))
+        self.assertEqual(3, len(independence.clashes(same)))
         self.assertEqual(3, len(independence.violations(same)))
 
     def test_another_providers_openai_prefix_may_share_but_does_not_clash(self):

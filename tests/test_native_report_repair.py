@@ -85,7 +85,6 @@ class NativeRepairFixture(unittest.TestCase):
             write=write,
             snapshot=lambda value: {"controlled": "snapshot"},
             planning_stages=runner.planning.V2_STAGES,
-            recognizer=runner.workflows.STAGE,
         )
         self.snapshot = {"head": "controlled-head", "files": {}}
         self.snapshot["revision"] = util.digest(self.snapshot)

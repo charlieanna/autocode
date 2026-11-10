@@ -7,12 +7,10 @@ The status view, the stage artifacts and the workspace are the oracles.
 
 from __future__ import annotations
 
-import ast
 import copy
 import dataclasses
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -24,8 +22,6 @@ import autocode_acceptance_tests as acceptance
 import autocode_dispatch as dispatch
 import autocode_taskrun as taskrun
 from autocode_stray_writes import StrayWrites
-
-from . import legacy_bugfix_fixture
 
 SCENARIOS = Path(__file__).resolve().parents[1] / "scenarios"
 if str(SCENARIOS) not in sys.path:
@@ -1120,7 +1116,6 @@ class AcceptanceTestsCliTests(unittest.TestCase):
             env=environment,
             timeout=240,
             cwd=self.root,
-            command=legacy_bugfix_fixture.COMMAND if self.scenario.category == "bugfix" else taskrun.AUTOCODE,
         )
         for _ in range(16):
             view = run.advance_until_input()
@@ -1377,231 +1372,6 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         self.assertIn(
             "Your previous attempt changed the Tester's lines in tests/test_stock.py", prompts[-1].read_text()
         )
-
-    def test_a_bug_fix_gets_its_reproduction_tests_from_the_tester_before_the_fix(self):
-        self.scenario = catalog.load("bugfix-trivial")
-        run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
-        self.assertTrue(view["done"], self.details(view))
-        order = self.stage_order(run)
-        self.assertLess(order.index("bug-investigation"), order.index("acceptance-tests"), order)
-        self.assertLess(order.index("acceptance-tests"), order.index("builder"), order)
-        results = view["acceptance_tests"]["results"]
-        self.assertTrue(results)
-        self.assertEqual({"fails"}, set(results.values()), "a reproduction must really fail before the fix")
-
-    def shared_binding_scenario(self, *, omit_extra=False, passing_restore=False):
-        loaded = catalog.load("bugfix-trivial")
-        directory = self.root / "shared-binding-scenario"
-        shutil.copytree(loaded.dir, directory)
-        seed = (directory / "seed/tests/test_pager.py").read_text().split('\n\nif __name__ == "__main__":')[0]
-        restore_result = 2 if passing_restore else 3
-        tests = (
-            "\n\nclass BindingTests(unittest.TestCase):\n"
-            "    def test_t1_partial_page(self):\n"
-            f"        self.assertEqual({restore_result}, page_count(11, 5))\n\n"
-            "    def test_t2_existing_multiple(self):\n"
-            "        self.assertEqual(2, page_count(10, 5))\n"
-        )
-        if not omit_extra:
-            tests += "\n    def test_ac3_single_item(self):\n        self.assertEqual(1, page_count(1, 5))\n"
-        (directory / "reference/tests/test_pager.py").write_text(seed + tests)
-        note = directory / "reference/docs/bugs/shared-bindings.json"
-        note.parent.mkdir(parents=True)
-        note.write_text(
-            json.dumps(
-                {
-                    "observed": "Partial pages are dropped",
-                    "reproduction": "page_count(11, 5) returns 2, expected 3",
-                    "root_cause": "integer division drops the partial final page",
-                    "invariant": "Count a partial page while preserving exact multiples",
-                    "affected_paths": ["pager/__init__.py"],
-                    "test_cases": [
-                        {"id": "T1", "given": "11 items", "when": "page_count(11, 5)", "then": "3"},
-                        {"id": "T2", "kind": "preserve", "given": "10 items", "when": "page_count(10, 5)", "then": "2"},
-                    ],
-                }
-            )
-        )
-        self.scenario = dataclasses.replace(
-            loaded,
-            dir=directory,
-            fake_fault="",
-            fake_criteria={
-                "AC1": "test: test_t1_partial_page",
-                "AC2": "guard: test_t2_existing_multiple",
-                "PLAN_EXTRA": "test: test_ac3_single_item",
-            },
-        )
-
-    def test_shared_bindings_complete_with_one_function_and_receipts_for_every_case(self):
-        self.shared_binding_scenario()
-        run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
-        self.assertTrue(view["done"], self.details(view))
-        expected = {"T1": "fails", "T2": "passes", "AC1": "fails", "AC2": "passes", "PLAN_EXTRA": "fails"}
-        self.assertEqual(expected, view["acceptance_tests"]["results"])
-        tree = ast.parse((project / "tests/test_pager.py").read_text())
-        names = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
-        self.assertEqual(6, len(names), "three original tests plus three new functions cover all five obligations")
-        self.assertEqual(1, names.count("test_t1_partial_page"))
-        self.assertEqual(1, names.count("test_t2_existing_multiple"))
-        self.assertEqual(1, self.stage_order(run).count("acceptance-tests"))
-
-    def test_shared_bindings_do_not_hide_an_unmapped_missing_case(self):
-        self.shared_binding_scenario(omit_extra=True)
-        run, _, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
-        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", view["status"], self.details(view))
-        self.assertIn("PLAN_EXTRA", view["stop_reason"])
-        self.assertNotIn("builder", self.stage_order(run))
-
-    def test_shared_restore_that_already_passes_cannot_be_silently_relabelled(self):
-        self.shared_binding_scenario(passing_restore=True)
-        run, _, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
-        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", view["status"], self.details(view))
-        self.assertIn("T1", view["stop_reason"])
-        self.assertIn("diagnosis", view["stop_reason"])
-        self.assertNotIn("builder", self.stage_order(run))
-
-    def test_bare_pytest_suite_completes_without_zero_collection_repairs_or_replanning(self):
-        loaded = catalog.load("bugfix-trivial")
-        directory = self.root / "pytest-scenario"
-        shutil.copytree(loaded.dir, directory)
-        source = """import pytest
-from pager import page, page_count, pages
-def test_exact_multiple():
-    assert page_count(10, 5) == 2
-    assert pages(list(range(1, 11)), 5) == [[1,2,3,4,5], [6,7,8,9,10]]
-def test_partial_last_page_is_counted():
-    assert page_count(11, 5) == 3
-    assert page_count(1, 5) == 1
-def test_first_page():
-    assert page([1,2,3,4,5,6], 1, 3) == [1,2,3]
-def test_page_size_must_be_positive():
-    with pytest.raises(ValueError):
-        page_count(3, 0)
-"""
-        (directory / "reference/tests/test_pager.py").write_text(source)
-        (directory / "seed/tests/test_pager.py").write_text(
-            "import pytest\nfrom pager import page, page_count, pages\n"
-            "def test_exact_multiple():\n assert page_count(10, 5) == 2\n"
-            " assert pages(list(range(1, 11)), 5) == [[1,2,3,4,5], [6,7,8,9,10]]\n"
-            "def test_first_page():\n assert page([1,2,3,4,5,6], 1, 3) == [1,2,3]\n"
-            "def test_page_size_must_be_positive():\n with pytest.raises(ValueError):\n  page_count(3, 0)\n"
-        )
-        self.scenario = dataclasses.replace(
-            loaded, dir=directory, fake_check="python3 -m pytest -q -p no:cacheprovider"
-        )
-        _, _, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
-        self.assertTrue(view["done"], self.details(view))
-        attempts = view["usage"]["accounting"]["attempts"]
-        self.assertEqual(1, sum(row["stage"] == "astra_discovery" for row in attempts))
-        self.assertEqual(1, sum(row["stage"] == "write_acceptance_tests" for row in attempts))
-        self.assertFalse(any(row["report_only"] for row in attempts), [(r["stage"], r["rejected"]) for r in attempts])
-        self.assertEqual({"fails"}, set(view["acceptance_tests"]["results"].values()))
-        self.assertIn("sol", {row["stage"] for row in attempts})
-        self.assertIn("astra_review", {row["stage"] for row in attempts})
-
-    def test_the_pause_on_a_passing_reproduction_names_feedback_and_feedback_revises_the_plan(self):
-        # The scripted reproduction names test_first_page, which the seed already passes (#1869).
-        loaded = catalog.load("bugfix-trivial")
-        self.scenario = dataclasses.replace(loaded, fake_criteria={"C9": "test: test_first_page"})
-        correction = "The reproduction passes: the diagnosis names the wrong cause; look again."
-        run, project, view = self.run_to_end(
-            "--joint-planning",
-            "--no-adaptive-planning",
-            "--spec-first",
-            plan_messages={correction: ("change", "I will revise the diagnosis and return the plan for approval.")},
-        )
-        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", view["status"], self.details(view))
-        self.assertEqual("resume", view["needs"]["kind"])
-        self.assertIn("--feedback", view["needs"]["action"])
-        self.assertIn("--resume-paused", view["needs"]["guidance"])
-        offered = view["chat"]["input"]
-        self.assertEqual("feedback", offered["kind"])
-        self.assertIn("--feedback MESSAGE", offered["next_command"])
-        self.assertIn("--feedback", view["next_command"])
-        self.assertNotIn("--resume-paused", view["next_command"])
-        after = run.feedback(correction)
-        self.assertNotEqual("PAUSED_ACCEPTANCE_TESTS", after["status"], self.details(after))
-        view = run.advance_until_input()
-        self.assertEqual("approve_plan", view["needs"]["kind"], self.details(view))
-
-    def test_a_question_at_the_approved_acceptance_hold_does_not_restart_planning(self):
-        loaded = catalog.load("bugfix-trivial")
-        self.scenario = dataclasses.replace(loaded, fake_criteria={"C9": "test: test_first_page"})
-        question = "What needs changing here?"
-        reply = "The proposed reproduction already passes; a corrected diagnosis is needed before retrying."
-        correction = "Change the expected first-page result to a tuple."
-        run, project, before = self.run_to_end(
-            "--joint-planning",
-            "--no-adaptive-planning",
-            "--spec-first",
-            plan_messages={question: ("question", reply), correction: ("change", "I will revise the expected result.")},
-        )
-        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", before["status"], self.details(before))
-        order = self.stage_order(run)
-        approved = before["approved_contract"]
-        run.feedback(question)
-        answered = run.advance_until_input()
-        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", answered["status"], self.details(answered))
-        self.assertEqual(before["stop_reason"], answered["stop_reason"])
-        self.assertEqual(approved, answered["approved_contract"])
-        self.assertEqual(order + ["requirements-gather"], self.stage_order(run))
-        self.assertEqual([question, reply], [row["text"] for row in answered["chat"]["messages"]][-2:])
-        self.assertEqual(1, len(self.plan_approvals))
-        self.assertNotIn("builder", self.stage_order(run))
-        # A real change still invalidates approval and must return to review, even after a discussion.
-        run.feedback(correction)
-        queued = run.advance_until_input()
-        self.assertEqual("approve_plan", queued["needs"]["kind"], self.details(queued))
-        self.assertNotEqual(approved["token"], queued["needs"]["token"])
-        with self.assertRaises(taskrun.TaskRunError):
-            run.approve_plan(approved["token"])
-
-    def test_adaptive_acceptance_feedback_reuses_requirements_but_requires_new_approval(self):
-        loaded = catalog.load("bugfix-trivial")
-        self.scenario = dataclasses.replace(loaded, fake_criteria={"C9": "test: test_first_page"})
-        correction = "Retain the existing reproduction and revise only the test setup."
-        run, project, before = self.run_to_end(
-            "--joint-planning",
-            "--adaptive-planning",
-            "--spec-first",
-            plan_messages={correction: ("change", "I will revise the test setup in the existing plan.")},
-        )
-        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", before["status"], self.details(before))
-        order = self.stage_order(run)
-        token = before["approved_contract"]["token"]
-        run.feedback(correction)
-        after = run.advance_until_input()
-        self.assertEqual("approve_plan", after["needs"]["kind"], self.details(after))
-        new_stages = self.stage_order(run)[len(order) :]
-        self.assertEqual(1, new_stages.count("requirements-gather"), "one intent reply, no repeated Requirements")
-        self.assertIn("discovery", new_stages)
-        self.assertNotIn("builder", new_stages)
-        self.assertNotEqual(token, after["needs"]["token"])
-        with self.assertRaises(taskrun.TaskRunError):
-            run.approve_plan(token)
-
-    def test_a_bug_fix_plans_case_that_already_works_goes_back_to_plan_review_as_a_guard(self):
-        # A bug fix's plan can add test: cases beside the Investigator's reproduction (#1868). One that already
-        # passes is the same disagreement as in a build: the runner relabels it guard:, plan review runs again,
-        # and the run goes on to the fix. Only the reproduction itself must keep failing.
-        self.scenario = dataclasses.replace(
-            catalog.load("bugfix-trivial"),
-            fake_fault="",
-            fake_criteria={"PLAN_C1": "test: test_page_size_must_be_positive"},
-        )
-        run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
-        self.assertTrue(view["done"], self.details(view))
-        self.assertEqual(2, len(self.plan_approvals), "the corrected plan needs its own approval")
-        criteria = {row["id"]: row for row in view["approved_contract"]["body"]["acceptance_criteria"]}
-        self.assertEqual("guard: test_page_size_must_be_positive", criteria["PLAN_C1"]["verification_method"])
-        results = view["acceptance_tests"]["results"]
-        self.assertEqual("passes", results["PLAN_C1"])
-        self.assertIn("fails", results.values(), "the bug's reproduction must still fail before the fix")
-        order = self.stage_order(run)
-        repair = order.index("acceptance-tests-report-repair")
-        self.assertIn("plan-challenge", order[repair:], order)
-        self.assertLess(order.index("acceptance-tests"), order.index("builder"), order)
 
     def test_without_the_setting_the_builder_writes_the_tests_as_before(self):
         run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning")

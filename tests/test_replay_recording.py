@@ -623,11 +623,6 @@ class ExportAndMaterializationTests(unittest.TestCase):
         self.assertEqual("build", loaded.document["launch"]["workflow_pin"])
         self.assertEqual({"mode": "glm_first_v1"}, loaded.document["launch"]["settings"]["workflow"])
         self.assertEqual(original, self.projection)
-        changed = copy.deepcopy(loaded.document)
-        changed["dispatches"][0]["stage"] = "recognize_workflow"
-        manifest.write_text(json.dumps(changed))
-        with self.assertRaisesRegex(recording.RecordingError, "conflicts with a recognizer dispatch"):
-            recording.load(manifest)
 
     def test_archived_prompt_identity_retains_known_unknown_and_legacy_absence(self):
         for index, identity in enumerate(("a" * 64, None, "absent")):

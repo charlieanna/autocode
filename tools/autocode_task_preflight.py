@@ -141,7 +141,7 @@ def configure(state: RunState, settings, args):
 def phase_for(stage):
     if stage in ("terra", "orchestrator"):
         return "build"
-    if stage in ("sol", "astra_checkpoint", "astra_review", "completion", "review_change"):
+    if stage in ("sol", "astra_checkpoint", "astra_review", "completion"):
         return "validate"
     return "planning"
 

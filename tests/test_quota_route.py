@@ -532,12 +532,12 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertEqual("abandoned", self.stopped(plain)["kind"])
 
     def test_a_job_route_without_a_flag_is_routable_but_never_named_by_a_flag(self):
-        state = self.job_state(stage="investigate_bug", role="astra", route_role="investigator")
+        state = self.job_state(stage="check_design", role="astra", route_role="architect")
         attempt = self.stopped(state)
-        self.assertEqual(("job", "investigator"), (attempt["kind"], attempt["role"]))
+        self.assertEqual(("job", "architect"), (attempt["kind"], attempt["role"]))
         asked = quota_route.question(state, attempt)
-        self.assertEqual(("route-investigator", "Investigator"), (asked["id"], asked["job"]))
-        self.assertIs(asked, quota_route.asked_route([asked], "route-investigator"))
+        self.assertEqual(("route-architect", "Design Reviewer"), (asked["id"], asked["job"]))
+        self.assertIs(asked, quota_route.asked_route([asked], "route-architect"))
         for kind in ("job", "stage"):
             self.assertNotRegex(quota_route.advice(asked, "001/validator-01", kind=kind), r"--[a-z-]+-model")
         investigator = self.stopped(

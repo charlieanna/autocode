@@ -2,10 +2,9 @@
 
 ``autocode --run-dir R --follow-up TEXT`` on a finished run records TEXT as a new turn and
 reopens the run: Requirements reads TEXT (with the earlier turn as context) and names the
-next workflow, in the same run directory (#1860); a flow without Requirements has the job
-recognizer pick it. "Review PR #184" then "Fix them." is one conversation: the review's
-findings carry forward, and a build that acts on them is planned from them, the way a bug
-fix is planned from its diagnosis (autocode_bug_job). Without Requirements, requirements
+next workflow, in the same run directory (#1860); a flow without Requirements plans it as a
+build. A finished review an earlier runtime's Code Reviewer saved carries its findings
+forward: "Fix them." is then planned from them, and without Requirements, requirements
 gathering is skipped for it. Plan review and the user's approval still apply.
 
 This module reads the run state, the saved reports and snapshots, and the workspace (a turn's
@@ -26,10 +25,9 @@ State keys written here:
                                         "summary", "satisfied", "concerns": [...], "questions": [...],
                                         "blocking": [...], "advisory": [...], "revision", "revisions": [...]}
                                     or absent}}]
-        One entry per follow-up. Read by autocode_workflows.follow_up (Requirements, or the recognizer,
-        judges the newest message; it also gets previous.design, so "Build it." after a design turn
-        names that design), by design_review_to_revise (a reply to a design review: the Architect revises the
-        report carried here, autocode_design_job), by review_findings (the Planner's handoff) and by
+        One entry per follow-up. Read by autocode_workflows.follow_up (Requirements judges the newest
+        message; it also gets previous.design, so "Build it." after a design turn names that design),
+        by review_findings (the Planner's handoff) and by
         the status and progress views. A review's blocking and advisory are its OPEN concerns
         (id, area, summary); concerns is every concern as the report has it, resolved ones included.
         stage_index is len(state["stages"]) when the turn was said: the turn's stage records start
@@ -102,7 +100,7 @@ FINDING_FIELDS = (
     "disposition",
 )
 CONCERN_FIELDS = ("id", "area", "summary")
-# A design review's concern as the Architect revises it: everything the report says about it.
+# A saved design review's concern: everything the report says about it.
 REVISED_FIELDS = ("id", "area", "severity", "status", "resolution", "summary", "evidence", "example", "probe")
 # Where each read-only job leaves its report or note: (state key, field).
 REPORTS: dict[str, tuple[Literal["review", "design_review", "answer"], str]] = {
@@ -128,7 +126,7 @@ REOPENING = (
 
 
 def accept(state: RunState, text: str, workspace, now: str) -> None:
-    """Record ``text`` as the next turn and reopen the finished run to recognize it.
+    """Record ``text`` as the next turn and reopen the finished run at its first stage.
 
     Raises ValueError, leaving ``state`` unchanged, when the run is not finished or the
     message is empty: a running or paused run takes --feedback or an answer instead."""
@@ -141,7 +139,7 @@ def accept(state: RunState, text: str, workspace, now: str) -> None:
             "Answer its question (--answer or --delegate), approve or correct it "
             "(--approve-goal or --feedback), or resume it (--resume-paused) instead"
         )
-    # The stage the run's first request went to after recognition. A follow-up that skipped
+    # The stage the run's first request went to once its job was named. A follow-up that skipped
     # requirements gathering changed the saved one, so it is kept from the first turn.
     first = (state.get("turns") or [{}])[0].get("previous", {}).get("first_stage")
     first_stage = first or (state.get("workflow") or {}).get("then") or workflows.planner_stage(state)
@@ -274,10 +272,10 @@ def carried_design(state: RunState, workspace, changes: list[str] | None = None)
 
     A new design (propose mode) is the Markdown documents its turn wrote, README.md files left
     out (a design folder's index is no design), and only regular files inside the workspace (a
-    symbolic link could point anywhere); a design review is its whole saved report, which a reply
-    makes the Architect revise. A report that cannot be read, or that changed since the Architect's
-    review wrote it (its saved sha256), raises ValueError: the revision would start from text the
-    Architect never wrote."""
+    symbolic link could point anywhere); a design review an earlier runtime's Designer saved is its
+    whole saved report. A report that cannot be read, or that changed since the Designer wrote it
+    (its saved sha256), raises ValueError: the next turn would start from text the Designer never
+    wrote."""
     found = state.get("design_review") or {}
     if workflows.kind(state) != "design":
         return None
@@ -374,20 +372,6 @@ def current(state: RunState) -> dict | None:
     return turns[-1] if turns else None
 
 
-def design_review_to_revise(state: RunState) -> dict | None:
-    """The design review the newest turn replies to, or None.
-
-    Present when the newest turn follows a design review and was recognized as design: the
-    Architect then revises that review (autocode_design_job). It is the carried report plus the
-    user's message (``said``) and the turn's receipt (``event_id``)."""
-    turn = current(state)
-    design = (turn or {}).get("previous", {}).get("design") or {}
-    if design.get("mode") != "review" or workflows.kind(state) != "design":
-        return None
-    assert turn is not None
-    return {**design, "said": turn["say"], "event_id": turn.get("event_id")}
-
-
 # What a build of an earlier turn's design does not inherit: (state key, the existing list it moves to).
 PLANNED_FOR_THE_EARLIER_JOB: tuple[
     tuple[
@@ -454,7 +438,7 @@ def review_findings(state: RunState) -> dict | None:
     """The review findings the Planner plans a fix from, or None.
 
     Present when the newest turn follows up a review with blocking findings and the job
-    recognized for it builds or fixes code."""
+    named for it builds or fixes code."""
     turn = current(state)
     review = (turn or {}).get("previous", {}).get("review")
     if not review or not review["blocking"] or workflows.kind(state) not in ("build", "bugfix"):
