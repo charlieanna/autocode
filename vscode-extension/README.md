@@ -6,6 +6,9 @@ Early preview. Install from the Marketplace as `ankurkothari.autocode-task-chat`
 code --install-extension ankurkothari.autocode-task-chat
 ```
 
+To run the newest master instead, run `scripts/update-vscode-extension.sh` from an AutoCode
+checkout ([update from master](https://github.com/charlieanna/autocode/blob/master/docs/vscode.md#update-from-master)).
+
 The AutoCode CLI must be installed separately — see
 [Installing AutoCode](https://github.com/charlieanna/autocode/blob/master/docs/install.md).
 This extension does not bundle the CLI or model backends. Providers run on Linux

@@ -9,6 +9,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- **One command updates the VS Code extension from master**: `scripts/update-vscode-extension.sh` fetches master, builds it in a temporary worktree so your checkout is left alone, packages the extension and installs it with `code --install-extension --force` (`--local` builds the checkout as it stands). See [update from master](docs/vscode.md#update-from-master).
+
 ### Changed
 
 - **The Planner's and per-task Planner's routes are named after their jobs**: a run's routes are now `planner` and `task_planner` instead of `glm` and `astra` (the second step of replacing the code names). A provider config's `[roles]` table and `--pin-model-role` / `--role-transport` still accept the old names; a config that names one route both ways is refused. A run saved before this change is refused at resume with a message to start a new task; its status and reports stay readable.
