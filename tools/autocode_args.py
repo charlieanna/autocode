@@ -37,6 +37,7 @@ try:
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_resolver_human as resolver_human
     from . import autocode_review_args as review_args
+    from . import autocode_role_flags as role_flags
     from . import autocode_role_transport as role_transport
     from . import autocode_run_finder as run_finder
     from . import autocode_skip_requirements as skip_requirements
@@ -63,6 +64,7 @@ except ImportError:
     import autocode_requirements_triage as requirements_triage
     import autocode_resolver_human as resolver_human
     import autocode_review_args as review_args
+    import autocode_role_flags as role_flags
     import autocode_role_transport as role_transport
     import autocode_run_finder as run_finder
     import autocode_skip_requirements as skip_requirements
@@ -356,65 +358,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         action="store_true",
         help="Remove only the iteration ceiling; other safety and usage limits remain",
     )
-    for role, model in DEFAULT_ROLE_MODELS.items():
-        label = {
-            "astra": "per-task Planner (and, in a run without their own routes, the reviewers')",
-            "terra": "Builder",
-            "sol": "Tester",
-            "completion": "Completion Reviewer",
-        }[role]
-        parser.add_argument(
-            *names.spellings(f"--{role}-model"),
-            dest=f"{role}_model",
-            metavar="MODEL",
-            help=f"Override the {label} model (joint default: "
-            f"{default_models[role]}; "
-            f"Codex-only default: {model}; resumes keep the saved model)",
-        )
-    parser.add_argument(
-        *names.spellings("--astra-provider"),
-        dest="astra_provider",
-        metavar="PROVIDER",
-        help="Codex model_provider override for the per-task Planner's route",
-    )
-    parser.add_argument(
-        *names.spellings("--terra-provider"),
-        dest="terra_provider",
-        metavar="PROVIDER",
-        help="Codex model_provider override for the Builder (e.g. ZAI); default is the local Codex login",
-    )
-    parser.add_argument(
-        *names.spellings("--sol-provider"),
-        dest="sol_provider",
-        metavar="PROVIDER",
-        help="Codex model_provider override for the Tester (e.g. ZAI); default is the local Codex login",
-    )
-    parser.add_argument(
-        "--completion-provider",
-        help="Codex model_provider override for the completion owner; default is the local Codex login",
-    )
-    parser.add_argument("--reasoning-effort", choices=EFFORTS, help="Reasoning effort for roles without a role flag")
-    parser.add_argument(
-        *names.spellings("--astra-reasoning-effort"),
-        dest="astra_reasoning_effort",
-        choices=EFFORTS,
-        help="Override reasoning effort for the per-task Planner's route only",
-    )
-    parser.add_argument(
-        *names.spellings("--terra-reasoning-effort"),
-        dest="terra_reasoning_effort",
-        choices=EFFORTS,
-        help="Override reasoning effort for the Builder only",
-    )
-    parser.add_argument(
-        *names.spellings("--sol-reasoning-effort"),
-        dest="sol_reasoning_effort",
-        choices=EFFORTS,
-        help="Override reasoning effort for the Tester only",
-    )
-    parser.add_argument(
-        "--completion-reasoning-effort", choices=EFFORTS, help="Override reasoning effort for the completion owner only"
-    )
+    role_flags.add_arguments(parser, default_models, DEFAULT_ROLE_MODELS, EFFORTS)
     parser.add_argument(
         "--pin-model-role",
         action="append",
