@@ -44,6 +44,10 @@ PR template asks for an entry here; a change without one is incomplete.
   checkouts under it, as `autocode registry repositories add` and `autocode registry roots add` do.
   Before, `/repos PATH` only said the path was not registered, so a chat started outside the code
   had no way to reach it.
+- **Terminal chat, a folder of repositories**: a new chat started in a folder that is not a Git
+  checkout but holds checkouts (in it or one level down) adds that folder as a source root and says
+  so, and its run searches those checkouts. Before, it asked whether to start in an empty project,
+  and Requirements then answered that the workspace held no application source.
 
 ### Changed
 

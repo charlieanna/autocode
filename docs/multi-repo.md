@@ -35,6 +35,9 @@ Or add a folder from the terminal chat itself: `/repos ~/code/services` adds a
 source root, and `/repos ~/code/history-consumer`, a Git checkout, registers that
 checkout. Either is kept for every later chat; a chat already started keeps the
 sources it began with, so start a new one with `/new` to search the added folder.
+Starting the chat in a folder of checkouts does this for you: a new chat in a
+folder that is not a Git checkout but holds checkouts, in it or one level down,
+adds that folder as a source root, says so, and searches those checkouts.
 
 Then start plain `autocode` in a terminal (or `autocode chat`) from any directory
 and provide the ticket only. A clear bug identified by Requirements enters the

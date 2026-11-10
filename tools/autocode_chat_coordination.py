@@ -456,6 +456,62 @@ def add_source(history, argument):
     )
 
 
+LAUNCH_DEPTH = 2  # the launch folder's children and grandchildren: a folder of checkouts, or of groups of them
+LAUNCH_BUDGET = 2000  # directories looked at before giving up: the core's discovery does the real, deeper search
+SKIPPED = {".git", ".autocode", ".autocode-ui", "node_modules", "vendor", ".venv", "venv"}
+
+
+def checkouts_in(folder):
+    """The Git checkouts in the first levels of a folder that is not one itself, nearest first."""
+    found, level, seen = [], [Path(folder)], 0
+    for _ in range(LAUNCH_DEPTH):
+        below = []
+        for directory in level:
+            try:
+                children = sorted(directory.iterdir())
+            except OSError:
+                continue
+            for child in children:
+                seen += 1
+                if seen > LAUNCH_BUDGET:
+                    return found
+                if child.name in SKIPPED or child.is_symlink() or not child.is_dir():
+                    continue
+                (found if (child / ".git").exists() else below).append(child)
+        level = below
+    return found
+
+
+def include_launch_folder(history):
+    """Add the folder a new chat starts in as a source folder when it holds Git checkouts.
+
+    A folder no checkout covers gives the run an empty private project, so a person who starts
+    the chat in their folder of repositories would otherwise get "this workspace contains no
+    application source". The folder is the one they chose to start in, never model text; it is
+    added once (`registry roots add`), as /repos PATH does, unless a source folder already covers
+    it. Returns the line to show, or None when the folder holds no checkout or could not be added,
+    so the caller keeps its usual question."""
+    folder = Path(history.workspace).resolve()
+    found = checkouts_in(folder)
+    if not found:
+        return None
+    names = ", ".join(path.name for path in found[:3]) + (f" and {len(found) - 3} more" if len(found) > 3 else "")
+    try:
+        listing = history.read(["registry", "roots", "list", "--json"])
+        roots = [Path(row["path"]) for row in listing.get("roots", []) if isinstance(row, dict) and row.get("path")]
+        if any(folder == root or folder.is_relative_to(root) for root in roots):
+            return f"This folder holds Git checkouts ({names}); AutoCode already searches them for the code a request needs."
+        added = history.read(["registry", "roots", "add", str(folder), "--json"])
+    except actions.ClientGap:
+        return None
+    if added.get("operation") != "roots-add":
+        return None
+    return (
+        f"This folder holds Git checkouts ({names}), so AutoCode added it as a source folder: this chat "
+        "searches them for the code your request needs. /repos lists what AutoCode can read."
+    )
+
+
 def repositories(history, argument):
     added = add_source(history, argument) if argument.strip() else None
     listing = history.read(["registry", "roots", "list", "--json"])
