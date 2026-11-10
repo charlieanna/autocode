@@ -74,9 +74,13 @@ class GateChatCliTests(unittest.TestCase):
         run = taskrun.TaskRun(workspace, runs[0], env=env, timeout=300)
         completed = run.status()
         self.assertTrue(completed["done"], completed.get("needs"))
+        # Requirements answered in the folder; the chat then planned and built in its own worktree (#3081).
+        built = Path(completed["run_dir"])
+        self.assertNotEqual(runs[0], built)
         prompts = [
             json.loads(p.read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
-            for p in runs[0].glob("iterations/*/*.prompt.md")
+            for directory in (runs[0], built)
+            for p in directory.glob("iterations/*/*.prompt.md")
             if "CURRENT HANDOFF DATA\n" in p.read_text()
         ]
         exchanges = {p["message"]["gate_kind"]: p for p in prompts if (p.get("message") or {}).get("gate_kind")}
@@ -85,13 +89,14 @@ class GateChatCliTests(unittest.TestCase):
         self.assertEqual("astra_finalize", exchanges["plan"]["stage"])
         self.assertEqual("yes coplete", exchanges["requirements"]["message"]["text"])
         self.assertEqual("please go ahead with this exact plan", exchanges["plan"]["message"]["text"])
-        self.assertTrue((workspace / "greet.py").is_file())
+        self.assertTrue((Path(completed["workspace"]) / "greet.py").is_file())
+        self.assertFalse((workspace / "greet.py").exists(), "the person's folder is not written")
         saved_cost, saved_usage = completed["cost"], completed["usage"]
         reopened = taskrun.TaskRun(workspace, runs[0], env=env, timeout=300).status()
         self.assertEqual(saved_cost, reopened["cost"])
         self.assertEqual(saved_usage, reopened["usage"])
         exported = subprocess.run(
-            [*taskrun.AUTOCODE, "replay", str(runs[0]), "--export", str(workspace.parent / "gate-recording"), "--json"],
+            [*taskrun.AUTOCODE, "replay", str(built), "--export", str(workspace.parent / "gate-recording"), "--json"],
             text=True,
             capture_output=True,
             env={**os.environ, **env},

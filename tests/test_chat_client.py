@@ -2879,8 +2879,8 @@ class TerminalChatTests(unittest.TestCase):
         self.assertRegex(out, r"AutoCode: Approved plan · revision \d+\. /plan shows it\.")
         self.assertTrue(out.rstrip().endswith("Done."), out[-500:])
         built = self.built()
-        # Planned in the folder, built on a branch of its own: the chat says so once, after the approval,
-        # with what the build leaves out, and the delivery is committed on that branch, never merged.
+        # Planned and built on a branch of its own (#3081): the chat says so once, where it moved after the
+        # confirmed understanding, with what it leaves out, and the delivery is committed there, never merged.
         branch = subprocess.run(
             ["git", "-C", str(built.parent), "for-each-ref", "--format=%(refname:short)", "refs/heads/autocode/"],
             capture_output=True,
@@ -2888,8 +2888,10 @@ class TerminalChatTests(unittest.TestCase):
             check=True,
         ).stdout.split()
         self.assertEqual(1, len(branch), branch)
-        self.assertEqual(1, out.count(f"I build this on its own branch, {branch[0]}, in a separate copy of"), out)
-        self.assertLess(out.index("Approved plan · revision"), out.index("I build this on its own branch"))
+        moved = f"I plan and build this on its own branch, {branch[0]}, in a separate copy of"
+        self.assertEqual(1, out.count(moved), out)
+        self.assertLess(out.index("Approve understanding and prepare plan?"), out.index(moved))
+        self.assertLess(out.index(moved), out.index("Plan to approve:"))
         self.assertIn("Not included from your folder: notes.txt.", out)
         self.assertIn("When it is done, review and merge the branch; I never merge it myself.", out)
         self.assertEqual("the person's own uncommitted note\n", (self.workspace / "notes.txt").read_text())
@@ -2929,9 +2931,12 @@ class TerminalChatTests(unittest.TestCase):
         view = status()
         attempts = view["usage"]["accounting"]["attempts"]
         self.assertEqual(2, sum(row["stage"] == "requirements_gather" for row in attempts))
+        # Requirements ran in the folder; the run then moved to its own worktree to plan (#3081).
+        folder_run = self.workspace / ".autocode" / "runs" / Path(run).name
         prompts = [
             json.loads(p.read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
-            for p in Path(run).glob("iterations/*/requirements-gather-*.prompt.md")
+            for directory in (folder_run, Path(run))
+            for p in directory.glob("iterations/*/requirements-gather-*.prompt.md")
         ]
         self.assertEqual(1, sum(bool(p.get("message", {}).get("gate_kind")) for p in prompts))
         self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"])

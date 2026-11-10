@@ -635,7 +635,9 @@ class ChatScreenTests(unittest.TestCase):
         screen.keys("Enter")
         self.assertEqual(0, screen.exit_status())
         self.assertIn("Done.", screen.text(), "the closing words stay on the terminal")
-        self.assertTrue((self.workspace / "greet.py").is_file())
+        # Planned and built on a branch of its own (#3077, #3081): the person's folder is not written.
+        self.assertFalse((self.workspace / "greet.py").exists())
+        self.assertEqual(1, len(list((self.workspace / ".autocode" / "worktrees").glob("*/greet.py"))))
 
     def test_earlier_chats_are_listed_opened_and_a_new_one_started(self):
         screen = self.chat(cols=120, rows=34)
