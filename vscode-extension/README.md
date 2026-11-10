@@ -21,8 +21,9 @@ status view, and takes the action the view names. It imports nothing from
 
 Chat in the sidebar — several task tabs at once — give plan feedback, approve a
 reviewed plan, compare or restore saved code checkpoints, pause a working run
-after its current step, and continue with follow-up messages in the same run. Behind the CLI's five workflows: build, bug
-fix, review, design and discuss. Composer and scroll behavior adapt
+after its current step, and continue with follow-up messages in the same run. Every change takes
+the same path (Requirements, plan, build, independent check); a question is answered without
+changing anything. Composer and scroll behavior adapt
 selected Kilo Code components; see [attribution](https://github.com/charlieanna/autocode/blob/master/vscode-extension/THIRD_PARTY_NOTICES.md).
 It never launches a model on its own, cannot approve a plan it has not
 displayed, and keeps issued tokens in the child's environment rather than on the
