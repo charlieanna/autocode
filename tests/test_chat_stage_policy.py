@@ -294,15 +294,27 @@ class PipelineTests(unittest.TestCase):
         current = view()
         current["routes"] = {
             **ROUTES,
-            "glm": {"model": "openai/gpt-6.1-sol"},
-            "astra": {"model": "openai/gpt-6.1-sol"},
-            "plan_reviewer": {"model": "anthropic/claude-opus-5-5"},
+            "glm": {"model": "openai/gpt-6.1-sol", "reasoning_effort": "high"},
+            "astra": {"model": "openai/gpt-6.1-sol", "reasoning_effort": "xhigh"},
+            "plan_reviewer": {"model": "anthropic/claude-opus-5-5", "reasoning_effort": "high"},
             "completion": {"model": "anthropic/claude-sonnet-5-5"},
         }
         texts = [text for _mark, text in self.marks(current)]
-        self.assertEqual("Planner · gpt-6.1-sol", texts[1])
-        self.assertEqual("Plan Reviewer · claude-opus-5-5", texts[2])
-        self.assertEqual("Completion Reviewer · claude-sonnet-5-5", texts[5])
+        self.assertEqual("Planner · gpt-6.1-sol · high", texts[1])
+        self.assertEqual("Plan Reviewer · claude-opus-5-5 · high", texts[2])
+        self.assertEqual("Completion Reviewer · claude-sonnet-5-5", texts[5], "no level saved: none shown")
+
+    def test_a_row_shows_the_level_the_job_last_ran_at_over_the_saved_one(self):
+        current = decided(*EARLY_APPROVAL)
+        current["routes"] = {
+            **ROUTES,
+            "astra": {"model": "opus", "reasoning_effort": "high"},
+            "completion": {"model": "opus", "reasoning_effort": "high"},
+        }
+        current["stage_decisions"][2]["effort_choice"] = {"level": "medium", "ceiling": "high", "lowered": True}
+        texts = [text for _mark, text in self.marks(current)]
+        self.assertEqual("Plan Reviewer · opus · medium", texts[2], "the review ran one level below the saved high")
+        self.assertEqual("Completion Reviewer · opus · high", texts[5], "not run yet: the saved level")
 
     def test_an_older_core_without_the_record_marks_nothing_done(self):
         older = view()

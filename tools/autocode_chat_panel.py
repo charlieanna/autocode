@@ -567,6 +567,13 @@ def pipeline_section(view: dict | None) -> Section | None:
     decisions = _rows(view.get("stage_decisions"))
     ran_jobs = {str(row.get("job")) for row in decisions if row.get("decision") == "run"}
     skipped_jobs = {str(row.get("job")) for row in decisions if row.get("decision") == "skip"} - ran_jobs
+    # The level a job last ran at, which AutoCode may set below or above the saved one
+    # (autocode_review_effort, autocode_plan_difficulty); before it runs, its route's level.
+    ran_levels = {
+        str(row.get("job")): str(_mapping(row.get("effort_choice")).get("level"))
+        for row in decisions
+        if row.get("decision") == "run" and _mapping(row.get("effort_choice")).get("level")
+    }
 
     rows: list[Row] = []
     # Per-job cost from the breakdown.
@@ -578,6 +585,8 @@ def pipeline_section(view: dict | None) -> Section | None:
         model = str(route.get("model") or "?")
         short_model = model.rsplit("/", 1)[-1] if "/" in model else model
         screen_name = roles.SCREEN[job]
+        level = ran_levels.get(job) or route.get("reasoning_effort")
+        level_text = f" · {level}" if level else ""
 
         skipped = False
         if _is_current_job(job, current_stage, next_stage):
@@ -592,7 +601,7 @@ def pipeline_section(view: dict | None) -> Section | None:
         else:
             mark, style = "·", "dim"
 
-        # One row per stage: mark, name, model, cost — compact for the panel.
+        # One row per stage: mark, name, model, reasoning level, cost — compact for the panel.
         cost_text = ""
         job_cost = by_job.get(screen_name)
         if job_cost:
@@ -600,7 +609,11 @@ def pipeline_section(view: dict | None) -> Section | None:
             if spent is not None and spent > 0:
                 cost_text = f" · ${spent:.2f}"
         rows.append(
-            Row(mark, f"{screen_name} · skipped" if skipped else f"{screen_name} · {short_model}{cost_text}", style)
+            Row(
+                mark,
+                f"{screen_name} · skipped" if skipped else f"{screen_name} · {short_model}{level_text}{cost_text}",
+                style,
+            )
         )
 
     summary = ""
