@@ -17,17 +17,17 @@ mandatory models — each role can select any provider/model from `opencode mode
 | **Tester** | Independent validation, separate session |
 | **Completion Reviewer** | Complete/rework decision, separate session |
 
-Model overrides use the role names: `--requirements-model`, `--glm-model`,
-`--plan-reviewer-model`, `--astra-model`, `--terra-model`, `--sol-model`,
+Model overrides use the role names: `--requirements-model`, `--planner-model`,
+`--plan-reviewer-model`, `--task-planner-model`, `--builder-model`, `--tester-model`,
 `--completion-model`, `--resolver-model`, and the matching
 `--<role>-reasoning-effort` flags.
 See [CLI](cli.md). When constructing a new Requirements route from provider
-defaults, an explicit `--requirements-model` wins; otherwise `--glm-model` supplies
+defaults, an explicit `--requirements-model` wins; otherwise `--planner-model` supplies
 its initial model. Changing the Planner on resume keeps the saved Requirements
 model. Its reasoning effort remains a separate selection.
 
 Conversation handoffs apply their independent profile after this initial
-configuration: `--glm-model` selects the profile's Planner while Requirements keeps
+configuration: `--planner-model` selects the profile's Planner while Requirements keeps
 its profile default unless `--requirements-model` selects it explicitly.
 
 Accounts that expose only one usable model can start a run with
@@ -118,23 +118,23 @@ AutoCode's recorded could-not-finish outcome, its reason carrying the stuck-stag
 diagnosis. `scenarios/test_escalation.py` also checks that a `--builder-strong-model` the tool does not
 list refuses the new run before any model call.
 
-The Resolver runs on a route of its own, `resolver`. It starts as a copy of the `astra`
-route, which the per-task Planner (`astra_plan`) runs on; `autocode models` lists that
-route as "Resolver and per-task Planner (`--astra-model`)". The Resolver's route is
+The Resolver runs on a route of its own, `resolver`. It starts as a copy of the `task_planner`
+route, which the per-task Planner (`plan_task`) runs on; `autocode models` lists that
+route as "Resolver and per-task Planner (`--task-planner-model`)". The Resolver's route is
 created the first time a Resolver stage runs, or by `--resolver-model`. Which flag sets it:
 
 - On an OpenCode-engine run (the default), `--resolver-model` and
-  `--resolver-reasoning-effort` set the Resolver's route alone. `--astra-model` and
-  `--astra-reasoning-effort` set the per-task Planner's route, and reach the Resolver
+  `--resolver-reasoning-effort` set the Resolver's route alone. `--task-planner-model` and
+  `--task-planner-reasoning-effort` set the per-task Planner's route, and reach the Resolver
   only while its route has not been created yet.
 - A Codex-engine run (`--engine codex`), and a saved run without joint planning, ignore
   `--resolver-model` and `--resolver-reasoning-effort`: the Resolver starts from the
-  `astra` route that `--astra-model` and `--astra-reasoning-effort` set.
+  `task_planner` route that `--task-planner-model` and `--task-planner-reasoning-effort` set.
 
 Only the Resolver's route climbs the Astra ladder. The per-task Planner keeps its
 configured effort however often its reports are rejected, so a Resolver route copied
-from the `astra` route later starts at the configured effort, not a climbed one. A run
-saved before this was fixed kept the Astra ladder under `astra` in `route_ladders`; it
+from the `task_planner` route later starts at the configured effort, not a climbed one. A run
+saved before this was fixed kept the Astra ladder under `task_planner` in `route_ladders`; it
 is read as the Resolver's ladder, and the saved state is not rewritten. A climb is not
 a settings change for the recovery packet the Resolver works from: the climbed attempt
 is held or admitted by that packet's causal-progress check, as the attempt before it was.
@@ -168,11 +168,12 @@ way, from the role's last attempt's duration, and pauses `PAUSED_TIME_LIMIT` ins
 climb is also timed against a [milestone budget you set](execution.md#milestone-checkpoints-and-acceptance),
 and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that budget.
 
-> **Note on role names.** The CLI flags keep the older tier names — `--astra-model`
+> **Note on role names.** The flags are named after the job: `--task-planner-model`
 > (the per-task Planner, and the route the Resolver starts from; see above),
-> `--terra-model` (Builder), `--sol-model` (Tester) — because those
-> names are in saved run state. They are not model choices: `--terra-model
-> zai-coding-plan/glm-5.3` selects the model used for the Builder role.
+> `--builder-model` (Builder), `--tester-model` (Tester). The older code-name
+> spellings (`--astra-model`, `--terra-model`, `--sol-model`, `--glm-model`) still work as
+> aliases. Neither is a model choice: `--builder-model zai-coding-plan/glm-5.3` selects the
+> model used for the Builder role.
 
 ## Choosing each stage's model
 
@@ -250,7 +251,7 @@ tools cannot report variants, the recorded qualification level is used. Prefligh
 proves each distinct model/effort on its actual tool within the run's time/cost cap;
 receipts survive resume. Recovery checks independence against the current saved routes, including explicit
 assignments and catalogue substitutions. It stays within the saved connected accounts, and
-exhaustion asks for intervention. A model a flag pinned (`--terra-model`, and the other per-role
+exhaustion asks for intervention. A model a flag pinned (`--builder-model`, and the other per-role
 flags) is never switched on its own: its stop asks, as before automatic selection. A stuck-run Investigator reuses an independent saved
 reviewer route and its supported level; it cannot silently use a fixed paid-gateway
 default. Explicit `--investigator-model` remains an override. A newly connected account
@@ -454,15 +455,15 @@ Explicit `provider/model` choices use OpenCode for every role. For example:
 
 ```sh
 autocode "Your rough idea" \
-  --glm-model openai/gpt-5.6-sol \
-  --astra-model zai-coding-plan/glm-5.3 \
-  --terra-model openai/gpt-5.6-terra \
-  --sol-model openai/gpt-6-astra
+  --planner-model openai/gpt-5.6-sol \
+  --task-planner-model zai-coding-plan/glm-5.3 \
+  --builder-model openai/gpt-5.6-terra \
+  --tester-model openai/gpt-6-astra
 ```
 
 This overrides four routes through OpenCode; the Completion Reviewer keeps its default.
-No Codex login is required for the default workflow. Bare model names for the legacy
-`astra` and `sol` CLI roles are expanded to `openai/model` on OpenCode. Explicit
+No Codex login is required for the default workflow. Bare model names for the
+`task_planner` and `tester` roles are expanded to `openai/model` on OpenCode. Explicit
 legacy `--engine codex` runs retain their separate Codex routing.
 
 AutoCode accepts every well-formed model route listed by the configured provider,
@@ -500,7 +501,7 @@ If a role's model is not listed, the run stops before any model call and shows:
   then the tier the role wants, and never shares a model (or GLM family) with the role it
   checks or is checked by. Any listed model can be offered, including GPT-6 Astra
   for other roles and OpenAI routes authenticated with an API key.
-- the flags to start the run with, for example `--sol-model openai/gpt-6-luna`.
+- the flags to start the run with, for example `--tester-model openai/gpt-6-luna`.
 
 In `--chat`, you can accept all the replacements and the run continues with them, as if
 you had passed the flags. AutoCode never changes a model without you. A saved run is not
@@ -519,8 +520,8 @@ A role runs at one reasoning effort, chosen from the variants its model declares
 and OpenCode report those variants in their local model listings; when a tool reports
 none, AutoCode records the effort as unverified and the tool's own check decides. The
 flags are `--reasoning-effort LEVEL` for every role and `--<role>-reasoning-effort LEVEL`
-for one (`--glm-reasoning-effort`, `--astra-reasoning-effort`, `--terra-reasoning-effort`,
-`--sol-reasoning-effort`, and the matching flag for the other jobs).
+for one (`--planner-reasoning-effort`, `--task-planner-reasoning-effort`, `--builder-reasoning-effort`,
+`--tester-reasoning-effort`, and the matching flag for the other jobs).
 
 A level from your [stage choices](#choosing-each-stages-model) is a ceiling for the Plan
 Reviewer, the Tester and the Completion Reviewer (owner decision 2026-11-05). Each launch
@@ -541,7 +542,7 @@ Each review launch records its decision on its stage record as `effort_choice`: 
 level, your ceiling, the reason, and the task's clarity, brief size and plan size. The
 status view's usage attempts carry it, `/details` in the terminal chat shows the level
 each attempt ran at, and the live log says when a review runs below your level. A level
-typed as a flag (`--sol-reasoning-effort`, `--reasoning-effort`) or given as an answer is
+typed as a flag (`--tester-reasoning-effort`, `--reasoning-effort`) or given as an answer is
 exact. A level the runner chose keeps its own tiers: the Plan Reviewer's reduced depth for
 small clear briefs and the Builder's light first attempt (`autocode_light_builder`).
 
@@ -574,7 +575,7 @@ the run pauses as `PAUSED_EFFORT_UNSUPPORTED` before the stage launches, naming 
 the level you chose and the levels it does declare. Answer with one of those and continue:
 
 ```sh
-autocode --answer effort-glm=high
+autocode --answer effort-planner=high
 autocode --resume-paused
 ```
 
@@ -593,7 +594,7 @@ its own (see the end of this section), AutoCode asks you which model the role sh
 continue on, for example:
 
 ```text
-[route-sol] Tester's quota is exhausted; name the model to continue on
+[route-tester] Tester's quota is exhausted; name the model to continue on
 ```
 
 The question names the job on screen (Tester, Builder, Completion Reviewer, …). It has
@@ -601,7 +602,7 @@ no proposed default, is never delegable (`--delegate-all` refuses it) and the sc
 driver never answers it for you. Answer it with a model:
 
 ```sh
-autocode --run-dir RUN --answer route-sol=gpt-6-luna --resolver-token TOKEN
+autocode --run-dir RUN --answer route-tester=gpt-6-luna --resolver-token TOKEN
 autocode --run-dir RUN --resume-paused
 ```
 
@@ -609,8 +610,8 @@ The answer sets the stopped attempt aside exactly as `--abandon-stage` does (par
 work and evidence retained, the role's session dropped), saves the model on the role,
 and records the change. `--resume-paused` then runs the role again on a fresh session
 with the new model. The same thing without answering the question:
-`--abandon-stage ATTEMPT`, then `--resume-paused --sol-model gpt-6-luna` (or both in
-one invocation). `--sol-model` alone is refused while the stopped attempt is still
+`--abandon-stage ATTEMPT`, then `--resume-paused --tester-model gpt-6-luna` (or both in
+one invocation). `--tester-model` alone is refused while the stopped attempt is still
 uncertain. Setting the attempt aside never raises the role's reasoning effort: a quota
 stop is not a sign the model struggled.
 
@@ -703,7 +704,7 @@ switches on its own where it can ([above](#when-a-roles-quota-runs-out)); otherw
 the question a quota stop asks, answered the same way:
 
 ```text
-[route-terra] Builder's model was refused by its provider's content filter; name another model to continue on
+[route-builder] Builder's model was refused by its provider's content filter; name another model to continue on
 ```
 
 The question also lists the run's other configured models, from other providers, that
@@ -727,8 +728,8 @@ error has such a refusal typed, as at its first stop. A stage that timed out sta
 automatic timeout recovery may set it aside.
 `--answer route-ROLE=MODEL` is accepted only where the request asks it, so while such a
 stop is open (or one a run paused on before a finish-only refusal was typed), the role's
-model flag alone (`--terra-model`) is refused and names only the other route:
-`--abandon-stage ATTEMPT`, then `--resume-paused --terra-model MODEL`.
+model flag alone (`--builder-model`) is refused and names only the other route:
+`--abandon-stage ATTEMPT`, then `--resume-paused --builder-model MODEL`.
 
 A refused workflow job pauses for its exact retry, as a quota stop of a job does
 ([above](#when-the-stopped-role-is-a-workflow-job)): name another model with
@@ -754,10 +755,10 @@ A Builder in a parallel batch that stops on quota, a content-filter refusal or a
 output limit asks the same model question, naming its milestone:
 
 ```text
-[route-terra] Builder (milestone M1)'s model was refused by its provider's content filter; name another model to continue on
+[route-builder] Builder (milestone M1)'s model was refused by its provider's content filter; name another model to continue on
 ```
 
-Answer it the same way, with `--answer route-terra=MODEL`. The answer sets that member's
+Answer it the same way, with `--answer route-builder=MODEL`. The answer sets that member's
 stopped attempt aside, runs only that milestone's Builder again on the model you name, and
 keeps the other Builders' results. As for a serial Builder, it also moves the run's Builder
 route, so later Builders (the next serial milestone, later batches) run on that model too.
@@ -767,7 +768,7 @@ models a refusal's question lists pass the same checks. When two members stop, A
 about them one at a time.
 
 Changing another role's settings while a member's question is open withdraws the old
-request and asks that member's `route-terra` question again under the new settings.
+request and asks that member's `route-builder` question again under the new settings.
 Use the fresh request's token to answer it.
 
 While the question is open the status view offers no per-member retry for a member stopped
@@ -780,7 +781,7 @@ stopped on quota can still be named with `--retry-builder M1`, which runs the sa
 A settings change beside `--retry-builder` is saved only when the retry is accepted.
 The member reruns on its own saved Builder route: a Builder model, provider or reasoning
 effort change beside its retry is refused with nothing saved. To change a member stopped
-on quota, refusal or an authenticated output limit to another model, answer its `route-terra` question instead.
+on quota, refusal or an authenticated output limit to another model, answer its `route-builder` question instead.
 Saving a different Builder route separately also does not move the member's route. A later
 `--retry-builder` refuses the mismatch and names the member's saved settings and the run's
 current settings. If that member's model question is open, answer it to choose the model;
@@ -793,10 +794,10 @@ provide_information`) or leave it paused instead, no model is named and no quest
 open. One command continues from there, and the stop reason, the status view's
 `needs.action` and the recovery card all name it: `autocode --resume-paused --retry-builder M1`.
 For a member stopped by its provider's content filter or output limit, it reads that member's saved stop again
-and asks its `route-terra` question again; nothing launches. For a member stopped on quota, it
+and asks its `route-builder` question again; nothing launches. For a member stopped on quota, it
 reruns the member unchanged. A plain `--resume-paused` stays paused there and names that
 command; the request itself never advises "then `autocode resume`" at a member's stop.
-Changing the Builder's route with `--resume-paused --terra-model MODEL` after the information
+Changing the Builder's route with `--resume-paused --builder-model MODEL` after the information
 moves the run's route, not the member's, so AutoResolver asks that member's question again.
 
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)

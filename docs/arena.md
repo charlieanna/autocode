@@ -78,8 +78,8 @@ Arena's exact plan token. The one-hour deadline applies to each AutoCode CLI
 invocation, including a review and repair cycle. To use another configured
 provider, replace `--option=--engine=codex` with `--option=--provider=NAME` and
 add the model options that provider needs. `--option` forwards, exactly as typed,
-`--engine`, `--provider`, `--single-model`, the role model flags (`--astra-model`,
-`--terra-model`, `--sol-model`, `--glm-model`, `--completion-model`,
+`--engine`, `--provider`, `--single-model`, the role model flags (`--task-planner-model`,
+`--builder-model`, `--tester-model`, `--planner-model`, `--completion-model`,
 `--plan-reviewer-model`, `--requirements-model`, `--resolver-model`,
 `--investigator-model`), the
 reasoning-effort flags (`--reasoning-effort` and each role's `--*-reasoning-effort`),

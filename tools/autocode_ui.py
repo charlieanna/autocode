@@ -20,6 +20,7 @@ from pathlib import Path
 
 try:
     from . import autocode_figma as figma
+    from . import autocode_names as names
     from . import autocode_orchestrator as orchestrator
     from . import autocode_process as processes
     from . import autocode_supervision as supervision
@@ -28,6 +29,7 @@ try:
     from .autocode_activity import ActivityMonitor
 except ImportError:
     import autocode_figma as figma
+    import autocode_names as names
     import autocode_orchestrator as orchestrator
     import autocode_process as processes
     import autocode_supervision as supervision
@@ -35,10 +37,10 @@ except ImportError:
     import autocode_workspaces as workspaces
     from autocode_activity import ActivityMonitor
 
-DEFAULT_MODELS = {"astra": "gpt-5.6-sol", "terra": "gpt-5.6-terra", "sol": "gpt-5.6-sol"}
+DEFAULT_MODELS = {"task_planner": "gpt-5.6-sol", "builder": "gpt-5.6-terra", "tester": "gpt-5.6-sol"}
 DEFAULT_PLANNER_MODEL = "gpt-5.6-sol"
-ROLE_LABELS = {"astra": "Plan Reviewer", "terra": "Builder", "sol": "Tester"}
-DEFAULT_ASTRA_REASONING_EFFORT = "high"
+ROLE_LABELS = {"task_planner": "Plan Reviewer", "builder": "Builder", "tester": "Tester"}
+DEFAULT_REVIEW_REASONING_EFFORT = "high"
 
 
 def report_schema(statuses):
@@ -287,7 +289,7 @@ def execute(args, workspace, run_dir):
         "planning_iteration": 0,
         "target": "figma",
         "models": {**{role: getattr(args, role + "_model") for role in DEFAULT_MODELS}, "planner": args.planner_model},
-        "reasoning_efforts": {"astra": args.astra_reasoning_effort},
+        "reasoning_efforts": {"task_planner": args.task_planner_reasoning_effort},
         "limits": {"max_reworks": args.max_reworks, "max_plan_reworks": args.max_plan_reworks},
         "stages": [],
         "outputs": {},
@@ -314,12 +316,12 @@ def execute(args, workspace, run_dir):
     }
     model_roles = {
         "requirements_planner": "planner",
-        "plan_reviewer": "astra",
+        "plan_reviewer": "task_planner",
         "requirements_revision": "planner",
-        "plan_finalizer": "astra",
-        "builder": "terra",
-        "validator": "sol",
-        "decision_owner": "astra",
+        "plan_finalizer": "task_planner",
+        "builder": "builder",
+        "validator": "tester",
+        "decision_owner": "task_planner",
     }
     schemas = {
         "plan_reviewer": plan_schema(["PASS", "REVISE", "BLOCKED"]),
@@ -345,7 +347,7 @@ def execute(args, workspace, run_dir):
                 run_dir,
                 schemas.get(stage),
                 args.dry_run,
-                args.astra_reasoning_effort if model_roles[stage] == "astra" else None,
+                args.task_planner_reasoning_effort if model_roles[stage] == "task_planner" else None,
             ),
         )
 
@@ -485,10 +487,15 @@ def execute(args, workspace, run_dir):
             if args.no_chat:
                 command.append("--no-chat")
             for role in DEFAULT_MODELS:
-                command += [f"--{role}-model", getattr(args, role + "_model")]
-            command += ["--astra-reasoning-effort", args.astra_reasoning_effort]
+                command += [_flag(role, "model"), getattr(args, role + "_model")]
+            command += [_flag("task_planner", "reasoning-effort"), args.task_planner_reasoning_effort]
             return subprocess.run(command, cwd=workspace).returncode
     return 0 if state["status"] in ("COMPLETE", "DRY_RUN") else 3
+
+
+def _flag(role: str, suffix: str) -> str:
+    """A route's flag by its job name (``--task-planner-model``); its old spelling is an alias."""
+    return f"--{role.replace('_', '-')}-{suffix}"
 
 
 def url_key(url):
@@ -518,11 +525,15 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--run-dir", type=Path, help="New artifact directory (existing runs are never overwritten)")
     result.add_argument("--from-plan-run", type=Path, help="Start a new run at Builder using a saved accepted UI plan")
     for role, default in DEFAULT_MODELS.items():
-        result.add_argument(f"--{role}-model", default=default, help=f"{ROLE_LABELS[role]} model (default: {default})")
+        result.add_argument(
+            *names.spellings(_flag(role, "model")),
+            default=default,
+            help=f"{ROLE_LABELS[role]} model (default: {default})",
+        )
     result.add_argument(
-        "--astra-reasoning-effort",
+        *names.spellings(_flag("task_planner", "reasoning-effort")),
         choices=("low", "medium", "high", "xhigh", "max"),
-        default=DEFAULT_ASTRA_REASONING_EFFORT,
+        default=DEFAULT_REVIEW_REASONING_EFFORT,
         help="Reasoning effort for plan review, plan finalization and completion decision",
     )
     result.add_argument(

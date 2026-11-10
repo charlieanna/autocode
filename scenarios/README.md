@@ -409,11 +409,11 @@ the diagnosis is written from the handoff, so a fake `CORRECT` proves the route
 and the scoring, never how well a real model diagnoses.
 
 Which AutoResolver calls count is `harness/resolver_calls.py`'s, from the
-runner's saved records only. A call counts when it is `astra_resolve`, not
+runner's saved records only. A call counts when it is `resolve`, not
 runner-owned, and launched with a model, unless the scripted side of a
-[hybrid run](#hybrid-runs) answered it; report repairs, `astra_diagnose` and
+[hybrid run](#hybrid-runs) answered it; report repairs, `diagnose` and
 Investigator calls never count on their own. A report the runner rejected and
-then accepted after a report-only repair (`astra_resolve_report_repair` at the
+then accepted after a report-only repair (`resolve_report_repair` at the
 same source) is one accepted call, scored on the repaired report. A call the
 runner never applied (still in `active_stage` when the run stopped, or with its
 report repair still running) cannot be scored. The first accepted call on the
@@ -479,7 +479,7 @@ an answer for a freeform question. It approves the plan it is
 shown and accepts requested human reviews. It never writes AutoCode state and
 does not resume paused runs: a pause is reported as `HONEST_BLOCKER`. The one
 exception is a scenario's explicit `[fake] answers`: a person's own answer to a
-question the driver never answers by default (a quota stop's `route-sol`, for
+question the driver never answers by default (a quota stop's `route-tester`, for
 example). The driver gives that answer, then resumes the pause it leaves once.
 Likewise a scenario's explicit `[fake] acknowledge` is the person continuing a
 budget pause only they own, such as the cost cap they set (`PAUSED_COST_LIMIT`,
@@ -506,9 +506,9 @@ live:
 
 ```toml
 [hybrid]
-scripted = ["requirements_gather", "astra_discovery", "astra_challenge", "glm_revise",
-            "astra_finalize"]        # every call of these stages
-first_attempt = ["terra"]            # only the stage's first call in the run
+scripted = ["requirements_gather", "draft_plan", "review_plan", "revise_plan",
+            "finalize_plan"]        # every call of these stages
+first_attempt = ["builder"]          # only the stage's first call in the run
 ```
 
 `run ID --profile NAME --hybrid --i-authorize-live-model-spend` answers those
@@ -875,7 +875,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `bugfix-trivial` | bugfix | An off-by-one through the standard Requirements, Planner, Plan Reviewer and exact-plan approval sequence. No separate initial Investigator or compact Planner shortcut. `broken/lone-partial-page` has a regression test that passes on the reference and on its wrong fix; the mutation check reports its surviving off-by-one (#699). |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
 | `bugfix-monorepo-package` | bugfix | Issue #711: `feature-monorepo-package`'s check for a bug fix. Two packages, `packages/invoices/` and `packages/search/`, each keep a copy of the same off-by-one pager; the report and the fix belong to the invoice package. The scripted run passes `--package packages/invoices/` (`[fake] flags`), so the bug goes through the Investigator first and the proof runs in that package. The oracle judges the package as `feature-monorepo-package` does; with a run, the runner's diagnosis note (the `note_path` the run's saved investigation names) is not a change outside the package, but any other file under `docs/bugs/` is. With a run it also requires the bug-fix workflow, the Investigator before any other model stage but the job recognizer (or a repair of its report), plan review and the user's approval, no requirements gathering and no questions. `broken/fixes-search-copy-too` delivers the same correct fix and also fixes the other team's copy: the run stops (`HONEST_BLOCKER`) with the file named in the open `runner` finding. The scripted Investigator names only the files inside the package its handoff names (`package_scope`), so the run reaches the Builder. Before the Investigator was told the package, its diagnosis named the other team's copy too; the runner now refuses such a diagnosis. Against AutoCode from before #1415, the reference did not complete either: the proof counted the diagnosis note as a change outside the package. A live profile gets no `[fake] flags`, so it runs the brief without `--package` and is judged on the delivered files and the workflow alone. |
-| `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's diagnosis of source that still fails the hidden tests names a planted defect. Since #294 a clean Validator FAIL can go straight back to the Builder, so runs rarely reach `astra_resolve`; one that never does is `NOT_EXERCISED`. The scripted run reaches it by construction — #628's `[fake] fault = "refund_store_clock"` makes the first Builder apply `broken/trusts-store-date` — and passes with a `CORRECT` diagnosis. |
+| `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's diagnosis of source that still fails the hidden tests names a planted defect. Since #294 a clean Validator FAIL can go straight back to the Builder, so runs rarely reach `resolve`; one that never does is `NOT_EXERCISED`. The scripted run reaches it by construction — #628's `[fake] fault = "refund_store_clock"` makes the first Builder apply `broken/trusts-store-date` — and passes with a `CORRECT` diagnosis. |
 | `feature-stock-refusals` | feature | AutoResolver on a natural failure (#59). On the original code `stock.py move` is an unknown subcommand, so argparse exits 2 and never touches the store: refusal tests in the seed's style (exit 2, stderr, unchanged bytes) pass there too, and the runner's regression proof rejects them. No executed check fails, so the Completion Owner's REWORK goes to AutoResolver rather than straight back to the Builder (#294). `check()` judges the product (hidden refusal tests; each refusal rule needs a delivered test that fails on the original code, and an extra test that also passes there is reported, not failed); `diagnosis()` scores the Resolver call ([Diagnosis](#diagnosis)). The scripted run is `CORRECT`; `SCENARIO_FAKE_RESOLVER=misattribute` makes its Resolver blame `stock.py` and is `INCORRECT` while the run still passes; `SCENARIO_FAKE_SCOPE_SLIP=retry` (or `pause`) makes the repair Builder's first attempt also leave a backup of `stock.py` outside its assignment, as a live repair did on 2026-10-06, and the Investigator recommend one more attempt (or leave it to a person), which `tests/test_rejected_repair_retry.py` drives ([2026-10-06-rejected-repair-retry](../docs/bugs/2026-10-06-rejected-repair-retry.md)); `--fake-solution broken/vacuous-refusal-tests` never repairs the tests, so the runner holds at `RESOLVER_PENDING` (`HONEST_BLOCKER`) and the diagnosis is `INCORRECT` on `repair_made_the_tests_discriminate`. Live Builders rarely write the vacuous tests (0 of 6 `claude-tiers` runs, 2026-10-05); `--hybrid` scripts planning and the first Builder so the trap is reached by construction, with AutoResolver live ([Hybrid runs](#hybrid-runs)). The first six hybrid runs (2026-10-05) found real defects in the helpers the seed and every solution shared: a QTY of `²` or of 5000 digits crashed (exit 1), `٣` was read as 3, and a JSON `true` in `stock.json` passed as 1. The seed (whose README contract already required those refusals) and every solution now refuse them, and the hidden tests check them for both commands; those six runs' diagnoses were rightly not bounded test repairs and are not comparable with later runs. |
 | `escalation-converts` | feature | Issue #612: the greeting fix of `completion-rework-direct`, which the scripted Builder delivers only on its stronger route (`[fake] fault = "escalation_converts"`): its first attempt and its ordinary retry fail, the retry policy's stronger attempt (GPT-6 Sol at xhigh) passes, and the run completes. With a run the oracle reads the final status view's `escalations` (`harness.oracle.escalation_checks`): one Builder row, its two routes, one attempt with a known cost, outcome `passed` by validation, the runner's own stamps in `escalation_outcomes` agreeing (its ordinary retry and the stronger attempt `passed`), and no Builder attempt after it. `broken/accepts-empty` refuses a whitespace-only name but still greets an empty one (`str.isspace()` is false for `""`): the stronger attempt delivers it, the Tester's check fails, and the run ends with AutoCode's recorded could-not-finish outcome (#2597) (`HONEST_BLOCKER`). |
 | `escalation-ladder-end` | feature | Issue #612: the same task where the stronger attempt fails too (`fault = "escalation_exhausted"`, `expected = "stop"`). The run ends with AutoCode's recorded could-not-finish outcome (#2597) — its reason in the status view, the charged incident (the Builder stage, the ladder's third failure) in the outcome's evidence — the row's outcome is `paused`, as the runner's stamps on the ordinary retry and the stronger attempt are, no Builder attempt follows and the seed's tests are kept. No `broken/` overlay, like `provider-idle-hang`: the scripted Builder never applies the solution, so an overlay's fake run would stop exactly as the reference's does and `scenarios/test_lying_matrix.py` would judge it `PASS`; `escalation-converts`' broken overlay reaches this same end. `scenarios/test_escalation.py` runs both and reads `autocode --status --json`, and checks that a `--builder-strong-model` the tool does not list refuses the new run before any model call. |
@@ -1010,13 +1010,13 @@ catalog/<id>/
                     --package, like --workflow, goes to the first call only), fault = "name"
                     (a scripted mistake in harness/fake_codex.py), live_investigator = true (the scripted run
                     still uses a real Investigator; needs --i-authorize-live-model-spend),
-                    answers = { "route-sol" = "gpt-6-luna" } (the person's own answers, by question id;
+                    answers = { "route-tester" = "gpt-6-luna" } (the person's own answers, by question id;
                     fault "quota_once" stops the Tester on the driver's default Tester model),
                     acknowledge = { PAUSED_COST_LIMIT = ["--max-cost-usd", "100"] } (the flags the person
                     types with --resume-paused to continue that PAUSED_* pause, once; a single run only),
                     [run] max_steps, timeout_minutes, expected = "complete"|"stop"|"any", known_failure = "why",
-                          requires_stages = ["astra_resolve"] (a model stage the run must reach to count)
-                    [hybrid] scripted = ["astra_discovery", ...], first_attempt = ["terra"] (optional: the stages
+                          requires_stages = ["resolve"] (a model stage the run must reach to count)
+                    [hybrid] scripted = ["draft_plan", ...], first_attempt = ["builder"] (optional: the stages
                           run --hybrid scripts, every call or only the first; see "Hybrid runs")
                     [[turn]] after = "complete", say = "follow-up message" (optional, repeatable; said once
                           the run completes, since a follow-up continues only a finished run)

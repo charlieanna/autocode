@@ -215,7 +215,7 @@ rescored. What a record does not establish stays null:
   names every model, a role's own effort flag overrides `--reasoning-effort`
   (which the scenario harness writes as the builder's effort), and
   `--resolver-model` and `--resolver-reasoning-effort` override the resolver's
-  `--astra-*` flags. It also compares the options as a whole with the declared
+  `--task-planner-*` flags. It also compares the options as a whole with the declared
   configuration: the scenario harness's flags for the profile (`--provider`,
   `--joint-planning`, the profile's extra options and the role flags) and the
   task's `--max-iterations` cap. Each option that is missing, added or set to

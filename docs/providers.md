@@ -145,15 +145,15 @@ is accepted but is optional for new runs:
 python3 tools/autocode.py "Your rough idea" --workspace /path/to/project
 ```
 
-Override the planning roles with `--requirements-model`, `--glm-model`, and
+Override the planning roles with `--requirements-model`, `--planner-model`, and
 `--plan-reviewer-model` (plus their reasoning-effort flags). For a new task without
-a conversation-handoff profile, `--glm-model` also selects the initial Requirements
+a conversation-handoff profile, `--planner-model` also selects the initial Requirements
 model unless `--requirements-model` selects it separately. Conversation handoffs
 apply an independent profile: Requirements keeps that profile's default unless
 `--requirements-model` selects it explicitly. Resuming keeps the saved Requirements
 model unless `--requirements-model` explicitly changes it.
-Override execution roles with `--astra-model`, `--terra-model`,
-`--sol-model`, or `--completion-model` using a provider/model ID from `opencode models`, including
+Override execution roles with `--task-planner-model`, `--builder-model`,
+`--tester-model`, or `--completion-model` using a provider/model ID from `opencode models`, including
 `openai/…` with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
 engines and sessions; no existing run is migrated by a dashboard selection.
 If an account offers only one model, `--single-model MODEL` assigns it to all
@@ -345,9 +345,9 @@ subscription while the Validator audits and the Builder codes via another compat
 ```sh
 python3 tools/autocode.py "Build a greeting CLI" --workspace /path/to/project \
   --engine codex \
-  --astra-model gpt-6-astra \
-  --sol-model audit-model --sol-provider other_provider \
-  --terra-model implementation-model --terra-provider other_provider --reasoning-effort high
+  --task-planner-model gpt-6-astra \
+  --tester-model audit-model --tester-provider other_provider \
+  --builder-model implementation-model --builder-provider other_provider --reasoning-effort high
 ```
 
 Each role can also have its own reasoning effort. For example, use the Astra route at
@@ -355,7 +355,7 @@ extra-high (`xhigh`) for read-only discovery and planning:
 
 ```sh
 python3 tools/autocode.py "Build a greeting CLI" --workspace /path/to/project \
-  --engine codex --astra-model gpt-6-astra --astra-reasoning-effort xhigh
+  --engine codex --task-planner-model gpt-6-astra --task-planner-reasoning-effort xhigh
 ```
 
 Role-specific effort overrides the shared `--reasoning-effort` value. All selected
@@ -415,8 +415,8 @@ JSON report; ...` and then:
 
 **Roles affected.** Every stage's final message is checked, so every role is
 covered. The defect was seen (2026-10-05) on the roles one profile ran through
-Codex with the `gocode` provider: the Plan Reviewer (`astra_challenge`,
-`astra_finalize`) and the Tester (`sol`). Its Builder and Requirements ran
+Codex with the `gocode` provider: the Plan Reviewer (`review_plan`,
+`finalize_plan`) and the Tester (`tester`). Its Builder and Requirements ran
 through another tool and did not show it. No role is qualified on a route that
 shows the defect: if a role keeps stopping this way, run it on another model,
 and check a new tool/model pair with the
@@ -644,9 +644,9 @@ runs without effort provenance retain their existing effort on upgrade; model
 pins alone do not establish effort provenance. The review-call allowance still
 applies independently of this effort choice.
 
-`[roles]` names the routes `task_planner`, `terra`, `sol`, `completion`, `planner` and
-`plan_reviewer`. A config written before the rename may still say `astra` for `task_planner`
-and `glm` for `planner`; it keeps working, but one route spelled both ways is refused.
+`[roles]` names the routes `task_planner`, `builder`, `tester`, `completion`, `planner` and
+`plan_reviewer`. A config written before the rename may still say `astra`, `glm`, `terra` or `sol`
+for `task_planner`, `planner`, `builder` or `tester`; it keeps working, but one route spelled both ways is refused.
 `[roles]` must keep each verifier on a different model family from what it checks
 (Planner/Plan Reviewer, Builder/Validator, Builder/Completion Owner); a run whose
 roles break that pauses with `PAUSED_CROSS_MODEL` before any agent is launched.
@@ -670,7 +670,7 @@ Changing the config file or the tool version pauses a saved run.
 For a **new** run on the OpenCode facade engine (`--engine opencode` with any
 provider, or `--engine claude`), repeat `--role-transport ROLE=PROVIDER` to run
 only those roles on another connected tool. `ROLE` is the existing CLI code name,
-such as `sol` or `completion`; `PROVIDER` names a tool with its own identity: a
+such as `tester` or `completion`; `PROVIDER` names a tool with its own identity: a
 registered TOML config such as `kilocode`, the built-in `claude` provider, or the
 `autocode` direct connection. It cannot name the run's own tool, and `--engine
 codex` keeps Codex's own transport for every role. Each selection requires an
@@ -682,11 +682,11 @@ autocode models --provider opencode
 autocode models --provider kilocode
 # Replace the placeholder with an ID actually offered by the second catalogue.
 autocode "Your task" --engine opencode --provider opencode \
-  --role-transport sol=kilocode --sol-model '<MODEL_FROM_KILO_CATALOGUE>' \
-  --sol-reasoning-effort high
+  --role-transport tester=kilocode --tester-model '<MODEL_FROM_KILO_CATALOGUE>' \
+  --tester-reasoning-effort high
 # A run on Claude Code with the Tester on a Kilo account (#2049).
 autocode "Your task" --engine claude \
-  --role-transport sol=kilocode --sol-model '<MODEL_FROM_KILO_CATALOGUE>'
+  --role-transport tester=kilocode --tester-model '<MODEL_FROM_KILO_CATALOGUE>'
 ```
 
 The other roles retain their routes selected by the ordinary model flags and
@@ -854,7 +854,7 @@ independent of `--planner-reasoning-effort`; use `--requirements-reasoning-effor
 change it. OpenCode keeps its separately defined Requirements defaults when
 neither model override is given.
 
-An existing Requirements route keeps its saved model when `--glm-model` changes
+An existing Requirements route keeps its saved model when `--planner-model` changes
 the Planner. Enabling joint planning at a supported migration boundary uses the
 same fallback only when creating a missing Requirements route. Pass
 `--requirements-model` to explicitly change that role, or `--single-model` on a

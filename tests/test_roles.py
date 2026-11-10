@@ -17,14 +17,14 @@ class OneListOfNames(unittest.TestCase):
                 self.assertEqual(name, roles.screen_name(stage + "_report_repair"))
 
     def test_no_unit_or_model_code_names_on_screen(self):
-        banned = ("autoplanner", "autocode", "autoreview", "autoresolver", "astra", "builder", "glm")
+        banned = ("autoplanner", "autocode", "autoreview", "autoresolver", "astra", "terra", "glm")
         for stage, job in roles.STAGE_JOB.items():
             name = roles.SCREEN[job]
             tokens = name.lower().replace("-", " ").split()
             for word in banned:
                 self.assertNotIn(word, tokens, f"{stage} screen name {name!r} leaks {word!r}")
-            # 'tester' as a whole token only — 'Resolver' is not a leak.
-            self.assertNotIn("tester", tokens, name)
+            # 'sol' as a whole token only — 'Resolver' is not a leak.
+            self.assertNotIn("sol", tokens, name)
             self.assertNotIn("validator", tokens, name)
 
     def test_unknown_stages_title_case_but_are_not_in_the_table(self):

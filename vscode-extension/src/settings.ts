@@ -40,7 +40,7 @@ export function partitionOptions(options: string[]): { shared: string[]; routes:
   const routes: string[] = [];
   for (let i = 0; i < options.length; i++) {
     const flag = options[i]!.split("=", 1)[0]!;
-    if (/^--(?:provider|engine|model|reasoning-effort|pin-model-role|role-transport|builder-strong-model|allow-uncontained-tools|(?:astra|terra|sol|completion|glm|requirements|plan-reviewer|resolver|investigator)-(?:model|reasoning-effort))$/.test(flag)) {
+    if (/^--(?:provider|engine|model|reasoning-effort|pin-model-role|role-transport|builder-strong-model|allow-uncontained-tools|(?:planner|task-planner|builder|tester|astra|terra|sol|glm|completion|requirements|plan-reviewer|resolver|investigator)-(?:model|reasoning-effort))$/.test(flag)) {
       // provider is owned by the picker, never a hidden extraOptions override.
       if (flag !== "--provider") routes.push(options[i]!);
       if (!options[i]!.includes("=") && flag !== "--allow-uncontained-tools") {

@@ -65,7 +65,7 @@ are retained rather than rerun. Other settings can accompany an accepted retry a
 the continuing run; a refused retry saves none of that invocation's settings. A parallel member
 reruns on the Builder route saved in its own run, so a Builder model, provider or reasoning
 effort change with `--retry-builder` is refused. A member stopped on quota, content-filter refusal or an authenticated output limit
-asks `route-terra`; its answer changes that route.
+asks `route-builder`; its answer changes that route.
 The retry also refuses a difference saved earlier in the run's Builder settings, naming
 both routes. Answer that member's open model question to choose its model, or restore the
 run's Builder settings to the member's route separately before retrying.
@@ -1230,7 +1230,7 @@ To retain partial edits and set aside a stopped attempt manually:
 ```sh
 autocode --workspace /path/to/project --run-dir /path/to/run --status
 # Copy the exact attempt_id from that status, after inspecting its events and edits:
-autocode --workspace /path/to/project --run-dir /path/to/run --abandon-stage '001/terra-01'
+autocode --workspace /path/to/project --run-dir /path/to/run --abandon-stage '001/builder-01'
 autocode --workspace /path/to/project --run-dir /path/to/run --resume-paused
 ```
 
@@ -1522,7 +1522,7 @@ recovery flag) consumes it, without a provider call:
   whichever pause carries them, `PAUSED_RESOLVER` included. Where the CLI
   accepts a control at that stop, the stop reason and status name that exact
   command; after a content-filter refusal the resume it names changes the
-  role's model (`--sol-model MODEL`, for example), since the same model would
+  role's model (`--tester-model MODEL`, for example), since the same model would
   likely refuse again. Later resumes repeat the decision without evaluating
   again.
 - If the cause lies outside the run (`PAUSED_PROVIDER_CAPACITY`,

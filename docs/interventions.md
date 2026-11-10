@@ -69,7 +69,7 @@ Applied feedback saves a `brief_feedback` provenance event, preserves stage arti
 partial edits, archives stale validation/review authorization, invalidates goal approval,
 and pauses before further planning. In an adaptive run, feedback bound to the exact
 current plan at its approval or approved acceptance-test checkpoint reuses the saved
-requirements and selects Planner revision (`astra_discovery`). The feedback becomes a
+requirements and selects Planner revision (`draft_plan`). The feedback becomes a
 traced requirement; the Planner may return a genuine requirements change to Requirements,
 and independent review and fresh exact-plan approval remain required. Stale or missing
 plan bindings, open questions, execution-time feedback and fixed planning flows retain
@@ -103,7 +103,7 @@ run-local `pause-requested` file continue to stop at saved boundaries. `--status
 read-only and adds `interventions` with inspector versus recorded-runner capability,
 pending IDs/count, pause intent, applied receipts, inbox errors and blocked conditions.
 
-Use `--astra-model`, `--terra-model`, `--sol-model`, or `--completion-model` to
+Use `--task-planner-model`, `--builder-model`, `--tester-model`, or `--completion-model` to
 explicitly override a role. Resuming keeps the saved engine, provider mapping and
 limits unless overridden.
 

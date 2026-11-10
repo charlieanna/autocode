@@ -9,7 +9,7 @@ The choices live in one file AutoCode writes, ``~/.config/autocode/stages.toml``
 backend, because a Claude model name means nothing to Codex::
 
     [claude]
-    terra = { model = "claude-haiku-4-5-20251001", effort = "medium" }
+    builder = { model = "claude-haiku-4-5-20251001", effort = "medium" }
 
 A saved choice acts as the person typing that stage's ``--ROLE-model`` and
 ``--ROLE-reasoning-effort`` flags, so every check a typed flag gets still applies. A flag on the
@@ -110,8 +110,6 @@ STAGES = (
     ),
 )
 ORDER = tuple(stage[0] for stage in STAGES)
-# A stage's new job name -> the route it is saved under until the routes are renamed.
-LEGACY_ROUTES = {new: old for old, new in names.ROUTES.items() if old in ORDER}
 LABELS = {
     role: (
         f"{roles.SCREEN[job]} and per-task {roles.SCREEN['planner']}" if role == "task_planner" else roles.SCREEN[job]
@@ -158,9 +156,8 @@ def load(file=None) -> dict:
         if not isinstance(stages, dict) or not _BACKEND.fullmatch(str(backend)):
             raise ValueError(f"{file}: [{backend}] must be a table of stages")
         for written, choice in stages.items():
-            # A stage saved under its old name (``glm = …``) is read as its renamed route (``planner``), and
-            # a job name whose route is not renamed yet (``builder = …``) as that route (``terra``).
-            role = names.route(written) if names.route(written) in ORDER else LEGACY_ROUTES.get(written, written)
+            # A stage saved under its old name (``glm = …``) is read as its renamed route (``planner``).
+            role = names.current_route(written)
             if role in found.get(backend, {}):
                 raise ValueError(f"{file}: [{backend}] names {role} twice; keep one of {written} and {role}")
             if role not in ORDER:

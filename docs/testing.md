@@ -494,7 +494,7 @@ required for non-fixture profiles. Passing fixture regressions does not close th
 real-model diagnosis-validation requirement.
 
 Whether AutoResolver diagnoses a real failure correctly (#59) is measured by the scenario
-`feature-stock-refusals` through `astra_resolve`: refusal tests that also pass on the
+`feature-stock-refusals` through `resolve`: refusal tests that also pass on the
 original code fail the runner's regression proof, and the oracle's `diagnosis()` scores the
 Resolver's diagnosis and repair task apart from the run verdict (see
 [the scenario harness](../scenarios/README.md#diagnosis)). Its scope is narrow. The defect is
@@ -517,7 +517,7 @@ match). On the fixed product the scorer gave 2 of 6 `CORRECT` at run time and 6 
 was revised on those answers. #59 was closed on the owner's decision: the plan's
 pre-registered criterion (at least 3 scored attempts from one pre-registered natural
 `claude-tiers` batch) was not met.
-`tools/live_diagnosis_trial.py` exercises `astra_diagnose` only: a different stage, for
+`tools/live_diagnosis_trial.py` exercises `diagnose` only: a different stage, for
 repeated Builder report rejections, that writes no repair task. Its results never count
 toward #59.
 
