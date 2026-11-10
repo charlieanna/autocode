@@ -40,6 +40,7 @@ from pathlib import Path
 
 try:
     from . import autocode_model_identity as model_identity
+    from . import autocode_names as names
     from . import autocode_providers as providers
     from . import autocode_roles as roles
     from . import autocode_route_discovery as route_discovery
@@ -47,6 +48,7 @@ try:
     from . import autocode_verifier_independence as independence
 except ImportError:
     import autocode_model_identity as model_identity
+    import autocode_names as names
     import autocode_providers as providers
     import autocode_roles as roles
     import autocode_route_discovery as route_discovery
@@ -108,6 +110,8 @@ STAGES = (
     ),
 )
 ORDER = tuple(stage[0] for stage in STAGES)
+# A stage's new job name -> the route it is saved under until the routes are renamed.
+LEGACY_ROUTES = {new: old for old, new in names.ROUTES.items() if old in ORDER}
 LABELS = {
     role: (f"{roles.SCREEN[job]} and per-task {roles.SCREEN['planner']}" if role == "astra" else roles.SCREEN[job])
     for role, job, _does, _advice in STAGES
@@ -151,7 +155,12 @@ def load(file=None) -> dict:
     for backend, stages in table.items():
         if not isinstance(stages, dict) or not _BACKEND.fullmatch(str(backend)):
             raise ValueError(f"{file}: [{backend}] must be a table of stages")
-        for role, choice in stages.items():
+        for written, choice in stages.items():
+            # A stage's job name (``builder = …``) is read as its route (``terra``), so a file written
+            # with the new names works before the run's routes are renamed (autocode_names).
+            role = LEGACY_ROUTES.get(written, written)
+            if role in found.get(backend, {}):
+                raise ValueError(f"{file}: [{backend}] names {role} twice; keep one of {written} and {role}")
             if role not in ORDER:
                 raise ValueError(f"{file}: [{backend}] {role} is not a stage; the stages are {', '.join(ORDER)}")
             model = choice.get("model") if isinstance(choice, dict) else None

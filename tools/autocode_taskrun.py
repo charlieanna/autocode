@@ -25,6 +25,7 @@ from typing import Any
 
 try:
     from . import autocode_conversation_session as conversation_session
+    from . import autocode_names as names
     from . import autocode_operational_change as operational_change
     from . import autocode_route_fit as route_fit
     from . import autocode_taskrun_reads as reads
@@ -34,6 +35,7 @@ try:
     from .autocode_control_tokens import private_command
 except ImportError:
     import autocode_conversation_session as conversation_session
+    import autocode_names as names
     import autocode_operational_change as operational_change
     import autocode_route_fit as route_fit
     import autocode_taskrun_reads as reads
@@ -791,14 +793,16 @@ class TaskRun:
         else:
             view = self.answer(f"route-{role}", model, resolver_token=resolver_token)
         flag = "--investigator-model" if role == "stuck_investigator" else "--" + role.replace("_", "-") + "-model"
+        flags = names.spellings(flag)  # --builder-model as well as --terra-model
         options = list(self.options)
         # --investigator-model pins the stuck-stage Investigator, not the bug Investigator's route.
         if role != "investigator":
             for index, option in enumerate(options):
-                if option == flag and index + 1 < len(options):
+                spelled = option.partition("=")[0]
+                if option in flags and index + 1 < len(options):
                     options[index + 1] = model
-                elif option.startswith(flag + "="):
-                    options[index] = flag + "=" + model
+                elif spelled in flags and option != spelled:
+                    options[index] = spelled + "=" + model
             self.options = tuple(options)
         return view
 

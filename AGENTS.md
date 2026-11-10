@@ -354,8 +354,15 @@ Stages that belong to one workflow rather than to the build pipeline (`check_des
 the runner and Autopilot consult that table, so a new one is added there, not in `autocode.py` or
 `autopilot.py`.
 
-CLI model flags follow the code names: `--astra-model`, `--glm-model`,
-`--terra-model`, `--sol-model`. Do not introduce a fourth naming scheme.
+**Job names replace the code names, owner decision 2026-11-10.** `astra`, `glm`, `terra` and `sol`
+(and the `architect` and `stuck_investigator` routes) are being renamed to the jobs they do, in four
+steps: one table of old and new names (`tools/autocode_names.py`) with the new flags (`--planner-model`,
+`--task-planner-model`, `--builder-model`, `--tester-model`) and the old ones kept as aliases; then the
+route keys; then the stage names; then identifiers and docs. A run saved before the rename is refused
+at resume and stays readable, as a run at a retired stage is. New code and docs use the job names from
+that table; do not add another naming scheme. The same letters are also parts of real model names
+(`gpt-6-sol`, `gpt-5.6-terra`, `glm-5.3`), which never change.
+
 Per-stage artifact file stems under `iterations/` use readable slugs from
 `autocode_artifacts.FILE_SLUGS` (`terra-01.jsonl` is written as
 `builder-01.jsonl`); a launch still refuses when a legacy code-name stem holds

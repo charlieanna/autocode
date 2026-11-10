@@ -15,6 +15,7 @@ try:
     from . import autocode_controller_isolation as isolation
     from . import autocode_conversation as protocol
     from . import autocode_conversation_policy as policy
+    from . import autocode_names as names
     from . import autocode_scratch_projects as scratch_projects
     from . import autocode_util as util
     from . import autocode_workspaces as workspaces
@@ -22,16 +23,18 @@ except ImportError:
     import autocode_controller_isolation as isolation
     import autocode_conversation as protocol
     import autocode_conversation_policy as policy
+    import autocode_names as names
     import autocode_scratch_projects as scratch_projects
     import autocode_util as util
     import autocode_workspaces as workspaces
 
 
 def _option(arguments, flag, default=None):
+    flags = names.spellings(flag)  # the new spelling of a role flag counts as the old one
     for index, value in reversed(list(enumerate(arguments))):
-        if value == flag and index + 1 < len(arguments):
+        if value in flags and index + 1 < len(arguments):
             return arguments[index + 1]
-        if value.startswith(flag + "="):
+        if value.partition("=")[0] in flags and "=" in value:
             return value.partition("=")[2]
     return default
 

@@ -30,12 +30,14 @@ try:
     from . import autocode_design_args as design_args
     from . import autocode_goal_approval_args as goal_approval_args
     from . import autocode_job_args as job_args
+    from . import autocode_names as names
     from . import autocode_package_scope as package_scope
     from . import autocode_project_config as project_config
     from . import autocode_related_profile as related_profile
     from . import autocode_requirements_triage as requirements_triage
     from . import autocode_resolver_human as resolver_human
     from . import autocode_review_args as review_args
+    from . import autocode_role_flags as role_flags
     from . import autocode_role_transport as role_transport
     from . import autocode_run_finder as run_finder
     from . import autocode_skip_requirements as skip_requirements
@@ -55,12 +57,14 @@ except ImportError:
     import autocode_design_args as design_args
     import autocode_goal_approval_args as goal_approval_args
     import autocode_job_args as job_args
+    import autocode_names as names
     import autocode_package_scope as package_scope
     import autocode_project_config as project_config
     import autocode_related_profile as related_profile
     import autocode_requirements_triage as requirements_triage
     import autocode_resolver_human as resolver_human
     import autocode_review_args as review_args
+    import autocode_role_flags as role_flags
     import autocode_role_transport as role_transport
     import autocode_run_finder as run_finder
     import autocode_skip_requirements as skip_requirements
@@ -285,7 +289,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Opt in to transactional planning-v2 artifacts; never changes role models or the default planning flow",
     )
     parser.add_argument(
-        "--glm-model",
+        *names.spellings("--glm-model"),
+        dest="glm_model",
+        metavar="MODEL",
         help="Planner model: OpenCode provider/model or native Codex GPT name; "
         "also the initial Requirements model unless --requirements-model is given",
     )
@@ -303,7 +309,10 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "`autocode models --selection` first",
     )
     parser.add_argument(
-        "--glm-reasoning-effort", choices=EFFORTS, help="Override planner draft and revision reasoning effort"
+        *names.spellings("--glm-reasoning-effort"),
+        dest="glm_reasoning_effort",
+        choices=EFFORTS,
+        help="Override planner draft and revision reasoning effort",
     )
     parser.add_argument("--requirements-model", help="Independent requirements-gatherer model for the saved engine")
     parser.add_argument(
@@ -349,45 +358,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         action="store_true",
         help="Remove only the iteration ceiling; other safety and usage limits remain",
     )
-    for role, model in DEFAULT_ROLE_MODELS.items():
-        label = {"astra": "plan reviewer", "terra": "builder", "sol": "validator", "completion": "completion owner"}[
-            role
-        ]
-        parser.add_argument(
-            f"--{role}-model",
-            help=f"Override the {label} model (joint default: "
-            f"{default_models[role]}; "
-            f"Codex-only default: {model}; resumes keep the saved model)",
-        )
-    parser.add_argument(
-        "--astra-provider",
-        help="Codex model_provider override for the Plan Reviewer (flag keeps the legacy Astra name)",
-    )
-    parser.add_argument(
-        "--terra-provider",
-        help="Codex model_provider override for the Builder (e.g. ZAI); default is the local Codex login",
-    )
-    parser.add_argument(
-        "--sol-provider",
-        help="Codex model_provider override for the Validator (e.g. ZAI); default is the local Codex login",
-    )
-    parser.add_argument(
-        "--completion-provider",
-        help="Codex model_provider override for the completion owner; default is the local Codex login",
-    )
-    parser.add_argument("--reasoning-effort", choices=EFFORTS, help="Reasoning effort for roles without a role flag")
-    parser.add_argument(
-        "--astra-reasoning-effort", choices=EFFORTS, help="Override reasoning effort for plan review only"
-    )
-    parser.add_argument(
-        "--terra-reasoning-effort", choices=EFFORTS, help="Override reasoning effort for the Builder only"
-    )
-    parser.add_argument(
-        "--sol-reasoning-effort", choices=EFFORTS, help="Override reasoning effort for the Validator only"
-    )
-    parser.add_argument(
-        "--completion-reasoning-effort", choices=EFFORTS, help="Override reasoning effort for the completion owner only"
-    )
+    role_flags.add_arguments(parser, default_models, DEFAULT_ROLE_MODELS, EFFORTS)
     parser.add_argument(
         "--pin-model-role",
         action="append",

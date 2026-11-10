@@ -35,12 +35,14 @@ from pathlib import Path
 
 try:
     from . import autocode_dev_server_config as dev_server_config
+    from . import autocode_names as names
     from . import autocode_project_memory as project_memory
     from . import autocode_project_memory_interface as memory_interface
     from . import autocode_required_approver as required_approver
     from . import autocode_sensitive_paths as sensitive_paths
 except ImportError:
     import autocode_dev_server_config as dev_server_config
+    import autocode_names as names
     import autocode_project_memory as project_memory
     import autocode_project_memory_interface as memory_interface
     import autocode_required_approver as required_approver
@@ -88,6 +90,9 @@ BUDGETS = (
     "max-findings-per-task",
     "max-parallel-builders",
 )
+# A role key's new spelling (builder-model for terra-model, autocode_names) is a key too.
+MODELS = tuple(spelling.removeprefix("--") for key in MODELS for spelling in names.spellings("--" + key))
+EFFORTS = tuple(spelling.removeprefix("--") for key in EFFORTS for spelling in names.spellings("--" + key))
 KEYS = (*ENGINE, *MODELS, *EFFORTS, *COMMANDS, *BUDGETS)
 # Settings only a project file gives, with no flag: a team's rule a new run saves (autocode_required_approver),
 # and the command that serves its app (autocode_dev_server_config).
@@ -99,7 +104,11 @@ _PROVIDER = (
 )
 USER_ONLY = {
     "provider": _PROVIDER,
-    **{f"{role}-provider": _PROVIDER for role in ("astra", "terra", "sol", "completion")},
+    **{
+        spelling.removeprefix("--"): _PROVIDER
+        for role in ("astra", "terra", "sol", "completion")
+        for spelling in names.spellings(f"--{role}-provider")
+    },
     "task-preflight": "the prerequisite manifest is the operator's: pass --task-preflight",
 }
 
@@ -148,6 +157,9 @@ def _checked(table, source: str) -> dict[str, tuple[object, str]]:
     if not isinstance(table, dict):
         raise ValueError(f"{source} must be a table of settings")
     for key in table:
+        old = names.legacy_flag("--" + str(key)).removeprefix("--")
+        if old != key and old in table:
+            raise ValueError(f"{source}: {key} and {old} set the same thing; keep one")
         if key in USER_ONLY:
             raise ValueError(f"{source}: {key} cannot be set by a project; {USER_ONLY[key]}")
         if key not in KEYS and key not in FILE_ONLY:
