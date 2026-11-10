@@ -7,6 +7,12 @@ All notable changes to AutoCode are recorded here. The format follows
 Each release lists the pull requests that changed user-visible behaviour.
 PR template asks for an entry here; a change without one is incomplete.
 
+## [Unreleased]
+
+### Fixed
+
+- **A deep or hidden folder below a source root no longer stops a task**: discovery skips hidden directories (tool state such as `.autocode-operations`) and records a folder past the depth bound under `not_searched` instead of pausing with PAUSED_SOURCE_UNAVAILABLE and asking you to change your source roots.
+
 ## [0.10.1] - 2026-11-09
 
 ### Fixed
