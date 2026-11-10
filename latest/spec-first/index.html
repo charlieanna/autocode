@@ -1928,14 +1928,16 @@ assumptions.</p>
 <p>The handoff names the job Requirements understood (<code>job</code>: <code>build</code>, <code>bugfix</code>, <code>review</code>, <code>design</code>,
 <code>discuss</code>, or <code>none</code> while no outcome is named yet), and the question says what approving starts. Only a
 build or a bug fix needs behaviors and acceptance tests; a review, a design or a question names its
-outcome and nothing else. A question is never asked to be approved: once Requirements understands it
-and has nothing to ask, the Analyst answers it straight away. The Job recognizer runs only when
+outcome and nothing else. A discussion is never asked to be approved: when it asks for nothing to be written and
+Requirements has nothing left to ask, Requirements answers it itself, from the code, and the turn
+ends. Nothing is planned or built. A discussion whose answer is to be written into a file
+describes that file in its behaviors and acceptance tests, and is planned like any other change. The Job recognizer runs only when
 Requirements named no job (#1846). Every run, chat or not, starts at Requirements and has it name the
 job (#1860); what spec-first adds is the confirmation before the job starts.</p>
 <p>Adaptive planning never skips Requirements on such a run. Planning, plan review and plan approval are
 unchanged.</p>
 <p>Without the setting, a complete handoff goes straight to the job Requirements named: planning for a
-build, the Investigator for a bug fix, the Code Reviewer, the Designer or the Analyst for the others. A handoff that has only questions so
+build, the Investigator for a bug fix, Requirements' own answer for a discussion with nothing to write, and planning for the others. A handoff that has only questions so
 far, with no behaviors or acceptance tests yet, still stops the run for your answers on any flow, and
 Requirements runs again with them; only the confirmation of a complete handoff is spec-first's own.</p>
 <h2 id="2-the-tester-writes-the-acceptance-tests-before-the-builder">2. The Tester writes the acceptance tests before the Builder<a class="headerlink" href="#2-the-tester-writes-the-acceptance-tests-before-the-builder" title="Permanent link">&para;</a></h2>
