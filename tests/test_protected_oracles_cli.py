@@ -61,6 +61,9 @@ class ProtectedOracleCLI(unittest.TestCase):
         self.builder_writes(
             {
                 "greet.py": fixture.references.BUGFIX_REFERENCE["greet.py"],
+                # #2474 gives a build's product change the runner's regression proof: the scripted
+                # Builder delivers the greeting fix's own fail-to-pass test with it.
+                "test_greet.py": fixture.references.BUGFIX_REFERENCE["test_greet.py"],
                 "layout.py": f"def height():\n    return {height}\n",
                 "test_layout.py": test,
             }
@@ -179,6 +182,7 @@ class ProtectedOracleCLI(unittest.TestCase):
         self.builder_writes(
             {
                 "greet.py": fixture.references.BUGFIX_REFERENCE["greet.py"],
+                "test_greet.py": fixture.references.BUGFIX_REFERENCE["test_greet.py"],
                 "layout.py": "def height():\n    return 40\n",
                 "test_layout.py": extra,
                 "shared/oracle.py": extra,
