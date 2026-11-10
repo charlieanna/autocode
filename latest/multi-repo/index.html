@@ -1956,7 +1956,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/f03ef6802e15e973cf4f1ba6af4815595773a3b0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/87dc384f7bde88bcca578ab8b9135c323c932ea2/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -1979,6 +1979,10 @@ autocode registry roots add /work/shared-services
 autocode registry repositories add /srv/standalone/history-consumer
 autocode registry roots list
 </code></pre>
+<p>Or add a folder from the terminal chat itself: <code>/repos ~/code/services</code> adds a
+source root, and <code>/repos ~/code/history-consumer</code>, a Git checkout, registers that
+checkout. Either is kept for every later chat; a chat already started keeps the
+sources it began with, so start a new one with <code>/new</code> to search the added folder.</p>
 <p>Then start plain <code>autocode</code> in a terminal (or <code>autocode chat</code>) from any directory
 and provide the ticket only. A clear bug identified by Requirements enters the
 coordinated flow without a workflow flag or separate Requirements confirmation;
@@ -2248,7 +2252,7 @@ discover an arbitrary service dependency.</p>
 <p>These are focused regressions, not one live, end-to-end multi-service production
 trial. Bounded live Kilo MiMo/GLM TUI attempts on 2026-10-27 discovered all three
 fixture repositories but stopped on planning/report validation before builds,
-joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/f03ef6802e15e973cf4f1ba6af4815595773a3b0/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
+joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/87dc384f7bde88bcca578ab8b9135c323c932ea2/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
 and <a href="https://github.com/charlieanna/autocode/issues/2208">remaining convergence issue #2208</a>.
 Live end-to-end delivery is not yet verified. The current implementation also has these limits:</p>
 <ul>
