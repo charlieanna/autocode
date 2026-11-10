@@ -85,6 +85,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **A contract blocker names its Resolver response again** (#2973, #3055): only a blocker the
+  Resolver marks as a wrong saved test or regression command (`user_request.correction =
+  "verification_commands"`) names the command change (`--resume-paused --test-command
+  --regression-command`). Before, every Completion Owner blocker named it, so a blocker about
+  contradictory criteria pointed at a command change that could not settle it. The Resolver never
+  supplies the commands; older reports read the mark as null.
+
 - **Terminal chat, side panel on a wide window**: `/panel` hides the panel again at 100 or more
   columns, where it now shows by itself (#3070), and the choice holds when the window is resized.
   Before, `/panel` there did nothing.

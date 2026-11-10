@@ -405,6 +405,7 @@ def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorizati
     schema["properties"]["diagnosis"] = goals.STRING
     schema["properties"]["recovery_change"] = copy.deepcopy(novelty.CHANGE_SCHEMA)
     schema["properties"]["user_request"]["properties"]["recommended_revision"] = copy.deepcopy(recommendation.SCHEMA)
+    schema["properties"]["user_request"]["properties"]["correction"] = copy.deepcopy(CORRECTION_SCHEMA)
     schema["required"].append("diagnosis")
     prompt = (
         prompts.get("fragments/autoresolver/prepare-03.md")
@@ -424,6 +425,14 @@ def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorizati
     return ModelRequest("astra", "resolver", prompt, metrics, schema, False)
 
 
+# The one correction a Resolver blocker may name: the saved test or regression command is wrong.
+# It only marks the blocker; the Resolver never supplies the commands. The status view then names
+# the existing configure_resume action, where the operator sets them (#2973). Null is listed first: a
+# scripted provider that fills a missing field with its first enum value means "no correction".
+CORRECTIONS = ("verification_commands",)
+CORRECTION_SCHEMA = {"type": ["string", "null"], "enum": [None, *CORRECTIONS]}
+
+
 def validate(state: RunState, value, record, workspace):
     guard(state, workspace)
     if (
@@ -436,6 +445,13 @@ def validate(state: RunState, value, record, workspace):
     if value.get("status") not in ("REWORK", "BLOCKED") or not value.get("diagnosis", "").strip():
         raise ValueError("Resolver requires a diagnosis and a REWORK or BLOCKED decision")
     request = value.get("user_request") or {}
+    if request.get("correction") is not None and (
+        value["status"] != "BLOCKED"
+        or request.get("kind") != "blocker"
+        or request.get("correction") not in CORRECTIONS
+        or request.get("recommended_revision") is not None
+    ):
+        raise ValueError("A verification-command correction requires a diagnosed blocker and no criterion revision")
     if request.get("recommended_revision") is not None:
         if value["status"] != "BLOCKED" or request.get("kind") not in ("blocker", "contradiction", "infeasible"):
             raise ValueError("A recommended criterion revision requires a diagnosed contract blocker")

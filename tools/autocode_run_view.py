@@ -1266,15 +1266,15 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         if route:
             answer["route"] = _route(route)
         elif answer.get("resolver_scope") in ("blocker", "operational_exhaustion"):
-            # A verification-command correction settles through configure_resume (#2973):
-            # the person changes the saved commands; the blocker is retired and the Tester reruns.
+            # A blocker the Resolver explicitly marked as a verification-command correction settles
+            # through configure_resume (#2973): the saved commands change, the blocker is retired and
+            # the Tester reruns. Any other blocker keeps the Resolver response.
             try:
                 from . import autocode_verification_config as verification_config
             except ImportError:
                 import autocode_verification_config as verification_config
 
-            hold = verification_config.blocker_hold(state)
-            if hold and (hold[0] or {}).get("scope") == "blocker":
+            if verification_config.command_correction(state):
                 answer["action"] = "--resume-paused --test-command COMMAND --regression-command COMMAND"
                 answer["correction"] = "verification_commands"
             else:

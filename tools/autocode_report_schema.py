@@ -62,6 +62,10 @@ def normalize_absent_authority(value, schema, record):
     nullable = kind == "null" or isinstance(kind, list) and "null" in kind
     if stage == "astra_resolve" and isinstance(request, dict) and nullable:
         request.setdefault("recommended_revision", None)
+    kind = properties.get("user_request", {}).get("properties", {}).get("correction", {}).get("type")
+    nullable = kind == "null" or isinstance(kind, list) and "null" in kind
+    if stage == "astra_resolve" and isinstance(request, dict) and nullable:
+        request.setdefault("correction", None)
     return result
 
 

@@ -652,6 +652,9 @@ def main():
         request = result.get("user_request")
         if owning == "astra_resolve" and isinstance(request, dict) and nullable:
             request.setdefault("recommended_revision", None)
+        correction = schema.get("properties", {}).get("user_request", {}).get("properties", {}).get("correction")
+        if owning == "astra_resolve" and isinstance(request, dict) and correction is not None:
+            request.setdefault("correction", None)
     if data["stage"] == "sol":
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "changed_code_exceptions" in schema.get("properties", {}):
