@@ -2410,7 +2410,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/e81247b5dec1232d83ebe1a85cadaa0f17d8d0c6/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2636,7 +2636,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/e81247b5dec1232d83ebe1a85cadaa0f17d8d0c6/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3254,7 +3254,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/e81247b5dec1232d83ebe1a85cadaa0f17d8d0c6/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4016,6 +4016,13 @@ after the current step, the second interrupts it. When the chat ends, its last w
 stay on the terminal: an error, where to pick the run up, or the command a stop
 leaves for you to run. <code>--line</code> keeps the plain
 prompts, and scripts get them automatically when there is no terminal.</p>
+<p>The row under the transcript says what the run is doing while you wait. After your first
+message it names the part of the start you are in — <code>Starting the run · preparing the run
+· on OpenCode · Full · 4s</code>, then <code>resolving which model each stage runs</code> — because a new
+run saves its first checkpoint only after those two steps. The seconds count the whole
+start, not the phase. From the first checkpoint the row comes from the run's status view
+as before (<code>Requirements working</code>), and the side panel's stage pipeline appears with it.
+A start whose launcher stopped with no checkpoint says so instead of waiting.</p>
 <p>At a question with options, the option's number or its exact label answers it;
 any other reply goes to Requirements as feedback, which reopens the question. A
 reply that names an option and says more (<code>Option 1, because …</code>, <code>Keep the
@@ -4288,7 +4295,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/e81247b5dec1232d83ebe1a85cadaa0f17d8d0c6/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,

@@ -1714,6 +1714,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-a-start-answers-before-its-first-checkpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a start answers before its first checkpoint
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#status-view" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2313,6 +2324,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-a-start-answers-before-its-first-checkpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a start answers before its first checkpoint
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#status-view" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2344,7 +2366,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/e81247b5dec1232d83ebe1a85cadaa0f17d8d0c6/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3535,7 +3557,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/e81247b5dec1232d83ebe1a85cadaa0f17d8d0c6/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3950,6 +3972,73 @@ acceptance remains a separately authenticated requirement. The inspection never
 runs tests, changes the checkpoint, approves work or substitutes for the full
 completion gate. The dashboard uses this supported inspection for selected task
 detail; list polling does not hash every project checkout.</p>
+<h2 id="what-a-start-answers-before-its-first-checkpoint">What a start answers before its first checkpoint<a class="headerlink" href="#what-a-start-answers-before-its-first-checkpoint" title="Permanent link">&para;</a></h2>
+<p>A new run saves its first checkpoint only after it has prepared the workspace and
+resolved which model each stage runs, so the window a person watches right after their
+first message has no <code>state.json</code> to read. <code>--status</code> does not refuse during that
+window: where the run directory holds a launch note and no checkpoint, it prints the
+note and exits 0.</p>
+<pre><code class="language-json">{
+  &quot;version&quot;: 1,
+  &quot;workspace&quot;: &quot;/abs/path/project&quot;,
+  &quot;run_dir&quot;: &quot;/abs/path/project/.autocode/runs/recording-replay&quot;,
+  &quot;starting&quot;: {
+    &quot;phase&quot;: &quot;resolving_models&quot;,
+    &quot;label&quot;: &quot;resolving which model each stage runs&quot;,
+    &quot;at&quot;: &quot;2026-11-09T12:00:41+00:00&quot;,
+    &quot;started_at&quot;: &quot;2026-11-09T12:00:00+00:00&quot;,
+    &quot;owner_alive&quot;: true
+  }
+}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>phase</code></td>
+<td><code>preparing_run</code> while the workspace and run directory are made ready, <code>resolving_models</code> while the model and reasoning level each stage runs is chosen. Boot phases, not stages: no model runs in either.</td>
+</tr>
+<tr>
+<td><code>label</code></td>
+<td>The words a client shows for the phase.</td>
+</tr>
+<tr>
+<td><code>at</code></td>
+<td>When the launcher entered the current phase.</td>
+</tr>
+<tr>
+<td><code>started_at</code></td>
+<td>When this start began, kept across phases so a client can count the whole wait rather than this phase alone.</td>
+</tr>
+<tr>
+<td><code>owner_alive</code></td>
+<td>Whether the process that wrote the note still lives: <code>false</code> when the launcher stopped reporting rather than still working, <code>null</code> when the check cannot tell.</td>
+</tr>
+</tbody>
+</table>
+<p>There is deliberately no <code>view</code> key. The answer names no <code>needs</code>, no action and no
+<code>next_command</code>, so a thin client can show what the start is doing and can do nothing
+else with it — least of all take a second launch of a start that is already running. A
+client that reads only <code>view</code> sees what it saw before, "no view yet"; what changes is
+that it can now say why.</p>
+<p>The note is <code>launch.json</code> in the run directory, written by <code>autocode_launch_record</code>. It
+is display only: nothing reads it as a checkpoint and it grants no authority. The run
+clears it as soon as its first checkpoint is saved, so a status read sees one of the
+two and never both. A start that is refused before saving anything leaves no run
+directory behind — <code>autocode_run_destination.discard_unsaved</code> removes one holding only
+the note and the writer lock.</p>
+<p>A run directory with neither a checkpoint nor a note still exits 2 with the <code>has no
+state.json</code> refusal, so an unreadable run stays unreadable rather than looking like a
+start. The terminal chat renders the answer as
+<code>Starting the run · &lt;label&gt; · on &lt;engine&gt; · &lt;mode&gt; · &lt;elapsed&gt;</code> in place of the line it
+used to freeze on, and says each phase once in its line form. The engine and mode are
+the choices that chat launched the run with, taken from its own flags; a run it did not
+start is named only by what the note says.</p>
 <h2 id="status-view">Status view<a class="headerlink" href="#status-view" title="Permanent link">&para;</a></h2>
 <p>Produced by <code>tools/autocode_run_view.py</code> from the saved state. Fields may be
 added; existing fields keep their names and meanings, and <code>schema</code> changes if a
@@ -4234,7 +4323,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/e81247b5dec1232d83ebe1a85cadaa0f17d8d0c6/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/448af0c32a78804325c69963a0e66cf1af00ebca/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
