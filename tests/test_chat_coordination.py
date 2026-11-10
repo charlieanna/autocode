@@ -629,6 +629,17 @@ class CoordinatedDisplayTests(unittest.TestCase):
         self.assertEqual("/shared/autocode", explicit["AUTOCODE_SOURCE_CATALOG_HOME"])
         self.assertEqual("/shared/autocode", explicit["AUTOCODE_HOME"])
 
+    @unittest.skipIf(os.name == "nt", "the warm source host serves over a Unix socket")
+    def test_chat_processes_use_the_warm_source_host_unless_the_person_opted_out(self):
+        with patch.dict(os.environ, {"HOME": "/tmp/fixture-user-home"}, clear=True):
+            self.assertEqual("1", coordination.environment(Path("/tmp/project-one"))["AUTOCODE_SOURCE_HOST"])
+        with patch.dict(os.environ, {"AUTOCODE_SOURCE_HOST": "0"}, clear=True):
+            self.assertEqual("0", coordination.environment(Path("/tmp/project-one"))["AUTOCODE_SOURCE_HOST"])
+        self.assertEqual(
+            "0",
+            coordination.environment(Path("/tmp/project-one"), {"AUTOCODE_SOURCE_HOST": "0"})["AUTOCODE_SOURCE_HOST"],
+        )
+
     LISTING = {
         "catalog": "/home/user/.autocode/source-catalog.json",
         "roots": [{"path": "/work/services"}],

@@ -26,6 +26,11 @@ def environment(workspace, selected=None):
         selected_home = result.get("AUTOCODE_HOME") or str(Path.home() / ".autocode")
         result["AUTOCODE_SOURCE_CATALOG_HOME"] = selected_home
     result.setdefault("AUTOCODE_HOME", str(Path(workspace).resolve() / ".autocode" / "registry"))
+    if os.name != "nt":
+        # A chat reads status every few seconds, each read a new process that fingerprints the whole
+        # workspace again while a question waits (14-15 s on a 13.8k-file project under load, past the
+        # read timeout). The warm source host (#1707) answers the same snapshot from memory; "0" opts out.
+        result.setdefault("AUTOCODE_SOURCE_HOST", "1")
     return result
 
 
