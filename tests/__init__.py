@@ -45,6 +45,12 @@ for _key, _value in GIT_TEST_CONFIG.items():
         _count += 1
 os.environ["GIT_CONFIG_COUNT"] = str(_count)
 
+# The terminal chat turns the warm source host on for the processes it starts
+# (#1707). That host outlives the command by design; a test that starts a chat
+# would leave one running for 30 idle minutes. Tests run without it unless a
+# test turns it on itself (tests/test_source_host.py).
+os.environ.setdefault("AUTOCODE_SOURCE_HOST", "0")
+
 # A new run takes its provider and the person's settings from AUTOCODE_PROVIDER
 # and $XDG_CONFIG_HOME/autocode (default ~/.config): config.toml, providers/ and
 # direct/. A developer's own choice there (default_provider = "kilocode") changed
