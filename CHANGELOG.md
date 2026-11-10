@@ -51,6 +51,9 @@ PR template asks for an entry here; a change without one is incomplete.
   It is skipped and listed under `unreadable` in the task's pinned source inventory. A missing
   root, a discovery bound or a link out of a root still stops, now as a stop in your environment
   that names the paths.
+- The review mutation scenario matches the unified pipeline (#3010): the Code Reviewer's
+  mutation check of a reviewed patch's tests is exercised on a review launched as an earlier
+  runtime saved it.
 - After a design turn that went through the full pipeline (#3010), "Build it." again names the
   design documents that turn wrote, so the build checks that design first. The tests, scenario
   oracles and scripted provider now expect every new task to go through the full pipeline, and

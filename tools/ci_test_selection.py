@@ -312,6 +312,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_follow_up",
             "tests.test_review_attribution_cli",
             "tests.test_verification_supervision",
+            "scenarios.test_review_mutation",
         ),
     ),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),

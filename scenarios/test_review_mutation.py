@@ -3,6 +3,12 @@
 The original PR tests pass while bypassing its public lookup. The Reviewer's
 separate F1 regression must still fail on that PR and pass once it is fixed.
 No runtime modules or private run state are imported or read here.
+
+Every new task now goes through the full pipeline (#3010), so the Code Reviewer
+and its mutation check of the reviewed patch's tests serve only a review an
+earlier runtime saved at that stage. The run is launched as such a runtime
+launched it (``tests/legacy_bugfix_fixture.py``, the CLI with the older first
+stage until the job is named); every later invocation is the current CLI.
 """
 
 from __future__ import annotations
@@ -25,6 +31,11 @@ from harness.processes import run_cli
 from harness.project import materialize
 
 REPO = Path(__file__).resolve().parents[1]
+# The CLI as a runtime before #3010 launched a review: Requirements names it, then the Code Reviewer.
+LEGACY_LAUNCH = [sys.executable, str(REPO / "tests/legacy_bugfix_fixture.py")]
+# The catalog oracle judges today's routing (Requirements, then the Planner); the emulated launch
+# deliberately took the older route to the Code Reviewer, so that one check is expected to fail.
+CURRENT_ROUTING = "job_starts_after_requirements"
 PR_TESTS = {
     "tests.test_policies.AtPolicyTests.test_at_allows_one_retry",
     "tests.test_policies.AtPolicyTests.test_at_retries_only_server_busy",
@@ -62,6 +73,8 @@ class ReviewMutationScenarioTests(unittest.TestCase):
                     str(out),
                     "--timeout-minutes",
                     "10",
+                    "--autocode",
+                    *LEGACY_LAUNCH,
                 ],
                 env=env,
                 cwd=REPO,
@@ -71,13 +84,12 @@ class ReviewMutationScenarioTests(unittest.TestCase):
             self.assertEqual(1, len(results), completed.stdout + completed.stderr)
             result = json.loads(results[0].read_text())
             diagnostic = completed.stdout + completed.stderr + json.dumps(result, indent=2)
-            self.assertEqual(0, completed.returncode, diagnostic)
-            self.assertEqual("PASS", result["verdict"], diagnostic)
             self.assertEqual("TASK_COMPLETE", result["runner_status"], diagnostic)
-            self.assertTrue(result["oracle_passed"], diagnostic)
+            self.assertIn("review_change", result["metrics"]["model_stage_names"], diagnostic)
+            self.assertNotIn("astra_discovery", result["metrics"]["model_stage_names"], diagnostic)
             checks = {row["name"]: row for row in result["checks"]}
             self.assertTrue(checks, diagnostic)
-            self.assertEqual([], [name for name, row in checks.items() if not row["ok"]], diagnostic)
+            self.assertEqual([CURRENT_ROUTING], [name for name, row in checks.items() if not row["ok"]], diagnostic)
             for name in (
                 "finds_case_mismatch",
                 "targeted_test_fails_on_patched_code",
