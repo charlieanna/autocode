@@ -156,7 +156,17 @@ export class RunController {
       stream({ ...settings, cwd: runWorkspace }, args, {}, (chunk) => this.log.append(chunk)));
     if (result.rejected || (result.code !== 0 && result.code !== 2)) throw new Error(tail(result));
     this.log.appendLine(`[autocode exited ${result.code}]`);
-    return { workspace: runWorkspace, runDir };
+    const started = { workspace: runWorkspace, runDir };
+    if (result.code === 2) {
+      // Exit 2 is a pause only when the run was saved: startup can also exit 2 before any run
+      // exists (docs/task-run.md). Then the start's own output is the error, not a refused status read.
+      try {
+        await this.status(started);
+      } catch {
+        throw new Error(`AutoCode stopped before it saved the run:\n${tail(result)}`);
+      }
+    }
+    return started;
   }
 
   /**
