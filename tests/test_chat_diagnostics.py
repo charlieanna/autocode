@@ -127,7 +127,7 @@ with ChatTUI() as ui:
 raise SystemExit(code)
 """
             with TerminalScreen(
-                [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+                [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=99, rows=30, tmux=require_tmux(self)
             ) as screen:
                 text = screen.wait_for(
                     lambda text: all(

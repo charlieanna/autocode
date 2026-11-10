@@ -1682,6 +1682,18 @@ class LivePaneTests(unittest.TestCase):
         ui._run("/panel", True)
         self.assertIsNone(ui._layout(30, 80).panel_col)
 
+    def test_panel_hides_on_a_wide_window_when_asked(self):
+        """The side panel showed by itself at 100+ columns, and /panel could not hide it there."""
+        ui = screen_ui()
+        ui._screen.getmaxyx.return_value = (30, 120)
+        ui.observe({"status": "WAITING_FOR_USER", "progress": {"stage": "Planner", "headline": "Waiting for you"}})
+        self.assertIsNotNone(ui._layout(30, 120).panel_col, "shown by itself on a wide window")
+        ui._run("/panel", True)
+        self.assertIsNone(ui._layout(30, 120).panel_col, "/panel hides it")
+        self.assertIsNone(ui._layout(30, 160).panel_col, "and it stays hidden when the window grows")
+        ui._run("/panel", True)
+        self.assertIsNotNone(ui._layout(30, 120).panel_col, "/panel shows it again")
+
     def test_coordination_replaces_stale_anchor_labels_without_hiding_member_stage(self):
         ui = screen_ui()
         anchor = {

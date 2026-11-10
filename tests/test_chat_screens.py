@@ -237,7 +237,7 @@ with ChatTUI() as ui:
         ui.wait(0.1)
 """
         screen = TerminalScreen(
-            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=99, rows=30, tmux=require_tmux(self)
         )
         self.addCleanup(screen.close)
         screen.wait_for(
@@ -571,7 +571,7 @@ class ChatScreenTests(unittest.TestCase):
         self.assertIn("What do you want done?", shown)
 
     def test_a_pasted_request_type_ahead_and_a_complete_run(self):
-        screen = self.chat(cols=120, rows=34)
+        screen = self.chat(cols=99, rows=34)  # below the width that shows the side panel by itself (#3070)
         # A two-line paste is one request: the fixture provider recognizes only the whole brief.
         first, rest = BRIEF.split(". Deliver", 1)
         screen.paste(f"{first}.\nDeliver{rest}")
