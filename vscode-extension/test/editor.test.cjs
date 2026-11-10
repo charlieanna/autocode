@@ -1768,7 +1768,49 @@ test('chat shows the live agent log (chat.log) with agent names and thinking', a
   const thinking = ui.document.querySelector('#app .activity-row.thinking');
   assert.ok(thinking, 'thinking rows are marked');
   assert.equal(thinking.querySelector('.activity-mark').textContent, '∴');
-  assert.equal(thinking.querySelector('.agent').textContent, 'Builder · task M2');
+  const headers = [...ui.document.querySelectorAll('#app .live-log .log-agent')].map((node) => node.textContent);
+  assert.deepEqual(headers, ['Builder · task M2', 'Plan Reviewer'], 'each agent is named once per run of its steps');
+  assert.equal(ui.document.querySelector('#app .live-log .agent'), null, 'no row repeats the agent name');
+});
+
+test('the live agent log names an agent once and folds its reasoning to one line', async (t) => {
+  // The shape of a live Requirements stage (Ankur's report, 2026-11-10): the stage name was
+  // printed above every step and each thought was shown in full with the [partial] marker.
+  const thought = '…in actual code, maybe just the top of server.py and app.py to see routes. [partial]';
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Requirements working'],
+      log: [
+        { id: 'r1', agent: 'Requirements', kind: 'tool', text: 'read README.md', status: 'done' },
+        { id: 'r2', agent: 'Requirements', kind: 'command', text: 'ls engine tools', status: 'done' },
+        { id: 'r3', agent: 'Requirements', kind: 'thinking', text: thought },
+        { id: 'r4', agent: 'Requirements', kind: 'command', text: 'head -60 engine/unified/server.py', status: 'running' },
+        { id: 'r5', agent: 'Planner', kind: 'tool', text: 'read deploy/entrypoint.sh', status: 'done' },
+        { id: 'r6', agent: 'Requirements', kind: 'thinking', text: 'Back to the brief.' },
+      ] } };
+  const ui = await openChat(t, value);
+  const log = () => ui.document.querySelector('#app .live-log');
+  const headers = () => [...log().querySelectorAll('.log-agent')].map((node) => node.textContent);
+  assert.deepEqual(headers(), ['Requirements', 'Planner', 'Requirements'],
+    'consecutive steps of one agent share a header; a new header only when the agent changes');
+  assert.equal(log().querySelectorAll('.activity-row').length, 6, 'every step is still listed');
+  const folded = log().querySelector('.activity-row.thinking details.thought');
+  assert.ok(folded, 'reasoning is a foldable line');
+  assert.equal(folded.open, false, 'reasoning starts folded');
+  const summary = folded.querySelector('summary');
+  assert.equal(summary.textContent, '…in actual code, maybe just the top of server.py and app.py to see routes.');
+  assert.equal(summary.title, 'Still arriving', 'the streaming marker becomes a tooltip');
+  assert.ok(!log().textContent.includes('[partial]'), 'the core marker is not shown as part of the thought');
+  assert.equal(log().querySelectorAll('details.thought')[1].querySelector('summary').title, '',
+    'a finished thought has no streaming tooltip');
+  // An unfolded thought stays unfolded when the next read redraws the log.
+  folded.open = true;
+  folded.dispatchEvent(new ui.window.Event('toggle'));
+  const next = structuredClone(value);
+  next.chat.log.push({ id: 'r7', agent: 'Requirements', kind: 'command', text: 'cat app.py', status: 'running' });
+  await ui.poll(next);
+  const redrawn = [...log().querySelectorAll('details.thought')];
+  assert.deepEqual(redrawn.map((node) => node.open), [true, false], 'only the thought a person opened stays open');
 });
 
 test('the live agent log keeps entries by id across reads as the view moves on', async (t) => {

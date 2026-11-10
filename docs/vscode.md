@@ -141,7 +141,8 @@ Commands use argument arrays; issued tokens stay in the child environment.
 
 While a step works, the conversation shows the live agent log the status view
 names (`view.chat.log`): what each running agent thinks (`∴`), says (`»`) and
-does (`$`, `±`, `·`), with its screen name. Like the terminal chat's `/live`,
+does (`$`, `±`, `·`). Each agent's screen name heads its run of steps once, and
+each thought folds to one line that a click unfolds. Like the terminal chat's `/live`,
 those entries are display only — a thought is not a report and a command shown
 is not a passed check. Where an older core offers only `chat.activity`, the
 conversation shows those tool marks instead.
