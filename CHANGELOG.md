@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- **Master's VS Code extension can reach you through the Marketplace**: `.github/workflows/publish-vscode-extension.yml` publishes the extension from each master commit that changes it, as version MAJOR.MINOR.(commit count), after its typecheck, tests and packaging pass, so VS Code's auto-update installs master. It uses Marketplace trusted publishing, so no token is stored, and it is skipped until the one-time setup in [releasing](docs/releasing.md#vs-code-extension) is done. The packaging tool `@vscode/vsce` moves to 4.1.0 for `--oidc`.
 - **One command updates the VS Code extension from master**: `scripts/update-vscode-extension.sh` fetches master, builds it in a temporary worktree so your checkout is left alone, packages the extension and installs it with `code --install-extension --force` (`--local` builds the checkout as it stands). See [update from master](docs/vscode.md#update-from-master).
 
 ### Changed

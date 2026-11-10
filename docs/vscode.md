@@ -163,7 +163,13 @@ takes ([change sets in clients](task-run.md#change-sets-in-clients)).
 
 ## Update from master
 
-To install the newest extension from master, run this from any AutoCode checkout:
+Once Marketplace publishing is set up ([VS Code extension](releasing.md#vs-code-extension)),
+every master commit that changes the extension is published to the Marketplace, and VS Code's
+auto-update installs it like any other extension. An extension installed from a `.vsix` with the
+same name is replaced by the next Marketplace version.
+
+To install the newest extension from master yourself, for example before it is published, run
+this from any AutoCode checkout:
 
 ```sh
 scripts/update-vscode-extension.sh
