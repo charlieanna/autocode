@@ -448,10 +448,12 @@ autocode --run-dir /path/to/project/.autocode/worktrees/TASK/.autocode/runs/RUN
 Existing runs retain their original checkout. `--in-place` explicitly starts a new
 task in the selected checkout. Only one run's agents work in a checkout at a time:
 a second run started there (or resumed there) while another run's agents are working
-prints which run holds the checkout and exits with status 2, changing nothing. Run
+says which task is working there and exits with status 2, changing nothing. Run
 the same command again once the other run stops, or start the task without
 `--in-place` so it gets its own worktree. Answering, approving or giving feedback to
-a waiting run launches no agent and is not blocked. AutoCode never merges branches;
+a waiting run launches no agent and is not blocked. Requirements only reads the
+checkout, so it runs while another run holds it: a question Requirements answers
+itself finishes without waiting, and a change waits only when planning would start. AutoCode never merges branches;
 see [When a task finishes](#when-a-task-finishes) for committing and removing worktrees.
 
 See also: [Figma design](figma.md) · [Workflow](workflow.md)
