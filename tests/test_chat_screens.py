@@ -705,6 +705,16 @@ def status_row(screen: str) -> str:
     return lines[top - 1] if top else ""
 
 
+# The composer's placeholders (autocode_chat_tui._composer_box): shown when nothing is typed.
+PLACEHOLDERS = (
+    "Ask for",
+    "Type your",
+    "Type a message",
+    "Reading run status",
+    "AutoCode asks here when it needs you",
+)
+
+
 def composer_text(screen: str) -> str:
     """What is typed in the composer box, or "" when it shows its placeholder."""
     for line in screen.splitlines():
@@ -712,11 +722,7 @@ def composer_text(screen: str) -> str:
         for prompt in ("❯ ", "> "):
             if inner.startswith(prompt):
                 typed = inner[len(prompt) :].strip()
-                return (
-                    ""
-                    if typed.startswith(("Ask for", "Type your", "AutoCode is working", "Type / for commands"))
-                    else typed
-                )
+                return "" if typed.startswith(PLACEHOLDERS) else typed
     return ""
 
 
