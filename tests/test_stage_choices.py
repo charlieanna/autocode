@@ -224,7 +224,7 @@ class StageChoiceTests(unittest.TestCase):
         self.assertEqual(every, choices.load(self.file))
         for text, error in (
             ("[claude\n", "cannot be read as TOML"),
-            ('[claude]\nbuilder = { model = "x" }\n', "builder is not a stage"),
+            ('[claude]\nreviewer = { model = "x" }\n', "reviewer is not a stage"),
             ('[claude]\nterra = { effort = "low" }\n', "needs a model name"),
             ('[claude]\nterra = { model = "x", effort = "huge" }\n', "effort must be one of"),
             ("terra = 1\n", "must be a table of stages"),
