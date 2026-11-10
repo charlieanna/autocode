@@ -9,6 +9,7 @@ import {
   progressLine,
   readRegistryList,
   readStatusPayload,
+  RunStarting,
   usageLine,
   readChangesetSummary,
 } from "../src/core/view";
@@ -24,6 +25,15 @@ test("readStatusPayload takes the view out of the --status envelope", () => {
 test("readStatusPayload refuses output that is not a status view", () => {
   assert.throws(() => readStatusPayload("not json"), /did not return JSON/);
   assert.throws(() => readStatusPayload(JSON.stringify({ status: "RUNNING" })), /did not return a status view/);
+});
+
+test("readStatusPayload says what a run still starting is doing, and refuses a start that stopped reporting", () => {
+  const starting = (owner_alive: boolean) =>
+    JSON.stringify({ version: 1, run_dir: "/ws/.autocode/runs/r", workspace: "/ws",
+      starting: { phase: "preparing_run", label: "preparing the run", at: "t", started_at: "t", owner_alive } });
+  assert.throws(() => readStatusPayload(starting(true)), (error) => error instanceof RunStarting && error.label === "preparing the run");
+  assert.throws(() => readStatusPayload(starting(false)), (error) =>
+    !(error instanceof RunStarting) && /start stopped while preparing the run/.test(String(error)));
 });
 
 test("a field the client expects to exist may still be missing", () => {

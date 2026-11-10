@@ -301,6 +301,16 @@ export function readChangesetSummary(raw: string): ChangesetSummary {
   return parsed as unknown as ChangesetSummary;
 }
 
+/**
+ * `--status` for a run that is still starting and has no checkpoint yet (#3079): what the start is
+ * doing, in the core's words. It is not a status view and names no action, so a client only shows it.
+ */
+export class RunStarting extends Error {
+  constructor(readonly label: string) {
+    super(`AutoCode is ${label}`);
+  }
+}
+
 /** The envelope `autocode --status` prints: the view sits under `"view"`. */
 export function readStatusPayload(raw: string): StatusView {
   let parsed: unknown;
@@ -310,6 +320,13 @@ export function readStatusPayload(raw: string): StatusView {
     throw new Error("--status did not return JSON");
   }
   const view = (parsed as Record<string, unknown>)?.view;
+  const starting = (parsed as Record<string, unknown>)?.starting as Record<string, unknown> | null | undefined;
+  if (!view && starting && typeof starting === "object") {
+    const label = typeof starting.label === "string" && starting.label ? starting.label : "starting the run";
+    // The launcher stopped reporting: that is a failed start, not one to keep waiting on.
+    if (starting.owner_alive === false) throw new Error(`AutoCode's start stopped while ${label}`);
+    throw new RunStarting(label);
+  }
   if (!view || typeof view !== "object") throw new Error("--status did not return a status view");
   return view as StatusView;
 }

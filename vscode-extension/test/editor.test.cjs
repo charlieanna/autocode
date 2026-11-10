@@ -1403,6 +1403,16 @@ test('a saved mode the core no longer lists starts new chats in its default (qui
   assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--spec-first']);
 });
 
+test('while a new run is still starting the chat says what it is doing, not that the status could not be read', async (t) => {
+  const { RunStarting } = host.load('core/view.js');
+  const ui = await openChat(t, null, false, { statusFor: () => { throw new RunStarting('resolving which model each stage runs'); } });
+  t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('hi'); ui.submit(); await flush(); await flush();
+  await ui.poll(); await flush();
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Resolving which model each stage runs…'));
+  assert.equal(ui.document.querySelector('#chat-error').textContent, '', 'a start in progress is not a read error');
+});
+
 test('Full chat starts a greeting without the spend dialog when the core defers it to planning', async (t) => {
   const modes = structuredClone(RUN_MODES); modes.modes[0].spendConfirmation = 'planning';
   t.mock.method(controller, 'modes', async () => modes);
