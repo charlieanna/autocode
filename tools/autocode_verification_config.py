@@ -91,6 +91,22 @@ def blocker_hold(state: RunState):
     return (proposal, entry) if _blocker(proposal) else None
 
 
+def command_correction(state: RunState) -> bool:
+    """True when the held blocker is the Resolver's explicit verification-command correction.
+
+    Only a Resolver blocker whose sealed request carries ``correction == "verification_commands"``
+    names the command change (#2973). Every other blocker, a contract contradiction among them,
+    keeps the Resolver response as its way forward.
+    """
+    hold = blocker_hold(state)
+    if not hold:
+        return False
+    proposal = hold[0]
+    return (proposal.get("origin") or {}).get("stage") == "astra_resolve" and (proposal.get("request") or {}).get(
+        "correction"
+    ) == "verification_commands"
+
+
 def _retire_blocker(state: RunState, proposal, entry, reason: str) -> str:
     """Archive and withdraw the blocker, leaving no question or request for a person; return the pause status.
 

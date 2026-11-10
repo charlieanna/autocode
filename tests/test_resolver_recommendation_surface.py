@@ -29,6 +29,7 @@ class ResolverRecommendationSurfaceTests(unittest.TestCase):
             "options": ["Explain the difference", "Leave paused"],
             "proposed_delta": "Correct the spacing",
             "recommended_revision": revision,
+            "correction": None,
         }
 
     def test_resolver_schema_is_optional_for_saved_reports_nullable_and_strict_on_wire(self):

@@ -632,8 +632,8 @@
     "sha256": "9b10c0c87efe2c3238dcf9b985e7ca9ceba6927554a23d8f482cf67dfc112956"
   },
   "resolver/astra_resolve": {
-    "bytes": 21791,
-    "sha256": "d1eb1d40c93a6a59f5bfe15a831679bb199164acd1e11ef89ceae8443cb63f3c"
+    "bytes": 22283,
+    "sha256": "a1622c9878f8947bd32053b37229e421ca70312612bd86fc5df1cce34e3a2332"
   },
   "review/astra_checkpoint": {
     "bytes": 11469,
