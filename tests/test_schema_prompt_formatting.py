@@ -320,6 +320,8 @@ class RequirementsPromptModeTests(unittest.TestCase):
         self.assertEqual(1, rendered.count("Write assistant_reply FIRST in your JSON"))
         self.assertIn("Write assistant_reply and natural-language summaries", rendered)
         self.assertIn("summarize what you understand in assistant_reply", rendered)
+        # The chat hides a question already asked word for word in the reply; a reworded copy showed twice.
+        self.assertIn("put that same sentence, word for word, as the question in open_questions", rendered)
         self.assert_complete_render(request, rendered)
 
     def test_final_model_schema_controls_the_prompt_even_when_the_mode_allows_chat(self):

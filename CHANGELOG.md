@@ -36,7 +36,9 @@ PR template asks for an entry here; a change without one is incomplete.
   backend "cannot start chats yet" and to run `autocode doctor`.
 - **Terminal chat, Requirements question**: when the stage's reply already asks the question in other
   words ("I couldn't access DTI-12447. Could you paste the ticket description ...?"), the chat shows
-  that one message, not the reply and then the same ask again.
+  that one message, not the reply and then the same ask again. The Requirements stage is also told
+  to put the question it asks in its reply, word for word, as its question, so the chat can hide the
+  copy exactly; the word match is the fallback when a model rewords it anyway.
 
 ### Removed
 
