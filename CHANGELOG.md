@@ -7,6 +7,25 @@ All notable changes to AutoCode are recorded here. The format follows
 Each release lists the pull requests that changed user-visible behaviour.
 PR template asks for an entry here; a change without one is incomplete.
 
+## [0.10.1] - 2026-11-09
+
+### Fixed
+
+- **Deterministic quote fix**: a `source_quote` that differs from the source only by dropped markup
+  (backticks, quotes, whitespace) resolves to the source span itself, no model repair needed (#2835).
+- **Bounded format repair output**: a format repair gets 16k output cap instead of 64k, so a
+  one-string change does not reason for 64k tokens (#2835).
+- **Format repair output-limit auto-recovery**: a format repair that hits the output limit recovers
+  automatically via the report repair queue instead of asking the person (#2836).
+- **Mutation budget scales with changed lines**: a large wave gets more mutants per file (up to 24)
+  so per-line decisions grow more slowly than the change itself (#2815).
+- **Kilo probe timeout for loaded hosts**: first attempt 30s→60s, total budget 90s→120s; a
+  slow-but-successful probe is not read as a broken install (#2959).
+- **Verification-command correction exposes configure_resume**: the named action is
+  `--resume-paused --test-command --regression-command` instead of the generic resolver response (#2973).
+- **Python runtime identity resolves from task workspace**: relative Python executables are resolved
+  against the workspace, not the controller cwd (#2982, fixed in #3033).
+
 ## [Unreleased]
 
 ### Removed
@@ -18,11 +37,18 @@ PR template asks for an entry here; a change without one is incomplete.
   joint plan, and a saved external verification record, are refused instead of being sent to the
   removed verifier.
 
+### Changed
+
+- A question or discussion that asks for nothing to be written is answered by Requirements
+  itself, from the code, and the turn ends there: nothing is planned, approved or built, so it
+  costs one model call instead of a plan, a Builder and two reviews. A discussion whose answer is
+  to be written into a file still goes through the full pipeline.
+
 ### Fixed
 
-- The lifecycle conformance scenario's follow-up question and the review mutation scenario
-  match the unified pipeline (#3010): the question is planned, built and checked, and the
-  Code Reviewer's mutation check is exercised on a review launched as an earlier runtime saved it.
+- The review mutation scenario matches the unified pipeline (#3010): the Code Reviewer's
+  mutation check of a reviewed patch's tests is exercised on a review launched as an earlier
+  runtime saved it.
 - After a design turn that went through the full pipeline (#3010), "Build it." again names the
   design documents that turn wrote, so the build checks that design first. The tests, scenario
   oracles and scripted provider now expect every new task to go through the full pipeline, and
@@ -109,6 +135,25 @@ PR template asks for an entry here; a change without one is incomplete.
   credential, which was being captured in terminal logs and relayed to issues by the channel bridge (#2989).
 - **RESOLVER_PENDING decisions** are now surfaced in the status view with their options, so a client
   can name an answerable action instead of looping silently (#2994).
+
+## [0.10.1] - 2026-11-09
+
+### Fixed
+
+- **Deterministic quote fix**: a `source_quote` that differs from the source only by dropped markup
+  (backticks, quotes, whitespace) resolves to the source span itself, no model repair needed (#2835).
+- **Bounded format repair output**: a format repair gets 16k output cap instead of 64k, so a
+  one-string change does not reason for 64k tokens (#2835).
+- **Format repair output-limit auto-recovery**: a format repair that hits the output limit recovers
+  automatically via the report repair queue instead of asking the person (#2836).
+- **Mutation budget scales with changed lines**: a large wave gets more mutants per file (up to 24)
+  so per-line decisions grow more slowly than the change itself (#2815).
+- **Kilo probe timeout for loaded hosts**: first attempt 30s→60s, total budget 90s→120s; a
+  slow-but-successful probe is not read as a broken install (#2959).
+- **Verification-command correction exposes configure_resume**: the named action is
+  `--resume-paused --test-command --regression-command` instead of the generic resolver response (#2973).
+- **Python runtime identity resolves from task workspace**: relative Python executables are resolved
+  against the workspace, not the controller cwd (#2982, fixed in #3033).
 
 ## [Unreleased]
 

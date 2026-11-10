@@ -7,8 +7,8 @@ run with one runner-written question beside the handoff's own open questions: an
 start planning, or say what to change and Requirements runs again with that answer in its
 saved_answers. The question id carries the handoff's digest, so a new handoff asks again.
 The question says what approving starts for the job Requirements named (``job``, #1846): a plan for
-a build, an investigation for a bug, the review or the design work for those. A question the Analyst
-answers is never asked to be approved (autocode_requirements_chat.answer_now).
+a build, an investigation for a bug, the review or the design work for those. A discussion Requirements
+answers itself is never asked to be approved (autocode_requirements_chat.answer_now).
 
 On every flow, a handoff that has only questions so far (``questions_only``: open questions and no
 behaviors or acceptance tests yet, as the Requirements prompt asks while a vague request is still

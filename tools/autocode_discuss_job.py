@@ -180,6 +180,10 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None,
     )
 
 
+# The stage that answered when Requirements answered a discussion itself (autocode_requirements_answer).
+REQUIREMENTS_STAGE = workflows.REQUIREMENTS_STAGE
+
+
 def owns(state: RunState) -> bool:
     return workflows.kind(state) == "discuss" and bool(state.get("answer"))
 
@@ -198,7 +202,8 @@ def render(state: RunState) -> str:
     if found.get("note_path"):
         lines.append("Note written: " + str(Path(state.get("workspace", "")) / found["note_path"]))
     if found.get("output"):
-        lines.append("Analyst report: " + str(found["output"]))
+        who = "Requirements" if found.get("answered_by") == REQUIREMENTS_STAGE else "Analyst"
+        lines.append(f"{who} report: " + str(found["output"]))
     if found.get("questions"):
         # The run is finished and waits for nothing: the reply is the next turn (autocode_follow_up).
         lines.append("Reply with --follow-up TEXT to answer them in this run.")

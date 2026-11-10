@@ -27,8 +27,8 @@ You → Requirements first, on every run and follow-up turn: it names the kind o
             a request for a NEW design → the build pipeline below; its plan may not change a file an
             earlier turn of the same conversation wrote (a discussion's decision record) unless your
             newest message names it, so the design job writes its design and only reads the rest
-   discuss → Analyst only: an answer with evidence tied to repository files (and the note the
-            request asks for, written by the runner), repository untouched, run complete
+   discuss → nothing to write: Requirements answers it itself from the code, citing the files it
+            read, repository untouched, turn complete; a note to write → the build pipeline below
    (a design review's or a discussion's questions do not hold the run: it completes, and you
     answer them with --follow-up, the next turn of the same run; a reply to a design review
     → the Architect revises that review in review/design-review.json as revision n+1, the same

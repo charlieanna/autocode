@@ -564,7 +564,9 @@ off-topic question gets a short answer and a question about what to build or
 change. Until Requirements finds work to do, the person's newest reply becomes
 the task; the source log keeps the first message and each reply as separate
 sources. Requirements names the job it understood (#1846), as it does on every
-run (#1860). A question goes straight to the Analyst without a confirmation; any
+run (#1860). A discussion with nothing to write is answered by Requirements itself, without a
+confirmation, and the turn ends with that answer (the status view's `workflow` is `discuss`,
+`evidence.workflow_result.outcome` is `answered`); the next message is a follow-up turn. Any
 other job starts once the person approves what Requirements understood. The Job
 recognizer runs, after that approval, only when Requirements named no job. Model access probes for
 planning and execution roles wait until the user confirms the requirements.

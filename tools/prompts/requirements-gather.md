@@ -28,11 +28,15 @@ nothing, even when the answer is to be written down), or none while no software 
 is named. When a request asks for several things, name the job of the first thing that
 must happen: "review this and fix what you find" is review, "why does this fail, then fix
 it" is bugfix. Do not guess build when unsure; the other jobs can lead to a build later.
-For review, design and discuss, leave required_behaviors and acceptance_tests empty:
-they describe code to build, and those jobs build nothing. For a clear discuss request,
-do not answer it yourself: the Analyst answers it next from the code, with evidence the
-runner checks. In a spec_first conversation, say in one sentence what you will look into
-instead of asking whether you understood it.
+For review and design, leave required_behaviors and acceptance_tests empty: they
+describe code to build, and those jobs build nothing. For discuss, you answer it
+yourself, and nothing is planned or built: read the relevant source, then give the
+answer in {confirmation_target}, grounded in what the code does, with every file you
+read in source_refs. Say what you are unsure of and what would settle it, and ask in
+open_questions only for facts you cannot find that would change the answer. Leave
+required_behaviors and acceptance_tests empty for discuss, unless the user wants the
+answer written into a file: then describe that file and its content in them, and it
+is planned and written like any other change.
 When follow_up is in the handoff data, the request continues a finished job in the same
 conversation: follow_up.message is the user's new message and the rest says what came
 before. Name the job of the new message in that context. Acting on a review's findings

@@ -9,6 +9,7 @@ discuss workflow never produced. The status view, the stage artifacts and the wo
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import sys
@@ -37,8 +38,11 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
 
-    def start(self, scenario_id, chat=CHAT):
+    def start(self, scenario_id, chat=CHAT, brief=None):
         scenario = catalog.load(scenario_id)
+        if brief:
+            # The scripted provider reads the request from the scenario, so the scenario carries it.
+            scenario = dataclasses.replace(scenario, brief=brief)
         project = without_maintenance(materialize(scenario.seed, self.root / "project"))
         flags, provider_env = fake_setup(scenario, self.root, scenario.dir / "reference")
         environment = {**provider_env, "AUTOCODE_HOME": str(self.root / "registry"), "PYTHONDONTWRITEBYTECODE": "1"}
@@ -74,12 +78,46 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
     def ran(run, slug):
         return len(list(Path(run.run_dir).glob(f"iterations/*/{slug}-[0-9][0-9].jsonl")))
 
+    @staticmethod
+    def files(project):
+        """The project's files and their bytes, without Git's and AutoCode's own records."""
+        return {
+            str(path.relative_to(project)): path.read_bytes()
+            for path in sorted(project.rglob("*"))
+            if path.is_file() and not {".git", ".autocode"} & set(path.relative_to(project).parts)
+        }
+
     def details(self, view):
         return {key: view.get(key) for key in ("status", "next_stage", "needs", "stop_reason", "workflow")}
 
-    def test_a_question_goes_from_requirements_into_the_full_pipeline(self):
-        # Every task goes through the full pipeline (#3010): Requirements names the question, which is
-        # then planned, approved and built like any other job, with no Analyst shortcut.
+    def test_requirements_answers_a_discussion_itself_and_builds_nothing(self):
+        # A question with nothing to write (owner request, 2026-11-09): Requirements' own reply is the
+        # answer. Nothing is planned, approved or built, and the turn finishes after one model call.
+        for options in (CHAT, ("--joint-planning",)):
+            with self.subTest(chat="--spec-first" in options):
+                self.root = Path(tempfile.mkdtemp(prefix="discussion-", dir=self.root))
+                run, project = self.start(
+                    "discuss-cache-choice",
+                    chat=options,
+                    brief="Why does app/metadata.py keep its cache in-process rather than in a shared file?",
+                )
+                before = self.files(project)
+                view, offers = self.drive(run)
+                self.assertTrue(view["done"], self.details(view))
+                self.assertEqual("discuss", view["workflow"], self.details(view))
+                self.assertEqual([], offers, "Nothing is planned for a discussion, so nothing asks to prepare a plan")
+                self.assertIsNone(view.get("displayed_plan"))
+                self.assertEqual(1, self.ran(run, "requirements-gather"))
+                for stage in ("discovery", "analyst", "builder", "validator", "completion-review"):
+                    self.assertEqual(0, self.ran(run, stage), stage)
+                result = (view.get("evidence") or {}).get("workflow_result") or {}
+                self.assertEqual("answered", result.get("outcome"), result)
+                self.assertIn("Requirements answered", result["summary"])
+                self.assertEqual(before, self.files(project), "Nothing in the project changed")
+
+    def test_a_question_to_write_down_goes_from_requirements_into_the_full_pipeline(self):
+        # Every change goes through the full pipeline (#3010). A discussion whose answer is to be written
+        # into a file is one: Requirements describes the file, and it is planned, approved and built.
         run, project = self.start("discuss-cache-choice")
         view, offers = self.drive(run, approve=True)
         self.assertTrue(view["done"], self.details(view))

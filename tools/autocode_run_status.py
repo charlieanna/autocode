@@ -61,6 +61,14 @@ def waiting_for_user(state: RunState, phase: str, **fields) -> RunState:
     return state
 
 
+def complete(state: RunState, **fields) -> RunState:
+    """Finish ``state``'s turn: nothing waits and no stage runs next; returns it. Retires a stale stop reason."""
+    _check_fields(fields)
+    state.update({"status": "TASK_COMPLETE", "phase": "COMPLETE", "next_stage": None, **cast("RunState", fields)})
+    state.pop("stop_reason", None)
+    return state
+
+
 # How the stop reason of a run AutoCode ended itself begins (autocode_stop.end, #2485). Named here, the
 # leaf module, so the stop policy, the explanation and the pause category read one value.
 ENDED_PREFIX = "AutoCode could not finish this task: "

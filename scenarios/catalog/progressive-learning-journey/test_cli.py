@@ -777,11 +777,26 @@ class ProgressiveCLI(unittest.TestCase):
             ]
             failed = [row for row in receipts if row.get("verdict") == "FAIL"]
             self.assertTrue(failed, receipts)
+            # The replay ran the Skeleton tests itself and they failed. A failed replay stops at its first
+            # failed check (#3032), so that may be the whole-suite check that contains them; the fabricated
+            # Skeleton check after it is listed as not run, never as a replayed pass.
             self.assertTrue(
                 any(
-                    "test_journey.Skeleton" in row["command"] and row["exit_code"] != 0
+                    row["exit_code"] != 0
+                    and any(
+                        name.startswith("test_journey.Skeleton.")
+                        for name in (row.get("results") or {}).get("failed") or []
+                    )
                     for result in failed
                     for row in result["checks"]
+                ),
+                failed,
+            )
+            self.assertTrue(
+                any(
+                    "test_journey.Skeleton" in row["command"]
+                    for result in failed
+                    for row in (result.get("not_run") or {}).get("checks") or []
                 ),
                 failed,
             )
