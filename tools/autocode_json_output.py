@@ -10,6 +10,8 @@ keeping a copy of it, and remembers the real stdout. The one object written ther
 - for any other return once the run has loaded (loaded()), such as an operational pause raised in the
   build loop or a stop an intervention asked for, the saved run's payload plus ``result`` (finish());
 - before the run loads, such as a refusal of the arguments, ``{"result": ...}`` alone (finish());
+- for ``--status`` of a run that is starting and has saved no checkpoint yet, the launch answer alone
+  (launch()): ``{"version": 1, "starting": ...}`` with no ``view``, so it names no action;
 - for a setting runner.configure or containment_policy refuses as run_setup.load_locked loads the run
   (run_setup.SettingRefused, such as ``--single-model`` or ``--spec-first`` on a saved run,
   ``--single-model`` with a per-role model flag, ``--allow-uncontained-tools`` where it does not apply,
@@ -113,6 +115,14 @@ def status(runner, state: RunState, args, workspace, run_dir) -> None:
     """Print the ``--status`` payload on the real stdout."""
     with contextlib.redirect_stdout(_active["stdout"] if _active else sys.stdout):
         status_command.render(runner, state, args, workspace, run_dir)
+    if _active is not None:
+        _active["emitted"] = True
+
+
+def launch(workspace, run_dir, record) -> None:
+    """Print the ``--status`` answer for a run still starting on the real stdout."""
+    with contextlib.redirect_stdout(_active["stdout"] if _active else sys.stdout):
+        status_command.render_launch(workspace, run_dir, record)
     if _active is not None:
         _active["emitted"] = True
 

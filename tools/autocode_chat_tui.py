@@ -34,6 +34,7 @@ from pathlib import Path
 try:
     from . import autocode_chat_attention as attention
     from . import autocode_chat_attention_panel as attention_panel
+    from . import autocode_chat_boot as boot
     from . import autocode_chat_context as contexts
     from . import autocode_chat_inventory as inventory
     from . import autocode_chat_messages as messages
@@ -48,6 +49,7 @@ try:
 except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_panel as attention_panel
+    import autocode_chat_boot as boot
     import autocode_chat_context as contexts
     import autocode_chat_inventory as inventory
     import autocode_chat_messages as messages
@@ -907,6 +909,8 @@ class ChatTUI:
         self._waiting = False
         self._launched = False  # a step is running since the last question; its first views may predate it
         self._launched_at: float | None = None  # when the first step began, before any status was read
+        # What a run's start said it was doing, from the read that answered before the first checkpoint.
+        self._boot: dict | None = None
         # The client's own commands (/diff, /undo), and one of them waiting for the person's yes.
         self._act: Callable[[str, str], str | panel.Confirm | attention.Menu] | None = None
         self.send_message = None
@@ -1214,6 +1218,7 @@ class ChatTUI:
             self._view, self._pending, self._queued, self._menu_index = None, None, [], 0
             self._task_conversation = None
             self._launch_execution = None
+            self._boot = None  # another tab's start note says nothing about the run now watched
             self._attention_menu = None
             self._stage_menu = None
             self._run_open = run_dir is not None
@@ -1263,7 +1268,7 @@ class ChatTUI:
                 self._scroll, self._anchored = 0, False
             anchor = self._history_anchor()
             self._view = view
-            self._launch_execution = None
+            self._boot, self._launch_execution = None, None  # the run has a view to answer from now on
             self._log.observe(view)
             self._live.observe(view)
             self._transcript.progress(view)
@@ -1297,6 +1302,17 @@ class ChatTUI:
         """A failed read does not establish that the worker stopped."""
         with self._lock:
             self._observation.fail(error)
+            self._draw()
+
+    def status_starting(self, note: dict) -> None:
+        """The run's own word about its start, from a read that answered before it saved a checkpoint.
+
+        It is display only: the note carries no view, so no action is offered with it and the row that
+        draws it changes nothing about the run.
+        """
+        with self._lock:
+            self._boot = note
+            self._observation.answered()  # the read reached the run, whatever it is doing
             self._draw()
 
     def attention(self, summary: dict) -> None:
@@ -2375,9 +2391,19 @@ class ChatTUI:
         spinner = self._glyphs.spinner
         marker = spinner[self._frame % len(spinner)] if spinner else "*"
         reading = self._view is None
+        now = datetime.now(UTC)
+        # A run that is starting answers with what its start is doing; that is the run's own word, so it
+        # comes before what the client guesses — but a read that failed since says more than a stale note.
+        starting = (
+            boot.line(self._boot, now=now)
+            if reading and self._boot is not None and not self._observation.error
+            else None
+        )
         task = panel.task_progress(self._view, self._task_conversation)
         text = (
-            STARTING
+            starting
+            if starting
+            else STARTING
             if reading and self._starting()
             else f"Status unavailable; {self._observation.outage()}"
             if self._observation.error
@@ -2395,7 +2421,6 @@ class ChatTUI:
             or self._transcript.activity
             or "AutoCode is working…"
         )
-        now = datetime.now(UTC)
         trouble = "" if reading or task else meter.struggling(self._view, now)
         if trouble:
             text = trouble  # a stage on its second attempt or later says so where the person looks

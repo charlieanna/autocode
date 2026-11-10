@@ -38,6 +38,16 @@ class ReadMetadata(unittest.TestCase):
     def test_compact_text_is_plain_before_the_first_read(self):
         self.assertEqual("status not read yet", observation.Read().compact(5))
 
+    def test_a_read_that_answered_without_a_view_ends_the_outage_it_reported(self):
+        """A run that is starting answers with its launch note: there is no view to record, but the read
+        did reach the run, which is exactly what the outage row said it had not."""
+        receipt = observation.Read()
+        receipt.fail("status read exited 2")
+        receipt.answered()
+        self.assertIsNone(receipt.error)
+        self.assertIsNone(receipt.received, "no view has been read, so the age of a view is still unknown")
+        self.assertEqual("status not read yet", receipt.compact(5))
+
     def test_missing_malformed_and_other_run_samples_are_unknown_without_losing_real_receipt(self):
         for sample in (
             None,

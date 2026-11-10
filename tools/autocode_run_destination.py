@@ -16,8 +16,10 @@ from contextlib import ExitStack, suppress
 from pathlib import Path
 
 try:
+    from . import autocode_launch_record as launch_record
     from . import autocode_scratch_projects as scratch_projects
 except ImportError:
+    import autocode_launch_record as launch_record
     import autocode_scratch_projects as scratch_projects
 
 
@@ -70,7 +72,8 @@ def reserve(workspace: Path, destination: Path, *, named_from: Path | None = Non
 
 
 def discard_unsaved(run_dir: Path | None) -> bool:
-    """Remove a fresh run directory the launch never saved a checkpoint in: at most its ``writer.lock``.
+    """Remove a fresh run directory the launch never saved a checkpoint in: at most its ``writer.lock``
+    and the ``launch.json`` note that said what the start was doing.
 
     A launch refused after the directory was reserved and locked but before ``state.json`` (a missing
     engine, an unsupported host) otherwise leaves a directory that run listings show as unreadable for
@@ -84,7 +87,8 @@ def discard_unsaved(run_dir: Path | None) -> bool:
         entries = list(run_dir.iterdir())
     except OSError:
         return False
-    if any(entry.name != "writer.lock" or entry.is_symlink() or not entry.is_file() for entry in entries):
+    kept = {"writer.lock", launch_record.NAME}
+    if any(entry.name not in kept or entry.is_symlink() or not entry.is_file() for entry in entries):
         return False
     try:
         for entry in entries:

@@ -97,6 +97,26 @@ def sample(runner, state: "RunState", run_dir, workspace):
     return state, token, controller_owner.inspect(state, run_dir, workspace)
 
 
+def render_launch(workspace, run_dir, record) -> None:
+    """The answer to ``--status`` for a run that is starting and has no checkpoint yet.
+
+    It names no action and is not a status view: it carries no ``view``, so a client that acts only on
+    what a view names cannot take a second launch of a run that is already launching. A client shows
+    ``label`` and how long the phase has run; ``owner_alive`` is false when the launcher stopped
+    reporting rather than still working."""
+    print(
+        json.dumps(
+            {
+                "version": 1,
+                "run_dir": str(run_dir),
+                "workspace": str(workspace),
+                "starting": {key: record.get(key) for key in ("phase", "label", "at", "started_at", "owner_alive")},
+            },
+            indent=2,
+        )
+    )
+
+
 def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_preview=None):
     state, token, owner = sample(runner, state, run_dir, workspace)
     observation = {

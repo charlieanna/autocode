@@ -2071,6 +2071,47 @@ class StartingStatusTests(unittest.TestCase):
         ui.observe({"status": "RUNNING", "progress": {"headline": "Requirements working"}})
         self.assertIn("Requirements working", " ".join(self.drawn_status(ui)))
 
+    def note(self, **extra) -> dict:
+        return {
+            "phase": "resolving_models",
+            "label": "resolving which model each stage runs",
+            "started_at": (datetime.now(UTC) - timedelta(minutes=5)).isoformat(),
+            "owner_alive": True,
+            **extra,
+        }
+
+    def test_a_run_that_says_what_its_start_is_doing_says_that(self):
+        """The screen used to freeze on "waiting for its first status view" for the whole start; the run
+        now answers what it is doing, and the row shows that and how long it has been doing it."""
+        ui = screen_ui()
+        ui.status_starting(self.note(engine="codex", mode="Plan first"))
+        status = " ".join(self.drawn_status(ui))
+        self.assertIn("Starting the run · resolving which model each stage runs · on Codex · Plan first", status)
+        self.assertIn("5m", status, "how long the person has been watching this start")
+        self.assertNotIn("waiting for its first status view", status)
+        self.assertNotIn("Status unavailable", status, "a read that answered is not an outage")
+
+    def test_a_launcher_that_stopped_reporting_is_said_so(self):
+        ui = screen_ui()
+        ui.status_starting(self.note(owner_alive=False))
+        status = " ".join(self.drawn_status(ui))
+        self.assertIn("the launcher stopped without saving the run", status)
+        self.assertNotIn("resolving which model", status, "it cannot still be doing what it stopped naming")
+
+    def test_a_failed_read_says_more_than_a_note_left_behind(self):
+        ui = screen_ui()
+        ui.status_starting(self.note())
+        ui.status_unavailable("status read timed out after 5s")
+        self.assertIn("Status unavailable", " ".join(self.drawn_status(ui)))
+
+    def test_the_start_note_does_not_outlive_the_first_view(self):
+        ui = screen_ui()
+        ui.status_starting(self.note())
+        ui.observe({"status": "RUNNING", "progress": {"headline": "Requirements working"}})
+        status = " ".join(self.drawn_status(ui))
+        self.assertIn("Requirements working", status)
+        self.assertNotIn("resolving which model", status)
+
 
 def drawn(ui, rows=30, cols=120):
     """Every string the screen was asked to draw, by row."""

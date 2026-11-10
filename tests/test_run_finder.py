@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import autocode
 import autocode_args
+import autocode_launch_record as launch_record
 import autocode_opencode as opencode
 import autocode_run_finder as finder
 import autocode_subcommands
@@ -956,6 +957,92 @@ class InProcessCli(Fixture):
                 self.assertIn(f"--run-dir {path} {what}. A saved run is PROJECT/.autocode/runs/RUN", stderr)
                 self.assertIn("`autocode runs` lists this project's runs", stderr)
                 self.assertNotIn("Errno", stderr)
+
+    def test_a_run_that_is_starting_answers_status_with_what_the_start_is_doing(self):
+        """The seconds between a person's first message and the run's first checkpoint used to answer
+        ``--status`` with that refusal, so no client could say what it was waiting for."""
+        run = self.project / ".autocode" / "runs" / "20261109-120000-chat-abcdef"
+        run.mkdir(parents=True)
+        launch_record.write(run, "resolving_models", workspace=self.project)
+        before = tree_snapshot(self.root)
+        code, out, err = self.explain_read("--run-dir", str(run), "--status")
+        self.assertEqual(0, code, err)
+        answer = json.loads(out)
+        self.assertEqual("resolving_models", answer["starting"]["phase"])
+        self.assertEqual("resolving which model each stage runs", answer["starting"]["label"])
+        self.assertEqual(str(run), answer["run_dir"])
+        self.assertTrue(answer["starting"]["owner_alive"], "this very process wrote the note")
+        self.assertNotIn("view", answer, "the note names no action, so a client can take none from it")
+        self.assertNotIn("next_command", out)
+        self.assertEqual(before, tree_snapshot(self.root), "reading a start writes nothing, not a checkpoint")
+
+    def test_a_stale_note_of_a_launcher_that_exited_is_still_told_honestly(self):
+        run = self.project / ".autocode" / "runs" / "20261109-120000-dead-abcdef"
+        run.mkdir(parents=True)
+        launch_record.path(run).write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "workspace": str(self.project),
+                    "run_dir": str(run),
+                    "phase": "preparing_run",
+                    "at": "2026-11-09T12:00:00+00:00",
+                    "started_at": "2026-11-09T12:00:00+00:00",
+                    "pid": 4242,
+                }
+            )
+        )
+        with patch.object(launch_record.os, "kill", side_effect=ProcessLookupError):
+            code, out, err = self.explain_read("--run-dir", str(run), "--status")
+        self.assertEqual(0, code, err)
+        self.assertIs(False, json.loads(out)["starting"]["owner_alive"])
+
+    def test_a_new_run_answers_its_own_status_read_while_it_is_still_starting(self):
+        """The whole point of the note: at the slow step of a real start, the client polling this run is
+        answered, and the answer says what the start is doing instead of refusing."""
+        run = self.project / ".autocode" / "runs" / "20261109-120000-boot-abcdef"
+        phases: list[str] = []
+        answers: list[tuple] = []
+        record = launch_record.write
+
+        def note(run_dir, phase, **kwargs):
+            phases.append(phase)
+            return record(run_dir, phase, **kwargs)
+
+        def configure(*args, **kwargs):
+            # The person's first message has a client polling this very path at this very moment.
+            answers.append(self.main("--run-dir", str(run), "--status")[:2])
+            raise AssertionError("the start stops at its first model call, as the patched providers insist")
+
+        with (
+            patch.object(launch_record, "write", side_effect=note),
+            patch.object(autocode, "configure", side_effect=configure),
+            contextlib.suppress(AssertionError),
+        ):
+            self.main(
+                "Add greeting",
+                "--in-place",
+                "--no-chat",
+                "--workspace",
+                str(self.project),
+                "--new-run-dir",
+                str(run),
+            )
+        self.assertEqual(["preparing_run", "resolving_models"], phases)
+        self.assertEqual(1, len(answers), "the start reached its slowest step")
+        code, out = answers[0]
+        self.assertEqual(0, code, "a client polling the start is answered, not refused")
+        self.assertEqual("resolving_models", json.loads(out)["starting"]["phase"])
+        self.assertFalse(run.exists(), "a start that never saved a checkpoint leaves no run directory")
+
+    def test_a_note_of_another_version_answers_the_refusal_it_answered_before(self):
+        """A client that reads only views must not be told a run is starting by a note it cannot parse."""
+        run = self.project / ".autocode" / "runs" / "20261109-120000-future-abcdef"
+        run.mkdir(parents=True)
+        launch_record.path(run).write_text(json.dumps({"version": 2, "phase": "preparing_run"}))
+        code, _, stderr = self.explain_read("--run-dir", str(run), "--status")
+        self.assertEqual(2, code)
+        self.assertIn("has no state.json", stderr)
 
     def test_explain_spellings_read_the_saved_stop_without_provider_or_writes(self):
         run = self.run_in(

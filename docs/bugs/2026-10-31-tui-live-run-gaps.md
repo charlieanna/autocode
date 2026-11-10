@@ -14,6 +14,11 @@ tests, new tests fail on the seed). Most observed issues were fixed the same day
 3. **A launched run with no status view yet read as "Reading run status…"** while
    activity counters already ticked. The line now says "Run started; waiting for
    its first status view…" (status line and composer placeholder).
+   Superseded on 2026-11-09: that line froze for the whole wait, which a person
+   reported as not saying what the run is doing. The start now answers `--status`
+   with its own phase ([what a start answers](../task-run.md#what-a-start-answers-before-its-first-checkpoint)),
+   and the chat draws `Starting the run · <phase> · on <engine> · <mode> · <elapsed>`
+   until the first checkpoint exists.
 4. **A directory outside any Git checkout silently bootstrapped an empty task
    project** under `autocode-projects/`, so the run could not see the files
    already there and stopped to ask where the code should come from. A new chat
