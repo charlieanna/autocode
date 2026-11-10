@@ -46,7 +46,7 @@ class WorkflowTests(unittest.TestCase):
         )
         return {
             "stage": "astra_checkpoint",
-            "role": "astra",
+            "role": "task_planner",
             "iteration": 5,
             "events": str(events),
             "source_revision": s.snapshot(self.root)["revision"],
@@ -157,7 +157,7 @@ class WorkflowTests(unittest.TestCase):
         self.enable()
         self.apply()
         self.assertEqual("TASK_COMPLETE", self.state["status"])
-        self.assertEqual("astra", self.state["validation"]["reviewer_role"])
+        self.assertEqual("task_planner", self.state["validation"]["reviewer_role"])
         self.assertEqual(1, len(self.state["stages"]))
         self.assertEqual(1, len(self.state["history"]))
 

@@ -197,10 +197,10 @@ class TortureBase(unittest.TestCase):
                 "proposed_delta": "",
             },
         }
-        output = self.fresh("astra")
+        output = self.fresh("task_planner")
         output.write_text(json.dumps({"status": status}))
         record = {
-            "role": "astra",
+            "role": "task_planner",
             "stage": "astra_review",
             "output": str(output),
             "source_revision": support.snapshot(self.root)["revision"],
@@ -469,7 +469,7 @@ class StaleAndDisagreementTests(TortureBase):
                 self.assertNotEqual("TASK_COMPLETE", self.state["status"])
                 self.assertTrue(
                     any(
-                        row["source"] == "astra" and row["finding"] == "Empty names are accepted"
+                        row["source"] == "task_planner" and row["finding"] == "Empty names are accepted"
                         for row in findings.blocking_entries(self.state)
                     )
                 )
@@ -555,7 +555,7 @@ class FindingsEvidenceAndUnverifiedTests(TortureBase):
 
     def test_blocked_review_records_a_new_finding_and_closes_nothing(self):
         self.apply("astra_review", *self.astra("REWORK", "Help text missing"))
-        existing = findings.open_entries(self.state, "astra")[0]["id"]
+        existing = findings.open_entries(self.state, "task_planner")[0]["id"]
         blocked, record = self.astra("BLOCKED", "Missing authorization check")
         blocked["finding_dispositions"] = [{"id": existing, "disposition": "resolved", "evidence": "guess"}]
         blocked["user_request"] = {
@@ -567,7 +567,7 @@ class FindingsEvidenceAndUnverifiedTests(TortureBase):
             "proposed_delta": "",
         }
         self.apply("astra_review", blocked, record)
-        open_rows = findings.open_entries(self.state, "astra")
+        open_rows = findings.open_entries(self.state, "task_planner")
         self.assertEqual({"Help text missing", "Missing authorization check"}, {row["finding"] for row in open_rows})
         self.assertTrue(all(row["status"] == "open" for row in open_rows))
 
@@ -676,10 +676,14 @@ class CorrectionCrashAndCompletionTests(TortureBase):
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
         for _ in range(3):
             again = self.astra("REWORK", "F1 broken")
-            fid = next(row["id"] for row in findings.open_entries(self.state, "astra") if row["finding"] == "F1 broken")
+            fid = next(
+                row["id"] for row in findings.open_entries(self.state, "task_planner") if row["finding"] == "F1 broken"
+            )
             again[0]["findings"][0]["id"] = fid
             self.apply("astra_review", *again)
-        repeated = next(row for row in findings.open_entries(self.state, "astra") if row["finding"] == "F1 broken")
+        repeated = next(
+            row for row in findings.open_entries(self.state, "task_planner") if row["finding"] == "F1 broken"
+        )
         self.assertGreaterEqual(repeated["times_reported"], 2)
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
 
@@ -982,7 +986,7 @@ class BadOutputAndPropertyTests(TortureBase):
         schema_path = (
             Path(__file__).resolve().parents[1] / "tools" / "autocode-schemas" / "v2" / "astra-decision.schema.json"
         )
-        strict = support.model_output_schema(goals.role_schema(support.read(schema_path), "astra"))
+        strict = support.model_output_schema(goals.role_schema(support.read(schema_path), "task_planner"))
         missing = self.astra("REWORK")[0]
         missing.pop("next_objective")
         with self.assertRaisesRegex(ValueError, "missing"):
@@ -1034,7 +1038,7 @@ class BadOutputAndPropertyTests(TortureBase):
             value, record = self.astra("REWORK", "Defect")
             value["narrative"] = "COMPLETE"
             self.apply("astra_review", value, record)
-            return True, "astra", record["output"]
+            return True, "task_planner", record["output"]
         if kind == 5:
             value, record = self.sol("FAIL", findings_text=("Defect", "Defect"))
             self.apply("sol", value, record)

@@ -98,7 +98,16 @@ class AccessEvidenceCLI(unittest.TestCase):
             "high",
             *(
                 argument
-                for role in ("astra", "terra", "sol", "glm", "plan_reviewer", "requirements", "completion", "resolver")
+                for role in (
+                    "task_planner",
+                    "terra",
+                    "sol",
+                    "planner",
+                    "plan_reviewer",
+                    "requirements",
+                    "completion",
+                    "resolver",
+                )
                 for argument in (f"--{role.replace('_', '-')}-reasoning-effort", "high")
             ),
             "--max-cost-usd",

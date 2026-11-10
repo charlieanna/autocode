@@ -157,15 +157,17 @@ class ReviewerFallbackTests(unittest.TestCase):
             "planning": {
                 "reviewer_route_fallbacks": [
                     {"id": "g-0", "consumed": True, "binding": {"selected_route": {"role": "other"}}},
-                    {"id": "g-1", "consumed": True, "binding": {"selected_route": {"role": "glm"}}},
+                    {"id": "g-1", "consumed": True, "binding": {"selected_route": {"role": "planner"}}},
                 ]
             }
         }
 
     def test_the_consumed_grant_is_named_on_the_record(self):
         record = {}
-        with patch.object(role_launch.reviewer_fallback, "admit", return_value={"role": "glm"}):
-            role_launch.admit_reviewer_fallback(self.state(), "/run", "/w", "astra_challenge", {"role": "glm"}, record)
+        with patch.object(role_launch.reviewer_fallback, "admit", return_value={"role": "planner"}):
+            role_launch.admit_reviewer_fallback(
+                self.state(), "/run", "/w", "astra_challenge", {"role": "planner"}, record
+            )
         self.assertEqual("g-1", record["reviewer_fallback_grant"])
 
     def test_a_changed_fallback_pauses_before_the_provider(self):
@@ -173,7 +175,7 @@ class ReviewerFallbackTests(unittest.TestCase):
         with patch.object(role_launch.reviewer_fallback, "admit", return_value={"role": "other"}):
             with self.assertRaises(Paused) as caught:
                 role_launch.admit_reviewer_fallback(
-                    self.state(), "/run", "/w", "astra_challenge", {"role": "glm"}, record
+                    self.state(), "/run", "/w", "astra_challenge", {"role": "planner"}, record
                 )
         self.assertEqual("PAUSED_REVIEWER_FALLBACK", caught.exception.status)
         self.assertNotIn("reviewer_fallback_grant", record)
@@ -261,8 +263,8 @@ class RaiseForExitTests(unittest.TestCase):
             patch.object(role_launch.format_correction, "event_thread_id", return_value="t-9"),
             patch.object(role_launch.support, "events", return_value=[{"type": "turn.completed"}]),
         ):
-            self.check(state, record, supports_sessions=True, route_role="glm")
-        self.assertEqual(({"glm": "t-9"}, "t-9"), (state["sessions"], record["thread_id"]))
+            self.check(state, record, supports_sessions=True, route_role="planner")
+        self.assertEqual(({"planner": "t-9"}, "t-9"), (state["sessions"], record["thread_id"]))
 
     def test_an_unexpected_session_pauses(self):
         with patch.object(role_launch.format_correction, "event_thread_id", return_value="t-9"):

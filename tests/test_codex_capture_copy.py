@@ -203,11 +203,11 @@ class CodexCaptureWorkflowTests(unittest.TestCase):
 # A configured provider runs on OpenCode's transport, where every GPT tier is one family (#1729) and
 # only the Codex engine lets GPT models check each other. Its fixture models are named after the jobs.
 CONFIGURED_ROLES = (
-    ("astra", "fixture-astra"),
+    ("task_planner", "fixture-astra"),
     ("terra", "fixture-terra"),
     ("sol", "fixture-sol"),
     ("completion", "fixture-astra"),
-    ("glm", "fixture-sol"),
+    ("planner", "fixture-sol"),
     ("plan_reviewer", "fixture-astra"),
 )
 

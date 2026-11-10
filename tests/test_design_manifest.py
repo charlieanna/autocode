@@ -1866,7 +1866,7 @@ class PlanningPartitionContextTests(unittest.TestCase):
             "provider": "opencode",
             "roles": {
                 role: {"engine": "opencode", "provider": "opencode", "reasoning_effort": "high"}
-                for role in ("requirements", "glm", "astra", "plan_reviewer")
+                for role in ("requirements", "planner", "task_planner", "plan_reviewer")
             },
         }
         self.sidecar = Path(self.record["root"]) / "planning-scope-partition.json"
@@ -2145,7 +2145,7 @@ class CompletePlanningInputTests(unittest.TestCase):
             "provider": "opencode",
             "roles": {
                 role: {"engine": "opencode", "provider": "opencode"}
-                for role in ("requirements", "glm", "astra", "plan_reviewer")
+                for role in ("requirements", "planner", "task_planner", "plan_reviewer")
             },
         }
 

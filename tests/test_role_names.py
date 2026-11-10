@@ -51,7 +51,7 @@ class RoleNamesTests(unittest.TestCase):
                 "settings": {"workflow": {"mode": mode}},
                 "active_stage": {
                     "stage": "astra_checkpoint",
-                    "role": "astra",
+                    "role": "task_planner",
                     "launch_route": {"model": "provider/plan-reviewer-model"},
                 },
             }

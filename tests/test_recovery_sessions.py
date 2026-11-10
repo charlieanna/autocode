@@ -42,7 +42,7 @@ class RecoverySessionTests(unittest.TestCase):
             "run_dir": str(self.run_dir),
             "iteration": 1,
             "settings": {},
-            "sessions": {"astra": "original-reviewer"},
+            "sessions": {"task_planner": "original-reviewer"},
             "stages": [],
             "history": [],
             "next_stage": "astra_finalize",
@@ -63,7 +63,7 @@ class RecoverySessionTests(unittest.TestCase):
         )
         record = {
             "stage": stage,
-            "role": "astra",
+            "role": "task_planner",
             "iteration": 1,
             "exit_code": 0,
             "duration_seconds": 1,
@@ -152,7 +152,7 @@ class RecoverySessionTests(unittest.TestCase):
         ):
             runner.reconcile_active(self.state, self.run_dir, self.workspace)
         self.assertEqual(saved_original, original)
-        self.assertEqual("original-reviewer", self.state["sessions"]["astra"])
+        self.assertEqual("original-reviewer", self.state["sessions"]["task_planner"])
         self.assertNotIn("thread_id", repair)
         self.assertEqual("original-reviewer", original.get("thread_id"))
         witness, session = provenance.witness(self.state, "astra_finalize", repair["output"])

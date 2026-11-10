@@ -35,9 +35,9 @@ def state_for(workspace="/nowhere", task="Occasionally we renew the same domain 
             "joint_planning": True,
             "roles": {
                 "requirements": {"model": "r"},
-                "glm": {"model": "g"},
+                "planner": {"model": "g"},
                 "plan_reviewer": {"model": "p"},
-                "astra": {"model": "a", "engine": "codex"},
+                "task_planner": {"model": "a", "engine": "codex"},
                 "terra": {"model": "t"},
                 "sol": {"model": "s"},
             },

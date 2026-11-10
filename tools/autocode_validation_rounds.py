@@ -132,7 +132,7 @@ def _stalled(frontiers):
 
 
 def _why(row):
-    stage = "astra_review" if row.get("source") == "astra" else row.get("source")
+    stage = "astra_review" if row.get("source") == "task_planner" else row.get("source")
     owner = roles.screen_name(stage) if stage in ("sol", "astra_review") else "raising reviewer"
     pending = row.get("pending_resolution") or {}
     if pending:

@@ -54,7 +54,7 @@ class KiloEffortTests(unittest.TestCase):
         return "fixture/model\n" + json.dumps({"variants": variants})
 
     def launch(self, effort):
-        return self.provider.launch("glm", self.root, self.root, None, "fixture/model", effort, True, env=self.env)
+        return self.provider.launch("planner", self.root, self.root, None, "fixture/model", effort, True, env=self.env)
 
     def test_unsupported_medium_is_refused_before_a_provider_command_is_returned(self):
         listing = self.listing({name: {"reasoningEffort": name} for name in ("low", "high", "max")})
@@ -100,10 +100,12 @@ class KiloEffortTests(unittest.TestCase):
                     return_value=subprocess.CompletedProcess([], 0, listing, ""),
                 ),
             ):
-                argv, _, _ = self.provider.launch("glm", self.root, self.root, None, model, effort, True, env=self.env)
+                argv, _, _ = self.provider.launch(
+                    "planner", self.root, self.root, None, model, effort, True, env=self.env
+                )
                 self.assertEqual(model, argv[argv.index("--model") + 1])
                 self.assertEqual(effort, argv[argv.index("--variant") + 1])
-                self.assertEqual(self.provider.DEFAULT_REASONING_EFFORTS["glm"], effort)
+                self.assertEqual(self.provider.DEFAULT_REASONING_EFFORTS["planner"], effort)
 
     def test_unspecified_effort_keeps_the_deliberate_provider_default_without_listing(self):
         with patch.object(kilocode.command.env_prep, "preflight_run") as listing:
@@ -216,10 +218,12 @@ class NativeKiloEffortTests(unittest.TestCase):
         )
         env["KILO_CONFIG_CONTENT"] = json.dumps(config)
         with self.assertRaisesRegex(kilocode.KiloEffortError, "medium.*high, low, max"):
-            self.provider.launch("glm", self.workspace, self.root, None, "localfixture/check", "medium", True, env=env)
+            self.provider.launch(
+                "planner", self.workspace, self.root, None, "localfixture/check", "medium", True, env=env
+            )
         self.assertEqual([], requests, "An unsupported variant must stop before inference")
         argv, child, _ = self.provider.launch(
-            "glm", self.workspace, self.root, None, "localfixture/check", "high", True, env=env
+            "planner", self.workspace, self.root, None, "localfixture/check", "high", True, env=env
         )
         result = subprocess.run(
             argv, input="Return Checked.", cwd=self.workspace, env=child, capture_output=True, text=True, timeout=60

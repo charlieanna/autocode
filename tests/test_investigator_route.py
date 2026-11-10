@@ -293,7 +293,7 @@ class InvestigatorRoutePolicyTests(unittest.TestCase):
         state["stages"] = [
             {
                 "stage": "investigate_stuck",
-                "role": "astra",
+                "role": "task_planner",
                 "route_role": "stuck_investigator",
                 "iteration": 2,
                 "output": "/run/iterations/002/archive/investigator-01.json",

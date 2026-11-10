@@ -290,7 +290,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         *names.spellings("--glm-model"),
-        dest="glm_model",
+        dest="planner_model",
         metavar="MODEL",
         help="Planner model: OpenCode provider/model or native Codex GPT name; "
         "also the initial Requirements model unless --requirements-model is given",
@@ -310,7 +310,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         *names.spellings("--glm-reasoning-effort"),
-        dest="glm_reasoning_effort",
+        dest="planner_reasoning_effort",
         choices=EFFORTS,
         help="Override planner draft and revision reasoning effort",
     )
@@ -362,6 +362,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--pin-model-role",
         action="append",
+        type=names.current_route,  # an old route name (astra) names its renamed route
         choices=tuple(DEFAULT_ROLE_MODELS),
         default=[],
         help="Keep this role's selected model and reasoning effort instead of escalating it automatically",

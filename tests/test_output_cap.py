@@ -138,8 +138,8 @@ class LaunchTests(unittest.TestCase):
             return provider_launch.prepare(
                 engine="opencode",
                 adapter=opencode,
-                role="glm",
-                route_role="glm",
+                role="planner",
+                route_role="planner",
                 workspace=Path("/workspace"),
                 run_dir=Path("/run"),
                 session=None,

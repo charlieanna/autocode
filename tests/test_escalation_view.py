@@ -334,10 +334,18 @@ class EffortClimbTests(unittest.TestCase):
         medium = {"model": "gpt-6-sol", "reasoning_effort": "medium", "profile": "GPT-6 Sol Medium"}
         glm = {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "high"}
         tester = attempt("sol", 3, HIGH)
-        rejected = attempt("astra_review", 5, medium, role="astra", route_role="completion")
+        rejected = attempt("astra_review", 5, medium, role="task_planner", route_role="completion")
         for name, reviews, expected in (
-            ("on the climbed route", [attempt("astra_review", 20, HIGH, role="astra", route_role="completion")], 1),
-            ("moved to another route", [attempt("astra_review", 20, glm, role="astra", route_role="completion")], 0),
+            (
+                "on the climbed route",
+                [attempt("astra_review", 20, HIGH, role="task_planner", route_role="completion")],
+                1,
+            ),
+            (
+                "moved to another route",
+                [attempt("astra_review", 20, glm, role="task_planner", route_role="completion")],
+                0,
+            ),
             ("nothing since the climb", [], 0),
         ):
             with self.subTest(name):
@@ -367,7 +375,7 @@ class EffortClimbTests(unittest.TestCase):
             with self.subTest(role):
 
                 def review(seconds, route, stage=stage, role=role):
-                    return attempt(stage, seconds, route, role="astra", route_role=role)
+                    return attempt(stage, seconds, route, role="task_planner", route_role=role)
 
                 tester = attempt("sol", 7, HIGH)
                 state = {
@@ -404,10 +412,10 @@ class EffortClimbTests(unittest.TestCase):
         medium = {"model": "gpt-6-sol", "reasoning_effort": "medium", "profile": "GPT-6 Sol Medium"}
 
         def checkpoint(seconds):
-            return attempt("astra_checkpoint", seconds, HIGH, role="astra", route_role="completion")
+            return attempt("astra_checkpoint", seconds, HIGH, role="task_planner", route_role="completion")
 
         first, consult, second = checkpoint(20), attempt("sol", 30, HIGH), checkpoint(60)
-        review = attempt("astra_review", 40, HIGH, role="astra", route_role="completion")
+        review = attempt("astra_review", 40, HIGH, role="task_planner", route_role="completion")
         state = {
             "status": "RUNNING",
             "settings": {"workflow": {"mode": "glm_first_v1"}},
@@ -415,7 +423,7 @@ class EffortClimbTests(unittest.TestCase):
                 first,
                 consult,
                 review,
-                attempt("terra", 50, {"model": "glm", "reasoning_effort": "high"}),
+                attempt("terra", 50, {"model": "planner", "reasoning_effort": "high"}),
                 second,
             ],
             "reasoning_escalations": [climb(10, medium, HIGH, role="completion", trigger="rejected_output")],
@@ -544,8 +552,8 @@ class EffortClimbTests(unittest.TestCase):
         state = {
             "status": "TASK_COMPLETE",
             "stages": [
-                attempt("astra_review", 1, reviewer, role="astra", route_role="completion", task_id="task-7"),
-                attempt("astra_review", 20, HIGH, role="astra", route_role="completion"),
+                attempt("astra_review", 1, reviewer, role="task_planner", route_role="completion", task_id="task-7"),
+                attempt("astra_review", 20, HIGH, role="task_planner", route_role="completion"),
                 attempt("sol", 21, HIGH),  # another role on the climbed route is not this climb's attempt
             ],
             "reasoning_escalations": [climb(10, reviewer, HIGH, role="completion", trigger="rejected_output")],
@@ -780,7 +788,7 @@ class StrongerAttemptTests(unittest.TestCase):
     def review(self, seconds, start, **extra):
         """A Completion Reviewer's stage record."""
         return attempt(
-            "astra_review", seconds, self.CHECKER, start=start, role="astra", route_role="completion", **extra
+            "astra_review", seconds, self.CHECKER, start=start, role="task_planner", route_role="completion", **extra
         )
 
     def validate_task(self, state):
@@ -1038,7 +1046,7 @@ class StrongerAttemptTests(unittest.TestCase):
         escalated = self.decided(state, "escalate")
         strong = attempt("terra", 1, self.STRONG, start=escalated, tokens=(1000, 500))
         check = attempt("sol", 2, self.CHECKER, start=escalated)
-        review = attempt("astra_review", 3, self.CHECKER, start=escalated, role="astra", route_role="completion")
+        review = attempt("astra_review", 3, self.CHECKER, start=escalated, role="task_planner", route_role="completion")
         state["stages"] += [strong, check, review]
         state["validation"] = verdict(check, "PASS")
         self.assertEqual("investigate", policy.failure(state, review["output"], "REWORK", classification="unknown"))
@@ -1072,7 +1080,7 @@ class StrongerAttemptTests(unittest.TestCase):
             builder = attempt("terra", seconds, climbed, start=start)
             check = attempt("sol", seconds + 1, self.CHECKER, start=start)
             review = attempt(
-                "astra_review", seconds + 2, self.CHECKER, start=start, role="astra", route_role="completion"
+                "astra_review", seconds + 2, self.CHECKER, start=start, role="task_planner", route_role="completion"
             )
             if state.get("validation"):
                 state.setdefault("validation_archive", []).append({"validation": state.pop("validation")})
@@ -1593,8 +1601,8 @@ class LinesTests(unittest.TestCase):
         job. A row without a job is named from its stage or role through autocode_roles, else `Unknown job`."""
         astra = {"model": "openai/gpt-6-astra", "reasoning_effort": "high", "profile": "GPT-6 Astra High"}
         climbed = {**astra, "reasoning_effort": "xhigh", "profile": "GPT-6 Astra XHigh"}
-        [row] = rows({"status": "RUNNING", "reasoning_escalations": [climb(10, astra, climbed, role="astra")]})
-        self.assertEqual(("astra", None, None), (row["role"], row["stage"], row["job"]))
+        [row] = rows({"status": "RUNNING", "reasoning_escalations": [climb(10, astra, climbed, role="task_planner")]})
+        self.assertEqual(("task_planner", None, None), (row["role"], row["stage"], row["job"]))
         self.assertTrue(escalation_view.lines([row])[1].startswith("  Unknown job: GPT-6 Astra High → "))
         for role, stage, job in (
             ("sol", None, "Tester"),
@@ -1602,6 +1610,7 @@ class LinesTests(unittest.TestCase):
             ("completion", None, "Completion Reviewer"),
             ("resolver", None, "Resolver"),
             ("sol", "astra_checkpoint", "Completion Reviewer"),
+            ("planner", "glm_custom", "Planner"),  # the route now names its job
             ("glm", "glm_custom", "Unknown job"),
         ):
             with self.subTest(role=role, stage=stage):

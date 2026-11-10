@@ -87,7 +87,8 @@ class ChooseTests(unittest.TestCase):
                     "api_provider": "openai",
                     "endpoint": "https://api.openai.com/v1",
                     "roles": {
-                        role: "glm-5.3" for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+                        role: "glm-5.3"
+                        for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
                     },
                 }
             )

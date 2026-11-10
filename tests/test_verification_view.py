@@ -107,7 +107,7 @@ class VerificationViewTests(unittest.TestCase):
 
     def test_validation_job_can_be_done_by_the_plan_reviewer(self):
         state = fixture()
-        state["validation"]["reviewer_role"] = "astra"
+        state["validation"]["reviewer_role"] = "task_planner"
         result = view.project(state, current_revision="source-one", evidence_matches=True)
         self.assertEqual("checked", result["coverage"][0]["state"])
 

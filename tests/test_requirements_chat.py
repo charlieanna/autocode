@@ -357,7 +357,7 @@ class RequirementsChatTests(unittest.TestCase):
             root = Path(directory)
             (root / "reports").mkdir()
             (root / "reports" / "export.py").write_text("def export():\n    pass\n")
-            roles = ("astra", "glm", "terra", "sol", "requirements", "plan_reviewer", "resolver")
+            roles = ("task_planner", "planner", "terra", "sol", "requirements", "plan_reviewer", "resolver")
             state = {
                 "version": 3,
                 "task_id": "task-fixture",

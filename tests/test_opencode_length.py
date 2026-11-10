@@ -294,7 +294,9 @@ class OutputLimitTests(unittest.TestCase):
             "history": [],
             "settings": {
                 "engine": "opencode",
-                "roles": {role: {"model": "fixture/" + role} for role in ("astra", "terra", "sol", "completion")},
+                "roles": {
+                    role: {"model": "fixture/" + role} for role in ("task_planner", "terra", "sol", "completion")
+                },
             },
         }
         approve_fixture(state, goals)

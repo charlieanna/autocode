@@ -91,12 +91,12 @@ class RenderTest(unittest.TestCase):
 # The OpenCode default routes (tools/providers/opencode.py DEFAULT_MODELS).
 DEFAULTS = {
     "requirements": "zai-coding-plan/glm-5.3",
-    "glm": "zai-coding-plan/glm-5.3",
+    "planner": "zai-coding-plan/glm-5.3",
     "terra": "zai-coding-plan/glm-5.3",
     "plan_reviewer": "openai/gpt-6-sol",
     "sol": "openai/gpt-6-sol",
     "completion": "openai/gpt-6-sol",
-    "astra": "openai/gpt-6-astra",
+    "task_planner": "openai/gpt-6-astra",
 }
 
 
@@ -170,7 +170,7 @@ class AdviseTest(unittest.TestCase):
         advice = mc.advise(routes(), ["openai/gpt-6-sol", "openai/gpt-6-astra", "zai/glm-5.3"], openai_auth="oauth")
         # The Tester runs GPT-6 Sol, so no GPT tier may build: GLM does (GPT tiers are one family, 2026-10-20).
         self.assertEqual("zai/glm-5.3", advice["suggestions"]["terra"]["model"])
-        self.assertEqual("zai/glm-5.3", advice["suggestions"]["glm"]["model"])  # the Plan Reviewer is a GPT tier
+        self.assertEqual("zai/glm-5.3", advice["suggestions"]["planner"]["model"])  # the Plan Reviewer is a GPT tier
 
     def test_resolver_tier_can_be_suggested_for_other_roles(self):
         advice = mc.advise(routes(), ["zai-coding-plan/glm-5.3", "openai/gpt-6-astra"], openai_auth="oauth")
@@ -194,7 +194,7 @@ class AdviseTest(unittest.TestCase):
         ):
             with self.subTest(model=model):
                 advice = mc.advise(routes(terra=model), [model, "openai/gpt-6-sol"])
-                self.assertEqual(model, advice["suggestions"]["glm"]["model"])
+                self.assertEqual(model, advice["suggestions"]["planner"]["model"])
                 self.assertIn(model, [entry["model"] for entry in advice["catalogue"]])
 
     def test_the_stop_message_groups_by_plan_and_tier_and_names_per_token_billing(self):
@@ -411,11 +411,11 @@ class PricesCliTest(unittest.TestCase):
         self.assertNotRegex(text, r"unpriced-model.*input 0")
 
     def test_json_names_the_row_each_default_route_is_priced_by(self):
-        code, text = self.prices("--json", defaults={"astra": "gpt-6-astra", "terra": "local/unpriced-model"})
+        code, text = self.prices("--json", defaults={"task_planner": "gpt-6-astra", "terra": "local/unpriced-model"})
         report = json.loads(text)
         self.assertEqual(0, code)
-        self.assertEqual("openai/gpt-6-astra", report["defaults"]["astra"]["priced_as"])
-        self.assertEqual(50.0, report["defaults"]["astra"]["rate"]["output"])
+        self.assertEqual("openai/gpt-6-astra", report["defaults"]["task_planner"]["priced_as"])
+        self.assertEqual(50.0, report["defaults"]["task_planner"]["rate"]["output"])
         self.assertEqual(
             {"model": "local/unpriced-model", "priced_as": None, "rate": None}, report["defaults"]["terra"]
         )
@@ -535,12 +535,12 @@ SEED_ONLY = "zhipuai-coding-plan/glm-5.3"
 SELECTED = ["zai-coding-plan/glm-5.3", "openai/gpt-6-luna", "openai/gpt-6-sol", "openai/gpt-6-astra"]
 KILO_PROFILE = {
     "requirements": SEED_ONLY,
-    "glm": SEED_ONLY,
+    "planner": SEED_ONLY,
     "terra": "openai/gpt-6-luna",
     "plan_reviewer": "openai/gpt-6-sol",
     "sol": SEED_ONLY,
     "completion": SEED_ONLY,
-    "astra": "openai/gpt-6-astra",
+    "task_planner": "openai/gpt-6-astra",
 }
 
 

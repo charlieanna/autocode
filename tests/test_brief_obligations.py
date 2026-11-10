@@ -171,7 +171,7 @@ class BriefObligationsTests(unittest.TestCase):
         )
         record = {
             "stage": stage,
-            "role": "astra",
+            "role": "task_planner",
             "route_role": "plan_reviewer",
             "engine": "fixture",
             "task_id": state["task_id"],
@@ -324,7 +324,7 @@ class BriefObligationsTests(unittest.TestCase):
     def test_model_criteria_and_unpaired_or_agent_events_cannot_create_sources(self):
         state = self.state(task="Build a CLI")
         state["goal_contract"] = {"body": self.contract_body(TASK)}
-        event = {"kind": "brief_feedback", "actor": "astra", "id": "agent", "text": TASK}
+        event = {"kind": "brief_feedback", "actor": "task_planner", "id": "agent", "text": TASK}
         state["brief_feedback"] = [event, {**event, "actor": "user_cli", "id": "unpaired"}]
         state["user_events"] = [event, {**event, "actor": "user_cli", "id": "not-feedback"}]
         state["answers"] = {"Q1": {"kind": "answer", "actor": "user_cli", "question_id": "Q1", "text": TASK}}
@@ -678,7 +678,7 @@ class BriefObligationsTests(unittest.TestCase):
     def test_nonjoint_generation_preserves_a_parseable_handoff_json_suffix(self):
         state = self.state(task="Build greeting")
         state["settings"]["joint_planning"] = False
-        state["settings"]["roles"] = {"astra": {"engine": "codex", "model": "fixture"}}
+        state["settings"]["roles"] = {"task_planner": {"engine": "codex", "model": "fixture"}}
         with patch.object(
             autoplanner.stage_context.support,
             "snapshot",

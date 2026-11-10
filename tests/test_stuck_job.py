@@ -49,9 +49,9 @@ def state_for(workspace=None, next_stage="terra", status="RUNNING", **extra):
             "limits": {"no_progress_batches": 3},
             "transport_identities": {"opencode": {"fixture": True}},
             "roles": {
-                "astra": {"model": "openai/gpt-6-astra", "engine": "opencode"},
+                "task_planner": {"model": "openai/gpt-6-astra", "engine": "opencode"},
                 "plan_reviewer": {"model": "openai/gpt-6-astra", "engine": "opencode", "reasoning_effort": "high"},
-                "glm": {"model": "zai-coding-plan/glm-5.3"},
+                "planner": {"model": "zai-coding-plan/glm-5.3"},
                 "terra": {"model": "openai/gpt-6-sol"},
                 "sol": {"model": "zai-coding-plan/glm-5.3"},
             },
@@ -879,7 +879,7 @@ class GuidanceTests(unittest.TestCase):
         self.assertEqual(self.request(), stuck.with_guidance(state, "astra_discovery", self.request()))
 
     def request(self):
-        return common.ModelRequest("glm", "glm", "Do the stage.\nCURRENT HANDOFF DATA\n{}", {}, {}, False)
+        return common.ModelRequest("planner", "planner", "Do the stage.\nCURRENT HANDOFF DATA\n{}", {}, {}, False)
 
     def in_force(self, stage):
         state = state_for(next_stage=stage)
@@ -964,8 +964,8 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(("zai-coding-plan/glm-5.3", "high"), pick(roles, "kilo/anthropic/claude-opus-5.5", "kilocode"))
         direct = {
             "plan_reviewer": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "engine": "opencode"},
-            "glm": {"model": "zai-coding-plan/glm-5.3"},
-            "astra": {"model": "kilo/anthropic/claude-opus-5.5"},
+            "planner": {"model": "zai-coding-plan/glm-5.3"},
+            "task_planner": {"model": "kilo/anthropic/claude-opus-5.5"},
         }
         self.assertEqual(
             ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "high"), pick(direct, "zai-coding-plan/glm-5.3", "kilocode")
@@ -975,7 +975,7 @@ class RouteTests(unittest.TestCase):
         )
         gateway = {
             "plan_reviewer": {"model": "kilo/anthropic/claude-opus-5.5"},
-            "glm": {"model": "kilo/openai/gpt-6-sol"},
+            "planner": {"model": "kilo/openai/gpt-6-sol"},
         }
         # Only gateway routes configured: the reviewer's own, which prepare_stuck's independence check then judges.
         self.assertEqual(
@@ -993,9 +993,9 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(("gpt-6-sol", "high"), pick(codex, "gpt-6-astra"))
         self.assertEqual(("gpt-6-luna", "high"), pick(codex, "gpt-6-sol"))
         # A custom provider keeps its reviewer model.
-        self.assertEqual(("custom/model", "high"), pick({"astra": {"model": "custom/model"}}, "x", "mytool"))
+        self.assertEqual(("custom/model", "high"), pick({"task_planner": {"model": "custom/model"}}, "x", "mytool"))
         for provider in (None, "opencode", "kilocode"):
-            self.assertNotIn("astra", pick(roles, "openai/gpt-6-sol", provider)[0])
+            self.assertNotIn("task_planner", pick(roles, "openai/gpt-6-sol", provider)[0])
         self.assertEqual(
             "high", roles["plan_reviewer"]["reasoning_effort"], "the Plan Reviewer's own route is untouched"
         )
@@ -1006,7 +1006,7 @@ class RouteTests(unittest.TestCase):
             stuck.intercept(state, "PAUSED_PLANNING_BUDGET", "2/2 plan-review calls used")
             request = autoresolver.prepare(state, stuck.STAGE, Path(workspace) / "state.json", None)
         self.assertEqual(
-            ("astra", stuck.ROUTE, False, stuck.SCHEMA),
+            ("task_planner", stuck.ROUTE, False, stuck.SCHEMA),
             (request.role, request.route_role, request.allow_write, request.schema),
         )
         # The stuck Plan Reviewer runs GPT-6 Astra: another GPT model shares its family, so GLM investigates.

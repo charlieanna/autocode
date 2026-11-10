@@ -148,7 +148,7 @@ class ExecutionCriteriaPromptTests(unittest.TestCase):
         before = copy.deepcopy(schema)
         self.assertEqual("", execution_prompt.criteria_instruction(schema))
         self.assertEqual(before, schema)
-        schema = goals.role_schema(support.read(SCHEMAS / "v2/astra-decision.schema.json"), "astra")
+        schema = goals.role_schema(support.read(SCHEMAS / "v2/astra-decision.schema.json"), "task_planner")
         before = copy.deepcopy(schema)
         note = execution_prompt.criteria_instruction(schema)
         self.assertIn("definition fields byte-identical: id, criterion", note)

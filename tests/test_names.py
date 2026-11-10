@@ -31,6 +31,16 @@ class OneTableOfNames(unittest.TestCase):
         self.assertEqual("plan_reviewer", names.route("plan_reviewer"), "a name that is already clear stays")
         self.assertEqual("build", names.stage("terra"))
 
+    def test_a_retired_route_becomes_its_job_name_and_a_route_not_yet_renamed_stays(self):
+        self.assertEqual("task_planner", names.current_route("astra"))
+        self.assertEqual("sol", names.current_route("sol"), "the Tester's route is renamed with the stages")
+        self.assertEqual("astra", names.file_stem("task_planner"), "its schema files keep the old stem")
+        self.assertEqual("terra", names.file_stem("terra"))
+        kept = {"astra": {"model": "a"}, "terra": {"model": "b"}}
+        self.assertEqual({"task_planner": {"model": "a"}, "terra": {"model": "b"}}, names.renamed_routes(kept, "x"))
+        with self.assertRaisesRegex(ValueError, "names the planner route twice"):
+            names.renamed_routes({"glm": {}, "planner": {}}, "provider config [roles]")
+
     def test_the_legacy_planning_stages_do_not_reuse_the_v2_flows_names(self):
         v2 = {"requirements", "plan", "plan_review", "plan_revise", "plan_finalize"}
         self.assertFalse(v2 & set(names.STAGES.values()))
@@ -49,7 +59,11 @@ class TheNewSpellingsWork(unittest.TestCase):
     def test_a_new_flag_sets_what_its_old_spelling_sets(self):
         for old in names.OLD_FLAGS:
             value = "high" if old.endswith("reasoning-effort") else "vendor/model-x"
-            dest = old.removeprefix("--").replace("-", "_")
+            # The destination follows the route's name: renamed routes take the new one (planner_model).
+            route, _, suffix = old.removeprefix("--").partition("-")
+            if route in names.RETIRED_ROUTES:
+                route = names.route(route)
+            dest = f"{route}_{suffix.replace('-', '_')}"
             with self.subTest(flag=old):
                 self.assertEqual(value, getattr(parse(old, value), dest))
                 self.assertEqual(value, getattr(parse(names.flag(old), value), dest))
@@ -83,13 +97,16 @@ class TheNewSpellingsWork(unittest.TestCase):
             file = Path(folder) / "stages.toml"
             file.write_text('[claude]\nbuilder = { model = "m-b" }\nplanner = { model = "m-p", effort = "high" }\n')
             self.assertEqual(
-                {"terra": {"model": "m-b", "effort": None}, "glm": {"model": "m-p", "effort": "high"}},
+                {"terra": {"model": "m-b", "effort": None}, "planner": {"model": "m-p", "effort": "high"}},
                 choices.load(file)["claude"],
             )
+            # A file saved before the routes were renamed keeps its choices under the new names.
+            file.write_text('[claude]\nglm = { model = "m-p" }\nastra = { model = "m-a" }\n')
+            self.assertEqual({"planner", "task_planner"}, set(choices.load(file)["claude"]))
             file.write_text('[claude]\nbuilder = { model = "m-b" }\nterra = { model = "m-t" }\n')
             with self.assertRaisesRegex(ValueError, "names terra twice"):
                 choices.load(file)
-        self.assertEqual("astra", stages_cli.ALIASES["task-planner"])
+        self.assertEqual("task_planner", stages_cli.ALIASES["task-planner"])
         self.assertIn("task-planner", stages_cli.STAGE_NAMES)
 
 

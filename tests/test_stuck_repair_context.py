@@ -44,7 +44,7 @@ class InvestigatorRepairHandoffTests(unittest.TestCase):
                 "finalize": {"identity": {"stage": "astra_finalize"}, "count": 3, "last_error": "unexpected fields"}
             },
         )
-        self.queue(role="astra", stage=stuck.STAGE, error=ValueError("diagnosed causes' probes did not exit 0"))
+        self.queue(role="task_planner", stage=stuck.STAGE, error=ValueError("diagnosed causes' probes did not exit 0"))
         return output
 
     def test_repair_gets_the_active_investigation_and_exact_archived_probe_path(self):

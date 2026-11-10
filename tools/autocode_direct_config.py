@@ -34,8 +34,8 @@ PROVIDERS = {
 
 ALIASES = {"anthropic": "claude"}
 
-ROLES = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
-PRODUCER_ROLES = ("astra", "glm", "terra")
+ROLES = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+PRODUCER_ROLES = ("task_planner", "planner", "terra")
 REVIEWER_ROLES = ("completion", "plan_reviewer", "sol")
 
 
@@ -168,7 +168,7 @@ def provider_settings(settings, name):
 def role_providers(settings):
     """Every role's provider, including the ``requirements`` alias for the Planner helper."""
     result = {role: provider for role, (provider, _model) in assignment(settings).items()}
-    result["requirements"] = result["glm"]
+    result["requirements"] = result["planner"]
     return result
 
 
@@ -491,7 +491,7 @@ def setup():
         except getpass.GetPassWarning:
             raise ValueError("A terminal with hidden input is required; no key was saved") from None
     old_roles = current.get("roles", {}) if same_provider else {}
-    producer = input(f"Planner/Builder/Requirements model ID [{old_roles.get('glm', '')}]: ").strip()
+    producer = input(f"Planner/Builder/Requirements model ID [{old_roles.get('planner', '')}]: ").strip()
     reviewer = input(f"Independent reviewer/tester model ID [{old_roles.get('sol', '')}]: ").strip()
     if not producer and not reviewer and old_roles:
         value["roles"] = old_roles
@@ -499,7 +499,7 @@ def setup():
         value["roles"] = {
             role: (reviewer or old_roles.get("sol", ""))
             if role in ("sol", "completion", "plan_reviewer")
-            else (producer or old_roles.get("glm", ""))
+            else (producer or old_roles.get("planner", ""))
             for role in ROLES
         }
     save(value, key)

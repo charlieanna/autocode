@@ -21,8 +21,8 @@ HAIKU = "claude-haiku-4-5-20251001"
 class VerifierIndependenceTests(unittest.TestCase):
     def test_the_builder_is_checked_by_the_tester_and_completion_reviewer(self):
         self.assertEqual(("sol", "completion"), independence.verifiers("terra"))
-        self.assertEqual(("plan_reviewer",), independence.verifiers("glm"))
-        self.assertEqual((), independence.verifiers("astra"))
+        self.assertEqual(("plan_reviewer",), independence.verifiers("planner"))
+        self.assertEqual((), independence.verifiers("task_planner"))
 
     def test_identical_models_and_glm_or_mimo_families_clash(self):
         self.assertEqual("identical model openai/gpt-6-sol", independence.clash("openai/gpt-6-sol", "gpt-6-sol"))

@@ -36,7 +36,7 @@ def observed():
         "stop_reason": "Partial work retained. Resume explicitly for Requirements to inspect it and choose the next step.",
         "job_failure": dict(FAILURE),
         "job_retry_authorization": {"token": "jr:investigator"},
-        "recovery_context": {"attempt_id": "001/discovery-05", "role": "astra"},
+        "recovery_context": {"attempt_id": "001/discovery-05", "role": "task_planner"},
     }
 
 
@@ -123,7 +123,7 @@ class StaleJobFailureTests(unittest.TestCase):
                 "attempt_id": "001/stuck-investigation-03",
             },
             "active_stage": {
-                "role": "astra",
+                "role": "task_planner",
                 "stage": "astra_discovery",
                 "planning": True,
                 "iteration": 1,

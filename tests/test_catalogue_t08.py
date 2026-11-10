@@ -383,9 +383,9 @@ class CrashScenarios(CrashCase):
         schema_path = self.run / "schemas/astra.json"
         schema_path.parent.mkdir(parents=True, exist_ok=True)
         legacy = support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json")
-        support.atomic_json(schema_path, goals.role_schema(legacy, "astra"))
+        support.atomic_json(schema_path, goals.role_schema(legacy, "task_planner"))
         self.state["active_stage"] = {
-            "role": "astra",
+            "role": "task_planner",
             "stage": "astra_review",
             "iteration": 5,
             "output": str(base.with_suffix(".json")),
@@ -396,7 +396,7 @@ class CrashScenarios(CrashCase):
         with self.forbid_real_launches(runner):
             runner.reconcile_active(self.state, self.run, self.root)
             runner.reconcile_active(self.state, self.run, self.root)
-        self.check("rejection_not_lost", 1, len(findings.open_entries(self.state, "astra")))
+        self.check("rejection_not_lost", 1, len(findings.open_entries(self.state, "task_planner")))
         self.check("single_repair_creation", True, bool(self.state.get("resolution_request")))
         self.check("next_action_resolve", "astra_resolve", self.state["next_stage"])
         self.finish(summary="RECOVERED_REVIEW: bound report applied exactly once")

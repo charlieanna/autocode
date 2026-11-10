@@ -47,12 +47,12 @@ class AllRoleModelTests(unittest.TestCase):
                 autopilot=autopilot,
                 opencode=runner.opencode,
             )
-            state = {"workspace": "/fixture", "settings": original, "sessions": {"astra": "saved"}}
+            state = {"workspace": "/fixture", "settings": original, "sessions": {"task_planner": "saved"}}
             selected = autocode_configure.configure(
                 self.configure_args(
-                    astra_model="openai/gpt-5.6-sol",
-                    astra_reasoning_effort="high",
-                    pin_model_role=["astra", "sol", "completion"],
+                    task_planner_model="openai/gpt-5.6-sol",
+                    task_planner_reasoning_effort="high",
+                    pin_model_role=["task_planner", "sol", "completion"],
                 ),
                 state,
                 planning=planning,
@@ -60,15 +60,15 @@ class AllRoleModelTests(unittest.TestCase):
                 autopilot=autopilot,
                 opencode=runner.opencode,
             )
-        self.assertEqual("openai/gpt-5.6-sol", selected["roles"]["astra"]["model"])
-        self.assertEqual("high", selected["roles"]["astra"]["reasoning_effort"])
-        self.assertTrue(all(selected["roles"][role]["model_pinned"] for role in ("astra", "sol", "completion")))
-        self.assertNotIn("model_pinned", original["roles"]["astra"])
+        self.assertEqual("openai/gpt-5.6-sol", selected["roles"]["task_planner"]["model"])
+        self.assertEqual("high", selected["roles"]["task_planner"]["reasoning_effort"])
+        self.assertTrue(all(selected["roles"][role]["model_pinned"] for role in ("task_planner", "sol", "completion")))
+        self.assertNotIn("model_pinned", original["roles"]["task_planner"])
 
     def test_all_overrides_use_opencode_without_a_codex_login_dependency(self):
         models = {
-            "glm": "openai/gpt-5.6-sol",
-            "astra": "zai-coding-plan/glm-5.3",
+            "planner": "openai/gpt-5.6-sol",
+            "task_planner": "zai-coding-plan/glm-5.3",
             "terra": "local/custom:32b",
             "sol": "openai/gpt-6-astra",
         }
@@ -126,16 +126,16 @@ class AllRoleModelTests(unittest.TestCase):
                 autopilot=autopilot,
                 opencode=runner.opencode,
             )
-        self.assertEqual("opencode", settings["roles"]["astra"]["engine"])
-        self.assertEqual("openai/gpt-6-astra", settings["roles"]["astra"]["model"])
+        self.assertEqual("opencode", settings["roles"]["task_planner"]["engine"])
+        self.assertEqual("openai/gpt-6-astra", settings["roles"]["task_planner"]["model"])
         self.assertEqual("opencode", settings["roles"]["sol"]["engine"])
         self.assertEqual("openai/gpt-6-luna", settings["roles"]["sol"]["model"])
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["planner"]["model"])
         self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
         self.assertEqual("openai/gpt-6-sol", settings["roles"]["completion"]["model"])
-        state = {"settings": settings, "sessions": {"astra": "opencode-astra", "sol": "opencode-sol"}}
+        state = {"settings": settings, "sessions": {"task_planner": "opencode-astra", "sol": "opencode-sol"}}
         before = copy.deepcopy(state)
-        for override in ({"astra_model": "gpt-6-astra"}, {"sol_model": "gpt-5.6-sol"}):
+        for override in ({"task_planner_model": "gpt-6-astra"}, {"sol_model": "gpt-5.6-sol"}):
             with self.assertRaises(ValueError):
                 autocode_configure.configure(
                     self.configure_args(**override),
@@ -163,16 +163,16 @@ class AllRoleSubprocessTests(unittest.TestCase):
         # GPT models are one family (2026-10-20): the GPT Builder's checkers and the Planner that GPT-6 Sol
         # reviews come from other families.
         models = {
-            "glm": "zai-coding-plan/glm-5.3",
-            "astra": "openai/gpt-6-astra",
+            "planner": "zai-coding-plan/glm-5.3",
+            "task_planner": "openai/gpt-6-astra",
             "terra": "openai/gpt-5.6-terra",
             "sol": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
             "completion": "zai-coding-plan/glm-5.3",
         }
         expected_models = {
             **models,
-            "requirements": models["glm"],
-            "resolver": models["astra"],
+            "requirements": models["planner"],
+            "resolver": models["task_planner"],
             "plan_reviewer": planning.PINNED_REVIEWER_MODEL,
         }
         flags = [arg for role, model in models.items() for arg in ("--" + role + "-model", model)]

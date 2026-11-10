@@ -64,7 +64,7 @@ class StaleRecoveryContext(unittest.TestCase):
             "task": "Make a greeting tool",
             "status": "RUNNING",
             "iteration": 1,
-            "sessions": {"astra": "completion-session"},
+            "sessions": {"task_planner": "completion-session"},
             "stages": [],
             "history": [],
             "answers": {},
@@ -74,7 +74,8 @@ class StaleRecoveryContext(unittest.TestCase):
             "acceptance_criteria": [],
             "settings": {
                 "roles": {
-                    role: {"model": role, "reasoning_effort": "high"} for role in ("astra", "terra", "sol", "glm")
+                    role: {"model": role, "reasoning_effort": "high"}
+                    for role in ("task_planner", "terra", "sol", "planner")
                 },
                 "transport_identity": self.local,
                 "headroom": {"enabled": False},
@@ -89,7 +90,7 @@ class StaleRecoveryContext(unittest.TestCase):
         support.atomic_json(base.with_suffix(".before.json"), support.snapshot(self.root))
         base.with_suffix(".jsonl").write_text('{"type":"thread.started","thread_id":"completion-session"}\n')
         self.state["active_stage"] = {
-            "role": "astra",
+            "role": "task_planner",
             "stage": "astra_review",
             "iteration": 1,
             "duration_seconds": 4,

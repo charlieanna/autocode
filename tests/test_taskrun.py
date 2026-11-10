@@ -2302,7 +2302,7 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             'version_command = ["fixture_command", "--version"]\n[roles]\n'
             + "\n".join(
                 f'{role} = {{ model = "fixture-claude", effort = "high" }}'
-                for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+                for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
             )
             + "\n"
         )
@@ -2352,7 +2352,7 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             "--completion-model",
             "fixture-claude",
             "--pin-model-role",
-            "astra",
+            "task_planner",
             "--pin-model-role",
             "terra",
             "--pin-model-role",
@@ -2365,7 +2365,7 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         )
         self.start_options = tuple(
             value
-            for role in ("astra", "sol", "completion")
+            for role in ("task_planner", "sol", "completion")
             for value in ("--role-transport", role + "=fixture_command")
         )
 
@@ -2383,7 +2383,7 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         before = run.status()
         self.assertEqual("approve_plan", before["needs"]["kind"], before)
         self.assertEqual("zai-coding-plan/glm-5.3-flash", before["routes"]["requirements"]["model"])
-        self.assertEqual("zai-coding-plan/glm-5.3", before["routes"]["glm"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", before["routes"]["planner"]["model"])
         self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", before["routes"]["plan_reviewer"]["model"])
         self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", before["routes"]["resolver"]["model"])
         self.assertEqual("fixture-claude", before["routes"]["sol"]["model"])
@@ -2446,7 +2446,9 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             self.config.read_text().replace("fixture_command", "kilocode")
         )
         self.start_options = tuple(
-            value for role in ("astra", "sol", "completion") for value in ("--role-transport", role + "=kilocode")
+            value
+            for role in ("task_planner", "sol", "completion")
+            for value in ("--role-transport", role + "=kilocode")
         )
         # macOS uses the portable read-only policy covered in
         # test_kilocode_policy, rather than this Linux handshake.

@@ -58,7 +58,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             "next_stage": "astra_discovery",
             "settings": {
                 "joint_planning": True,
-                "roles": {"glm": {"model": "fake-planner"}, "astra": {"model": "fake-reviewer"}},
+                "roles": {"planner": {"model": "fake-planner"}, "task_planner": {"model": "fake-reviewer"}},
                 "milestone_checkpoints": {"enabled": True, "max_seconds": 5400},
                 "limits": {"max_seconds": 43200},
             },
@@ -122,7 +122,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         output.write_text(json.dumps(value))
         record = {
             "stage": stage,
-            "role": "glm" if stage in ("astra_discovery", "glm_revise") else "astra",
+            "role": "planner" if stage in ("astra_discovery", "glm_revise") else "task_planner",
             "output": str(output),
             "iteration": 0,
             "exit_code": 0,

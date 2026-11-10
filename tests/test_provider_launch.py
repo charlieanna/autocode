@@ -139,8 +139,8 @@ class ProviderLaunchTests(unittest.TestCase):
                     launch.prepare(
                         engine="opencode",
                         adapter=adapter,
-                        role="astra",
-                        route_role="astra",
+                        role="task_planner",
+                        route_role="task_planner",
                         workspace=run,
                         run_dir=run,
                         session=None,
@@ -260,7 +260,7 @@ class ProviderLaunchTests(unittest.TestCase):
         _, _, _, worker = launch.prepare(
             engine="opencode",
             adapter=adapter,
-            role="glm",
+            role="planner",
             route_role="requirements",
             workspace=Path("/workspace"),
             run_dir=Path("/run"),
@@ -607,7 +607,7 @@ class CodexCaptureCopyTests(unittest.TestCase):
             {"allow_write": True},
             {"planning": True},
             {"enforce_tool_boundary": False},
-            {"sandbox": "read-only", "role": "astra", "route_role": "investigator"},
+            {"sandbox": "read-only", "role": "task_planner", "route_role": "investigator"},
         ):
             with (
                 self.subTest(changes=changes),
@@ -857,7 +857,7 @@ class CodexCaptureCopyTests(unittest.TestCase):
             {"allow_write": True},
             {"planning": True},
             {"enforce_tool_boundary": False},
-            {"sandbox": "read-only", "role": "astra", "route_role": "investigator"},
+            {"sandbox": "read-only", "role": "task_planner", "route_role": "investigator"},
         ):
             with (
                 self.subTest(changes=changes),

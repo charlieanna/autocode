@@ -234,7 +234,7 @@ class SessionScenarios(SessionCase):
                 self.run,
             )
         plan = self.state["repair_plan"]
-        fid = [row["id"] for row in findings.open_entries(self.state, "astra")]
+        fid = [row["id"] for row in findings.open_entries(self.state, "task_planner")]
         self.check("bounded_correction_assignment", 1, len(plan["tasks"]))
         self.check("task_carries_finding_set", True, set(plan["tasks"][0].get("findings", [])) >= set(fid))
         self.check("provenance_bound_to_candidate", record["source_revision"], plan["source_revision"])
@@ -310,7 +310,7 @@ class SessionScenarios(SessionCase):
             )
         self.check("structured_rework_wins", "astra_resolve", self.state["next_stage"])
         self.check("not_complete", False, self.state["status"] == "TASK_COMPLETE")
-        self.check("repair_work_open", True, bool(findings.open_entries(self.state, "astra")))
+        self.check("repair_work_open", True, bool(findings.open_entries(self.state, "task_planner")))
         self.finish(summary="REWORK: validated structured status controls the transition, not prose")
 
     def test_ses05_malformed_json_report_repair_or_pause(self):
@@ -350,7 +350,7 @@ class SessionScenarios(SessionCase):
         """SES-06. Existing: test_autocode.test_validated_final_rejects_missing_fields_and_invalid_types."""
         # Production validates every report against the saved role schema at
         # load time; the malformed shapes must die there, never in a transition.
-        schema = goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "astra")
+        schema = goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "task_planner")
         for label, broken in (
             ("missing required field", lambda d: d.pop("plan")),
             ("wrong type", lambda d: d.update(acceptance_criteria="not-a-list")),

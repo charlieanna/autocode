@@ -59,18 +59,18 @@ except ImportError:
 # Start at the ladder's medium rung; shift to higher reasoning in-stage when needed.
 LADDER = {
     "requirements": {"model": "zai-coding-plan/glm-5.3", "effort": "medium"},
-    "glm": {"model": "zai-coding-plan/glm-5.3", "effort": "high"},
+    "planner": {"model": "zai-coding-plan/glm-5.3", "effort": "high"},
     "plan_reviewer": {"model": "openai/gpt-6-sol", "effort": "high"},
     "terra": {"model": "zai-coding-plan/glm-5.3", "effort": "medium"},
     "sol": {"model": "openai/gpt-6-sol", "effort": "high"},
     "completion": {"model": "openai/gpt-6-sol", "effort": "medium"},
-    "astra": {"model": "openai/gpt-6-astra", "effort": "high"},
+    "task_planner": {"model": "openai/gpt-6-astra", "effort": "high"},
     "resolver": {"model": "openai/gpt-6-astra", "effort": "high"},
 }
 
 # producer role -> verifier role(s) that must use a different model family
 INDEPENDENCE_PAIRS = (
-    ("glm", "plan_reviewer", "Planner/Plan Reviewer"),
+    ("planner", "plan_reviewer", "Planner/Plan Reviewer"),
     ("terra", "sol", "Builder/Validator"),
     ("terra", "completion", "Builder/Completion Owner"),
 )
@@ -93,16 +93,16 @@ def stage_token_rows(state: RunState) -> list[dict]:
         "investigate_stuck": "stuck_investigator",
         "requirements_gather": "requirements",
         "requirements_gather_report_repair": "requirements",
-        "astra_discovery": "astra",
+        "astra_discovery": "task_planner",
         "astra_challenge": "plan_reviewer",
-        "glm_revise": "glm",
+        "glm_revise": "planner",
         "astra_finalize": "plan_reviewer",
         "terra": "terra",
         "sol": "sol",
-        "astra_review": "astra",
-        "astra_checkpoint": "astra",
+        "astra_review": "task_planner",
+        "astra_checkpoint": "task_planner",
         "astra_resolve": "resolver",
-        "astra_plan": "astra",
+        "astra_plan": "task_planner",
     }
     rows = []
     records = [(st, False) for st in state.get("stages") or []]
@@ -211,7 +211,7 @@ def ladder_alignment(pinned: dict) -> dict:
     def model_effort(role):
         cfg = pinned.get(role) or {}
         if not cfg and role == "resolver":
-            cfg = pinned.get("astra") or {}
+            cfg = pinned.get("task_planner") or {}
         if not cfg:
             return "", ""
         if isinstance(cfg, str):

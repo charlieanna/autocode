@@ -328,7 +328,9 @@ class ReviewCase(t06.SolControllerCase):
                 self.run,
             )
         self.check("f1_remains_visible", True, bool(findings.blocking_entries(self.state)))
-        self.check("latest_empty_findings_did_not_clear_ledger", 1, len(findings.open_entries(self.state, "astra")))
+        self.check(
+            "latest_empty_findings_did_not_clear_ledger", 1, len(findings.open_entries(self.state, "task_planner"))
+        )
         self.finish(summary="REWORK: the authoritative open F1 blocks completion")
 
     def test_rev07_advisory_suggestion_permits_completion(self):
@@ -488,7 +490,7 @@ class ReviewCase(t06.SolControllerCase):
                 self.root,
                 self.run,
             )
-        fid = findings.open_entries(self.state, "astra")[0]["id"]
+        fid = findings.open_entries(self.state, "task_planner")[0]["id"]
         t06.write_greeting_source(self.root, revision="corrected")
         # Fresh independent verification of the corrected candidate.
         report = self.sol_report(event_id="recheck")

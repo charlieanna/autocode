@@ -714,7 +714,7 @@ class ConversationSessionCliTests(unittest.TestCase):
         self.assertEqual(["route_assignment"], [row["kind"] for row in sources])
         self.assertEqual("openai/gpt-6-luna", sources[0]["to"])
         self.assertEqual([], refreshed["saved_human_actions"])
-        self.assertEqual("openai/gpt-6-luna", run.status()["routes"]["glm"]["model"])
+        self.assertEqual("openai/gpt-6-luna", run.status()["routes"]["planner"]["model"])
         self.assertEqual("resume", run.status()["needs"]["kind"])
         self.assertEqual(calls, self.calls())
         token = current["resolver_token"]
@@ -793,7 +793,7 @@ class ConversationSessionCliTests(unittest.TestCase):
         self.assertEqual([], retained["pending_message_ids"])
         self.assertEqual(2, retained["applied_revision"])
         self.assertEqual(["crash-route"], [row["request_id"] for row in retained["actions"]])
-        self.assertEqual("openai/gpt-6-luna", run.status()["routes"]["glm"]["model"])
+        self.assertEqual("openai/gpt-6-luna", run.status()["routes"]["planner"]["model"])
         self.env.pop("CONVERSATION_ROUTE_COMMIT_FAULT")
         recovered = run.refresh_conversation(
             request_id="crash-route",

@@ -197,7 +197,7 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
         contract["hash"] = support.digest({key: contract[key] for key in ("task_id", "revision", "body")})
         state["goal_contract"] = contract
         state["active_stage"]["contract_hash"] = contract["hash"]
-        state["sessions"] = {"astra": "retained-session"}
+        state["sessions"] = {"task_planner": "retained-session"}
         self.assertTrue(self.invoke_recovery(state))
         state["pending_report_repair"]["attempts"] = 1
         repair = self.attempt("astra_challenge", report_only=True)
@@ -456,7 +456,7 @@ runpy.run_path(str(runtime), run_name='__main__')
             mode,
             "{sandbox}",
         ]
-        roles = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+        roles = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
         config.write_text(
             'name = "truncated_timeout_fixture"\noutput = "report_file"\nprompt = "stdin"\ncommand = '
             + json.dumps(command)

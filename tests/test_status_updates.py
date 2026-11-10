@@ -349,7 +349,7 @@ class StaleCheckpointTests(unittest.TestCase):
                     "active_stage": {
                         "stage": "astra_challenge",
                         "iteration": 1,
-                        "role": "astra",
+                        "role": "task_planner",
                         "started_at": "now",
                         "pid": worker.get("pid"),
                         "processes": [worker] if worker.get("pid") else [],

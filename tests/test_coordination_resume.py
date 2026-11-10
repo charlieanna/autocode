@@ -43,7 +43,7 @@ class CoordinationResumeTests(unittest.TestCase):
             "cost": {"spent_usd": 4, "complete": True},
             "usage": {"accounting": {"attempts": [{"identity": "retained", "active": False}]}},
             "scope": {"identity": "same"},
-            "routes": {"glm": "chosen"},
+            "routes": {"planner": "chosen"},
         }
         self.document = {
             "version": 1,
@@ -330,7 +330,7 @@ class CoordinationResumeTests(unittest.TestCase):
                 if changed == "source":
                     self.fingerprint.return_value = "source-two"
                 if changed == "routes":
-                    self.view["routes"] = {"glm": "different"}
+                    self.view["routes"] = {"planner": "different"}
                 if changed == "usage":
                     self.view["cost"]["spent_usd"] += 1
                 if changed == "cancel":

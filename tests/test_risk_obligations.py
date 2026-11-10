@@ -75,7 +75,7 @@ class RiskFixture:
         )
         record = {
             "stage": stage,
-            "role": "astra",
+            "role": "task_planner",
             "route_role": "plan_reviewer",
             "engine": "fixture",
             "task_id": state["task_id"],
@@ -178,7 +178,7 @@ class RiskObligationsTests(RiskFixture, unittest.TestCase):
             "hash": "model-contract",
             "body": {"acceptance_criteria": [{"id": "AC-model", "criterion": QUEUE}]},
         }
-        event = {"kind": "brief_feedback", "actor": "astra", "id": "model", "text": QUEUE}
+        event = {"kind": "brief_feedback", "actor": "task_planner", "id": "model", "text": QUEUE}
         state["brief_feedback"] = [event, {**event, "id": "unpaired", "actor": "user_cli"}]
         state["user_events"] = [event, {**event, "id": "different", "actor": "user_cli"}]
         state["answers"] = {"Q1": {"kind": "answer", "actor": "user_cli", "question_id": "Q1", "text": QUEUE}}

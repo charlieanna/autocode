@@ -91,7 +91,7 @@ def review_generation_schema(schema, state: RunState, stage):
     ):
         if field in props and value is not None:
             props[field] = {**props[field], "enum": [value]}
-    source = "sol" if stage == "sol" else "astra"
+    source = "sol" if stage == "sol" else "task_planner"
     own = [r["id"] for r in state.get("findings_ledger", []) if r.get("source") == source and r.get("status") == "open"]
     for field in ("findings", "finding_dispositions"):
         fields = props.get(field, {}).get("items", {}).get("properties", {})

@@ -228,7 +228,7 @@ class SubprocessFlow(unittest.TestCase):
         # proof finding (the first attempt's untested lines, #2474) share one ledger, were linked to the
         # correction task, and were closed by the reviewers' next reports and the passing proof.
         ledger = state["findings_ledger"]
-        self.assertEqual({"sol", "astra", "runner"}, {row["source"] for row in ledger})
+        self.assertEqual({"sol", "task_planner", "runner"}, {row["source"] for row in ledger})
         self.assertTrue(all(row["status"] == "resolved" and row["resolved_in"] for row in ledger))
         rework_task = [
             t for t in [*state.get("task_archive", []), state["current_task"]] if t.get("decision") == "REWORK"
@@ -241,7 +241,7 @@ class SubprocessFlow(unittest.TestCase):
             ]
         ).read_text()
         handoff = json.loads(rework_prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
-        self.assertEqual({"sol", "astra", "runner"}, {row["source"] for row in handoff["open_findings"]})
+        self.assertEqual({"sol", "task_planner", "runner"}, {row["source"] for row in handoff["open_findings"]})
         self.assertIn("Acceptance evidence:", result.stdout)
         self.assertIn("End-to-end flow: PASS", result.stdout)
         executed = [
@@ -443,7 +443,7 @@ class SubprocessFlow(unittest.TestCase):
             for attempt in range(3):
                 record = {
                     "stage": "astra_review",
-                    "role": "astra",
+                    "role": "task_planner",
                     "iteration": 1,
                     "output": str(run / f"failed-completion-{attempt}.json"),
                     "source_revision": abandoned["recovery_context"]["source_revision"],
@@ -506,7 +506,7 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(2, len([r for r in abandoned["stages"] if not r.get("runner_owned")]))
         self.assertTrue(abandoned["stages"][-1]["abandoned"])
         self.assertEqual("superseded", abandoned["resolver"]["human_escalations"][published["request_id"]]["status"])
-        self.assertNotIn("astra", abandoned["sessions"])
+        self.assertNotIn("task_planner", abandoned["sessions"])
         self.assertFalse((self.project / "greet.py").exists())
         del self.env["AUTOCODE_FIXTURE_SESSION_DRIFT"]
         self.launch([*args, "--resume-paused"], 2)
@@ -533,7 +533,7 @@ class SubprocessFlow(unittest.TestCase):
         project, launch = self.project, self.launch
         launch(["Build a useful greeting tool", "--reasoning-effort", "high", "--terra-provider", "ZAI"], 2)
         expected_models = {
-            "astra": "gpt-5.6-sol",
+            "task_planner": "gpt-5.6-sol",
             "terra": "gpt-5.6-terra",
             "sol": "gpt-5.6-sol",
             "completion": "gpt-5.6-sol",

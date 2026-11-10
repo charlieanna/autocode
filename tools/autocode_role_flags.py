@@ -17,13 +17,13 @@ def add_arguments(parser, default_models, role_models, efforts) -> None:
     """Add the per-task Planner, Builder, Tester and Completion Reviewer model, provider and effort flags."""
     for role, model in role_models.items():
         label = {
-            "astra": "per-task Planner (and, in a run without their own routes, the reviewers')",
+            "task_planner": "per-task Planner (and, in a run without their own routes, the reviewers')",
             "terra": "Builder",
             "sol": "Tester",
             "completion": "Completion Reviewer",
         }[role]
         parser.add_argument(
-            *names.spellings(f"--{role}-model"),
+            *names.spellings(f"--{role.replace('_', '-')}-model"),
             dest=f"{role}_model",
             metavar="MODEL",
             help=f"Override the {label} model (joint default: "
@@ -32,7 +32,7 @@ def add_arguments(parser, default_models, role_models, efforts) -> None:
         )
     parser.add_argument(
         *names.spellings("--astra-provider"),
-        dest="astra_provider",
+        dest="task_planner_provider",
         metavar="PROVIDER",
         help="Codex model_provider override for the per-task Planner's route",
     )
@@ -55,7 +55,7 @@ def add_arguments(parser, default_models, role_models, efforts) -> None:
     parser.add_argument("--reasoning-effort", choices=efforts, help="Reasoning effort for roles without a role flag")
     parser.add_argument(
         *names.spellings("--astra-reasoning-effort"),
-        dest="astra_reasoning_effort",
+        dest="task_planner_reasoning_effort",
         choices=efforts,
         help="Override reasoning effort for the per-task Planner's route only",
     )

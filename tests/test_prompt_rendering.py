@@ -72,7 +72,7 @@ def fixed_state():
             "context_soft_tokens": 10000,
             "roles": {
                 name: {"model": "fixed-model", "engine": "codex"}
-                for name in ("astra", "glm", "terra", "sol", "requirements", "plan_reviewer", "resolver")
+                for name in ("task_planner", "planner", "terra", "sol", "requirements", "plan_reviewer", "resolver")
             },
         },
         "stuck_investigation": {
@@ -293,7 +293,7 @@ def rendered_cases():
             state["next_stage"] = stage
             schema = planner.schema_for(state, stage) if stage in planner.STAGES else {}
             original = {
-                "role": "astra",
+                "role": "task_planner",
                 "stage": stage,
                 "schema": "/prompt-fixture/schema.json",
                 "source_revision": "fixed-revision",

@@ -150,7 +150,7 @@ class V2FlowTests(unittest.TestCase):
                 "joint_planning": True,
                 "roles": {
                     "requirements": {"model": "requirements-model"},
-                    "glm": {"model": "technical-model"},
+                    "planner": {"model": "technical-model"},
                     "plan_reviewer": {"model": "reviewer-model"},
                 },
             }
@@ -158,10 +158,10 @@ class V2FlowTests(unittest.TestCase):
         self.assertEqual("requirements_gather", planning.entry_stage(default))
         self.assertTrue(planning.is_planning(default, "astra_discovery"))
         self.assertFalse(planning.is_planning(default, "requirements"))
-        self.assertEqual("glm", planning.role_for(default, "astra_discovery"))
+        self.assertEqual("planner", planning.role_for(default, "astra_discovery"))
         self.assertEqual("plan_reviewer", planning.route_for(default, "astra_challenge"))
         self.assertEqual("requirements-model", default["settings"]["roles"]["requirements"]["model"])
-        self.assertEqual("technical-model", default["settings"]["roles"]["glm"]["model"])
+        self.assertEqual("technical-model", default["settings"]["roles"]["planner"]["model"])
         self.assertEqual("reviewer-model", default["settings"]["roles"]["plan_reviewer"]["model"])
 
     def test_v2_resolver_and_review_coverage(self):
@@ -261,7 +261,7 @@ class V2FlowTests(unittest.TestCase):
             limits={"max_seconds": 7200, "stage_timeout_seconds": 900, "idle_timeout_seconds": 300},
             roles={
                 role: {"model": role, "reasoning_effort": "high"}
-                for role in ("requirements", "glm", "plan_reviewer", "terra", "sol", "completion")
+                for role in ("requirements", "planner", "plan_reviewer", "terra", "sol", "completion")
             },
         )
         goals.clarification_episode(state)
@@ -360,15 +360,15 @@ class V2FlowTests(unittest.TestCase):
             "planning_flow": "v2",
             "roles": {
                 "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
-                "glm": {"engine": "opencode", "model": "fixture/technical-model"},
+                "planner": {"engine": "opencode", "model": "fixture/technical-model"},
                 "plan_reviewer": {"engine": "opencode", "model": "fixture/independent-reviewer"},
             },
         }
         state = {"task": "Task", "workspace": str(Path.cwd()), "settings": settings}
         expected = {
             "requirements": "requirements",
-            "plan": "glm",
-            "plan_revise": "glm",
+            "plan": "planner",
+            "plan_revise": "planner",
             "plan_review": "plan_reviewer",
             "plan_finalize": "plan_reviewer",
         }
@@ -393,16 +393,16 @@ class V2FlowTests(unittest.TestCase):
             "planning_flow": "v2",
             "roles": {
                 "requirements": {"engine": "opencode", "model": "requirements-model"},
-                "glm": {"engine": "opencode", "model": "technical-model"},
+                "planner": {"engine": "opencode", "model": "technical-model"},
                 "plan_reviewer": {"engine": "opencode", "model": "reviewer-model"},
             },
         }
         state = {"settings": settings}
         self.assertEqual("requirements", planning.route_for(state, "requirements"))
-        self.assertEqual("glm", planning.route_for(state, "plan"))
+        self.assertEqual("planner", planning.route_for(state, "plan"))
         self.assertEqual("plan_reviewer", planning.route_for(state, "plan_review"))
         self.assertEqual("requirements-model", settings["roles"]["requirements"]["model"])
-        self.assertEqual("technical-model", settings["roles"]["glm"]["model"])
+        self.assertEqual("technical-model", settings["roles"]["planner"]["model"])
         self.assertEqual("reviewer-model", settings["roles"]["plan_reviewer"]["model"])
 
     def test_v2_stages_use_fresh_read_only_routes_and_planning_metadata(self):
@@ -420,7 +420,7 @@ class V2FlowTests(unittest.TestCase):
             "planning_flow": "v2",
             "roles": {
                 "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
-                "glm": {"engine": "opencode", "model": "fixture/technical-model"},
+                "planner": {"engine": "opencode", "model": "fixture/technical-model"},
                 "plan_reviewer": {"engine": "opencode", "model": "fixture/reviewer-model"},
             },
         }
@@ -474,7 +474,7 @@ class V2FlowTests(unittest.TestCase):
             "planning_flow": "v2",
             "roles": {
                 "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
-                "glm": {"engine": "opencode", "model": "fixture/technical-model"},
+                "planner": {"engine": "opencode", "model": "fixture/technical-model"},
                 "plan_reviewer": {"engine": "opencode", "model": "fixture/reviewer-model"},
             },
         }
@@ -490,7 +490,7 @@ class V2FlowTests(unittest.TestCase):
         self.assertEqual("PAUSED_INVALID_PREDECESSOR", error.exception.status)
 
     def test_v2_reviewer_route_requires_the_independently_configured_role(self):
-        settings = {"joint_planning": True, "planning_flow": "v2", "roles": {"requirements": {}, "glm": {}}}
+        settings = {"joint_planning": True, "planning_flow": "v2", "roles": {"requirements": {}, "planner": {}}}
         for stage in ("plan_review", "plan_finalize"):
             with self.assertRaises(support.Paused) as error:
                 planning.route_for({"settings": settings}, stage)
@@ -505,7 +505,7 @@ class V2FlowTests(unittest.TestCase):
             "planning_flow": "v2",
             "roles": {
                 "requirements": {"engine": "opencode", "model": "fixture/requirements-model"},
-                "glm": {"engine": "opencode", "model": "fixture/technical-model"},
+                "planner": {"engine": "opencode", "model": "fixture/technical-model"},
                 "plan_reviewer": {"engine": "opencode", "model": "fixture/reviewer-model"},
             },
         }
@@ -543,7 +543,7 @@ class V2FlowTests(unittest.TestCase):
         for stage in figma_stages:
             with self.subTest(stage=stage):
                 self.assertFalse(planning.is_planning(state, stage))
-        self.assertEqual("astra", planning.role_for(state, "astra_plan"))
+        self.assertEqual("task_planner", planning.role_for(state, "astra_plan"))
 
     def test_v2_plan_applies_the_design_coverage_its_own_schema_advertised(self):
         import autocode_design_manifest as design_manifest

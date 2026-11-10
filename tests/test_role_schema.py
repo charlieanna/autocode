@@ -87,14 +87,14 @@ class RoleSchemaTests(unittest.TestCase):
         self.assertIs(goals.USER_REQUEST, reports.USER_REQUEST)
         schema = self.legacy()
         before = copy.deepcopy(schema)
-        result = goals.role_schema(schema, "astra")
+        result = goals.role_schema(schema, "task_planner")
         self.assertEqual(before, schema)
         self.assertIn("COMPLETE", result["properties"]["status"]["enum"])
         self.assertNotIn("progressive_checkpoint", result["properties"])
         self.assertNotIn("progressive_checkpoint", result["required"])
 
     def test_optional_checkpoint_is_explicit_boolean_and_old_reports_remain_valid(self):
-        schema = goals.role_schema(self.legacy(), "astra", progressive=True)
+        schema = goals.role_schema(self.legacy(), "task_planner", progressive=True)
         value = {
             "status": "CONTINUE",
             "contract_revision": 1,

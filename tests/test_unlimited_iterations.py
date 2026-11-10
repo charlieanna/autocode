@@ -21,7 +21,7 @@ class UnlimitedTests(unittest.TestCase):
 
     def args(self, **kwargs):
         return SimpleNamespace(
-            astra_model=None,
+            task_planner_model=None,
             terra_model=None,
             sol_model=None,
             reasoning_effort=None,
@@ -60,7 +60,7 @@ class UnlimitedTests(unittest.TestCase):
         # The explicit flag is recorded as user-owned so AutoResolver never rewrites it.
         expected["budget_origins"] = {"iteration_ceiling": "user_explicit"}
         expected["roles"]["completion"] = {
-            **expected["roles"]["astra"],
+            **expected["roles"]["task_planner"],
             "model": runner.DEFAULT_ROLE_MODELS["completion"],
             "reasoning_effort": runner.opencode.DEFAULT_REASONING_EFFORTS["completion"],
         }
@@ -92,7 +92,7 @@ class UnlimitedTests(unittest.TestCase):
         args = SimpleNamespace(
             engine="codex",
             provider=None,
-            astra_model=None,
+            task_planner_model=None,
             terra_model=None,
             sol_model=None,
             reasoning_effort=None,

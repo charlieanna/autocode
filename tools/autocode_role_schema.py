@@ -40,7 +40,7 @@ def role_schema(legacy, role, *, progressive=False):
         deferred_backlog=STRINGS,
     )
     schema["required"] += ["contract_revision", "contract_hash", "task_id", "user_request", "deferred_backlog"]
-    if role == "astra":
+    if role == "task_planner":
         schema["properties"]["status"]["enum"] = ["CONTINUE", "REWORK", "BLOCKED", "COMPLETE"]
         if progressive:
             schema["properties"]["progressive_checkpoint"] = {"type": "boolean"}

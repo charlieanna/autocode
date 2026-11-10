@@ -32,13 +32,13 @@ except ImportError:
 
 # The job names a person may type for a stage, beside the route names the view uses.
 ALIASES = {
-    "planner": "glm",
+    "planner": "planner",
     "plan-reviewer": "plan_reviewer",
     "builder": "terra",
     "tester": "sol",
     "completion-reviewer": "completion",
-    "resolver": "astra",
-    "task-planner": "astra",
+    "resolver": "task_planner",
+    "task-planner": "task_planner",
 }
 STAGE_NAMES = (*stage_choices.ORDER, *ALIASES)
 

@@ -89,7 +89,7 @@ class NativeHeldCancellationTests(unittest.TestCase):
             "settings": {
                 "planning_flow": "v2",
                 "roles": {
-                    "glm": {
+                    "planner": {
                         "engine": "opencode",
                         "provider": "opencode",
                         "model": "controlled/model",
@@ -103,7 +103,7 @@ class NativeHeldCancellationTests(unittest.TestCase):
                     "idle_timeout_seconds": 300,
                 },
             },
-            "sessions": {"glm": "controlled-session"},
+            "sessions": {"planner": "controlled-session"},
             "total_seconds": 900.0,
             "planning": {
                 "astra_calls": 1,
@@ -135,12 +135,12 @@ class NativeHeldCancellationTests(unittest.TestCase):
             record = {
                 "iteration": 1,
                 "stage": "plan_revise",
-                "role": "glm",
-                "route_role": "glm",
+                "role": "planner",
+                "route_role": "planner",
                 "command": [binary, "-I", "-S", "-B", "-c", "pass"],
                 "engine": "opencode",
                 "expected_session": "controlled-session",
-                "launch_route": deepcopy(self.state["settings"]["roles"]["glm"]),
+                "launch_route": deepcopy(self.state["settings"]["roles"]["planner"]),
                 "events": str(self.run / "plan-revise-01.jsonl"),
                 "output": str(self.run / "plan-revise-01.json"),
                 "before_ref": str(before),
@@ -330,7 +330,7 @@ class NativeHeldCancellationTests(unittest.TestCase):
             elif case == "source":
                 (self.root / "source.txt").write_text("changed controlled source\n")
             elif case == "settings":
-                self.state["settings"]["roles"]["glm"]["model"] = "changed/model"
+                self.state["settings"]["roles"]["planner"]["model"] = "changed/model"
             elif case == "writer":
                 self.state["current_task"] = {"kind": "implement"}
             elif case == "approved":

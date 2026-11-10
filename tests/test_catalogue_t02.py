@@ -293,7 +293,12 @@ class DagScenarios(DagCase):
             {**writing, "stage": "write_acceptance_tests_report_repair", "original_stage": "write_acceptance_tests"},
         )
         self.state["stuck_investigation"] = {"stage": "write_acceptance_tests"}
-        investigator = {"stage": "investigate_stuck", "role": "astra", "task_id": task, "duration_seconds": 890.0}
+        investigator = {
+            "stage": "investigate_stuck",
+            "role": "task_planner",
+            "task_id": task,
+            "duration_seconds": 890.0,
+        }
         records.account_stage(self.state, dict(investigator))  # account_stage marks a record accounted
         self.state.pop("stuck_investigation")
         self.state["stuck_investigations"] = [{"stage": "write_acceptance_tests", "outcome": "guidance"}]

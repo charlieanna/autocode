@@ -46,7 +46,7 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
         return state, record, rejected
 
     def test_validation_only_task_returns_to_review_with_evidence_and_counters_intact(self):
-        for stage, role in (("sol", "sol"), ("astra_checkpoint", "astra")):
+        for stage, role in (("sol", "sol"), ("astra_checkpoint", "task_planner")):
             with self.subTest(stage=stage):
                 state, record, _ = self.fixture()
                 state["current_task"] = {"id": "validate-retained", "kind": "validate", "milestone_id": "D"}
@@ -153,7 +153,7 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
 
     def test_combined_checkpoint_can_apply_its_review_instead_of_repeating_the_tester(self):
         state, record, rejected = self.fixture()
-        record.update(stage="astra_checkpoint", role="astra")
+        record.update(stage="astra_checkpoint", role="task_planner")
         rework.route(state, record, investigation_enabled=False, rejected=rejected)
         self.assertEqual("astra_review", state["next_stage"])
         self.assertFalse(rework.queued(state, record))

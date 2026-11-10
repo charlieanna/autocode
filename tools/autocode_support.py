@@ -21,6 +21,11 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+try:
+    from . import autocode_names as names
+except ImportError:
+    import autocode_names as names
+
 # Re-export shared helpers for existing callers and test patches; retain the compact facade imports.
 # isort: off
 # fmt: off
@@ -544,12 +549,13 @@ def migrate_v1(state, run_dir, workspace, settings, schemas):
         criteria_revision=None,
         unresolved_findings=[],
     )
-    role_order = {"astra": 0, "terra": 1, "sol": 2}
+    role_order = {"astra": 0, "terra": 1, "sol": 2}  # legacy artifact file stems
     paths = (Path(run_dir) / "iterations").glob("*/*.jsonl")
     for path in sorted(paths, key=lambda p: (p.parent.name, role_order.get(p.stem, 3))):
-        role = path.stem
-        if role not in ("astra", "terra", "sol"):
+        stem = path.stem
+        if stem not in role_order:
             continue
+        role = names.renamed_routes({stem: None}, "legacy artifact").popitem()[0]
         iteration = int(path.parent.name)
         rows = events(path)
         final = path.with_suffix(".json")
@@ -558,19 +564,21 @@ def migrate_v1(state, run_dir, workspace, settings, schemas):
         if not complete or not final.exists():
             if iteration == state["iteration"]:
                 state.update(status="PAUSED_UNCERTAIN_STAGE", stop_reason=f"Reconcile unfinished legacy {role}: {path}")
-                state["next_stage"] = "astra_review" if role == "astra" else role
+                state["next_stage"] = "astra_review" if role == "task_planner" else role
                 state["uncertain_artifacts"] = str(path)
             continue
         value = read(final)
-        validate_schema(value, read(schemas / f"{role}-{'decision' if role == 'astra' else 'report'}.schema.json"))
+        validate_schema(
+            value, read(schemas / f"{stem}-{'decision' if role == 'task_planner' else 'report'}.schema.json")
+        )
         thread = next((e.get("thread_id") for e in rows if e.get("type") == "thread.started"), None)
         if thread:
             state.setdefault("sessions", {})[role] = thread
         stage = (
             "astra_plan"
-            if role == "astra" and not state["acceptance_criteria"]
+            if role == "task_planner" and not state["acceptance_criteria"]
             else "astra_review"
-            if role == "astra"
+            if role == "task_planner"
             else role
         )
         state["stages"].append(
@@ -585,7 +593,7 @@ def migrate_v1(state, run_dir, workspace, settings, schemas):
             }
         )
         state.setdefault("evidence_locations", []).append(str(final))
-        if role == "astra":
+        if role == "task_planner":
             state["acceptance_criteria"] = value["acceptance_criteria"]
             state["criteria_revision"] = digest(criteria_definition(value["acceptance_criteria"]))
             state["next_action"] = value["next_objective"]

@@ -378,7 +378,7 @@ def run_role(
     if state.get("next_stage") == "sol" and visual_runtime.requested(state):
         visual_runtime.verify_reference(state)
     timeout_recovery_guard(state)
-    if role in ("terra", "sol", "completion", "astra", "plan_reviewer", "glm"):
+    if role in ("terra", "sol", "completion", "task_planner", "plan_reviewer", "planner"):
         dispatch.enforce_cross_model_verification(state)
     iteration = state["iteration"]
     original_stage = cast(str, state["next_stage"])

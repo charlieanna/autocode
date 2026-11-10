@@ -47,8 +47,8 @@ except ImportError:
 
 # The planning stages this rule may raise, by the route that launches them.
 STAGES = {
-    "astra_discovery": "glm",
-    "glm_revise": "glm",
+    "astra_discovery": "planner",
+    "glm_revise": "planner",
     "astra_challenge": "plan_reviewer",
     "astra_finalize": "plan_reviewer",
 }

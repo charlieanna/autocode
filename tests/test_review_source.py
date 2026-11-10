@@ -32,7 +32,7 @@ def approved_state(root, paths, *, task_kind="build"):
         "goal_contract": contract,
         "user_events": [event],
         "current_task": copy.deepcopy(body["initial_task"]),
-        "settings": {"roles": {role: {"engine": "codex"} for role in ("astra", "terra", "sol")}},
+        "settings": {"roles": {role: {"engine": "codex"} for role in ("task_planner", "terra", "sol")}},
     }
 
 

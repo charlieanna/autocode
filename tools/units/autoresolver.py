@@ -179,7 +179,7 @@ def prepare_stuck(state: RunState, state_path):
         builder_failure.guard(state, state["stuck_investigation"], state["workspace"])
     roles = state["settings"]["roles"]
     stuck_route = autoplanner.route_for(state, state["stuck_investigation"]["stage"])
-    source = "plan_reviewer" if "plan_reviewer" in roles else "astra"
+    source = "plan_reviewer" if "plan_reviewer" in roles else "task_planner"
     selected = stuck_job.pinned_route(state["settings"])
     stuck_model = (roles.get(stuck_route) or {}).get("model", "")
     if selected is None and state["settings"].get("route_selection"):
@@ -206,7 +206,7 @@ def prepare_stuck(state: RunState, state_path):
         state["settings"].get("context_soft_tokens", 10000),
         autoplanner.engine_for(state["settings"], stuck_job.ROUTE),
     )
-    return ModelRequest("astra", stuck_job.ROUTE, prompt, metrics, stuck_job.schema(state), False)
+    return ModelRequest("task_planner", stuck_job.ROUTE, prompt, metrics, stuck_job.schema(state), False)
 
 
 def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorization=None):
@@ -227,8 +227,8 @@ def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorizati
         )
     # Inherit the planner model, not its conversation. A dedicated route keeps
     # resolver sessions separate from planning, completion and implementation.
-    state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["astra"]))
-    role_transport.inherit(state.get("settings"), "resolver", "astra")
+    state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["task_planner"]))
+    role_transport.inherit(state.get("settings"), "resolver", "task_planner")
     request = execution_request(state, "astra_review", state_path, schema_dir, report_stage=stage)
     instruction, payload = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
     data = json.loads(payload)
@@ -259,7 +259,7 @@ def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorizati
         + json.dumps(data, indent=2)
     )
     metrics = {**request.metrics, "estimated_prompt_tokens": (len(prompt) + 3) // 4}
-    return ModelRequest("astra", "resolver", prompt, metrics, schema, False)
+    return ModelRequest("task_planner", "resolver", prompt, metrics, schema, False)
 
 
 # The one correction a Resolver blocker may name: the saved test or regression command is wrong.
@@ -345,8 +345,8 @@ def prepare_diagnosis(state: RunState, stage, state_path, schema_dir):
     if stage != "astra_diagnose":
         raise ValueError(f"Autoresolver cannot run {stage}")
     diagnosis_guard(state, Path(state["workspace"]))
-    state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["astra"]))
-    role_transport.inherit(state.get("settings"), "resolver", "astra")
+    state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["task_planner"]))
+    role_transport.inherit(state.get("settings"), "resolver", "task_planner")
     # Reuse the Plan Reviewer's handoff context (current source, task, evidence
     # inventory) for input only; the output schema below is unrelated to and far
     # narrower than the reviewer decision schema that context call would imply.
@@ -369,7 +369,7 @@ def prepare_diagnosis(state: RunState, stage, state_path, schema_dir):
         + json.dumps(data, indent=2)
     )
     metrics = {**request.metrics, "estimated_prompt_tokens": (len(prompt) + 3) // 4}
-    return ModelRequest("astra", "resolver", prompt, metrics, DIAGNOSIS_SCHEMA, False)
+    return ModelRequest("task_planner", "resolver", prompt, metrics, DIAGNOSIS_SCHEMA, False)
 
 
 def validate_diagnosis(state: RunState, value, record, workspace):

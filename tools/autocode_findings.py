@@ -44,7 +44,7 @@ except ImportError:
 
 # "runner": the runner's own check, which only its module opens or closes: a failed lifecycle observation
 # (autocode_risk_findings) or a package run's change outside its package (autocode_package_writes).
-SOURCES = ("sol", "astra", "runner")
+SOURCES = ("sol", "task_planner", "runner")
 SEVERITIES = ("critical", "high", "medium", "low")
 DISPOSITIONS = ("resolved", "retracted")
 
@@ -193,7 +193,12 @@ def restore_initial_plan_scopes(state: RunState):
     contracts = [*state.get("contract_history", []), current]
     for row in ledger(state):
         history = row.get("assigned_history", [])
-        if row.get("source") != "astra" or row.get("status") != "open" or row.get("scope") is not None or not history:
+        if (
+            row.get("source") != "task_planner"
+            or row.get("status") != "open"
+            or row.get("scope") is not None
+            or not history
+        ):
             continue
         plans = [
             r
@@ -395,7 +400,7 @@ def record_decision(state: RunState, decision, record):
         if record.get("stage") == "astra_plan" and not state.get("current_task")
         else None
     )
-    _record(state, "astra", decision.get("findings", []), record, initial_scope)
+    _record(state, "task_planner", decision.get("findings", []), record, initial_scope)
     if decision.get("status") == "BLOCKED":
         required = {
             row["id"]
@@ -410,7 +415,7 @@ def record_decision(state: RunState, decision, record):
             return
     _apply_dispositions(
         state,
-        "astra",
+        "task_planner",
         decision.get("finding_dispositions", []),
         record,
         report_scope(state),

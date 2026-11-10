@@ -33,14 +33,14 @@ class JointUpgradeTests(unittest.TestCase):
             "acceptance_criteria": [],
             "stages": [],
             "history": [],
-            "sessions": {"astra": "ses_astra", "terra": "ses_terra", "sol": "ses_sol"},
+            "sessions": {"task_planner": "ses_astra", "terra": "ses_terra", "sol": "ses_sol"},
             "settings": {
                 "engine": "opencode",
                 "transport_identity": {"engine": "opencode"},
                 "limits": {"iteration_ceiling": None, "idle_timeout_seconds": 0, "tool_timeout_seconds": 0},
                 "report_repair": {"max_attempts": 2},
                 "roles": {
-                    "astra": {"model": "openai/gpt-6-astra", "reasoning_effort": "high"},
+                    "task_planner": {"model": "openai/gpt-6-astra", "reasoning_effort": "high"},
                     "terra": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "max"},
                     "sol": {"model": "cursor-acp/grok-4.7-xhigh", "reasoning_effort": "high"},
                 },
@@ -66,8 +66,8 @@ class JointUpgradeTests(unittest.TestCase):
         )
         self.assertEqual(before, self.state)
         self.assertTrue(settings["joint_planning"])
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
-        self.assertEqual("opencode", settings["roles"]["glm"]["engine"])
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["planner"]["model"])
+        self.assertEqual("opencode", settings["roles"]["planner"]["engine"])
         for role, cfg in before["settings"]["roles"].items():
             self.assertEqual(cfg, settings["roles"][role])
         self.assertEqual(before["settings"]["limits"], settings["limits"])
@@ -83,7 +83,7 @@ class JointUpgradeTests(unittest.TestCase):
             autopilot=autopilot,
             opencode=runner.opencode,
         )
-        self.assertNotIn("glm", settings["roles"])
+        self.assertNotIn("planner", settings["roles"])
         self.assertFalse(settings.get("joint_planning"))
 
     def test_unresolved_attempts_and_unapproved_plans_cannot_upgrade(self):
@@ -109,7 +109,7 @@ class JointUpgradeTests(unittest.TestCase):
             self.assertEqual(before, state)
 
     def test_codex_session_is_never_reassigned_to_glm_or_opencode(self):
-        self.state["settings"]["roles"]["astra"]["engine"] = "codex"
+        self.state["settings"]["roles"]["task_planner"]["engine"] = "codex"
         with self.assertRaisesRegex(ValueError, "different session engines"):
             autocode_configure.configure(
                 self.args,
@@ -158,10 +158,10 @@ class JointUpgradeFlow(unittest.TestCase):
         self.assertEqual("sol", state["next_stage"])
         self.assertTrue(state.get("implementation"))
         state["settings"].pop("joint_planning")
-        state["settings"]["roles"].pop("glm")
+        state["settings"]["roles"].pop("planner")
         state["settings"].pop("transport_identities")
         state.pop("planning")
-        state["sessions"].pop("glm", None)
+        state["sessions"].pop("planner", None)
         (run / "state.json").write_text(json.dumps(state))
         self.launch([*args, "--joint-planning", "--resume-paused", "--pause-after-stage"], 2)
         upgraded = self.saved()[1]
@@ -173,7 +173,7 @@ class JointUpgradeFlow(unittest.TestCase):
         self.assertEqual("astra_review", upgraded["next_stage"])
         self.assertNotIn("planning", upgraded)
         self.assertEqual(
-            {"astra", "terra", "sol", "completion", "requirements", "glm", "plan_reviewer"},
+            {"task_planner", "terra", "sol", "completion", "requirements", "planner", "plan_reviewer"},
             set(upgraded["settings"]["roles"]),
         )
         self.assertEqual(state, json.loads(Path(upgraded["planning_migrations"][-1]["backup"]).read_text()))

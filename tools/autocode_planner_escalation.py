@@ -46,7 +46,7 @@ except ImportError:
     import autocode_route_permission as permission
     import autocode_verifier_independence as independence
 
-ROLE = "glm"
+ROLE = "planner"
 TRIGGER = "plan_sent_back"
 # autocode_role_route.USER_EXPLICIT: the route origin of a model the person chose.
 USER_EXPLICIT = "user_explicit"

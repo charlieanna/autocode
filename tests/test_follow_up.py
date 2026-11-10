@@ -227,8 +227,10 @@ class FollowUpTests(unittest.TestCase):
             sessions={},
             settings={
                 "joint_planning": True,
-                "roles": {role: {"model": role[0]} for role in ("requirements", "glm", "plan_reviewer", "terra", "sol")}
-                | {"astra": {"model": "a", "engine": "codex"}},
+                "roles": {
+                    role: {"model": role[0]} for role in ("requirements", "planner", "plan_reviewer", "terra", "sol")
+                }
+                | {"task_planner": {"model": "a", "engine": "codex"}},
             },
         )
         follow_up.accept(self.state, "Fix them.", self.workspace, "t1")

@@ -58,7 +58,7 @@ class NativeAbandonFixture:
             "active_stage": {
                 "iteration": 1,
                 "stage": "plan_review",
-                "role": "astra",
+                "role": "task_planner",
                 "route_role": "mimo",
                 "events": str(self.events),
                 "output": str(self.run / "plan-review-01.json"),

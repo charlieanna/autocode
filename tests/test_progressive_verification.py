@@ -43,7 +43,9 @@ def state_for(workspace):
         "version": 2,
         "task": "A and B",
         "workspace": str(workspace),
-        "settings": {"roles": {role: {"model": "fake", "engine": "codex"} for role in ("astra", "terra", "sol")}},
+        "settings": {
+            "roles": {role: {"model": "fake", "engine": "codex"} for role in ("task_planner", "terra", "sol")}
+        },
         "goal_contract": {
             "body": {
                 "acceptance_criteria": [

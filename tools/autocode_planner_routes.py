@@ -114,12 +114,21 @@ def select_visual_review_route(route=None):
 # history; only newly constructed role settings (a new run or the fresh half
 # of a joint configuration) pass through the fresh-configuration check, and
 # custom providers keep their own catalogues.
-RUNNER_NONVISUAL_ROLES = ("requirements", "glm", "plan_reviewer", "astra", "terra", "sol", "completion", "resolver")
+RUNNER_NONVISUAL_ROLES = (
+    "requirements",
+    "planner",
+    "plan_reviewer",
+    "task_planner",
+    "terra",
+    "sol",
+    "completion",
+    "resolver",
+)
 RUNNER_POLICY_ROLES = {
     "requirements": "requirements_gatherer",
-    "glm": "planner",
+    "planner": "planner",
     "plan_reviewer": "plan_reviewer",
-    "astra": "architect",
+    "task_planner": "architect",
     "terra": "builder",
     "sol": "validation",
     "completion": "completion",

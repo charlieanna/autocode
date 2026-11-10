@@ -19,12 +19,12 @@ except ImportError:
 
 
 FIELDS = frozenset(("id", "disposition", "evidence"))
-REVIEW_SOURCES = {"sol": "sol", "astra_review": "astra", "astra_plan": "astra"}
+REVIEW_SOURCES = {"sol": "sol", "astra_review": "task_planner", "astra_plan": "task_planner"}
 # These original outcomes already reach disposition application. A BLOCKED
 # result carries no such authority, even if repair changes its outcome later.
 APPLICABLE_OUTCOMES = {
     "sol": ("verdict", ("PASS", "FAIL")),
-    "astra": ("status", ("CONTINUE", "REWORK", "COMPLETE", "TASK_COMPLETE")),
+    "task_planner": ("status", ("CONTINUE", "REWORK", "COMPLETE", "TASK_COMPLETE")),
 }
 # The report-repair prompt's rule for these rows. In #459's live run a repair
 # "corrected" the evidence citation inside a closure row, was refused, and the
@@ -74,7 +74,7 @@ def _reports(stage, report):
     if stage == "astra_checkpoint":
         if not isinstance(report, dict):
             return None
-        return {"sol": report.get("validation"), "astra": report.get("decision")}
+        return {"sol": report.get("validation"), "task_planner": report.get("decision")}
     return {REVIEW_SOURCES[stage]: report}
 
 

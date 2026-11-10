@@ -46,7 +46,7 @@ class Fixture(unittest.TestCase):
                 "joint_planning": True,
                 "roles": {
                     "plan_reviewer": {"engine": "opencode", "provider": None, "model": GLM, "reasoning_effort": "high"},
-                    "glm": {
+                    "planner": {
                         "engine": "opencode",
                         "provider": None,
                         "model": "qwen-plan/qwen3-coder",
@@ -142,7 +142,7 @@ class ReviewerFallbackTests(Fixture):
         self.assertEqual(before, self.state)
 
     def test_same_family_independence_denies(self):
-        self.state["settings"]["roles"]["glm"]["model"] = MIMO
+        self.state["settings"]["roles"]["planner"]["model"] = MIMO
         before = copy.deepcopy(self.state)
         self.assertIsNone(self.reserve())
         self.assertEqual(before, self.state)
@@ -150,7 +150,7 @@ class ReviewerFallbackTests(Fixture):
     def test_one_gpt_tier_never_reviews_another_gpt_tiers_plan(self):
         # The fallback follows the one family rule (autocode_model_identity): GPT tiers are one family,
         # so the Tester's Sol may not take over reviewing a plan Luna drafted.
-        self.state["settings"]["roles"]["glm"]["model"] = "openai/gpt-6-luna"
+        self.state["settings"]["roles"]["planner"]["model"] = "openai/gpt-6-luna"
         self.state["settings"]["roles"]["sol"]["model"] = "openai/gpt-6-sol"
         before = copy.deepcopy(self.state)
         self.assertIsNone(self.reserve())
@@ -256,7 +256,7 @@ class ReviewerFallbackTests(Fixture):
     def test_two_model_independence_leaves_no_safe_fallback(self):
         # The user's supported live pairing is GLM Planner + MiMo Reviewer.
         # Switching review to the only alternate (GLM) would be self-review.
-        self.state["settings"]["roles"]["glm"]["model"] = GLM
+        self.state["settings"]["roles"]["planner"]["model"] = GLM
         self.state["settings"]["roles"]["sol"]["model"] = GLM
         before = copy.deepcopy(self.state)
         self.assertIsNone(self.reserve())
@@ -310,7 +310,7 @@ class PermittedPoolTests(Fixture):
     def test_no_other_qualified_reviewer_leaves_the_pause_standing(self):
         # Before #2061 the sibling rule chose the Builder's MiMo, which plan review excludes.
         self.select(GLM, MIMO, SOL, ASTRA)
-        self.state["settings"]["roles"]["astra"]["engine"] = "codex"
+        self.state["settings"]["roles"]["task_planner"]["engine"] = "codex"
         before = copy.deepcopy(self.state)
         self.assertIsNone(self.reserve())
         self.assertEqual(before, self.state)
@@ -325,7 +325,7 @@ class PermittedPoolTests(Fixture):
     def test_fallback_stays_independent_of_the_planner(self):
         # The Planner now runs on Opus (e.g. an assigned switch): Opus reviewing its plan is self-review.
         self.select(GLM, MIMO, SOL, OPUS, ASTRA)
-        self.state["settings"]["roles"]["glm"]["model"] = OPUS
+        self.state["settings"]["roles"]["planner"]["model"] = OPUS
         before = copy.deepcopy(self.state)
         self.assertIsNone(self.reserve())
         self.assertEqual(before, self.state)

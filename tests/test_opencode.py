@@ -260,7 +260,7 @@ class DuplicateEmptyParameterTests(unittest.TestCase):
         events.write_text("\n".join(json.dumps(row) for row in [event("text", text=text), terminal()]))
         record = {
             "engine": "opencode",
-            "role": "astra",
+            "role": "task_planner",
             "stage": "astra_discovery",
             "iteration": 1,
             "output": str(base.with_suffix(".json")),
@@ -641,7 +641,7 @@ class OpenCodeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not interchangeable"):
             autocode_configure.configure(
                 SimpleNamespace(engine="opencode"),
-                {"settings": {"roles": {}}, "sessions": {"astra": "old"}},
+                {"settings": {"roles": {}}, "sessions": {"task_planner": "old"}},
                 planning=planning,
                 milestones=milestones,
                 autopilot=autopilot,
@@ -653,10 +653,20 @@ class OpenCodeTests(unittest.TestCase):
         def permission(**kwargs):
             with patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT": "{}"}):
                 _, env, _ = oc.launch(
-                    "glm", Path("/workspace"), Path("/run"), None, "test/model", None, False, planning=True, **kwargs
+                    "planner",
+                    Path("/workspace"),
+                    Path("/run"),
+                    None,
+                    "test/model",
+                    None,
+                    False,
+                    planning=True,
+                    **kwargs,
                 )
             agents = json.loads(env["OPENCODE_CONFIG_CONTENT"])["agent"]
-            return next(value["permission"] for name, value in agents.items() if name.startswith("autocode_glm_plan_"))
+            return next(
+                value["permission"] for name, value in agents.items() if name.startswith("autocode_planner_plan_")
+            )
 
         plain = permission()
         self.assertEqual(("allow", "deny", "deny"), (plain["read"], plain["bash"], plain["edit"]))
@@ -668,7 +678,7 @@ class OpenCodeTests(unittest.TestCase):
 
         def configure(command, child, workspace, **kwargs):
             config = json.loads(child["OPENCODE_CONFIG_CONTENT"])
-            captured.update(next(v for k, v in config["agent"].items() if k.startswith("autocode_glm_plan_")))
+            captured.update(next(v for k, v in config["agent"].items() if k.startswith("autocode_planner_plan_")))
             return child, {"shell": "/contained/bash"}
 
         with patch.object(oc.tool_containment, "configure", side_effect=configure):
@@ -780,7 +790,7 @@ class OpenCodeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "no agent was launched"):
                 oc.local_settings(Path("/tmp"))
             with self.assertRaisesRegex(RuntimeError, "no agent was launched"):
-                oc.check_models({"astra": {"model": "openai/gpt-6-astra"}})
+                oc.check_models({"task_planner": {"model": "openai/gpt-6-astra"}})
 
     def test_opencode_orphan_is_detected_without_matching_wrapper_shells(self):
         self.assertTrue(support.duplicate_runner_command("/bin/opencode run --title /repo/.autocode/runs/x"))
@@ -1095,8 +1105,8 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertEqual("requirements", state["stages"][0]["role"])
         expected = {
             "requirements": "zai-coding-plan/glm-5.3",
-            "glm": "zai-coding-plan/glm-5.3",
-            "astra": "openai/gpt-6-astra",
+            "planner": "zai-coding-plan/glm-5.3",
+            "task_planner": "openai/gpt-6-astra",
             "terra": "zai-coding-plan/glm-5.3",
             "sol": "openai/gpt-6-sol",
             "completion": "openai/gpt-6-sol",
@@ -1107,7 +1117,8 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertNotEqual(state["sessions"]["terra"], state["sessions"]["sol"])
         self.assertNotEqual(state["sessions"]["plan_reviewer"], state["sessions"]["sol"])
         engines = {
-            role: "opencode" for role in ("requirements", "glm", "terra", "astra", "sol", "completion", "plan_reviewer")
+            role: "opencode"
+            for role in ("requirements", "planner", "terra", "task_planner", "sol", "completion", "plan_reviewer")
         }
         for record in state["stages"]:
             if record.get("runner_owned"):

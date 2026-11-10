@@ -67,7 +67,7 @@ ARCHITECT_MAX_EFFORT = "medium"
 
 
 def architect_route(roles):
-    return capped_route(roles.get("plan_reviewer") or roles["astra"], ARCHITECT_MAX_EFFORT)
+    return capped_route(roles.get("plan_reviewer") or roles["task_planner"], ARCHITECT_MAX_EFFORT)
 
 
 def verification_commands(state: RunState):
@@ -84,7 +84,7 @@ def verification_commands(state: RunState):
 def prepare(state: RunState, stage, state_path, schema_dir):
     if stage == design_intake.STAGE:
         state["phase"] = "DISCOVERING"
-        role = next(name for name in ("requirements", "glm", "astra") if name in state["settings"]["roles"])
+        role = next(name for name in ("requirements", "planner", "task_planner") if name in state["settings"]["roles"])
         return job_request(state, design_intake, role, role)
     if stage == acceptance_tests_job.STAGE:
         # Spec-first (#1200): the Validator's model writes the acceptance tests, on a route of its own so
@@ -101,9 +101,9 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         state["phase"] = "REVIEWING"
         roles = state["settings"]["roles"]
         roles.setdefault("architect", architect_route(roles))
-        source = "plan_reviewer" if "plan_reviewer" in roles else "astra"
+        source = "plan_reviewer" if "plan_reviewer" in roles else "task_planner"
         role_transport.inherit(state.get("settings"), "architect", source)
-        return job_request(state, JOBS[stage], "astra", "architect")
+        return job_request(state, JOBS[stage], "task_planner", "architect")
     if stage not in ("sol", "astra_review", "astra_checkpoint"):
         raise ValueError(f"Autoreview cannot run {stage}")
     request = execution_request(state, stage, state_path, schema_dir)

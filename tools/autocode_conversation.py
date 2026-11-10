@@ -462,7 +462,7 @@ def normalize_document(document: dict, *, persist_legacy=False) -> dict:
         models = value.get("models")
         if not isinstance(models, dict):
             models = {}
-        model = models.get("requirements_model") or models.get("glm_model")
+        model = models.get("requirements_model") or models.get("planner_model")
         if not isinstance(model, str) or not model:
             raise ConversationProtocolError("Conversation has no configured Requirements Gatherer model.")
         value["configured_routes"] = {
@@ -470,7 +470,8 @@ def normalize_document(document: dict, *, persist_legacy=False) -> dict:
                 "engine": "opencode",
                 "provider": "opencode",
                 "model": model,
-                "reasoning_effort": models.get("requirements_reasoning_effort") or models.get("glm_reasoning_effort"),
+                "reasoning_effort": models.get("requirements_reasoning_effort")
+                or models.get("planner_reasoning_effort"),
             }
         }
     value.setdefault("provider_capabilities", capabilities())

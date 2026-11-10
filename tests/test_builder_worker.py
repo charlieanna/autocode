@@ -62,7 +62,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 "provider": "opencode",
                 "roles": {
                     name: {"model": "fixture-" + name, "reasoning_effort": "high"}
-                    for name in ("terra", "sol", "completion", "astra")
+                    for name in ("terra", "sol", "completion", "task_planner")
                 },
                 "builder_retry": dict(runner.autopilot.builder_policy.DEFAULTS),
                 "report_repair": {"max_attempts": 2},

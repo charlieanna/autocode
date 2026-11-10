@@ -205,7 +205,7 @@ def logical_completion_ready(
         return False
     if require_independent and state.get("settings", {}).get("workflow", {}).get("mode") == "glm_final_audit_v2":
         review = cast(dict, state.get("validation", {}))
-        if review.get("reviewer_role") != "astra" or review.get("final_audit") is not True:
+        if review.get("reviewer_role") != "task_planner" or review.get("final_audit") is not True:
             return False
     if state.get("version", 2) >= 3:
         try:

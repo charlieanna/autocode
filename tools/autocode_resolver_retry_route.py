@@ -24,7 +24,7 @@ def change(state: RunState, previous_settings):
     if previous_settings is None or state.get("next_stage") != "astra_resolve":
         return None
     before = (previous_settings.get("roles") or {}).get("resolver")
-    effective = before or (previous_settings.get("roles") or {}).get("astra")
+    effective = before or (previous_settings.get("roles") or {}).get("task_planner")
     after = (state.get("settings", {}).get("roles") or {}).get("resolver")
     origins = previous_settings.get("route_origins") or {}
     selected_origins = state.get("settings", {}).get("route_origins") or {}

@@ -47,8 +47,8 @@ class OpenCodeRoutingTests(unittest.TestCase):
             "implementation": {"evidence_refs": ["saved-report.json"], "source_revision": "unchanged"},
             "planning": {"astra_calls": 2},
             "milestone_progress": {"M1": {"accepted": True}},
-            "stages": [{"engine": "codex", "role": "astra", "session_id": "old-astra"}],
-            "sessions": {"astra": "old-astra", "sol": "old-sol", "terra": "ses_terra", "glm": "ses_glm"},
+            "stages": [{"engine": "codex", "role": "task_planner", "session_id": "old-astra"}],
+            "sessions": {"task_planner": "old-astra", "sol": "old-sol", "terra": "ses_terra", "planner": "ses_glm"},
             "settings": {
                 "engine": "opencode",
                 "joint_planning": True,
@@ -56,7 +56,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
                 "transport_identities": {"opencode": self.identity, "codex": {"auth_mode": "ChatGPT"}},
                 "limits": {"iteration_ceiling": None, "stage_timeout_seconds": 0},
                 "roles": {
-                    "astra": {
+                    "task_planner": {
                         "engine": "codex",
                         "provider": "openai",
                         "model": "gpt-6-astra",
@@ -69,7 +69,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
                         "reasoning_effort": "high",
                     },
                     "terra": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
-                    "glm": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
+                    "planner": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
                 },
             },
         }
@@ -85,7 +85,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
     def test_new_defaults_and_bare_aliases_never_read_codex_login(self):
         for overrides, expected_sol in (
             ({}, "openai/gpt-6-sol"),
-            ({"astra_model": "openai/gpt-6-astra", "sol_model": "openai/gpt-6-astra"}, "openai/gpt-6-astra"),
+            ({"task_planner_model": "openai/gpt-6-astra", "sol_model": "openai/gpt-6-astra"}, "openai/gpt-6-astra"),
         ):
             args = test_planning.PlanningTests.configure_args(self, **overrides)
             with patch.object(support, "local_settings", side_effect=AssertionError("Codex must not be used")):
@@ -98,7 +98,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
                     opencode=runner.opencode,
                 )
             self.assertEqual({"opencode"}, {c["engine"] for c in settings["roles"].values()})
-            self.assertEqual("openai/gpt-6-astra", settings["roles"]["astra"]["model"])
+            self.assertEqual("openai/gpt-6-astra", settings["roles"]["task_planner"]["model"])
             self.assertEqual(expected_sol, settings["roles"]["sol"]["model"])
             self.assertEqual({"opencode"}, set(settings["transport_identities"]))
 
@@ -127,7 +127,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
         ):
             self.assertEqual(before[key], self.state[key], key)
         self.assertEqual(before["settings"]["limits"], self.state["settings"]["limits"])
-        self.assertEqual({"terra": "ses_terra", "glm": "ses_glm"}, self.state["sessions"])
+        self.assertEqual({"terra": "ses_terra", "planner": "ses_glm"}, self.state["sessions"])
         self.assertEqual({"old-astra", "old-sol"}, {r["old_session"] for r in self.state["session_rotations"]})
         self.assertEqual("openai/gpt-5.6-sol", self.state["settings"]["roles"]["sol"]["model"])
         self.assertEqual({"opencode"}, set(self.state["settings"]["transport_identities"]))
@@ -185,7 +185,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
         self.assertEqual([], list(self.run.glob("state.pre-opencode-*")))
 
     def test_custom_provider_is_not_guessed_and_configuration_drift_is_preserved(self):
-        self.state["settings"]["roles"]["astra"]["provider"] = "custom"
+        self.state["settings"]["roles"]["task_planner"]["provider"] = "custom"
         with self.assertRaises(support.Paused):
             autocode_configure.migrate_opencode_roles(
                 self.state,
@@ -196,7 +196,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
                 write_json=runner.write_json,
                 now=runner.now,
             )
-        self.state["settings"]["roles"]["astra"]["provider"] = "openai"
+        self.state["settings"]["roles"]["task_planner"]["provider"] = "openai"
         before = copy.deepcopy(self.state)
         with (
             patch.object(oc, "local_settings", return_value={**self.identity, "version": "changed"}),
@@ -254,7 +254,7 @@ class OpenCodeMigrationFlow(unittest.TestCase):
         args = ["--run-dir", str(run), "--no-chat"]
         self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
         state = self.saved()[1]
-        for role in ("astra", "sol"):
+        for role in ("task_planner", "sol"):
             cfg = state["settings"]["roles"][role]
             cfg.update(engine="codex", provider="openai", model="gpt-5.6-sol")
             state["sessions"][role] = "legacy-codex-" + role
@@ -265,7 +265,7 @@ class OpenCodeMigrationFlow(unittest.TestCase):
         migrated = self.saved()[1]
         self.assertEqual(state["goal_contract"], migrated["goal_contract"])
         self.assertEqual(state["stages"], migrated["stages"][:-1])
-        self.assertNotIn("astra", migrated["sessions"])
+        self.assertNotIn("task_planner", migrated["sessions"])
         self.assertNotIn("sol", migrated["sessions"])
         self.assertIn(migrated["stages"][-1]["engine"], ("runner", "opencode"))
         if migrated["stages"][-1]["engine"] == "runner":

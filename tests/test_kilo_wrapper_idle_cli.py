@@ -64,7 +64,7 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         config = Path(self.env["XDG_CONFIG_HOME"]) / "autocode/providers/wrapper_fixture.toml"
         config.parent.mkdir(parents=True)
         command = [str(launcher), str(provider), str(native), str(probe), str(native_outcome)]
-        roles = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+        roles = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
         config.write_text(
             'name = "wrapper_fixture"\noutput = "opencode_events"\nprompt = "stdin"\nresume = ["--session", "{session}"]\ncommand = '
             + json.dumps(command)
@@ -132,7 +132,7 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
                 for key in ("idle_timeout_seconds", "tool_timeout_seconds", "stage_timeout_seconds", "max_seconds")
             ),
         )
-        self.assertEqual("fixture/astra", envelope["settings"]["roles"]["astra"]["model"])
+        self.assertEqual("fixture/astra", envelope["settings"]["roles"]["task_planner"]["model"])
         attempts = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]
         attempt = attempts[0]
         self.assertTrue(all(row["timed_out"] for row in attempts), attempts)

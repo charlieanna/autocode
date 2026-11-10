@@ -44,9 +44,9 @@ class CompactPlanningTests(unittest.TestCase):
             "adaptive_planning": adaptive,
             "roles": {
                 "requirements": {"model": "r"},
-                "glm": {"model": "g"},
+                "planner": {"model": "g"},
                 "plan_reviewer": {"model": "p"},
-                "astra": {"model": "a", "engine": "codex"},
+                "task_planner": {"model": "a", "engine": "codex"},
                 "terra": {"model": "t"},
                 "sol": {"model": "s"},
             },
@@ -119,7 +119,7 @@ class CompactPlanningTests(unittest.TestCase):
         )
         record = {
             "stage": "astra_challenge",
-            "role": "astra",
+            "role": "task_planner",
             "route_role": "plan_reviewer",
             "engine": "fixture",
             "task_id": state["task_id"],

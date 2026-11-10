@@ -134,7 +134,7 @@ await update({id: "c1", type: "compaction", sessionID: "next", overflow: false})
             "os.environ", {"OPENCODE_CONFIG_CONTENT": json.dumps({"plugin": ["file:///existing.mjs", uri]})}
         ):
             _, env, saved = opencode.launch(
-                "glm", Path("/workspace"), Path("/run"), None, "openai/gpt-6-sol", "medium", False, planning=True
+                "planner", Path("/workspace"), Path("/run"), None, "openai/gpt-6-sol", "medium", False, planning=True
             )
         self.assertEqual(["file:///existing.mjs", uri], json.loads(env["OPENCODE_CONFIG_CONTENT"])["plugin"])
         self.assertEqual([uri], saved["plugin"])

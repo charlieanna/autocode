@@ -76,9 +76,9 @@ class BlindTestsConfigTests(unittest.TestCase):
         import autocode_args
 
         parser = autocode_args.build_parser(None, autocode_args.DEFAULT_ROLE_MODELS)
-        args = parser.parse_args(["--task", "do something", "--blind-tests"])
+        args = parser.parse_args(["do something", "--blind-tests"])
         self.assertTrue(args.blind_tests)
-        args_no = parser.parse_args(["--task", "do something", "--no-blind-tests"])
+        args_no = parser.parse_args(["do something", "--no-blind-tests"])
         self.assertFalse(args_no.blind_tests)
 
     def test_is_blind_and_enabled(self):

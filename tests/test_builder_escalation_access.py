@@ -48,7 +48,7 @@ def run_state(origin="runner", strong=STRONG):
             "roles": {
                 "terra": {"engine": "opencode", "model": "plan/mimo", "reasoning_effort": "high"},
                 "sol": {"engine": "opencode", "model": STRONG, "reasoning_effort": "high"},
-                "astra": {"engine": "opencode", "model": "plan/glm", "reasoning_effort": "high"},
+                "task_planner": {"engine": "opencode", "model": "plan/glm", "reasoning_effort": "high"},
             },
         },
         "goal_contract": {"hash": "approved", "revision": 3},

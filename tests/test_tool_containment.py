@@ -482,8 +482,8 @@ class PolicyTests(unittest.TestCase):
             provider_launch.prepare(
                 engine="opencode",
                 adapter=adapter,
-                role="glm",
-                route_role="glm",
+                role="planner",
+                route_role="planner",
                 workspace=root,
                 run_dir=run,
                 session=None,
@@ -1951,8 +1951,8 @@ class KernelTests(unittest.TestCase):
         provider_launch.prepare(
             engine="opencode",
             adapter=adapter,
-            role="glm",
-            route_role="glm",
+            role="planner",
+            route_role="planner",
             workspace=self.workspace,
             run_dir=self.run_dir,
             session=None,
@@ -1975,7 +1975,7 @@ class KernelTests(unittest.TestCase):
         fake.parent.mkdir()
         fake.write_text("#!/bin/sh\nexit 99\n")
         fake.chmod(0o755)
-        agent = "autocode_glm_plan_" + "0" * 32
+        agent = "autocode_planner_plan_" + "0" * 32
         environment = {
             **self.env,
             "PATH": str(fake.parent) + ":" + self.env["PATH"],
@@ -2379,7 +2379,7 @@ class KernelTests(unittest.TestCase):
             "stages": [],
             "settings": {
                 "roles": {
-                    "glm": {
+                    "planner": {
                         "engine": "opencode",
                         "provider": "opencode",
                         "model": "controlled/model",
@@ -2401,10 +2401,10 @@ class KernelTests(unittest.TestCase):
         util.atomic_json(before, raw)
         record = {
             "stage": "plan",
-            "role": "glm",
+            "role": "planner",
             "engine": "opencode",
             "command": ["opencode"],
-            "launch_route": dict(state["settings"]["roles"]["glm"]),
+            "launch_route": dict(state["settings"]["roles"]["planner"]),
             "events": str(self.run_dir / "plan.jsonl"),
             "output": str(self.run_dir / "plan.json"),
             "before_ref": str(before),

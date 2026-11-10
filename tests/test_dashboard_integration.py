@@ -106,7 +106,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         ):
             with self.assertRaises(support.Paused):
                 runner.run_role(
-                    role="astra",
+                    role="task_planner",
                     prompt="Fixture only",
                     sandbox="read-only",
                     workspace=fixture.root,

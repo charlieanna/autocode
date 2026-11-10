@@ -40,13 +40,13 @@ class ResolverRecommendationSurfaceTests(unittest.TestCase):
                 "required": ["status"],
                 "additionalProperties": False,
             },
-            "astra",
+            "task_planner",
         )
         before = copy.deepcopy(original)
         source = SimpleNamespace(schema=original, metrics={}, prompt="Prelude\nCURRENT HANDOFF DATA\n{}")
         state = {
             "workspace": "/not-read",
-            "settings": {"roles": {"astra": {"model": "fixture"}}},
+            "settings": {"roles": {"task_planner": {"model": "fixture"}}},
             "resolution_request": {"source_revision": "source"},
         }
         with patch.object(autoresolver, "guard"), patch.object(autoresolver, "execution_request", return_value=source):

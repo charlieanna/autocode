@@ -177,8 +177,8 @@ ROUTES = {
     role: {"model": model}
     for role, model in (
         ("requirements", "sonnet"),
-        ("glm", "sonnet"),
-        ("astra", "opus"),
+        ("planner", "sonnet"),
+        ("task_planner", "opus"),
         ("terra", "haiku"),
         ("sol", "sonnet"),
         ("completion", "opus"),
@@ -294,8 +294,8 @@ class PipelineTests(unittest.TestCase):
         current = view()
         current["routes"] = {
             **ROUTES,
-            "glm": {"model": "openai/gpt-6.1-sol", "reasoning_effort": "high"},
-            "astra": {"model": "openai/gpt-6.1-sol", "reasoning_effort": "xhigh"},
+            "planner": {"model": "openai/gpt-6.1-sol", "reasoning_effort": "high"},
+            "task_planner": {"model": "openai/gpt-6.1-sol", "reasoning_effort": "xhigh"},
             "plan_reviewer": {"model": "anthropic/claude-opus-5-5", "reasoning_effort": "high"},
             "completion": {"model": "anthropic/claude-sonnet-5-5"},
         }
@@ -308,7 +308,7 @@ class PipelineTests(unittest.TestCase):
         current = decided(*EARLY_APPROVAL)
         current["routes"] = {
             **ROUTES,
-            "astra": {"model": "opus", "reasoning_effort": "high"},
+            "task_planner": {"model": "opus", "reasoning_effort": "high"},
             "completion": {"model": "opus", "reasoning_effort": "high"},
         }
         current["stage_decisions"][2]["effort_choice"] = {"level": "medium", "ceiling": "high", "lowered": True}

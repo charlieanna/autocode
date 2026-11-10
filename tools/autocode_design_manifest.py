@@ -693,7 +693,7 @@ def _complete_planning_refs(record, catalog):
 
 
 def _saved_planning_reader(settings, role):
-    if role not in ("requirements", "glm", "astra", "plan_reviewer"):
+    if role not in ("requirements", "planner", "task_planner", "plan_reviewer"):
         return False
     route = settings.get("roles", {}).get(role)
     if not isinstance(route, dict):

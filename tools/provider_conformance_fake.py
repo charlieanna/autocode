@@ -78,7 +78,8 @@ def _direct_environment(directory, env, fault):
                 "api_provider": "compatible",
                 "endpoint": endpoint,
                 "roles": {
-                    role: DIRECT_MODEL for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+                    role: DIRECT_MODEL
+                    for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
                 },
             }
         )

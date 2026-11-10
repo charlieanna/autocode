@@ -315,7 +315,7 @@ class RouteTests(unittest.TestCase):
     def state(self, exit_code=1):
         roles = {
             "terra": {"engine": "opencode", "model": SOL},
-            "astra": {"engine": "opencode", "model": SOL},
+            "task_planner": {"engine": "opencode", "model": SOL},
             "sol": {"engine": "opencode", "model": GLM},
             "completion": {"engine": "opencode", "model": GLM},
         }

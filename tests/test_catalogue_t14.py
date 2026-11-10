@@ -79,9 +79,9 @@ MUTATIONS = [
     (
         "M07",
         "tools/autocode_findings.py",
-        '    _record(state, "astra", decision.get("findings", []), record, initial_scope)',
+        '    _record(state, "task_planner", decision.get("findings", []), record, initial_scope)',
         '    if decision.get("status") != "BLOCKED":\n'
-        '        _record(state, "astra", decision.get("findings", []), record, initial_scope)',
+        '        _record(state, "task_planner", decision.get("findings", []), record, initial_scope)',
         ["tests.test_catalogue_t05"],
     ),
     (
@@ -227,7 +227,7 @@ class SystematicCase(t08.CrashCase):
             compare(case, state, oracle, step)
 
         for step in range(60):
-            source = rng.choice(["sol", "astra"])
+            source = rng.choice(["sol", "task_planner"])
             action = rng.choice(["open", "open", "refresh", "dispose", "blocked", "omit"])
             if action == "open":
                 text = rng.choice(wording)
@@ -307,7 +307,7 @@ class SystematicCase(t08.CrashCase):
 
         first, second = run_order("sol-first"), run_order("astra-first")
         self.check("canonical_outcomes_equal", canonical(first), canonical(second))
-        self.check("both_sources_present", {"sol", "astra"}, {row["source"] for row in first["entries"]})
+        self.check("both_sources_present", {"sol", "task_planner"}, {row["source"] for row in first["entries"]})
         self.finish(summary="EQUIVALENT_CANONICAL_OUTCOMES: independent orderings converge")
 
     def test_sys03_fault_at_each_transition_boundary(self):
@@ -335,10 +335,11 @@ class SystematicCase(t08.CrashCase):
         schema_path = self.run / "schemas/astra-cut.json"
         schema_path.parent.mkdir(exist_ok=True)
         support.atomic_json(
-            schema_path, goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "astra")
+            schema_path,
+            goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "task_planner"),
         )
         self.state["active_stage"] = {
-            "role": "astra",
+            "role": "task_planner",
             "stage": "astra_review",
             "iteration": 6,
             "output": str(base.with_suffix(".json")),

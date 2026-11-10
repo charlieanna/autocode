@@ -69,7 +69,7 @@ class CaptureEventContractTests(unittest.TestCase):
                 "output": "opencode_events",
                 "roles": {
                     role: {"model": "fixture", "effort": "medium"}
-                    for role in ("astra", "glm", "terra", "sol", "completion", "plan_reviewer")
+                    for role in ("task_planner", "planner", "terra", "sol", "completion", "plan_reviewer")
                 },
             },
             Path("/unused/event-fixture.toml"),

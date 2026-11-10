@@ -103,7 +103,7 @@ class GoalTests(unittest.TestCase):
             "next_stage": "terra",
             "acceptance_criteria": [],
             "settings": {
-                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("astra", "terra", "sol")},
+                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "terra", "sol")},
                 "transport_identity": self.local,
                 "headroom": {"enabled": False},
                 "context_soft_tokens": 10000,
@@ -271,7 +271,7 @@ class GoalTests(unittest.TestCase):
             return {"contract": body(), "summary": "Ownership is covered; enthusiastically approved"}, {
                 "stage": "astra_discovery",
                 "iteration": 1,
-                "role": "astra",
+                "role": "task_planner",
                 "output": str(self.run / "draft.json"),
                 "duration_seconds": 0.01,
             }

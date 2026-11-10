@@ -153,7 +153,7 @@ class ConnectionRoutesTests(unittest.TestCase):
         self.assertEqual("kilocode", payload["tool"])
         rows = {row["role"]: row for row in payload["routes"]}
         self.assertEqual("zai-coding-plan/glm-5.3", rows["requirements"]["model"])
-        self.assertEqual("Planner", rows["glm"]["job"])
+        self.assertEqual("Planner", rows["planner"]["job"])
         self.assertEqual("subscription", rows["requirements"]["billing"])
         self.assertEqual(len(rows), len(payload["routes_lines"]))
         self.assertIn("Requirements: zai-coding-plan/glm-5.3 at", payload["routes_lines"][0])
@@ -189,7 +189,7 @@ class SetupRoutesTests(unittest.TestCase):
 
 
 def arguments(**extra):
-    roles = ("requirements", "glm", "terra", "plan_reviewer", "sol", "completion", "astra")
+    roles = ("requirements", "planner", "terra", "plan_reviewer", "sol", "completion", "task_planner")
     values = {f"{role}_model": None for role in roles}
     values |= {f"{role}_provider": None for role in roles}
     values |= {f"{role}_reasoning_effort": None for role in roles}
@@ -200,11 +200,14 @@ def arguments(**extra):
 
 class NewRunRoutesTests(unittest.TestCase):
     provider = SimpleNamespace(
-        DEFAULT_MODELS={"astra": "fixed", "terra": "fixed", "sol": "fixed", "completion": "fixed"}
+        DEFAULT_MODELS={"task_planner": "fixed", "terra": "fixed", "sol": "fixed", "completion": "fixed"}
     )
 
     def select(self, args=None, *, joint=True, started=False):
-        roles = {role: {"model": "fixed", "reasoning_effort": None} for role in ("astra", "terra", "sol", "completion")}
+        roles = {
+            role: {"model": "fixed", "reasoning_effort": None}
+            for role in ("task_planner", "terra", "sol", "completion")
+        }
         with mock.patch.object(discovery, "discover", return_value=FOUND):
             code, output = capture(
                 lambda: configure._auto_select(

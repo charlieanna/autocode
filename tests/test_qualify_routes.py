@@ -25,7 +25,7 @@ TABLE = {
     "as_of": "2026-10-20",
     "basis": "test table",
     "roles": {
-        "glm": [
+        "planner": [
             {
                 "model": "zai-coding-plan/glm-5.3",
                 "routes": ["zai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
@@ -55,7 +55,7 @@ def state(status="TASK_COMPLETE", kind="live"):
             "evidence_provenance": {"kind": kind},
             "planning_flow": "v2",
             "roles": {
-                "glm": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "high"},
+                "planner": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "high"},
                 "terra": {"model": "openai/gpt-6-sol", "reasoning_effort": "medium"},
                 "sol": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "medium"},
             },
@@ -65,7 +65,7 @@ def state(status="TASK_COMPLETE", kind="live"):
 
 ATTEMPTS = {
     "attempts": [
-        {"role": "glm", "model": "zai-coding-plan/glm-5.3"},
+        {"role": "planner", "model": "zai-coding-plan/glm-5.3"},
         {"role": "terra", "model": "openai/gpt-6-sol"},
     ]
 }
@@ -124,7 +124,7 @@ class QualifyRoutesTests(unittest.TestCase):
         settings = state()
         settings["settings"]["roles"]["plan_reviewer"] = {"model": MIMO, "reasoning_effort": "high"}
         (self.run_dir / "state.json").write_text(json.dumps(settings), encoding="utf-8")
-        attempts = {"attempts": [{"route_role": "plan_reviewer", "role": "astra", "model": MIMO}]}
+        attempts = {"attempts": [{"route_role": "plan_reviewer", "role": "task_planner", "model": MIMO}]}
         with mock.patch.object(qualify_routes.usage, "accounting", return_value=attempts):
             code, output = self.run_script("--date", "2026-10-25")
         self.assertEqual(0, code, output)
@@ -143,7 +143,7 @@ class QualifyRoutesTests(unittest.TestCase):
         code, output = self.run_script("--profile", "glm-mimo-kilo", "--date", "2026-10-25")
         self.assertEqual(0, code, output)
         table = self.written()
-        planner = table["roles"]["glm"][0]
+        planner = table["roles"]["planner"][0]
         self.assertEqual("qualified", planner["provenance"])
         self.assertEqual("high", planner["effort"])
         self.assertIn("Live 2026-10-25", planner["evidence"])
@@ -188,19 +188,19 @@ class QualifyRoutesTests(unittest.TestCase):
         attempts = {
             "attempts": [
                 {
-                    "role": "glm",
+                    "role": "planner",
                     "model": "zai-coding-plan/glm-5.3",
                     "duration_seconds": 600,
                     "reported_cost_usd": 0.25,
                 },
                 {
-                    "role": "glm",
+                    "role": "planner",
                     "model": "zai-coding-plan/glm-5.3",
                     "duration_seconds": 300,
                     "reported_cost_usd": None,
                     "historical_estimated_cost_usd": 0.15,
                 },
-                {"role": "glm", "model": "zai-coding-plan/glm-5.3", "duration_seconds": 900, "rejected": True},
+                {"role": "planner", "model": "zai-coding-plan/glm-5.3", "duration_seconds": 900, "rejected": True},
                 {"role": "terra", "model": "openai/gpt-6-sol", "duration_seconds": None},
             ]
         }
@@ -208,7 +208,7 @@ class QualifyRoutesTests(unittest.TestCase):
             code, output = self.run_script("--profile", "glm-mimo-kilo", "--date", "2026-10-25")
         self.assertEqual(0, code, output)
         roles = self.written()["roles"]
-        (planner,) = roles["glm"][0]["runs"]
+        (planner,) = roles["planner"][0]["runs"]
         execution = planner.pop("execution_evidence")
         self.assertEqual((0, 3), (execution["known_attempts"], execution["unknown_attempts"]))
         accounting = planner.pop("attempt_accounting")
@@ -232,14 +232,14 @@ class QualifyRoutesTests(unittest.TestCase):
         # The same run merged again adds no second record.
         with mock.patch.object(qualify_routes.usage, "accounting", return_value=attempts):
             self.run_script("--date", "2026-10-26")
-        self.assertEqual(1, len(self.written()["roles"]["glm"][0]["runs"]))
+        self.assertEqual(1, len(self.written()["roles"]["planner"][0]["runs"]))
 
     def test_a_second_run_confirms_instead_of_duplicating(self):
         self.assertEqual(0, self.run_script()[0])
         first = self.written()
         code, output = self.run_script("--date", "2026-10-26")
         self.assertEqual(0, code, output)
-        self.assertEqual(len(first["roles"]["glm"]), len(self.written()["roles"]["glm"]))
+        self.assertEqual(len(first["roles"]["planner"]), len(self.written()["roles"]["planner"]))
         self.assertIn("confirmed", output)
 
     def test_a_stage_that_ran_another_slots_route_qualifies_that_slot_only(self):
@@ -248,7 +248,7 @@ class QualifyRoutesTests(unittest.TestCase):
         settings = state()
         settings["settings"]["roles"].update(
             {
-                "astra": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "reasoning_effort": "high"},
+                "task_planner": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "reasoning_effort": "high"},
                 "plan_reviewer": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "reasoning_effort": "high"},
                 "completion": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "high"},
             }
@@ -256,9 +256,9 @@ class QualifyRoutesTests(unittest.TestCase):
         (self.run_dir / "state.json").write_text(json.dumps(settings), encoding="utf-8")
         attempts = {
             "attempts": [
-                {"role": "astra", "route_role": "plan_reviewer", "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
-                {"role": "astra", "route_role": "completion", "model": "zai-coding-plan/glm-5.3"},
-                {"role": "glm", "model": "zai-coding-plan/glm-5.3"},
+                {"role": "task_planner", "route_role": "plan_reviewer", "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
+                {"role": "task_planner", "route_role": "completion", "model": "zai-coding-plan/glm-5.3"},
+                {"role": "planner", "model": "zai-coding-plan/glm-5.3"},
             ]
         }
         with mock.patch.object(qualify_routes.usage, "accounting", return_value=attempts):
@@ -267,7 +267,7 @@ class QualifyRoutesTests(unittest.TestCase):
         table = self.written()["roles"]
         self.assertEqual("qualified", table["plan_reviewer"][0]["provenance"])
         self.assertEqual("qualified", table["completion"][0]["provenance"])
-        self.assertNotIn("astra", table, "the Planner route never launched")
+        self.assertNotIn("task_planner", table, "the Planner route never launched")
         self.assertIn("Plan Reviewer: xiaomi-token-plan-sgp/mimo-v2.6-pro at high", output)
         self.assertIn("Completion Reviewer: zai-coding-plan/glm-5.3 at high", output)
         self.assertIn("Planner: not qualified", output)
@@ -281,15 +281,15 @@ class QualifyRoutesTests(unittest.TestCase):
             "reasoning_effort": "high",
         }
         (self.run_dir / "state.json").write_text(json.dumps(settings), encoding="utf-8")
-        failed = {"role": "astra", "route_role": "plan_reviewer", "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"}
+        failed = {"role": "task_planner", "route_role": "plan_reviewer", "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"}
         attempts = {
             "attempts": [
                 {**failed, "timed_out": True},
                 {**failed, "rejected": True},
                 {**failed, "interrupted": True},
                 {**failed, "report_only": True},
-                {"role": "astra", "route_role": "sol", "model": "zai-coding-plan/glm-5.3"},
-                {"role": "glm", "model": "zai-coding-plan/glm-5.3"},
+                {"role": "task_planner", "route_role": "sol", "model": "zai-coding-plan/glm-5.3"},
+                {"role": "planner", "model": "zai-coding-plan/glm-5.3"},
             ]
         }
         with mock.patch.object(qualify_routes.usage, "accounting", return_value=attempts):

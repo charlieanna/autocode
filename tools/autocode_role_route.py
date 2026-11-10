@@ -66,7 +66,7 @@ CONFIGURED_ORIGINS = (USER_EXPLICIT, SINGLE_MODEL, RUNNER_DEFAULT, CATALOGUE_REP
 STAGE_CHOICE = "stage_choice"
 # A flag that also names another role's route, so that route is the person's choice too
 # (autocode_configure.configure_joint). tests/test_role_route.py pins the pairing.
-ALSO_NAMED_BY = {"requirements": ("glm_model",)}
+ALSO_NAMED_BY = {"requirements": ("planner_model",)}
 
 
 def account(model):

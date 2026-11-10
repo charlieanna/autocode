@@ -69,7 +69,7 @@ STAGES = (
         "and it runs once per task.",
     ),
     (
-        "glm",
+        "planner",
         "planner",
         "Drafts the plan: the tasks, their order and the test that proves each one, then revises it after review.",
         "A capable model at high. A sound plan saves Builder rounds, and it runs only a few times per task.",
@@ -103,7 +103,7 @@ STAGES = (
         "so medium is usually enough.",
     ),
     (
-        "astra",
+        "task_planner",
         "resolver",
         "Steps in when a stage stops making progress, and plans the steps inside each task.",
         "Your strongest model at high. It runs rarely, so it adds little cost, and it gets the hardest problems.",
@@ -113,7 +113,9 @@ ORDER = tuple(stage[0] for stage in STAGES)
 # A stage's new job name -> the route it is saved under until the routes are renamed.
 LEGACY_ROUTES = {new: old for old, new in names.ROUTES.items() if old in ORDER}
 LABELS = {
-    role: (f"{roles.SCREEN[job]} and per-task {roles.SCREEN['planner']}" if role == "astra" else roles.SCREEN[job])
+    role: (
+        f"{roles.SCREEN[job]} and per-task {roles.SCREEN['planner']}" if role == "task_planner" else roles.SCREEN[job]
+    )
     for role, job, _does, _advice in STAGES
 }
 BACKEND_LABELS = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "kilocode": "Kilo"}
@@ -156,9 +158,9 @@ def load(file=None) -> dict:
         if not isinstance(stages, dict) or not _BACKEND.fullmatch(str(backend)):
             raise ValueError(f"{file}: [{backend}] must be a table of stages")
         for written, choice in stages.items():
-            # A stage's job name (``builder = …``) is read as its route (``terra``), so a file written
-            # with the new names works before the run's routes are renamed (autocode_names).
-            role = LEGACY_ROUTES.get(written, written)
+            # A stage saved under its old name (``glm = …``) is read as its renamed route (``planner``), and
+            # a job name whose route is not renamed yet (``builder = …``) as that route (``terra``).
+            role = names.route(written) if names.route(written) in ORDER else LEGACY_ROUTES.get(written, written)
             if role in found.get(backend, {}):
                 raise ValueError(f"{file}: [{backend}] names {role} twice; keep one of {written} and {role}")
             if role not in ORDER:
@@ -285,7 +287,7 @@ def defaults(backend, *, resolve=None) -> dict:
     efforts = getattr(provider, "DEFAULT_REASONING_EFFORTS", None) or {}
     found = {}
     for role in ORDER:
-        model = models.get(role) or (models.get("glm") if role == "requirements" else None)
+        model = models.get(role) or (models.get("planner") if role == "requirements" else None)
         found[role] = {"model": model, "effort": efforts.get(role)}
     return found
 

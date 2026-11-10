@@ -49,7 +49,7 @@ class CrossModelTest(unittest.TestCase):
         for producer, verifier, label in (
             ("terra", "sol", "Builder/Tester"),
             ("terra", "completion", "Builder/Completion Reviewer"),
-            ("glm", "plan_reviewer", "Planner/Plan Reviewer"),
+            ("planner", "plan_reviewer", "Planner/Plan Reviewer"),
         ):
             for builder, checker in (("gpt-6-sol", "openai/gpt-6-sol"), ("openai/gpt-6-sol", "gpt-6-sol")):
                 with self.subTest(producer=producer, verifier=verifier, builder=builder):
@@ -236,7 +236,7 @@ class CrossModelTest(unittest.TestCase):
                     "terra": {"model": "gpt-5.6-terra"},
                     "sol": {"model": "gpt-6-sol"},
                     "completion": {"model": "gpt-6-luna"},
-                    "glm": {"model": "gpt-5.6-sol"},
+                    "planner": {"model": "gpt-5.6-sol"},
                     "plan_reviewer": {"model": "gpt-5.6-sol"},
                 },
             },
@@ -310,7 +310,7 @@ class CrossModelTest(unittest.TestCase):
             "settings": {
                 "engine": "codex",
                 "roles": {
-                    "glm": {"model": "gpt-5.6-sol"},
+                    "planner": {"model": "gpt-5.6-sol"},
                     "plan_reviewer": {"model": "gpt-5.6-sol"},
                 },
             },
@@ -353,7 +353,7 @@ class CrossModelTest(unittest.TestCase):
                     "terra": {"model": "gpt-5.6-sol"},
                     "sol": {"model": "gpt-5.6-sol"},
                     "completion": {"model": "gpt-6-luna"},
-                    "glm": {"model": "gpt-5.6-terra"},
+                    "planner": {"model": "gpt-5.6-terra"},
                     "plan_reviewer": {"model": "gpt-5.6-terra"},
                 },
             },

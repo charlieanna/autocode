@@ -8,7 +8,7 @@ import autocode_report_repair_route as repair_route
 
 class ReportRepairRouteTests(unittest.TestCase):
     def fixture(self):
-        state = {"settings": {"roles": {"astra": {"model": "different-default"}}}}
+        state = {"settings": {"roles": {"task_planner": {"model": "different-default"}}}}
         original = {
             "stage": "investigate_stuck",
             "route_role": "stuck_investigator",
@@ -26,7 +26,7 @@ class ReportRepairRouteTests(unittest.TestCase):
         before = copy.deepcopy(original)
         repair_route.restore(state, original)
         self.assertEqual(original["launch_route"], state["settings"]["roles"]["stuck_investigator"])
-        self.assertEqual({"model": "different-default"}, state["settings"]["roles"]["astra"])
+        self.assertEqual({"model": "different-default"}, state["settings"]["roles"]["task_planner"])
         state["settings"]["roles"]["stuck_investigator"]["model"] = "mutation"
         self.assertEqual(before, original)
 
@@ -81,7 +81,7 @@ class ReportRepairRouteTests(unittest.TestCase):
                 self.assertEqual(before, state)
 
     def test_other_stages_and_records_without_a_temporary_route_are_not_rewritten(self):
-        for field, value in (("stage", "sol"), ("route_role", "astra"), ("route_role", None)):
+        for field, value in (("stage", "sol"), ("route_role", "task_planner"), ("route_role", None)):
             with self.subTest(field=field):
                 state, original = self.fixture()
                 original[field] = value

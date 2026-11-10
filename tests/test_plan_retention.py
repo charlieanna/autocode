@@ -368,7 +368,7 @@ class PlanRetentionTests(unittest.TestCase):
             task="Fix the report",
             workspace="/tmp",
             version=2,
-            settings={"joint_planning": True, "roles": {"glm": {"model": "fixture", "engine": "codex"}}},
+            settings={"joint_planning": True, "roles": {"planner": {"model": "fixture", "engine": "codex"}}},
         )
         prompt, _ = planner.context(state, "glm_revise", Path("/tmp/run/state.json"))
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])

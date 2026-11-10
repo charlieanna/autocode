@@ -172,7 +172,7 @@ class TimeoutArchivedCompletionTests(unittest.TestCase):
         validation = self.archived_validation(state, revision, assessment)
         stopped = {
             "stage": "astra_review",
-            "role": "astra",
+            "role": "task_planner",
             "iteration": 1,
             "output": str(self.proof_dir / "completion-review-01.json"),
             "events": str(self.proof_dir / "completion-review-01.jsonl"),
@@ -188,7 +188,7 @@ class TimeoutArchivedCompletionTests(unittest.TestCase):
         }
         context = {
             "attempt_id": records.attempt_id(stopped),
-            "role": "astra",
+            "role": "task_planner",
             "stage": "astra_review",
             "source_revision": revision,
             "task_id": "task-1",
@@ -201,7 +201,7 @@ class TimeoutArchivedCompletionTests(unittest.TestCase):
                     stopped,
                     {
                         "stage": "astra_review",
-                        "role": "astra",
+                        "role": "task_planner",
                         "iteration": 1,
                         "output": str(self.proof_dir / "completion-review-02.json"),
                         "source_revision": revision,

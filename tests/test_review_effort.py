@@ -173,7 +173,7 @@ class LaunchTests(unittest.TestCase):
         # full reasoning level; GLM 5.3 offers low, high and max, so high repairs run low.
         state = run_state()
         route = {"model": GLM, "reasoning_effort": "high"}
-        level, choice = review_effort.launch(state, "astra_discovery", "glm", True, route)
+        level, choice = review_effort.launch(state, "astra_discovery", "planner", True, route)
         self.assertEqual(("low", "format_repair", True), (level, choice["reason"], choice["lowered"]))
         self.assertEqual(
             "Running at low, below your high: this repair only fixes the report's format.",
@@ -195,13 +195,13 @@ class RunnerLaunchTests(unittest.TestCase):
             schema.write_text('{"type": "object", "properties": {}}')
             state = run_state(version=2, next_stage="astra_discovery")
             state["settings"].update(engine="opencode", provider="kilocode", joint_planning=True)
-            state["settings"]["roles"]["glm"] = {"model": GLM, "reasoning_effort": "high"}
+            state["settings"]["roles"]["planner"] = {"model": GLM, "reasoning_effort": "high"}
             state["settings"]["roles"]["terra"]["model"] = "fixture/builder"  # a checker never grades its own model
             with mock.patch.object(
                 runner.provider_launch, "prepare", return_value=(["provider"], {}, {}, {})
             ) as prepare:
                 _result, record = runner.run_role(
-                    role="glm",
+                    role="planner",
                     prompt="Repair the rejected report's format",
                     sandbox="read-only",
                     workspace=root,
@@ -221,7 +221,7 @@ class RunnerLaunchTests(unittest.TestCase):
                 (choice["level"], choice["ceiling"], choice["lowered"], choice["reason"]),
             )
             self.assertEqual("high", record["launch_route"]["reasoning_effort"], "the saved route stays the ceiling")
-            self.assertEqual("high", state["settings"]["roles"]["glm"]["reasoning_effort"])
+            self.assertEqual("high", state["settings"]["roles"]["planner"]["reasoning_effort"])
 
     def test_the_runner_launches_a_small_clear_review_below_its_ceiling_and_records_why(self):
         import autocode as runner
@@ -232,7 +232,7 @@ class RunnerLaunchTests(unittest.TestCase):
             schema.write_text('{"type": "object", "properties": {}}')
             state = run_state(version=2, next_stage="astra_review", current_task={"id": "task-1"})
             state["settings"].update(engine="opencode", provider="kilocode")
-            state["settings"]["roles"]["astra"] = {"model": MIMO, "reasoning_effort": "high"}
+            state["settings"]["roles"]["task_planner"] = {"model": MIMO, "reasoning_effort": "high"}
             state["settings"]["roles"]["terra"]["model"] = "fixture/builder"  # a checker never grades its own model
             launched = []
             for _attempt in (1, 2):
@@ -240,7 +240,7 @@ class RunnerLaunchTests(unittest.TestCase):
                     runner.provider_launch, "prepare", return_value=(["provider"], {}, {}, {})
                 ) as prepare:
                     _result, record = runner.run_role(
-                        role="astra",
+                        role="task_planner",
                         prompt="Review the finished task",
                         sandbox="read-only",
                         workspace=root,

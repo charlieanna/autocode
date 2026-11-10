@@ -66,6 +66,21 @@ class CommandProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not valid TOML"):
             command.load("badtoml")
 
+    def test_a_config_may_spell_a_renamed_route_the_old_way_but_not_both_ways(self):
+        new = ROLES.replace("astra =", "task_planner =").replace("glm =", "planner =")
+        write_config(self.home, "newnames", 'name = "newnames"\ncommand = ["tool", "{report}"]\n' + new)
+        write_config(self.home, "oldnames", 'name = "oldnames"\ncommand = ["tool", "{report}"]\n' + ROLES)
+        for name in ("newnames", "oldnames"):
+            with self.subTest(name=name):
+                provider = command.load(name)
+                self.assertEqual("demo", provider.DEFAULT_MODELS["task_planner"])
+                self.assertNotIn("astra", provider.DEFAULT_MODELS)
+                self.assertNotIn("glm", provider.DEFAULT_MODELS)
+        both = ROLES + 'planner = { model = "demo", effort = "medium" }\n'
+        write_config(self.home, "both", 'name = "both"\ncommand = ["tool", "{report}"]\n' + both)
+        with self.assertRaisesRegex(ValueError, "names the planner route twice"):
+            command.load("both")
+
     def test_builder_retry_names_a_stronger_served_model_and_a_different_checker(self):
         head = 'command = ["tool", "{report}"]\nmodels = ["demo", "big", "other"]\n' + ROLES + "[builder_retry]\n"
         for name, table, message in (
@@ -491,16 +506,16 @@ class CommandProviderTests(unittest.TestCase):
             ],
             launched,
         )
-        self.assertEqual("zhipuai-coding-plan/glm-5.3", provider.DEFAULT_MODELS["glm"])
+        self.assertEqual("zhipuai-coding-plan/glm-5.3", provider.DEFAULT_MODELS["planner"])
         policy = '{"permission":{"read":"deny"},"agent":{"code":{"permission":{"bash":"deny"}}}}'
         for planning in (False, True):
             with self.subTest(planning=planning):
                 argv, environment, _ = provider.launch(
-                    "astra",
+                    "task_planner",
                     Path("/work"),
                     Path("/run"),
                     None,
-                    provider.DEFAULT_MODELS["astra"],
+                    provider.DEFAULT_MODELS["task_planner"],
                     "high",
                     False,
                     planning=planning,
@@ -542,28 +557,28 @@ class CommandProviderTests(unittest.TestCase):
         self.addCleanup(lambda: os.environ.__setitem__("PATH", previous) if previous else os.environ.pop("PATH", None))
         oauth = {"FAKE_LOGIN_OUTPUT": "  OpenAI oauth"}
         with mock.patch.dict(os.environ, oauth):
-            provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
+            provider.check_subscription_routes({"task_planner": {"model": "openai/x"}}, self.home)
         self.assertTrue(marker.is_file())
         marker.unlink()
         with mock.patch.dict(os.environ, {"FAKE_LOGIN_OUTPUT": "  OpenAI api"}):
             with self.assertRaisesRegex(RuntimeError, "oauth"):
-                provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
+                provider.check_subscription_routes({"task_planner": {"model": "openai/x"}}, self.home)
         with mock.patch.dict(os.environ, {**oauth, "OPENAI_API_KEY": "sk-test"}):
             with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY"):
-                provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
+                provider.check_subscription_routes({"task_planner": {"model": "openai/x"}}, self.home)
         marker.write_text("stale")
         # #888: an unrouted model refuses instead of skipping the check — and the
         # refusal happens before any probe, so the marker must stay stale.
         with mock.patch.dict(os.environ, oauth):
             with self.assertRaisesRegex(RuntimeError, "no subscription route for zai-coding-plan/glm-5.3"):
-                provider.check_subscription_routes({"glm": {"model": "zai-coding-plan/glm-5.3"}}, self.home)
+                provider.check_subscription_routes({"planner": {"model": "zai-coding-plan/glm-5.3"}}, self.home)
         self.assertEqual("stale", marker.read_text())
         with mock.patch.dict(os.environ, {"FAKE_LOGIN_CODE": "1", "FAKE_LOGIN_OUTPUT": ""}):
             with self.assertRaisesRegex(RuntimeError, "auth listing failed"):
-                provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
+                provider.check_subscription_routes({"task_planner": {"model": "openai/x"}}, self.home)
         os.environ["PATH"] = previous or ""
         with self.assertRaisesRegex(RuntimeError, "cannot verify"):
-            provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
+            provider.check_subscription_routes({"task_planner": {"model": "openai/x"}}, self.home)
 
         for name, extra, message in (
             ("twogroups", 'pattern = "(a)(b)"', "exactly one capture group"),
@@ -598,7 +613,7 @@ class CommandProviderTests(unittest.TestCase):
         with mock.patch.object(command.env_prep, "preflight_run", return_value=response) as probe:
             # The configured timeout reaches the subprocess; no clock or provider is used.
             with self.assertRaisesRegex(RuntimeError, "login mode"):
-                bundled.check_subscription_routes({"astra": {"model": "openai/gpt-5.6-sol"}}, self.home)
+                bundled.check_subscription_routes({"task_planner": {"model": "openai/gpt-5.6-sol"}}, self.home)
             self.assertEqual(30, probe.call_args.kwargs["timeout"])
         for value in ("0", "61", "true", '"30"', "1.5"):
             with self.subTest(value=value):
@@ -675,7 +690,7 @@ class CommandProviderTests(unittest.TestCase):
         os.environ["PATH"] = str(binary) + os.pathsep + (previous or "")
         self.addCleanup(lambda: os.environ.__setitem__("PATH", previous) if previous else os.environ.pop("PATH", None))
         with self.assertRaisesRegex(RuntimeError, "no subscription route for gateway/x"):
-            provider.check_subscription_routes({"astra": {"model": "gateway/x"}}, self.home)
+            provider.check_subscription_routes({"task_planner": {"model": "gateway/x"}}, self.home)
         self.assertFalse(marker.is_file())  # refused before any probe ran
 
     def test_unrouted_models_name_the_configured_prefixes_before_auth(self):
@@ -702,7 +717,7 @@ class CommandProviderTests(unittest.TestCase):
         provider = command.load("authed")
         roles = {
             "terra": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
-            "glm": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-flash"},
+            "planner": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-flash"},
         }
         with mock.patch.object(command.env_prep, "preflight_run") as probe:
             with self.assertRaises(RuntimeError) as caught:
@@ -724,7 +739,7 @@ class CommandProviderTests(unittest.TestCase):
         # #887: kilo stopped publishing zai-coding-plan/; the default must name a live route.
         bundled = command.load("kilocode")
         prefixes = [route["models"] for route in bundled._config["auth"]["routes"]]
-        glm = bundled._config["roles"]["glm"]["model"]
+        glm = bundled._config["roles"]["planner"]["model"]
         self.assertTrue(any(glm.startswith(p) for p in prefixes), f"{glm} matches no route in {prefixes}")
 
     def test_the_bundled_kilocode_routes_verify_against_kilo_auth_list(self):
@@ -742,7 +757,7 @@ class CommandProviderTests(unittest.TestCase):
         )
         with mock.patch.object(command.env_prep, "preflight_run", return_value=wrong):
             with self.assertRaisesRegex(RuntimeError, "zhipuai-coding-plan/ models require login mode 'api'"):
-                bundled.check_subscription_routes({"glm": {"model": "zhipuai-coding-plan/glm-5.3"}}, self.home)
+                bundled.check_subscription_routes({"planner": {"model": "zhipuai-coding-plan/glm-5.3"}}, self.home)
 
     def test_pay_as_you_go_credit_errors_pause_as_budget(self):
         from tools import autocode_support as support
@@ -867,15 +882,15 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             NAME="OpenCode",
             CONFIGURED=False,
             DEFAULT_MODELS={
-                "astra": "openai/check",
+                "task_planner": "openai/check",
                 "terra": "zai-coding-plan/glm-5.3",
                 "sol": "openai/check",
                 "completion": "openai/check",
-                "glm": "zai-coding-plan/glm-5.3",
+                "planner": "zai-coding-plan/glm-5.3",
                 "plan_reviewer": "xiaomi-token-plan-sgp/mimo",
             },
             DEFAULT_REASONING_EFFORTS={
-                role: "high" for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+                role: "high" for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
             },
             LISTED_MODELS=None,
             BUILDER_RETRY=None,
@@ -948,7 +963,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         base = self.args()
         base[base.index("--engine") + 1] = "claude"
         del base[base.index("--provider") : base.index("--provider") + 2]
-        for role in ("requirements", "glm", "plan-reviewer", "resolver"):
+        for role in ("requirements", "planner", "plan-reviewer", "resolver"):
             base[base.index(f"--{role}-model") + 1] = "sonnet"
         return [*base, *extras]
 
@@ -966,7 +981,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             "high",
             "--requirements-model",
             "zai-coding-plan/glm-5.3",
-            "--glm-model",
+            "--planner-model",
             "zai-coding-plan/glm-5.3",
             "--plan-reviewer-model",
             "xiaomi-token-plan-sgp/mimo",
@@ -1037,7 +1052,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         self.assertEqual("high", current["roles"]["sol"]["reasoning_effort"])
         self.assertIs(self.open, self.cli.opencode)
         self.assertIs(self.external, self.transport.adapter(current, "sol", self.open, self.workspace))
-        for role in ("requirements", "glm", "plan_reviewer", "resolver", "terra"):
+        for role in ("requirements", "planner", "plan_reviewer", "resolver", "terra"):
             self.assertIs(self.open, self.transport.adapter(current, role, self.open, self.workspace))
 
     def test_a_new_run_takes_the_stage_choices_saved_for_its_backend(self):
@@ -1061,7 +1076,10 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
             stage_choices.save(
                 {
-                    "claude": {"terra": {"model": "opus", "effort": "low"}, "glm": {"model": "haiku", "effort": "max"}},
+                    "claude": {
+                        "terra": {"model": "opus", "effort": "low"},
+                        "planner": {"model": "haiku", "effort": "max"},
+                    },
                     "opencode": {"sol": {"model": "zai-coding-plan/glm-5.3", "effort": "low"}},
                 }
             )
@@ -1080,7 +1098,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
                     self.assertEqual(0, self.cli.main())
                 roles = self.observed[-1]["roles"]
                 self.assertEqual(builder, (roles["terra"]["model"], roles["terra"]["reasoning_effort"]))
-                self.assertEqual("sonnet", roles["glm"]["model"], "the typed --glm-model wins")
+                self.assertEqual("sonnet", roles["planner"]["model"], "the typed --glm-model wins")
                 self.assertEqual("sonnet", roles["sol"]["model"], "OpenCode's choices are not Claude Code's")
                 self.assertEqual(said, "Stage choices from" in notices.getvalue())
                 if said:  # the saved level is the person's stage choice, a ceiling for reviews (2026-11-05)
@@ -1105,7 +1123,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         self.assertEqual("anthropic/fixture-claude", current["roles"]["sol"]["model"])
         self.assertEqual(self.external_identity, current["transport_identities"]["role:sol"]["identity"])
         self.assertIs(self.external, self.transport.adapter(current, "sol", self.claude, self.workspace))
-        for role in ("requirements", "glm", "plan_reviewer", "resolver", "terra"):
+        for role in ("requirements", "planner", "plan_reviewer", "resolver", "terra"):
             self.assertEqual("sonnet", current["roles"][role]["model"], role)
             self.assertIs(self.claude, self.transport.adapter(current, role, self.claude, self.workspace))
         # Each tool checked only its own role.
@@ -1185,7 +1203,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             self.transport.adapter(settings, "sol", self.open, self.workspace)
         self.assertEqual("PAUSED_TRANSPORT_CHANGED", refused.exception.status)
         self.assertEqual("The saved sol tool identity changed; no fallback", str(refused.exception))
-        self.assertIs(self.open, self.transport.adapter(settings, "glm", self.open, self.workspace))
+        self.assertIs(self.open, self.transport.adapter(settings, "planner", self.open, self.workspace))
         self.assertIs(self.open, self.cli.opencode)
 
     def test_catalogues_cannot_move_glm_or_mimo_to_the_external_tool(self):
@@ -1456,10 +1474,10 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         settings = copy.deepcopy(self.observed[-1])
         self.assertIsNone(settings["roles"]["resolver"].get("provider"))
         self.assertIsNone(self.transport.entry(settings, "resolver"))
-        self.assertIsNone(self.transport.inherit(settings, "resolver", "astra"))
+        self.assertIsNone(self.transport.inherit(settings, "resolver", "task_planner"))
         self.assertNotIn("role:resolver", settings["transport_identities"])
         self.assertIs(self.open, self.transport.adapter(settings, "resolver", self.open, self.workspace))
-        self.assertEqual("kilocode", self.transport.entry(settings, "astra")["provider"])
+        self.assertEqual("kilocode", self.transport.entry(settings, "task_planner")["provider"])
 
     def test_external_route_without_matching_source_identity_is_refused_with_clear_message(self):
         import copy

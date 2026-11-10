@@ -208,7 +208,7 @@ class RequirementsPromptModeTests(unittest.TestCase):
                 "spec_first": conversational,
                 "roles": {
                     name: {"engine": "opencode", "model": "fixture"}
-                    for name in ("astra", "glm", "terra", "sol", "requirements", "plan_reviewer", "resolver")
+                    for name in ("task_planner", "planner", "terra", "sol", "requirements", "plan_reviewer", "resolver")
                 },
             },
         }

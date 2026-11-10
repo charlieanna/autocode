@@ -115,7 +115,9 @@ class LaunchContainment(unittest.TestCase):
     def test_a_planner_gets_the_checkers_contained_shell_without_run_state(self):
         # Owner decision 2026-10-21: every Planner has a shell. On OpenCode it is the kernel-contained one the
         # read-only checkers use, and like native planning (#1250) it cannot read the run's private state.
-        _, _, _, worker = launch.prepare(**{**self.options, "planning": True, "role": "glm", "route_role": "glm"})
+        _, _, _, worker = launch.prepare(
+            **{**self.options, "planning": True, "role": "planner", "route_role": "planner"}
+        )
         request = self.adapter.launch.call_args.kwargs["containment"]
         self.assertEqual(str(self.options["run_dir"].resolve()), request["private_run"])
         self.assertIn(str(self.options["run_dir"]), request["protected_paths"])
@@ -128,7 +130,7 @@ class LaunchContainment(unittest.TestCase):
 
         kilo = object.__new__(KiloProvider)
         kilo.launch = mock.Mock(return_value=(["kilo", "run"], {}, {}))
-        options = {**self.options, "adapter": kilo, "planning": True, "role": "glm", "route_role": "glm"}
+        options = {**self.options, "adapter": kilo, "planning": True, "role": "planner", "route_role": "planner"}
         with mock.patch.object(launch.sys, "platform", "linux"):
             _, _, _, worker = launch.prepare(**options)
         request = kilo.launch.call_args.kwargs["containment"]
@@ -445,7 +447,7 @@ class LaunchContainment(unittest.TestCase):
         text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps({"stage": "sol"})
         worker = {"role": "sol", "tool_containment": self.policy}
         self.assertNotIn("CONTAINED TESTER", launch.containment_prompt(text, worker, stage="terra"))
-        worker["role"] = "glm"
+        worker["role"] = "planner"
         updated = launch.containment_prompt(text, worker, stage="sol")
         self.assertIn("CONTAINED TESTER", updated)
         self.assertIn("No current runner-authenticated regression PASS", updated)
@@ -480,7 +482,7 @@ class TesterProofRequest(unittest.TestCase):
             engine="codex",
             roles={
                 "sol": {"engine": "opencode", "model": "reviewer/model"},
-                "glm": {"engine": "opencode", "model": "reviewer/model"},
+                "planner": {"engine": "opencode", "model": "reviewer/model"},
             },
         )
         self.policy = {
@@ -578,7 +580,7 @@ class TesterProofRequest(unittest.TestCase):
         regression.before_review(self.state, "sol", self.project.root, self.run)
         self.assertEqual("PASS", self.state["regression_proof"]["verdict"])
         original = deepcopy(regression.handoff(self.state))
-        instruction, handoff = self.request(role="glm")
+        instruction, handoff = self.request(role="planner")
         self.assertIs(True, handoff["runner_regression_proof_current"])
         self.assertEqual(original, handoff["regression_proof"])
         self.assertIn("The runner authenticated the current regression PASS", instruction)
@@ -670,11 +672,11 @@ class TesterProofRequest(unittest.TestCase):
 
         regression.before_review(self.state, "sol", self.project.root, self.run)
         self.state["settings"]["joint_planning"] = True
-        instruction, handoff = self.request(stage="astra_discovery", role="glm")
+        instruction, handoff = self.request(stage="astra_discovery", role="planner")
         self.assertNotIn("CONTAINED TESTER", instruction)
         self.assertNotIn("runner_regression_proof_current", handoff)
         self.state["settings"]["joint_planning"] = False
-        instruction, handoff = self.request(stage="astra_checkpoint", role="glm")
+        instruction, handoff = self.request(stage="astra_checkpoint", role="planner")
         self.assertEqual(self.policy, handoff["tool_containment"])
         self.assertNotIn("CONTAINED TESTER", instruction)
         self.assertNotIn("runner_regression_proof_current", handoff)

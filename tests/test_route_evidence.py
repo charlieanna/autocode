@@ -15,22 +15,22 @@ META = {"date": "2026-10-27", "run": "sample-1", "scenario": "bugfix-trivial", "
 
 def attempts():
     return [
-        {"role": "glm", "model": GLM, "duration_seconds": 60, "reported_cost_usd": 0.25},
+        {"role": "planner", "model": GLM, "duration_seconds": 60, "reported_cost_usd": 0.25},
         {
-            "role": "glm",
+            "role": "planner",
             "model": GLM,
             "duration_seconds": 600,
             "reported_cost_usd": 2.0,
             "rejected": True,
             "timed_out": True,
         },
-        {"role": "glm", "model": GLM, "duration_seconds": 20, "report_only": True},
+        {"role": "planner", "model": GLM, "duration_seconds": 20, "report_only": True},
     ]
 
 
 def record(rows):
     with patch.object(qualify_routes.usage, "accounting", return_value={"attempts": rows}):
-        return qualify_routes.run_record(fixtures.state(), "glm", GLM, META)
+        return qualify_routes.run_record(fixtures.state(), "planner", GLM, META)
 
 
 def entry(records):
@@ -91,7 +91,7 @@ class RouteEvidenceTests(unittest.TestCase):
     def test_selector_rejects_nonfinite_record_metrics(self):
         for value in (float("inf"), float("nan"), True, -1):
             with self.subTest(value=value):
-                table = {"as_of": "x", "roles": {"glm": [entry([{**META, "minutes": value, "cost_usd": None}])]}}
+                table = {"as_of": "x", "roles": {"planner": [entry([{**META, "minutes": value, "cost_usd": None}])]}}
                 with self.assertRaisesRegex(ValueError, "runs must be records"):
                     selector.parse(table)
 
@@ -110,10 +110,10 @@ class RouteEvidenceTests(unittest.TestCase):
             "accounting",
             return_value={"attempts": attempts()[:1], "parallel_workers_pending": ["M2"]},
         ):
-            result = qualify_routes.run_record(fixtures.state(), "glm", GLM, META)
+            result = qualify_routes.run_record(fixtures.state(), "planner", GLM, META)
         self.assertTrue(result["attempt_accounting"]["pending_workers"])
         self.assertIsNone(result["attempt_accounting"]["duration_seconds"]["value"])
-        selector.parse({"as_of": "x", "roles": {"glm": [entry([result])]}})
+        selector.parse({"as_of": "x", "roles": {"planner": [entry([result])]}})
 
     def test_native_attribution_is_not_replaced_with_duplicate_raw_reported_cost(self):
         rows = attempts()[:1]
@@ -130,7 +130,7 @@ class RouteEvidenceTests(unittest.TestCase):
 
     def test_optional_accounting_rejects_inconsistent_counts_quantities_and_versions(self):
         good = record(attempts())
-        selector.parse({"as_of": "x", "roles": {"glm": [entry([good])]}})
+        selector.parse({"as_of": "x", "roles": {"planner": [entry([good])]}})
         for fault in ("version", "scope", "count", "overlap", "coverage", "complete", "infinity", "legacy_count"):
             with self.subTest(fault=fault):
                 result = copy.deepcopy(good)
@@ -152,7 +152,7 @@ class RouteEvidenceTests(unittest.TestCase):
                 elif fault == "legacy_count":
                     result["attempts"] = True
                 with self.assertRaisesRegex(ValueError, "runs must be records"):
-                    selector.parse({"as_of": "x", "roles": {"glm": [entry([result])]}})
+                    selector.parse({"as_of": "x", "roles": {"planner": [entry([result])]}})
 
     def test_real_public_accounting_deduplicates_a_shared_native_receipt(self):
         native = {
@@ -169,7 +169,7 @@ class RouteEvidenceTests(unittest.TestCase):
         source["stages"] = [
             {
                 "stage": "glm_revise",
-                "role": "glm",
+                "role": "planner",
                 "engine": "opencode",
                 "command": ["fake", "--model", GLM],
                 "attempt_id": "001/planner-01",
@@ -179,7 +179,7 @@ class RouteEvidenceTests(unittest.TestCase):
             },
             {
                 "stage": "glm_revise_report_repair",
-                "role": "glm",
+                "role": "planner",
                 "engine": "opencode",
                 "command": ["fake", "--model", GLM],
                 "attempt_id": "001/planner-repair-01",
@@ -190,19 +190,19 @@ class RouteEvidenceTests(unittest.TestCase):
             },
         ]
         before = copy.deepcopy(source)
-        result = qualify_routes.run_record(source, "glm", GLM, META)
+        result = qualify_routes.run_record(source, "planner", GLM, META)
         self.assertEqual(2, result["attempt_accounting"]["attempts"])
         self.assertEqual(0.25, result["attempt_accounting"]["reported_cost_usd"]["value"])
         self.assertEqual(before, source)
 
     def test_only_the_actual_role_model_scope_contributes_measurements(self):
         rows = attempts()
-        rows[0]["role"] = "astra"
-        rows[0]["route_role"] = "glm"
+        rows[0]["role"] = "task_planner"
+        rows[0]["route_role"] = "planner"
         rows += [
-            {"role": "glm", "route_role": "plan_reviewer", "model": GLM, "reported_cost_usd": 9},
-            {"role": "glm", "model": "different/model", "reported_cost_usd": 9},
-            {"role": "glm", "model": GLM, "runner_owned": True, "reported_cost_usd": 9},
+            {"role": "planner", "route_role": "plan_reviewer", "model": GLM, "reported_cost_usd": 9},
+            {"role": "planner", "model": "different/model", "reported_cost_usd": 9},
+            {"role": "planner", "model": GLM, "runner_owned": True, "reported_cost_usd": 9},
         ]
         result = record(rows)["attempt_accounting"]
         self.assertEqual((3, 1), (result["attempts"], result["accepted_attempts"]))

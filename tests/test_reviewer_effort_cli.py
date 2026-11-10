@@ -146,8 +146,8 @@ class ReviewerEffortCLI(unittest.TestCase):
             cwd=self.root,
         )
         settings = self.public(run)["settings"]
-        planner = copy.deepcopy(settings["roles"]["glm"])
-        self.assertEqual("runner_default", settings["effort_origins"]["glm"])
+        planner = copy.deepcopy(settings["roles"]["planner"])
+        self.assertEqual("runner_default", settings["effort_origins"]["planner"])
         self.assertFalse(any(row["stage"] == "astra_discovery" for row in self.calls()))
         # Fixture setup only: the levels a real run reads from its tool's listing.
         checkpoint = run.run_dir / "state.json"
@@ -163,7 +163,7 @@ class ReviewerEffortCLI(unittest.TestCase):
         self.assertTrue(drafts, self.calls())
         for row in drafts:
             self.assertIn(f'model_reasoning_effort="{higher}"', row["argv"])
-        self.assertEqual(planner, self.public(run)["settings"]["roles"]["glm"], "the saved level is not rewritten")
+        self.assertEqual(planner, self.public(run)["settings"]["roles"]["planner"], "the saved level is not rewritten")
         state = json.loads(checkpoint.read_text())
         record = next(row for row in state["stages"] if row.get("stage") == "astra_discovery")
         self.assertEqual(

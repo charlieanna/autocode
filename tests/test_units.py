@@ -166,7 +166,7 @@ class ResolverFlow(unittest.TestCase):
         self.assertEqual("autocode", orchestrator.pending_unit(state))
         self.assertEqual(original["goal_contract"], state["goal_contract"])
         self.assertEqual("FAIL", state["validation"]["verdict"])
-        self.assertNotEqual(state["sessions"]["resolver"], state["sessions"]["astra"])
+        self.assertNotEqual(state["sessions"]["resolver"], state["sessions"]["task_planner"])
         self.assertNotEqual(state["sessions"]["resolver"], state["sessions"]["completion"])
         artifact = state["unit_handoffs"]["autoresolver"]
         plan = json.loads(Path(artifact["path"]).read_text())
@@ -219,7 +219,7 @@ class ResolverFlow(unittest.TestCase):
             record = {
                 "stage": "astra_resolve",
                 "iteration": state["iteration"],
-                "role": "astra",
+                "role": "task_planner",
                 "output": str(output),
                 "source_revision": revision,
                 "rejected": True,

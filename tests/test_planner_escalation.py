@@ -14,7 +14,7 @@ def settings(planner="zai-coding-plan/glm-5.3", reviewer="openai/gpt-6-sol", **e
     base = {
         "engine": "opencode",
         "roles": {
-            "glm": {"engine": "opencode", "provider": None, "model": planner, "reasoning_effort": "high"},
+            "planner": {"engine": "opencode", "provider": None, "model": planner, "reasoning_effort": "high"},
             "plan_reviewer": {"engine": "opencode", "provider": None, "model": reviewer, "reasoning_effort": "high"},
         },
         "route_ladders": route_ladder.configure_ladders(),
@@ -65,36 +65,36 @@ class Decide(unittest.TestCase):
         claude["route_ladders"] = route_ladder.configure_ladders(["claude-sonnet-5-5", "claude-opus-5-5"])
         self.assertEqual({"stay": "no_target"}, escalation.decide(claude))
         claude["roles"]["plan_reviewer"]["model"] = "claude-sonnet-5-5"
-        claude["roles"]["glm"]["model"] = "claude-haiku-4-5-20251001"
+        claude["roles"]["planner"]["model"] = "claude-haiku-4-5-20251001"
         self.assertEqual("claude-opus-5-5", escalation.decide(claude)["model"])
 
     def test_stays(self):
         pinned = settings()
-        pinned["roles"]["glm"]["model_pinned"] = True
+        pinned["roles"]["planner"]["model_pinned"] = True
         custom = settings()
-        custom["roles"]["glm"]["provider"] = "custom"
+        custom["roles"]["planner"]["provider"] = "custom"
         codex = settings()
-        codex["roles"]["glm"]["engine"] = "codex"
+        codex["roles"]["planner"]["engine"] = "codex"
         cases = {
             "pinned": pinned,
             "other_provider": custom,
             "engine": codex,
             "already_strong": settings(planner="anthropic/claude-opus-5-5"),
             "fixed_profile": settings(conversation_profile="continuous-v1"),
-            "chosen": settings(route_origins={"glm": "user_explicit", "plan_reviewer": "user_explicit"}),
+            "chosen": settings(route_origins={"planner": "user_explicit", "plan_reviewer": "user_explicit"}),
             "no_route": {"roles": {}},
         }
         for reason, case in cases.items():
             with self.subTest(reason):
                 self.assertEqual({"stay": reason}, escalation.decide(case))
-        self.assertEqual({"stay": "climbed"}, escalation.decide(settings(), [{"role": "glm"}]))
+        self.assertEqual({"stay": "climbed"}, escalation.decide(settings(), [{"role": "planner"}]))
 
     def test_only_a_chosen_planner_route_stays(self):
         # Live 2026-11-05 on Kilo: the person chose GLM 5.3 for every planning stage; the climb took the
         # Planner to Claude Opus 5.5, whose account had no credit, and the run stopped for the person.
-        chosen = settings(route_origins={"glm": "user_explicit"})
+        chosen = settings(route_origins={"planner": "user_explicit"})
         self.assertEqual({"stay": "chosen"}, escalation.decide(chosen))
-        others = settings(route_origins={"plan_reviewer": "user_explicit", "glm": "auto_selected"})
+        others = settings(route_origins={"plan_reviewer": "user_explicit", "planner": "auto_selected"})
         self.assertEqual("anthropic/claude-opus-5-5", escalation.decide(others)["model"])
         self.assertEqual(escalation.USER_EXPLICIT, role_route.USER_EXPLICIT)
 
@@ -148,13 +148,13 @@ class PlanSentBackTwice(unittest.TestCase):
         )
         revisions = [model for stage, model in self.planning_stages(state) if stage == "glm_revise"]
         self.assertEqual(["zai-coding-plan/glm-5.3", "openai/gpt-6-sol"], revisions)
-        [event] = [row for row in state["reasoning_escalations"] if row["role"] == "glm"]
+        [event] = [row for row in state["reasoning_escalations"] if row["role"] == "planner"]
         self.assertEqual("plan_sent_back", event["trigger"])
         self.assertIn("challenge 2", event["detail"])
-        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["glm"]["model"])
-        rotated = [row for row in state.get("session_rotations", []) if row["role"] == "glm"]
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["planner"]["model"])
+        rotated = [row for row in state.get("session_rotations", []) if row["role"] == "planner"]
         self.assertEqual(1, len(rotated))
-        self.assertNotEqual(rotated[0]["old_session"], state["sessions"].get("glm"))
+        self.assertNotEqual(rotated[0]["old_session"], state["sessions"].get("planner"))
         view = json.loads(self.launch(["--run-dir", str(run), "--status", "--json"], 0).stdout)["view"]
         self.assertEqual(1, sum(view["escalation_outcomes"].values()))
 
@@ -165,8 +165,8 @@ class PlanSentBackTwice(unittest.TestCase):
             ["astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"],
             [stage for stage, _model in self.planning_stages(state)],
         )
-        self.assertFalse([row for row in state.get("reasoning_escalations", []) if row["role"] == "glm"])
-        self.assertEqual("zai-coding-plan/glm-5.3", state["settings"]["roles"]["glm"]["model"])
+        self.assertFalse([row for row in state.get("reasoning_escalations", []) if row["role"] == "planner"])
+        self.assertEqual("zai-coding-plan/glm-5.3", state["settings"]["roles"]["planner"]["model"])
 
 
 if __name__ == "__main__":

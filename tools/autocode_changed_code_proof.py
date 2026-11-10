@@ -275,7 +275,7 @@ def ready(proof, result, validation):
         pins = validation.get("evidence_hashes") or {}
         if (
             validation.get("source_revision") != proof.get("source_revision")
-            or validation.get("reviewer_role") not in ("sol", "astra")
+            or validation.get("reviewer_role") not in ("sol", "task_planner")
             or not pins
             or any(not Path(p).is_file() or util.file_hash(p) != h for p, h in pins.items())
         ):

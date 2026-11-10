@@ -180,8 +180,8 @@ def _bound_settings(state: RunState, ceilings, *, derived=False):
         if not settings.get(section):
             settings.pop(section, None)
     roles = settings.get("roles") or {}
-    if "astra" in roles:
-        roles.setdefault("resolver", copy.deepcopy(roles["astra"]))
+    if "task_planner" in roles:
+        roles.setdefault("resolver", copy.deepcopy(roles["task_planner"]))
     # Investigator preparation may initialize this empty registry. No transport
     # identity has changed; any actual entry remains strictly bound below.
     if settings.get("transport_identities") == {}:

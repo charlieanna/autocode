@@ -43,7 +43,7 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
                 "turn": 1,
                 "iteration": 1,
                 "scope": {"identity": "current-scope"},
-                "related_profile": {"settings": {"roles": {"glm": "chosen"}}},
+                "related_profile": {"settings": {"roles": {"planner": "chosen"}}},
                 "cost": {"spent_usd": 2, "complete": True},
                 "usage": {"accounting": {"attempts": [{"identity": row["target"], "active": False}]}},
             }

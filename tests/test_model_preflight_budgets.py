@@ -51,8 +51,11 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
             check=True,
         )
         self.run_dir = self.workspace / ".autocode/runs/access-probe"
-        models = {role: "fixture/reviewer" for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")}
-        models["terra"] = models["glm"] = "fixture/builder"
+        models = {
+            role: "fixture/reviewer"
+            for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+        }
+        models["terra"] = models["planner"] = "fixture/builder"
         config = {
             "name": "budgetfixture",
             "command": [sys.executable, "-c", "raise AssertionError('no provider may spawn')"],
@@ -389,7 +392,16 @@ class ModelPreflightBudgetCliTests(unittest.TestCase):
     def selected_python_start(self, *arguments):
         exact = tuple(
             argument
-            for role in ("astra", "terra", "sol", "glm", "plan_reviewer", "requirements", "completion", "resolver")
+            for role in (
+                "task_planner",
+                "terra",
+                "sol",
+                "planner",
+                "plan_reviewer",
+                "requirements",
+                "completion",
+                "resolver",
+            )
             for argument in (f"--{role.replace('_', '-')}-reasoning-effort", "high")
         )
         return self.fresh_joint_start("--max-cost-usd", "0", *exact, *arguments)

@@ -7,7 +7,7 @@ import autocode_orchestrator as orchestrator
 
 class SharedOrchestrator(unittest.TestCase):
     def test_drives_saved_transitions_for_any_target(self):
-        state = {"status": "RUNNING", "next_stage": "astra", "seen": []}
+        state = {"status": "RUNNING", "next_stage": "task_planner", "seen": []}
         persisted = []
 
         def dispatch(current, stage):
@@ -16,7 +16,7 @@ class SharedOrchestrator(unittest.TestCase):
 
         def apply(current, stage, result):
             self.assertEqual(stage.upper(), result)
-            if stage == "astra":
+            if stage == "task_planner":
                 current["next_stage"] = "terra"
             else:
                 current.update(status="COMPLETE", next_stage=None)
@@ -27,7 +27,7 @@ class SharedOrchestrator(unittest.TestCase):
             apply=apply,
             persist=lambda current: persisted.append((current["status"], current["next_stage"])),
         )
-        self.assertEqual(["astra", "terra"], state["seen"])
+        self.assertEqual(["task_planner", "terra"], state["seen"])
         self.assertEqual([("RUNNING", "terra"), ("COMPLETE", None)], persisted)
 
     def test_skip_restarts_from_updated_checkpoint_without_applying(self):

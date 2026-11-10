@@ -188,9 +188,9 @@ class ChangedCodeReviewTests(unittest.TestCase):
 
     def test_checkpoint_and_original_stage_repair_are_independent(self):
         for stage, role, original in (
-            ("astra_checkpoint", "astra", None),
+            ("astra_checkpoint", "task_planner", None),
             ("sol_report_repair", "sol", "sol"),
-            ("astra_checkpoint_report_repair", "astra", "astra_checkpoint"),
+            ("astra_checkpoint_report_repair", "task_planner", "astra_checkpoint"),
         ):
             with self.subTest(stage=stage):
                 record = {**self.record, "stage": stage, "role": role}
@@ -203,7 +203,7 @@ class ChangedCodeReviewTests(unittest.TestCase):
         for patch in (
             {"stage": "terra", "role": "terra"},
             {"stage": "self_check", "role": "terra"},
-            {"stage": "astra_review", "role": "astra"},
+            {"stage": "astra_review", "role": "task_planner"},
             {"role": "terra"},
             {"source_revision": "other"},
             {"changed_files": ["calc.py"]},

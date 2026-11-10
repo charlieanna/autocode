@@ -284,11 +284,11 @@ class ModelRoutingTests(unittest.TestCase):
             ("kilo/anthropic/claude-opus-5.5", "anthropic/claude-opus-5.5"),
         ):
             with self.subTest(producer=producer, verifier=verifier):
-                report = scorer.ladder_alignment({"glm": {"model": producer}, "plan_reviewer": {"model": verifier}})
+                report = scorer.ladder_alignment({"planner": {"model": producer}, "plan_reviewer": {"model": verifier}})
                 self.assertFalse(report["independence_ok"])
                 self.assertTrue(any(m.startswith("independence Planner/Plan Reviewer") for m in report["mismatches"]))
         report = scorer.ladder_alignment(
-            {"glm": {"model": "zai-coding-plan/glm-5.3"}, "plan_reviewer": {"model": "openai/gpt-6-sol"}}
+            {"planner": {"model": "zai-coding-plan/glm-5.3"}, "plan_reviewer": {"model": "openai/gpt-6-sol"}}
         )
         self.assertTrue(report["independence_ok"])
 

@@ -51,7 +51,7 @@ class ProviderStartupRecovery(AdversarialCase):
             home = self.root / "config"
             path = home / "autocode/providers/startupfixture.toml"
             path.parent.mkdir(parents=True)
-            roles = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+            roles = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
             models = ["gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-sol"]
             path.write_text(
                 'name = "startupfixture"\noutput = "report_file"\n'

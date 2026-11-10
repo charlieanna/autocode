@@ -38,7 +38,7 @@ class RiskRuntimeTests(RiskFixture, unittest.TestCase):
             engine="codex",
             roles={
                 role: {"engine": "codex", "model": "fixture"}
-                for role in ("requirements", "glm", "plan_reviewer", "astra")
+                for role in ("requirements", "planner", "plan_reviewer", "task_planner")
             },
         )
         draft = body()

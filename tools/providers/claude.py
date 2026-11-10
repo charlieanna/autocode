@@ -71,12 +71,12 @@ LISTED_MODELS = [HAIKU, SONNET, OPUS]
 # Verifiers differ from producers: Haiku builds, Sonnet drafts and tests, Opus reviews and completes.
 DEFAULT_MODELS = {
     "requirements": SONNET,
-    "glm": SONNET,
+    "planner": SONNET,
     "plan_reviewer": OPUS,
     "terra": HAIKU,
     "sol": SONNET,
     "completion": OPUS,
-    "astra": OPUS,
+    "task_planner": OPUS,
 }
 DEFAULT_REASONING_EFFORTS = {role: "medium" for role in DEFAULT_MODELS}
 BUILDER_RETRY = {"strong_model": SONNET, "checker_model": OPUS}

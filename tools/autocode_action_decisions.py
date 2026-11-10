@@ -146,7 +146,7 @@ def revalidate_on_resume(state: RunState, workspace, *, review_stage):
     if proof.get("source_revision") and proof["source_revision"] != revision:
         archived["regression_proof"] = state.pop("regression_proof")
     state.setdefault("validation_archive", []).append(archived)
-    for role in ("sol", "astra"):
+    for role in ("sol", "task_planner"):
         old = state.setdefault("sessions", {}).pop(role, None)
         if old:
             state.setdefault("session_rotations", []).append(

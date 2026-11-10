@@ -114,7 +114,7 @@ class MoveTests(unittest.TestCase):
         run_dir = root / ".autocode" / "runs" / "20261110-090000-chat-a1b2c3"
         run_dir.mkdir(parents=True)
         state = {"task": "Add a greeting", "workspace": str(root), "run_dir": str(run_dir), "status": "RUNNING"}
-        state.update(launch_sources={"base_commit": "launch"}, sessions={"glm": "planner"})
+        state.update(launch_sources={"base_commit": "launch"}, sessions={"planner": "planner"})
         state["build_worktree"] = {"state": "planning"}
         util.atomic_json(run_dir / "state.json", state)
         with mock.patch.dict("os.environ", {"AUTOCODE_HOME": home.name}):

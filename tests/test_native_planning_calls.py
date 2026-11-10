@@ -62,7 +62,7 @@ class PreparedSourceAdmissionTests(unittest.TestCase):
             "stages": [],
             "settings": {
                 "roles": {
-                    "glm": {
+                    "planner": {
                         "engine": "opencode",
                         "provider": "opencode",
                         "model": "controlled/model",
@@ -89,10 +89,10 @@ class PreparedSourceAdmissionTests(unittest.TestCase):
         util.atomic_json(before, self.raw)
         record = {
             "stage": "plan",
-            "role": "glm",
+            "role": "planner",
             "engine": "opencode",
             "command": self.command,
-            "launch_route": dict(self.state["settings"]["roles"]["glm"]),
+            "launch_route": dict(self.state["settings"]["roles"]["planner"]),
             "events": str(self.run / "plan.jsonl"),
             "output": str(self.run / "plan.json"),
             "before_ref": str(before),
@@ -219,7 +219,7 @@ class PlanningInputPinAdmissionTests(unittest.TestCase):
     def test_owner_computed_inputs_are_sealed_without_transport_supplied_pins(self):
         import autocode_design_manifest as manifest
 
-        pins = manifest.planning_input_pins(self.state["settings"], role="glm")
+        pins = manifest.planning_input_pins(self.state["settings"], role="planner")
         self.assertEqual(2, len(pins))
         prepared = json.loads(self.prepared.body)
         self.assertEqual(pins, {path: prepared["pins"][path] for path in pins})
@@ -500,7 +500,7 @@ class OuterParentDispositionTests(unittest.TestCase):
             "next_stage": "plan_finalize",
             "stages": [],
             "current_task": None,
-            "settings": {"roles": {"glm": {"model": "controlled/model"}}, "limits": {}},
+            "settings": {"roles": {"planner": {"model": "controlled/model"}}, "limits": {}},
         }
         self.raw = b"original final handoff bytes\n"
         self.identity = {"path": "planning/final.json", "sha256": hashlib.sha256(self.raw).hexdigest()}
@@ -598,8 +598,8 @@ class OuterParentDispositionTests(unittest.TestCase):
         proxy.rotate_if_needed = Mock()
         proxy.reject_completed_stage = Mock(wraps=proxy.reject_completed_stage)
         request = SimpleNamespace(
-            role="glm",
-            route_role="glm",
+            role="planner",
+            route_role="planner",
             prompt="Controlled final",
             metrics={"estimated_prompt_tokens": 0, "soft_budget_tokens": 1},
             schema={},
@@ -1001,8 +1001,8 @@ class InitialIntentAndScopeTests(unittest.TestCase):
         command, environment, overrides, worker = launch_policy.prepare(
             engine="opencode",
             adapter=adapter,
-            role="glm",
-            route_role="glm",
+            role="planner",
+            route_role="planner",
             workspace=Path("/owned"),
             run_dir=Path("/owned/.autocode/runs/new"),
             session=None,

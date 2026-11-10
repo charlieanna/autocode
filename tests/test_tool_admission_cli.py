@@ -68,8 +68,8 @@ def write_wrapper():
     selected_python.chmod(0o755)
 
 write_wrapper()
-models = {role: "fixture/reviewer" for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")}
-models["terra"] = models["glm"] = "fixture/builder"
+models = {role: "fixture/reviewer" for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")}
+models["terra"] = models["planner"] = "fixture/builder"
 adapter = KiloProvider({
     "name": "entryfixture",
     "command": [sys.executable, "-c", "raise AssertionError('no native provider may spawn')"],
@@ -143,7 +143,7 @@ with contextlib.ExitStack() as stack:
         stack.enter_context(patch.object(adapter, name, return_value=value))
     stack.enter_context(patch.object(preflight.transport, "execute", side_effect=probe))
     stack.enter_context(patch.object(adapter, "launch", side_effect=provider_launch))
-    exact = [arg for role in ("astra", "terra", "sol", "glm", "plan_reviewer", "requirements", "completion", "resolver")
+    exact = [arg for role in ("task_planner", "terra", "sol", "planner", "plan_reviewer", "requirements", "completion", "resolver")
              for arg in ("--" + role.replace("_", "-") + "-reasoning-effort", "high")]
     initial = invoke(["--brief", "Build a greeting CLI", "--in-place", "--new-run-dir", str(run),
                       "--provider", "entryfixture", "--no-chat", "--evidence-provenance", "fake",

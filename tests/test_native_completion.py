@@ -53,7 +53,12 @@ class CompletionFixtures(unittest.TestCase):
             self.run,
             protection=SimpleNamespace(verify_namespace=Mock(side_effect=AssertionError("No native qualification"))),
         )
-        self.record = {"stage": "astra_review", "role": "astra", "iteration": 1, "rework_evidence": {"hashes": {}}}
+        self.record = {
+            "stage": "astra_review",
+            "role": "task_planner",
+            "iteration": 1,
+            "rework_evidence": {"hashes": {}},
+        }
         for key in ("events", "output", "before_ref", "after_ref"):
             path = self.run / key
             path.write_bytes(b"controlled original " + key.encode())

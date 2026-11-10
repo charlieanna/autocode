@@ -27,7 +27,9 @@ except ImportError:
 
 SCALE = ("low", "medium", "high", "xhigh", "max")
 # Roles with a --ROLE-reasoning-effort flag of their own (autocode_args); the others take --reasoning-effort.
-FLAGGED_ROLES = frozenset({"astra", "terra", "sol", "completion", "glm", "requirements", "resolver", "plan_reviewer"})
+FLAGGED_ROLES = frozenset(
+    {"task_planner", "terra", "sol", "completion", "planner", "requirements", "resolver", "plan_reviewer"}
+)
 DECLARED = "declared_variants"  # settings key: {model: [levels]} a run read from the tool's listing
 # settings key: {model: [levels]} a preflight probe passed at. Proof that each level works, never a
 # listing: a level no probe tried is still unknown, so it neither moves nor pauses (#2057).

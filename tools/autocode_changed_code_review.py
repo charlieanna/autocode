@@ -172,7 +172,7 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
     if not isinstance(decisions, list):
         raise ValueError("Changed-code exception decisions must be an array or null")
     stage = _stage(record)
-    if (stage, record.get("role")) not in (("sol", "sol"), ("astra_checkpoint", "astra")):
+    if (stage, record.get("role")) not in (("sol", "sol"), ("astra_checkpoint", "task_planner")):
         raise ValueError("Changed-code reasons require an independent Tester report")
     if not isinstance(assessment, dict) or (
         not assessment.get("source_revision")
