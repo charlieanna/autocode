@@ -753,6 +753,37 @@ class ControlReplyTests(unittest.TestCase):
         trace.verify(state, sealed, records, ready=True)
 
 
+class HeadingCitationTests(unittest.TestCase):
+    """A heading sentence id resolves to its source span (#3054)."""
+
+    def test_heading_sentence_resolves_to_source_span(self):
+        import autocode_requirement_cues as cues
+
+        task = "## Why\nWe need this.\n## Out of scope\nNothing else."
+        sentences = cues.sentences(task)
+        # The heading is kept as-is in the source, so a citation can quote it verbatim.
+        self.assertTrue(any("## Why" in s for s in sentences), f"heading not in {sentences}")
+        self.assertTrue(any("## Out of scope" in s for s in sentences), f"heading not in {sentences}")
+
+    def test_all_failing_criteria_are_named_at_once(self):
+        from autocode_source_trace import check_citations
+
+        records = [{"id": "task:0", "text": "## Why\nWe need this."}]
+        body = {
+            "acceptance_criteria": [
+                {"id": "AC1", "sources": [{"source_id": "task:0", "quote": "task:0#1"}]},
+                {"id": "AC2", "sources": [{"source_id": "task:0", "quote": "task:0#2"}]},
+                {"id": "AC3", "sources": [{"source_id": "task:0", "quote": "task:0#3"}]},
+            ]
+        }
+        with self.assertRaises(ValueError) as caught:
+            check_citations(body, records)
+        message = str(caught.exception)
+        self.assertIn("AC1", message)
+        self.assertIn("AC2", message)
+        self.assertIn("AC3", message, "every failing criterion is named at once")
+
+
 class UncitedSentenceTests(unittest.TestCase):
     """The sentences a draft leaves uncited, which the runner names before any review (#1630)."""
 
