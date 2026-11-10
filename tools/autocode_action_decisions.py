@@ -156,6 +156,26 @@ def revalidate_on_resume(state: RunState, workspace, *, review_stage):
     return True
 
 
+def deferred_approval(status_before, state: RunState):
+    """Why the writer boundary deferred the plan approval just offered, or None.
+
+    A plan at AWAITING_GOAL_APPROVAL whose approval request the boundary deferred (its final review no
+    longer matches the current source, for example) is back in planning: RUNNING, or paused when the
+    same deferral keeps recurring. The approval then has nothing current to approve.
+    """
+    disposition = (state.get("resolver") or {}).get("human_disposition") or {}
+    if (
+        status_before != "AWAITING_GOAL_APPROVAL"
+        or state.get("status") not in ("RUNNING", "PAUSED_APPROVAL_DEFERRED")
+        or disposition.get("action") != "defer"
+        or resolver_human.current(state)
+    ):
+        return None
+    if disposition.get("reason") == resolver_human.SOURCE_MOVED:
+        return "the code in the workspace changed after the Plan Reviewer checked this plan"
+    return disposition.get("reason") or "the plan needs another review"
+
+
 def preflight(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Reject an ineligible approval before recovery can consume a retained report."""
     if (
@@ -199,7 +219,21 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
             print("Saved plan's first task needs correction; queued report repair before approval.")
             if args.show_goal or args.approve_goal:
                 return 2 if args.approve_goal else 0
+    status_before = state.get("status")
     runner.normalize_human_boundary(state, run_dir)
+    if args.approve_goal and (reason := deferred_approval(status_before, state)):
+        # The writer boundary sent the plan back to planning instead of asking (the checkout moved under
+        # the reviewed plan, for example). Every save makes the same decision, so keep it rather than
+        # refuse the approval the view offered: the next step re-checks the plan and asks again.
+        runner.write_json(state_path, state)
+        print(
+            "Not approved yet: " + reason + ". AutoCode is checking the plan again and will ask you to approve "
+            "the plan it checked. " + run_finder.continue_hint(run_dir, state, args.unit) + "."
+        )
+        if resume_dispatch_requested(args, state):
+            decided.dispatch = True
+            return None
+        return 0
     user_action = any(
         (
             args.show_goal,

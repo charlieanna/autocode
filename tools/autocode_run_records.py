@@ -27,6 +27,7 @@ try:
     from . import autocode_milestones as milestones
     from . import autocode_output_policy as output_policy
     from . import autocode_planning as planning
+    from . import autocode_planning_cycle as planning_cycle
     from . import autocode_process as processes
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_accounting as accounting
@@ -48,6 +49,7 @@ except ImportError:
     import autocode_milestones as milestones
     import autocode_output_policy as output_policy
     import autocode_planning as planning
+    import autocode_planning_cycle as planning_cycle
     import autocode_process as processes
     import autocode_progressive_state as progressive
     import autocode_recovery_accounting as accounting
@@ -247,6 +249,8 @@ def normalize_human_boundary(state: RunState, run_dir):
             )
             identity = support.digest({"task_id": state.get("task_id"), "reason": reason, "user_inputs": inputs})
             restarts = state["resolver"].setdefault("deferred_approval_restarts", {})
+            if reason == resolver_human.SOURCE_MOVED:
+                planning_cycle.source_change_restart(state)
             planning.start(state)
             if restarts.get(identity, 0) >= MAX_DEFERRED_APPROVAL_RESTARTS:
                 # The new cycle is ready, so an explicit resume runs exactly one more.

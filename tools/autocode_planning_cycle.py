@@ -45,6 +45,19 @@ def internal_answer_restart(state: RunState):
         planning["internal_answer_restart"] = True
 
 
+def source_change_restart(state: RunState):
+    """Planning restarts because the checkout changed after the Plan Reviewer's final review, not the plan.
+
+    The plan was reviewed against source that is no longer there (a pull or commit in the workspace), so
+    the next cycle reviews the same plan against the current source. Under the small-brief total (#1564)
+    the reviews spent on the old source would leave that re-check no allowance, and the run would ask the
+    person to raise a limit for a review AutoCode itself required; ``new_cycle`` renews it for this cause.
+    The deferred-approval restart bound (autocode_run_records) still limits how often it can recur."""
+    planning = state.get("planning")
+    if isinstance(planning, dict):
+        planning["source_change_restart"] = True
+
+
 # What an internal-answer restart carries from the archived cycle: the reviewer's first review and the Planner's
 # answer to it, the allowance they were charged against and the depth decisions made for this plan.
 INHERITED_REPORTS = ("astra_challenge", "glm_revise")
@@ -154,7 +167,12 @@ def new_cycle(state: RunState, *, new_turn=False):
         state["planning"]["internal_answer_renewals"] = renewals
         if archived.get("revision_review_renewals"):  # once per run (#1815), as the internal-answer renewal
             state["planning"]["revision_review_renewals"] = archived["revision_review_renewals"]
-        if archived.get("internal_answer_restart") and not renewals:
+        if archived.get("source_change_restart"):
+            # The carried charges reviewed source that changed; the re-check of the same plan starts afresh.
+            state["planning"].update(
+                astra_calls=0, source_change_renewal={"from": archived.get("astra_calls", 0), "to": 0}
+            )
+        elif archived.get("internal_answer_restart") and not renewals:
             # AutoCode settled the reviewer's technical question itself and planning restarted, so the
             # redrafted plan needs a review the carried total had already spent: a live run dead-ended at
             # 2/2 with nobody to ask. One fresh allowance per run; a second internal restart still stops.

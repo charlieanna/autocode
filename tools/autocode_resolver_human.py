@@ -60,6 +60,9 @@ SCOPES = frozenset(
         "intake",
     }
 )
+# The goal-approval deferral when the checkout changed after the Plan Reviewer's final review: a pull,
+# a commit or an edit in the workspace. Planning restarts to review the plan against the current source.
+SOURCE_MOVED: Final = "Final planning evidence must match the current source before approval"
 PRIVATE: Final = RESOLVER_PROPOSAL_KEY
 PUBLIC: Final = RESOLVER_REQUEST_KEY
 
@@ -340,7 +343,7 @@ def _decision(state: RunState, proposal):
             )
             source = _binding(state)["observed_source"] or {}
             if not record or not source.get("revision") or record.get("source_revision") != source["revision"]:
-                return "defer", "Final planning evidence must match the current source before approval"
+                return "defer", SOURCE_MOVED
         if contract.get("approval_status") != "draft":
             return "reject", "This contract does not require a new approval"
         return "escalate", "Only the user can approve this exact sealed plan"
