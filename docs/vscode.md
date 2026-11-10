@@ -161,6 +161,28 @@ every run is complete and an integration check is due, **Run the set's check**
 asks first, then runs it. These are the only change-set actions the extension
 takes ([change sets in clients](task-run.md#change-sets-in-clients)).
 
+## Update from master
+
+To install the newest extension from master, run this from any AutoCode checkout:
+
+```sh
+scripts/update-vscode-extension.sh
+```
+
+It fetches master from `origin`, builds it in a temporary Git worktree (so your
+checkout, its branch and uncommitted changes stay as they are), packages the
+extension and installs it with `code --install-extension --force`. Then reload the
+VS Code window (**Developer: Reload Window**). `--local` builds the checkout you are in
+instead, as it stands, and `--remote NAME` fetches from another remote. It needs Node.js
+(`npm`) and the `code` command; on macOS, when `code` is not on `PATH`, it uses the one
+inside Visual Studio Code.app, and `CODE=cursor` or `CODE=code-insiders` picks another
+editor.
+
+The extension starts whichever `autocode` `autocode.cliPath` names. When that CLI is an
+editable install of the same checkout (`pipx install --editable`, see
+[install from a checkout](install.md#advanced-install-from-a-checkout)), `git pull` on
+master updates it too; a separate release install keeps its own version.
+
 ## Run it from a checkout
 
 ```sh
