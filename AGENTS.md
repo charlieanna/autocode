@@ -207,6 +207,17 @@ steps aside. A choice for new chats is kept in the project's
 only from the status view's `chat.log`, which, unlike `chat.activity`, carries the running agents'
 reasoning and messages as bounded, redacted display text.
 
+**VS Code first; the terminal chat is frozen, owner decision 2026-11-10.** The VS Code
+client is the one person-facing client that gets new features: it handles several chats
+more easily and shows a run's stages, decisions and changes more clearly than the
+terminal. The terminal chat (`autocode_chat_client.py`, `autocode_chat_tui.py` and the
+`autocode_chat_*` modules) stays working, since it is how `autocode` starts in a terminal
+and how a run is watched over SSH. It takes bug fixes and changes a core or contract
+change requires, but no new commands, panels, keys or screens. Improvements to what a
+person sees go to the core's status view first, then to the VS Code client. The approvals
+above still describe what the terminal chat already does; they do not license growing it.
+This decision does not change the browser dashboard, the macOS app or the channel bridge.
+
 **Asynchronous TUI lifecycle direction approved 2026-10-23 (#1879, PR #1985).**
 The owner approved opt-in durable execution on supported persistent Linux under
 the [task-run lifecycle direction](docs/task-run.md#asynchronous-viewer-direction-1879-implementation-pending).
