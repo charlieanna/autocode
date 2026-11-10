@@ -26,6 +26,12 @@ CATALOG_VERSION = 1
 MAX_DEPTH = 8
 DIRECTORY_BUDGET = 20_000
 EXCLUDED_DIRECTORIES = {".git", ".autocode", ".autocode-ui", "node_modules", "vendor", ".venv", "venv"}
+# A checkout or directory below a configured root that cannot be read holds
+# nothing a stage could inspect or cite: read authority covers only identified
+# checkouts. Intake skips such an entry and records it. A missing configured
+# root, a bound or a link out of a root can hide readable sources, and stays
+# blocking.
+UNREADABLE = frozenset({"repository_unreadable", "inaccessible"})
 
 
 class CatalogError(ValueError):
@@ -403,6 +409,21 @@ def discover(*, max_depth: int = MAX_DEPTH, directory_budget: int = DIRECTORY_BU
         }
     )
     return result
+
+
+def blocking(discovery: dict[str, Any]) -> list[dict[str, Any]]:
+    """Diagnostics that leave readable sources unseen; [] when intake can use the inventory."""
+    if discovery["complete"]:
+        return []
+    rows = [row for row in discovery["diagnostics"] if row.get("code") not in UNREADABLE]
+    return rows or ([] if discovery["diagnostics"] else [{"code": "incomplete"}])
+
+
+def unreadable(discovery: dict[str, Any]) -> list[dict[str, str]]:
+    """The entries discovery skipped because they cannot be read, by code and path."""
+    return [
+        {"code": row["code"], "path": row["path"]} for row in discovery["diagnostics"] if row.get("code") in UNREADABLE
+    ]
 
 
 def _digest(value: Any) -> str:

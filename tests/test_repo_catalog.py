@@ -178,6 +178,31 @@ class RepositoryCatalogTests(unittest.TestCase):
         self.assertFalse(found["complete"])
         self.assertTrue(any(row["code"] in {"symlink_escape", "budget_exhausted"} for row in found["diagnostics"]))
 
+    def test_a_checkout_git_cannot_read_is_skipped_by_intake_while_bounds_still_block(self):
+        root = self.root / "root"
+        readable = self.git_repo(root / "readable")
+        unborn = root / "unborn"
+        unborn.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(unborn)], check=True)  # no commit: HEAD cannot be read
+        catalog.add_root(root)
+        found = catalog.discover()
+        self.assertFalse(found["complete"], "the inventory itself still says what it could not read")
+        self.assertEqual([str(readable)], [row["path"] for row in found["repositories"]])
+        self.assertEqual([], catalog.blocking(found))
+        self.assertEqual([{"code": "repository_unreadable", "path": str(unborn)}], catalog.unreadable(found))
+        bounded = catalog.discover(max_depth=0)
+        self.assertEqual(["depth_limit"], [row["code"] for row in catalog.blocking(bounded)])
+
+    def test_only_unreadable_entries_leave_an_incomplete_inventory_usable(self):
+        def found(*codes):
+            return {"complete": False, "diagnostics": [{"code": code, "path": "/s/" + code} for code in codes]}
+
+        self.assertEqual([], catalog.blocking({"complete": True, "diagnostics": []}))
+        self.assertEqual([], catalog.blocking(found("repository_unreadable", "inaccessible")))
+        self.assertEqual(["root_unavailable"], [row["code"] for row in catalog.blocking(found("root_unavailable"))])
+        # An incomplete inventory that cannot say why is never taken as usable.
+        self.assertEqual([{"code": "incomplete"}], catalog.blocking(found()))
+
     def test_depth_bound_reports_incomplete_discovery_when_children_are_not_visited(self):
         root = self.root / "root"
         self.git_repo(root / "nested" / "repository")

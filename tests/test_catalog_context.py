@@ -79,10 +79,35 @@ class CatalogContextTests(unittest.TestCase):
     def test_incomplete_inventory_is_a_specific_discovery_failure(self):
         catalog.add_root(self.repo.parent)
         with patch.object(
-            catalog, "discover", return_value={"complete": False, "diagnostics": [{"code": "depth_limit"}]}
+            catalog,
+            "discover",
+            return_value={"complete": False, "diagnostics": [{"code": "depth_limit", "path": "/sources/deep"}]},
         ):
-            with self.assertRaisesRegex(ValueError, "depth_limit"):
+            with self.assertRaisesRegex(ValueError, "depth_limit at /sources/deep") as raised:
                 context.context(self.state)
+        # A source-root problem is the person's environment, not a model's or provider's invalid output.
+        self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", raised.exception.status)
+
+    def test_a_long_discovery_refusal_names_three_paths_and_counts_the_rest(self):
+        rows = [{"code": "symlink_escape", "path": f"/sources/link-{index}"} for index in range(5)]
+        message = str(context.DiscoveryIncomplete(rows))
+        self.assertIn("symlink_escape at /sources/link-2; and 2 more.", message)
+        self.assertNotIn("link-3", message)
+        self.assertIn("budget_exhausted.", str(context.DiscoveryIncomplete([{"code": "budget_exhausted"}])))
+
+    def test_an_unreadable_checkout_is_skipped_and_recorded_in_the_pinned_inventory(self):
+        unborn = self.repo.parent / "unborn"
+        unborn.mkdir()
+        subprocess.run(["git", "init", "-q", str(unborn)], check=True, capture_output=True)
+        catalog.add_root(self.repo.parent)
+        found = context.context(self.state)
+        self.assertEqual([str(self.repo)], [row["path"] for row in found["repositories"]])
+        self.assertEqual([{"code": "repository_unreadable", "path": str(unborn)}], found["unreadable"])
+        self.assertIn(context.UNREADABLE_INSTRUCTION, found["instruction"])
+        self.assertEqual([str(self.repo)], context.read_roots(self.state))
+        receipt = json.loads((Path(self.state["run_dir"]) / "planning/source-catalog.json").read_text())
+        self.assertEqual(found["unreadable"], receipt["unreadable"])
+        self.assertEqual(found, context.context(self.state))
 
     def test_saved_inventory_cannot_add_an_unconfigured_read_root(self):
         catalog.add_root(self.repo.parent)
