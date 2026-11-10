@@ -429,7 +429,35 @@ def budget_reply(client, view, need):
     return None
 
 
+def add_source(history, argument):
+    """Register the folder the person typed after /repos, as `autocode registry` does from the shell.
+
+    A Git checkout is registered on its own (`registry repositories add`); any other folder becomes a
+    source root, searched for the checkouts under it (`registry roots add`). The path is the person's
+    own words, never model text. Returns the line to show, which names a refusal in the core's words."""
+    typed = argument.strip()
+    folder = Path(typed).expanduser()
+    if not folder.is_absolute():
+        folder = Path(history.workspace) / folder
+    if not folder.is_dir():
+        return f"There is no folder at {typed}; nothing was added."
+    folder = folder.resolve()
+    checkout = (folder / ".git").exists()
+    added = history.read(["registry", "repositories" if checkout else "roots", "add", str(folder), "--json"])
+    if added.get("operation") not in ("repository-add", "roots-add"):
+        error = added.get("error") if isinstance(added.get("error"), dict) else {}
+        return f"{folder} was not added: {error.get('message') or 'the registry refused it.'}"
+    kind = "repository" if checkout else "source folder"
+    if added.get("already_registered"):
+        return f"{folder} is already a {kind} AutoCode can read."
+    return (
+        f"Added {folder} as a {kind}: AutoCode can read it and searches it for the code a request needs. "
+        "A chat already started keeps the sources it began with; /new starts one that includes it."
+    )
+
+
 def repositories(history, argument):
+    added = add_source(history, argument) if argument.strip() else None
     listing = history.read(["registry", "roots", "list", "--json"])
     discovery = history.read(["registry", "roots", "discover", "--json"])
     readiness = history.read(["coordinate", "access", "--json"])
@@ -453,17 +481,14 @@ def repositories(history, argument):
     if not discovery.get("complete", False):
         codes = sorted({row.get("code", "incomplete") for row in discovery.get("diagnostics", [])})
         lines.append("Discovery is incomplete" + (": " + ", ".join(codes) if codes else "."))
-    if argument.strip():
-        lines.append(
-            "The supplied path was not registered. Configure roots once with `autocode registry roots add PATH` or a standalone checkout with `autocode registry repositories add PATH`."
-        )
     return (
-        "Repositories available for automatic discovery:\n"
+        (f"{added}\n" if added else "")
+        + "Repositories available for automatic discovery:\n"
         + "\n".join(lines)
         + (
             "\nGitHub authentication is available; write access is checked when selecting a repository."
             if access["configured"]
             else "\nGitHub authentication is missing: use gh auth login, GITHUB_TOKEN or GH_TOKEN before starting automatic delivery."
         )
-        + "\nAutoCode discovers relevant repositories from each bug. Configure source locations once; no repository list is needed per task."
+        + "\nType /repos PATH to add a folder of checkouts, or one checkout; AutoCode then finds the repositories each request needs."
     )

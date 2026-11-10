@@ -629,27 +629,25 @@ class CoordinatedDisplayTests(unittest.TestCase):
         self.assertEqual("/shared/autocode", explicit["AUTOCODE_SOURCE_CATALOG_HOME"])
         self.assertEqual("/shared/autocode", explicit["AUTOCODE_HOME"])
 
-    def test_repositories_command_reads_the_shared_catalog_without_registering_a_bug_specific_path(self):
-        history = Mock()
-        history.read.side_effect = [
-            {
-                "catalog": "/home/user/.autocode/source-catalog.json",
-                "roots": [{"path": "/work/services"}],
-                "repositories": [{"path": "/work/standalone/history"}],
-            },
-            {
-                "complete": True,
-                "diagnostics": [],
-                "repositories": [
-                    {
-                        "path": "/work/services/api",
-                        "candidates": [{"path": "/work/services/api", "head": "abc123"}],
-                    }
-                ],
-            },
-            {"github": {"configured": True}},
-        ]
-        text = coordination.repositories(history, "/tmp/one-off-repository")
+    LISTING = {
+        "catalog": "/home/user/.autocode/source-catalog.json",
+        "roots": [{"path": "/work/services"}],
+        "repositories": [{"path": "/work/standalone/history"}],
+    }
+    DISCOVERY = {
+        "complete": True,
+        "diagnostics": [],
+        "repositories": [{"path": "/work/services/api", "candidates": [{"path": "/work/services/api", "head": "abc"}]}],
+    }
+
+    def catalog_history(self, workspace, *added):
+        history = Mock(workspace=Path(workspace))
+        history.read.side_effect = [*added, self.LISTING, self.DISCOVERY, {"github": {"configured": True}}]
+        return history
+
+    def test_repositories_command_reads_the_shared_catalog(self):
+        history = self.catalog_history("/tmp")
+        text = coordination.repositories(history, "")
         self.assertEqual(
             [
                 ["registry", "roots", "list", "--json"],
@@ -660,7 +658,52 @@ class CoordinatedDisplayTests(unittest.TestCase):
         )
         self.assertIn("/work/services/api", text)
         self.assertIn("/work/standalone/history", text)
-        self.assertIn("configure", text.lower())
+        self.assertIn("Type /repos PATH to add a folder", text)
+
+    def test_repos_path_adds_a_checkout_or_a_folder_of_checkouts_the_person_typed(self):
+        """A chat started outside the code had no way to reach it: /repos PATH only said "not registered"."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            (root / "services" / "dns" / ".git").mkdir(parents=True)
+            checkout = root / "services" / "dns"
+
+            history = self.catalog_history(root, {"operation": "repository-add", "already_registered": False})
+            text = coordination.repositories(history, str(checkout))
+            self.assertEqual(
+                ["registry", "repositories", "add", str(checkout), "--json"], history.read.call_args_list[0].args[0]
+            )
+            self.assertTrue(text.startswith(f"Added {checkout} as a repository: AutoCode can read it"), text)
+            self.assertIn("/new starts one that includes it", text)
+
+            # A folder that is not itself a checkout is a source root, and a relative path is the project's.
+            history = self.catalog_history(root, {"operation": "roots-add", "already_registered": False})
+            text = coordination.repositories(history, "services")
+            self.assertEqual(
+                ["registry", "roots", "add", str(root / "services"), "--json"], history.read.call_args_list[0].args[0]
+            )
+            self.assertIn(f"Added {root / 'services'} as a source folder", text)
+
+            history = self.catalog_history(root, {"operation": "roots-add", "already_registered": True})
+            self.assertIn(
+                "is already a source folder AutoCode can read", coordination.repositories(history, "services")
+            )
+
+            refused = {"error": {"code": "source_catalog_error", "message": "Source location is unavailable"}}
+            history = self.catalog_history(root, refused)
+            self.assertIn(
+                "was not added: Source location is unavailable", coordination.repositories(history, "services")
+            )
+
+            # Nothing is registered for a folder that does not exist; the listing still shows what is there.
+            history = self.catalog_history(root)
+            text = coordination.repositories(history, "missing")
+            self.assertTrue(text.startswith("There is no folder at missing; nothing was added."), text)
+            self.assertNotIn("add", [word for call in history.read.call_args_list for word in call.args[0]])
+
+            with patch.dict(os.environ, {"HOME": str(root)}):
+                history = self.catalog_history(root, {"operation": "roots-add"})
+                coordination.repositories(history, "~/services")
+            self.assertEqual(str(root / "services"), history.read.call_args_list[0].args[0][3], "~ is the home folder")
 
     def test_approval_display_includes_each_member_location_revision_role_and_grounding(self):
         root = Path("/work/history")
