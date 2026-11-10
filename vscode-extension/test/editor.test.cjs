@@ -451,9 +451,14 @@ function stageView(chosen = null) {
 
 test('stage models lists the backend new chats run on and saves only the stage view\'s own command', async (t) => {
   const calls = [];
+  const folders = [];
   let chosen = null;
-  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+  // The core resolves the backend for its working directory, so every stage call runs in the folder new chats start in.
+  t.after(() => { host.vscode.workspace.workspaceFolders = undefined; });
+  host.vscode.workspace.workspaceFolders = [{ name: 'shop', uri: { fsPath: '/work/shop' } }, { name: 'docs', uri: { fsPath: '/work/docs' } }];
+  t.mock.method(cli, 'invoke', async (settings, argv) => {
     calls.push(argv);
+    folders.push(settings.cwd);
     if (argv[1] !== 'list') chosen = argv[1] === 'set' ? { model: argv.at(-3), effort: argv.at(-1) } : null;
     return { ...ok, stdout: JSON.stringify(stageView(chosen)) };
   });
@@ -481,11 +486,14 @@ test('stage models lists the backend new chats run on and saves only the stage v
   panel.webview.receive({ type: 'reset', stage: 'terra' }); await flush();
   assert.deepEqual(calls.at(-1), ['stages', 'reset', 'terra', '--backend', 'claude', '--json']);
   assert.equal(panel.webview.messages.at(-1).note, 'The Builder is back to its default.');
+  assert.deepEqual([...new Set(folders)], ['/work/shop'], 'list, set and reset all run in the first open folder');
 });
 
 test('stage models shows the core\'s refusal and lists without a backend when none was chosen', async (t) => {
   const calls = [];
-  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+  host.vscode.workspace.workspaceFolders = undefined;
+  t.mock.method(cli, 'invoke', async (settings, argv) => {
+    assert.equal(settings.cwd, undefined, 'with no folder open the CLI keeps its own directory');
     calls.push(argv);
     return argv[1] === 'set' ? { ...ok, code: 2, stderr: 'autocode stages: the Tester runs sonnet\n' } : { ...ok, stdout: JSON.stringify(stageView()) };
   });
@@ -1242,7 +1250,7 @@ test('composer model, variant and usage update on polling without losing the dra
   assert.equal(field.selectionStart, 5);
   assert.equal(details.open, false);
   ui.chat.show(); await flush();
-  assert.match(ui.document.querySelector('#model-info').textContent, /when a run starts/);
+  assert.match(ui.document.querySelector('#model-info').textContent, /A new chat runs the models in Stage models; they are listed here when a run starts/);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /Tokens not reported/);
 });
 
@@ -1257,6 +1265,9 @@ test('all configured jobs render before use and polling keeps historical models 
   const ui = await openChat(t, initial);
   assert.deepEqual([...ui.document.querySelectorAll('#configured-models .model-job')].map((node) => node.textContent),
     ['Requirements', 'Plan Reviewer', 'Builder', 'Tester', 'Completion Reviewer']);
+  // A started chat keeps its routes: the section says so, so a Stage models change is not expected here.
+  assert.equal(ui.document.querySelector('#configured-models .model-caption').textContent, "This chat's models");
+  assert.match(ui.document.querySelector('#configured-models .model-note').textContent, /Fixed when this chat started; a change in Stage models applies to new chats/);
   assert.match(ui.document.querySelector('#model-summary').textContent, /5 configured roles/);
   assert.equal(ui.document.querySelector('#used-models'), null);
   ui.type('Keep my draft while all models update');

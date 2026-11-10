@@ -3,7 +3,21 @@ import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { invoke, tail } from "./core/cli";
 import { backendArgs, currentRoute, fillSet, readStages, type StageView } from "./core/stages";
-import { readSettings, routeKeyOf } from "./settings";
+import { readSettings, routeKeyOf, type Settings } from "./settings";
+
+/**
+ * The CLI options for a stage command, run in the folder new chats start in.
+ *
+ * `autocode stages` resolves the backend and lists the models for its working directory, as a new
+ * run does for its workspace (the project's `.autocode/config.toml` engine, a project's model
+ * listing). Run from the editor's own directory, it could show and save the choices of another
+ * backend than the one new chats here run on. With several folders the chat asks which one; the
+ * panel takes the first.
+ */
+export function inFolder(settings: Settings): Settings {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  return folder ? { ...settings, cwd: folder } : settings;
+}
 
 export class StagesPanel implements vscode.Disposable {
   private panel?: vscode.WebviewPanel;
@@ -33,7 +47,7 @@ export class StagesPanel implements vscode.Disposable {
 
   private async refresh(): Promise<void> {
     const settings = readSettings();
-    const result = await invoke(settings, ["stages", "list", "--json", ...backendArgs(settings.runOptions, routeKeyOf(settings))]);
+    const result = await invoke(inFolder(settings), ["stages", "list", "--json", ...backendArgs(settings.runOptions, routeKeyOf(settings))]);
     if (result.code !== 0) throw new Error(tail(result));
     this.view = readStages(result.stdout);
     this.post();
@@ -53,7 +67,7 @@ export class StagesPanel implements vscode.Disposable {
       if (message.type === "set") argv = fillSet(stage, String(message.model ?? ""), String(message.effort ?? ""));
       else if (message.type === "reset") argv = stage.reset;
       if (!argv) return;
-      const result = await invoke(readSettings(), argv);
+      const result = await invoke(inFolder(readSettings()), argv);
       if (result.code !== 0) throw new Error(tail(result));
       this.view = readStages(result.stdout);
       this.note = message.type === "set"
