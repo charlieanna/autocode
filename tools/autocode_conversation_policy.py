@@ -23,8 +23,10 @@ from pathlib import Path
 
 try:
     from . import autocode_conversation as protocol
+    from . import autocode_names as names
 except ImportError:
     import autocode_conversation as protocol
+    import autocode_names as names
 
 ACK = "conversation_action"
 REQUEST_KIND = "autocode.conversation-action"
@@ -60,6 +62,8 @@ CREATION_VALUES = frozenset(
         "--evidence-provenance",
     }
 )
+# A role flag's new spelling (--builder-model for --terra-model) is accepted wherever the old one is.
+CREATION_VALUES = CREATION_VALUES | {spelling for value in CREATION_VALUES for spelling in names.spellings(value)}
 CREATION_SWITCHES = frozenset(
     {
         "--joint-planning",

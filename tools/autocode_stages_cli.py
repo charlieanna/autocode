@@ -38,6 +38,7 @@ ALIASES = {
     "tester": "sol",
     "completion-reviewer": "completion",
     "resolver": "astra",
+    "task-planner": "astra",
 }
 STAGE_NAMES = (*stage_choices.ORDER, *ALIASES)
 
