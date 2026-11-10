@@ -2932,7 +2932,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -4123,7 +4123,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4860,7 +4860,7 @@ three interpreters when the request also promises atomicity under contention:
 pinned supervisor transcript), each <code>null</code> when the request declares none. A failed
 <code>risk_acceptance</code> makes the replay's <code>verdict</code> <code>FAIL</code> even though the Tester's
 own checks passed (see <a href="../execution/#process-recovery-proof-for-declared-lifecycle-apis">Execution</a>).
-Each <code>findings</code> row also has <code>source</code>: <code>sol</code> (Tester), <code>astra</code> (Completion
+Each <code>findings</code> row also has <code>source</code>: <code>tester</code> (Tester), <code>task_planner</code> (Completion
 Reviewer) or <code>runner</code> (a failed runner lifecycle observation or, in a
 <code>--package</code> run, the files changed outside the package, one blocking row naming
 each path (<a href="../workflow/#monorepo-packages">Monorepo packages</a>)). No model
@@ -4884,7 +4884,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -5364,11 +5364,11 @@ bug-fix run's Investigator has reported (and for every other job); then:</p>
 </tr>
 <tr>
 <td><code>decisions</code></td>
-<td>One row for <code>astra_discovery</code> (the Planner's draft): <code>decision</code> is <code>"omitted"</code> or <code>"included"</code>, with its <code>reason</code>, and <code>covered_by</code> names what covers an omission (<code>runner:compact_draft</code>, <code>astra_challenge</code>, <code>person:approve_goal</code>, <code>runner:regression_proof</code>)</td>
+<td>One row for <code>draft_plan</code> (the Planner's draft): <code>decision</code> is <code>"omitted"</code> or <code>"included"</code>, with its <code>reason</code>, and <code>covered_by</code> names what covers an omission (<code>runner:compact_draft</code>, <code>review_plan</code>, <code>person:approve_goal</code>, <code>runner:regression_proof</code>)</td>
 </tr>
 <tr>
 <td><code>fallback</code></td>
-<td><code>null</code>, or <code>{"from": "astra_challenge", "reason": ..., "review_call_refunded": true/false}</code> once a review could not approve the compact draft and the run returned to the full path (the compact review's call is given back to the full path's allowance)</td>
+<td><code>null</code>, or <code>{"from": "review_plan", "reason": ..., "review_call_refunded": true/false}</code> once a review could not approve the compact draft and the run returned to the full path (the compact review's call is given back to the full path's allowance)</td>
 </tr>
 </tbody>
 </table>
@@ -5389,7 +5389,7 @@ passed over, placed after the stage that decided it:</p>
 <tbody>
 <tr>
 <td><code>stage</code></td>
-<td>The stage's code name (<code>requirements_gather</code>, <code>astra_discovery</code>, <code>glm_revise</code>, ...)</td>
+<td>The stage's code name (<code>requirements_gather</code>, <code>draft_plan</code>, <code>revise_plan</code>, ...)</td>
 </tr>
 <tr>
 <td><code>job</code></td>
@@ -5409,7 +5409,7 @@ passed over, placed after the stage that decided it:</p>
 </tr>
 <tr>
 <td><code>covered_by</code></td>
-<td>For a skipped stage, what still covers its job, in <code>stage_policy</code>'s terms (<code>astra_challenge</code>, <code>person:approve_goal</code>, <code>requirements_gather</code>, ...); <code>[]</code> for a stage that ran</td>
+<td>For a skipped stage, what still covers its job, in <code>stage_policy</code>'s terms (<code>review_plan</code>, <code>person:approve_goal</code>, <code>requirements_gather</code>, ...); <code>[]</code> for a stage that ran</td>
 </tr>
 <tr>
 <td><code>launches</code></td>
@@ -5423,11 +5423,11 @@ passed over, placed after the stage that decided it:</p>
 </table>
 <p>The skips recorded today are:</p>
 <ul>
-<li>the Planner's revision (<code>glm_revise</code>) and the final plan review (<code>astra_finalize</code>), when the Plan
+<li>the Planner's revision (<code>revise_plan</code>) and the final plan review (<code>finalize_plan</code>), when the Plan
   Reviewer approved the draft at a first-style review (<code>planning_depth.approved_early</code>);</li>
 <li>every stage after Requirements, when Requirements answered a discussion itself and the run finished
   on that answer;</li>
-<li>the Planner's draft (<code>astra_discovery</code>) on a saved compact bug-fix run (<code>stage_policy</code>).</li>
+<li>the Planner's draft (<code>draft_plan</code>) on a saved compact bug-fix run (<code>stage_policy</code>).</li>
 </ul>
 <p>A stage that launched is never shown as skipped. Whole stages are not reused, so no row says
 <code>reuse</code>: reused evidence inside a stage, such as a regression baseline or a report repair's
@@ -5852,7 +5852,7 @@ can name another model: <code>run.assign_model(role, model)</code> answers
 <code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code> with the view's token. The spec-first acceptance-test
 writer uses its own
 <code>route-acceptance_tester</code> question; an explicit answer changes only that saved
-writer route, leaving the later Tester (<code>sol</code>) and Completion Reviewer unchanged.
+writer route, leaving the later Tester (<code>tester</code>) and Completion Reviewer unchanged.
 A retained acceptance-writer timeout without a saved question is projected only
 from its matching archived timed-out attempt, source identity and launch configuration.
 This read changes no evidence and grants no retry authority. A model the

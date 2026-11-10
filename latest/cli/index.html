@@ -2410,7 +2410,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2567,7 +2567,7 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 </tr>
 <tr>
 <td><code>autocode stages [list\|choose\|set\|reset] [STAGE] [--model MODEL] [--effort LEVEL] [--backend NAME] [--workspace PATH] [--json]</code></td>
-<td>See and change the model and reasoning level each stage of a new task runs, kept per backend in <code>~/.config/autocode/stages.toml</code> (<a href="../models/#choosing-each-stages-model">Choosing each stage's model</a>). <code>list</code> (the default) shows each stage, what it does, and its model and level, marked as your choice or the default; <code>choose</code> asks for every stage in turn in a terminal, with advice on what suits it, and saves the answers together; <code>set STAGE --model MODEL --effort LEVEL</code> changes one stage (a stage is its route name, such as <code>terra</code>, or its job, such as <code>builder</code>), refusing a model the backend does not offer, a level the model does not take, or a model the stage's checker or producer runs; <code>reset [STAGE]</code> forgets one stage's choice, or every stage's. Without <code>--backend</code> it uses the backend a new run in <code>--workspace</code> would take. <code>--json</code> returns the view clients render as one dropdown per stage (<a href="../task-run/#stage-choices-for-clients">Stage choices for clients</a>). Every new task reads the choices before it begins; a flag or the project's <code>.autocode/config.toml</code> still wins, and a task already running keeps its own. It launches no model.</td>
+<td>See and change the model and reasoning level each stage of a new task runs, kept per backend in <code>~/.config/autocode/stages.toml</code> (<a href="../models/#choosing-each-stages-model">Choosing each stage's model</a>). <code>list</code> (the default) shows each stage, what it does, and its model and level, marked as your choice or the default; <code>choose</code> asks for every stage in turn in a terminal, with advice on what suits it, and saves the answers together; <code>set STAGE --model MODEL --effort LEVEL</code> changes one stage (a stage is its route name, such as <code>builder</code> or <code>plan_reviewer</code>, or its job, such as <code>plan-reviewer</code>; the old route names such as <code>terra</code> still work), refusing a model the backend does not offer, a level the model does not take, or a model the stage's checker or producer runs; <code>reset [STAGE]</code> forgets one stage's choice, or every stage's. Without <code>--backend</code> it uses the backend a new run in <code>--workspace</code> would take. <code>--json</code> returns the view clients render as one dropdown per stage (<a href="../task-run/#stage-choices-for-clients">Stage choices for clients</a>). Every new task reads the choices before it begins; a flag or the project's <code>.autocode/config.toml</code> still wins, and a task already running keeps its own. It launches no model.</td>
 </tr>
 <tr>
 <td><code>autocode doctor [--workspace PATH] [--engine opencode\|codex\|claude] [--json]</code></td>
@@ -2636,7 +2636,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2897,8 +2897,8 @@ not approve a plan or start a model.</p>
 <td>Answer a question the run is waiting on (repeatable; the status view's <code>needs.kind</code> is <code>answer</code>). Requires <code>--resolver-token</code>; <code>-</code> reads this run's current token (#2958). A finished run waits on none: the questions in its report take <code>--follow-up</code> (see <a href="#waiting-or-finished">Waiting or finished</a>).</td>
 </tr>
 <tr>
-<td><code>--answer route-sol=MODEL</code></td>
-<td>At a quota stop (<code>PAUSED_BUDGET</code>), a content-filter refusal (<code>PAUSED_CONTENT_FILTER</code>), an authenticated output-limit stop (<code>PAUSED_OUTPUT_CAP</code>) or a context-window stop (<code>PAUSED_CONTEXT_WINDOW</code>: the request no longer fit, or the provider compacted the conversation), name the model the stopped role continues on. Requires the current <code>--resolver-token</code>. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as <code>--abandon-stage</code> does and records a <code>route_assignment</code>; continue with <code>--resume-paused</code>. The resume-flag form is <code>--abandon-stage ATTEMPT</code>, then <code>--resume-paused --sol-model MODEL</code>. A stopped workflow job (<code>needs.kind</code> <code>retry_job</code> with <code>needs.route</code>) takes <code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code> instead: no resolver token, no <code>--abandon-stage</code>, no <code>--ROLE-model</code> flag; it issues a new job retry token, so continue with <code>--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN</code> (<a href="#waiting-or-finished">Waiting or finished</a>). See <a href="../models/#when-a-roles-quota-runs-out">Models</a>.</td>
+<td><code>--answer route-tester=MODEL</code></td>
+<td>At a quota stop (<code>PAUSED_BUDGET</code>), a content-filter refusal (<code>PAUSED_CONTENT_FILTER</code>), an authenticated output-limit stop (<code>PAUSED_OUTPUT_CAP</code>) or a context-window stop (<code>PAUSED_CONTEXT_WINDOW</code>: the request no longer fit, or the provider compacted the conversation), name the model the stopped role continues on. Requires the current <code>--resolver-token</code>. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as <code>--abandon-stage</code> does and records a <code>route_assignment</code>; continue with <code>--resume-paused</code>. The resume-flag form is <code>--abandon-stage ATTEMPT</code>, then <code>--resume-paused --tester-model MODEL</code>. A stopped workflow job (<code>needs.kind</code> <code>retry_job</code> with <code>needs.route</code>) takes <code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code> instead: no resolver token, no <code>--abandon-stage</code>, no <code>--ROLE-model</code> flag; it issues a new job retry token, so continue with <code>--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN</code> (<a href="#waiting-or-finished">Waiting or finished</a>). See <a href="../models/#when-a-roles-quota-runs-out">Models</a>.</td>
 </tr>
 <tr>
 <td><code>--answer effort-ROLE=EFFORT</code></td>
@@ -3129,14 +3129,14 @@ still require their own actions. Recovery eligibility and token checks are uncha
 </tr>
 <tr>
 <td><code>--retry-builder M2</code></td>
-<td>With <code>--resume-paused</code>, authorize one retry of the exhausted current serial milestone or stopped parallel members (not a member stopped by its provider's content filter or response output limit: answer its <code>route-terra</code> question; once that request was answered with information or left paused, <code>--retry-builder</code> asks the question again and launches nothing). Keeps failure history, model routes and verification gates; all workers must be stopped. A refused or output-limited member retry with settings saves nothing. A parallel member reruns on its saved Builder route, so a Builder model, provider or reasoning effort change with its retry is refused. A difference saved separately in the run's Builder settings also refuses the retry, naming both routes. Answer that member's open <code>route-terra</code> question to choose its model, or restore the run's Builder settings to the member's route separately before retrying.</td>
+<td>With <code>--resume-paused</code>, authorize one retry of the exhausted current serial milestone or stopped parallel members (not a member stopped by its provider's content filter or response output limit: answer its <code>route-builder</code> question; once that request was answered with information or left paused, <code>--retry-builder</code> asks the question again and launches nothing). Keeps failure history, model routes and verification gates; all workers must be stopped. A refused or output-limited member retry with settings saves nothing. A parallel member reruns on its saved Builder route, so a Builder model, provider or reasoning effort change with its retry is refused. A difference saved separately in the run's Builder settings also refuses the retry, naming both routes. Answer that member's open <code>route-builder</code> question to choose its model, or restore the run's Builder settings to the member's route separately before retrying.</td>
 </tr>
 <tr>
 <td><code>--reconcile-only TOKEN</code></td>
 <td>Metadata-only classification of an unfinished saved RUNNING attempt whose supervisor, keeper and provider are freshly confirmed dead. Take the exact action and private token offered by status; <code>-</code> reads <code>AUTOCODE_RECONCILE_ONLY_TOKEN</code>. A successful saved classification exits 0 while the run remains paused. Records an uncertain-stage pause without configuring, launching, adopting or retrying a provider. Retains work, usage, routes and limits. Refuses a changed checkpoint, live/unknown supervision, pending stop or native visual/durable service execution. Cannot combine with settings or other actions.</td>
 </tr>
 <tr>
-<td><code>--abandon-stage '001/terra-01'</code></td>
+<td><code>--abandon-stage '001/builder-01'</code></td>
 <td>Archive a stopped attempt, keep partial edits and logs.</td>
 </tr>
 <tr>
@@ -3246,7 +3246,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3291,7 +3291,7 @@ spent time and recovery allowances remain intact.</p>
 </tr>
 <tr>
 <td><code>--review-routing separate\|combined</code></td>
-<td>New runs only. <code>separate</code> keeps the default Tester followed by Completion Reviewer. <code>combined</code> uses the configured Completion Reviewer model, effort and session for one independent testing/completion call (<code>astra_checkpoint</code>), with the separate Tester available for concrete escalation. This replaces separate enforced milestone-checkpoint routing and cannot be combined with explicit <code>--milestone-checkpoints</code>. The policy is included in the displayed, hashed plan and activated only by approval of that exact plan. Regression proof, changed-code evidence, independent models, required human reviews and limits still apply. Saved runs keep their routing, including across follow-ups.</td>
+<td>New runs only. <code>separate</code> keeps the default Tester followed by Completion Reviewer. <code>combined</code> uses the configured Completion Reviewer model, effort and session for one independent testing/completion call (<code>review_checkpoint</code>), with the separate Tester available for concrete escalation. This replaces separate enforced milestone-checkpoint routing and cannot be combined with explicit <code>--milestone-checkpoints</code>. The policy is included in the displayed, hashed plan and activated only by approval of that exact plan. Regression proof, changed-code evidence, independent models, required human reviews and limits still apply. Saved runs keep their routing, including across follow-ups.</td>
 </tr>
 <tr>
 <td><code>--spec-first</code> / <code>--no-spec-first</code></td>
@@ -3343,11 +3343,11 @@ spent time and recovery allowances remain intact.</p>
 </tr>
 <tr>
 <td><code>--resolver-model</code>, <code>--resolver-reasoning-effort</code></td>
-<td>Override the saved Resolver model or reasoning effort without changing its engine. OpenCode-engine runs only: a Codex-engine run, or a saved run without joint planning, ignores them, and its Resolver starts from the <code>astra</code> route (<code>--astra-model</code>). See <a href="../models/#default-models">Models</a>.</td>
+<td>Override the saved Resolver model or reasoning effort without changing its engine. OpenCode-engine runs only: a Codex-engine run, or a saved run without joint planning, ignores them, and its Resolver starts from the <code>task_planner</code> route (<code>--task-planner-model</code>). See <a href="../models/#default-models">Models</a>.</td>
 </tr>
 <tr>
-<td><code>--pin-model-role astra\|terra\|sol\|completion</code></td>
-<td>Keep the selected role model and reasoning effort instead of escalating automatically; repeat for multiple roles. Of these routes only <code>terra</code>, <code>sol</code> and <code>completion</code> have an effort ladder; the Resolver's own route climbs GPT-6 Astra and has no choice here. <code>astra</code> pins the route the Resolver's route is copied from, so on a new run it pins the Resolver too; once a run's Resolver route exists (a Resolver stage ran, or <code>--resolver-model</code> created it), no flag pins it.</td>
+<td><code>--pin-model-role task_planner\|builder\|tester\|completion</code></td>
+<td>Keep the selected role model and reasoning effort instead of escalating automatically; repeat for multiple roles. Of these routes only <code>builder</code>, <code>tester</code> and <code>completion</code> have an effort ladder; the Resolver's own route climbs GPT-6 Astra and has no choice here. <code>task_planner</code> pins the route the Resolver's route is copied from, so on a new run it pins the Resolver too; once a run's Resolver route exists (a Resolver stage ran, or <code>--resolver-model</code> created it), no flag pins it.</td>
 </tr>
 <tr>
 <td><code>--migrate-only</code></td>
@@ -3373,7 +3373,7 @@ created before this, add the line <code>!/config.toml</code> to it, or <code>git
 <pre><code class="language-toml">engine = &quot;opencode&quot;
 test-command = &quot;python -m pytest -q&quot;
 sol-model = &quot;openai/gpt-6-sol&quot;
-terra-reasoning-effort = &quot;high&quot;
+builder-reasoning-effort = &quot;high&quot;
 max-seconds = 7200
 </code></pre>
 <p>Each key is a flag's name without its leading dashes, and takes the values that
@@ -3461,8 +3461,8 @@ including one started from a design handoff with <code>--ui-run</code> and no ty
 a saved run keeps the settings it started with, so changing the file never alters
 a run in progress.</p>
 <p><code>engine = "claude"</code> is allowed: it selects the built-in Claude Code provider, which runs AutoCode's
-fixed command line, as <code>engine = "codex"</code> does. A project cannot choose the provider (<code>provider</code>, or a role's <code>astra-provider</code>,
-<code>terra-provider</code>, <code>sol-provider</code>, <code>completion-provider</code>): it runs a command you
+fixed command line, as <code>engine = "codex"</code> does. A project cannot choose the provider (<code>provider</code>, or a role's <code>task-planner-provider</code>,
+<code>builder-provider</code>, <code>tester-provider</code>, <code>completion-provider</code>): it runs a command you
 installed, so it comes from <code>--provider</code>, <code>AUTOCODE_PROVIDER</code> or
 <code>default_provider</code> in <code>~/.config/autocode/config.toml</code>. Nor <code>task-preflight</code>, the
 operator's prerequisite manifest. A file that names either, an unknown key, or a
@@ -3810,8 +3810,8 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode ui</code></td>
-<td><code>--planner-model</code>, <code>--astra-model</code>, <code>--terra-model</code>, <code>--sol-model</code>, <code>--astra-reasoning-effort</code></td>
-<td>Requirements/Planner, Plan Reviewer, Builder and Tester model choices; review reasoning effort.</td>
+<td><code>--planner-model</code>, <code>--task-planner-model</code>, <code>--builder-model</code>, <code>--tester-model</code>, <code>--task-planner-reasoning-effort</code>; <code>--astra-model</code>, <code>--terra-model</code>, <code>--sol-model</code>, <code>--astra-reasoning-effort</code></td>
+<td>Requirements/Planner, Plan Reviewer, Builder and Tester model choices; review reasoning effort. The second group are the old spellings, kept as aliases.</td>
 </tr>
 <tr>
 <td><code>autocode ui</code></td>
@@ -4291,7 +4291,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,

@@ -1999,7 +1999,7 @@ but isolates the test code from the Builder entirely (#702):</p>
 <li>The runner archives the tests in evidence and removes them from the workspace.</li>
 <li>The Builder gets no prompt note naming the test files, and workspace protection is not applied because the
   files are not in the workspace. The Builder never sees the test implementation.</li>
-<li>Before independent validation (<code>sol</code>, <code>astra_checkpoint</code>) and completion review (<code>astra_review</code>),
+<li>Before independent validation (<code>tester</code>, <code>review_checkpoint</code>) and completion review (<code>review_completion</code>),
   the runner executes the archived tests in a candidate scratch worktree.</li>
 <li>Any test failure in the candidate scratch tree opens a blocking runner finding (<code>source="runner"</code>),
   preventing completion and appearing in open findings for review. When tests pass on candidate, the finding

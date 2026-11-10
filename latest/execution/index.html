@@ -2422,7 +2422,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2476,7 +2476,7 @@ are retained rather than rerun. Other settings can accompany an accepted retry a
 the continuing run; a refused retry saves none of that invocation's settings. A parallel member
 reruns on the Builder route saved in its own run, so a Builder model, provider or reasoning
 effort change with <code>--retry-builder</code> is refused. A member stopped on quota, content-filter refusal or an authenticated output limit
-asks <code>route-terra</code>; its answer changes that route.
+asks <code>route-builder</code>; its answer changes that route.
 The retry also refuses a difference saved earlier in the run's Builder settings, naming
 both routes. Answer that member's open model question to choose its model, or restore the
 run's Builder settings to the member's route separately before retrying.
@@ -2791,17 +2791,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3082,7 +3082,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -3577,7 +3577,7 @@ saved identity, and records the move once in <code>configuration_changes</code>.
 <p>To retain partial edits and set aside a stopped attempt manually:</p>
 <pre><code class="language-sh">autocode --workspace /path/to/project --run-dir /path/to/run --status
 # Copy the exact attempt_id from that status, after inspecting its events and edits:
-autocode --workspace /path/to/project --run-dir /path/to/run --abandon-stage '001/terra-01'
+autocode --workspace /path/to/project --run-dir /path/to/run --abandon-stage '001/builder-01'
 autocode --workspace /path/to/project --run-dir /path/to/run --resume-paused
 </code></pre>
 <p>Abandoning a stage preserves its logs, source snapshots and partial edits, clears that
@@ -3866,7 +3866,7 @@ recovery flag) consumes it, without a provider call:</p>
   whichever pause carries them, <code>PAUSED_RESOLVER</code> included. Where the CLI
   accepts a control at that stop, the stop reason and status name that exact
   command; after a content-filter refusal the resume it names changes the
-  role's model (<code>--sol-model MODEL</code>, for example), since the same model would
+  role's model (<code>--tester-model MODEL</code>, for example), since the same model would
   likely refuse again. Later resumes repeat the decision without evaluating
   again.</li>
 <li>If the cause lies outside the run (<code>PAUSED_PROVIDER_CAPACITY</code>,

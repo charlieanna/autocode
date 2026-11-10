@@ -2378,7 +2378,7 @@
 
 
 <h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/README.md">← Back to README</a></p>
 <p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
 (<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
 <h2 id="you-do-not-need-to-choose-a-model">You do not need to choose a model<a class="headerlink" href="#you-do-not-need-to-choose-a-model" title="Permanent link">&para;</a></h2>
@@ -2494,15 +2494,15 @@ or broader tool grants with the bound.</p>
 is accepted but is optional for new runs:</p>
 <pre><code class="language-sh">python3 tools/autocode.py &quot;Your rough idea&quot; --workspace /path/to/project
 </code></pre>
-<p>Override the planning roles with <code>--requirements-model</code>, <code>--glm-model</code>, and
+<p>Override the planning roles with <code>--requirements-model</code>, <code>--planner-model</code>, and
 <code>--plan-reviewer-model</code> (plus their reasoning-effort flags). For a new task without
-a conversation-handoff profile, <code>--glm-model</code> also selects the initial Requirements
+a conversation-handoff profile, <code>--planner-model</code> also selects the initial Requirements
 model unless <code>--requirements-model</code> selects it separately. Conversation handoffs
 apply an independent profile: Requirements keeps that profile's default unless
 <code>--requirements-model</code> selects it explicitly. Resuming keeps the saved Requirements
 model unless <code>--requirements-model</code> explicitly changes it.
-Override execution roles with <code>--astra-model</code>, <code>--terra-model</code>,
-<code>--sol-model</code>, or <code>--completion-model</code> using a provider/model ID from <code>opencode models</code>, including
+Override execution roles with <code>--task-planner-model</code>, <code>--builder-model</code>,
+<code>--tester-model</code>, or <code>--completion-model</code> using a provider/model ID from <code>opencode models</code>, including
 <code>openai/…</code> with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
 engines and sessions; no existing run is migrated by a dashboard selection.
 If an account offers only one model, <code>--single-model MODEL</code> assigns it to all
@@ -2668,14 +2668,14 @@ KiloCode and Claude Code. Passing applies to that recorded tool/model/configurat
 subscription while the Validator audits and the Builder codes via another compatible provider:</p>
 <pre><code class="language-sh">python3 tools/autocode.py &quot;Build a greeting CLI&quot; --workspace /path/to/project \
   --engine codex \
-  --astra-model gpt-6-astra \
-  --sol-model audit-model --sol-provider other_provider \
-  --terra-model implementation-model --terra-provider other_provider --reasoning-effort high
+  --task-planner-model gpt-6-astra \
+  --tester-model audit-model --tester-provider other_provider \
+  --builder-model implementation-model --builder-provider other_provider --reasoning-effort high
 </code></pre>
 <p>Each role can also have its own reasoning effort. For example, use the Astra route at
 extra-high (<code>xhigh</code>) for read-only discovery and planning:</p>
 <pre><code class="language-sh">python3 tools/autocode.py &quot;Build a greeting CLI&quot; --workspace /path/to/project \
-  --engine codex --astra-model gpt-6-astra --astra-reasoning-effort xhigh
+  --engine codex --task-planner-model gpt-6-astra --task-planner-reasoning-effort xhigh
 </code></pre>
 <p>Role-specific effort overrides the shared <code>--reasoning-effort</code> value. All selected
 models and providers are saved in the run checkpoint, so resumed runs retain this
@@ -2726,8 +2726,8 @@ JSON report; ...</code> and then:</p>
 </ol>
 <p><strong>Roles affected.</strong> Every stage's final message is checked, so every role is
 covered. The defect was seen (2026-10-05) on the roles one profile ran through
-Codex with the <code>gocode</code> provider: the Plan Reviewer (<code>astra_challenge</code>,
-<code>astra_finalize</code>) and the Tester (<code>sol</code>). Its Builder and Requirements ran
+Codex with the <code>gocode</code> provider: the Plan Reviewer (<code>review_plan</code>,
+<code>finalize_plan</code>) and the Tester (<code>tester</code>). Its Builder and Requirements ran
 through another tool and did not show it. No role is qualified on a route that
 shows the defect: if a role keeps stopping this way, run it on another model,
 and check a new tool/model pair with the
@@ -2933,7 +2933,7 @@ ids. <code>components</code> takes <code>--provider claude</code> rather than <c
 <code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
 scenario's <code>--out</code> outside this repository. In a root cloud container, the CLI drops the two
 prohibited capabilities automatically; see <a href="#provider-process-ownership">provider process ownership</a>
-for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
 <h2 id="add-a-tool">Add a tool<a class="headerlink" href="#add-a-tool" title="Permanent link">&para;</a></h2>
 <p>OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
 package. <code>--provider &lt;name&gt;</code> loads <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> and,
@@ -2966,9 +2966,9 @@ An explicit reviewer effort, including a project effort setting, wins. Saved
 runs without effort provenance retain their existing effort on upgrade; model
 pins alone do not establish effort provenance. The review-call allowance still
 applies independently of this effort choice.</p>
-<p><code>[roles]</code> names the routes <code>task_planner</code>, <code>terra</code>, <code>sol</code>, <code>completion</code>, <code>planner</code> and
-<code>plan_reviewer</code>. A config written before the rename may still say <code>astra</code> for <code>task_planner</code>
-and <code>glm</code> for <code>planner</code>; it keeps working, but one route spelled both ways is refused.
+<p><code>[roles]</code> names the routes <code>task_planner</code>, <code>builder</code>, <code>tester</code>, <code>completion</code>, <code>planner</code> and
+<code>plan_reviewer</code>. A config written before the rename may still say <code>astra</code>, <code>glm</code>, <code>terra</code> or <code>sol</code>
+for <code>task_planner</code>, <code>planner</code>, <code>builder</code> or <code>tester</code>; it keeps working, but one route spelled both ways is refused.
 <code>[roles]</code> must keep each verifier on a different model family from what it checks
 (Planner/Plan Reviewer, Builder/Validator, Builder/Completion Owner); a run whose
 roles break that pauses with <code>PAUSED_CROSS_MODEL</code> before any agent is launched.</p>
@@ -2989,7 +2989,7 @@ Changing the config file or the tool version pauses a saved run.</p>
 <p>For a <strong>new</strong> run on the OpenCode facade engine (<code>--engine opencode</code> with any
 provider, or <code>--engine claude</code>), repeat <code>--role-transport ROLE=PROVIDER</code> to run
 only those roles on another connected tool. <code>ROLE</code> is the existing CLI code name,
-such as <code>sol</code> or <code>completion</code>; <code>PROVIDER</code> names a tool with its own identity: a
+such as <code>tester</code> or <code>completion</code>; <code>PROVIDER</code> names a tool with its own identity: a
 registered TOML config such as <code>kilocode</code>, the built-in <code>claude</code> provider, or the
 <code>autocode</code> direct connection. It cannot name the run's own tool, and <code>--engine
 codex</code> keeps Codex's own transport for every role. Each selection requires an
@@ -2999,11 +2999,11 @@ catalogue, including a bare ID when the tool publishes one:</p>
 autocode models --provider kilocode
 # Replace the placeholder with an ID actually offered by the second catalogue.
 autocode &quot;Your task&quot; --engine opencode --provider opencode \
-  --role-transport sol=kilocode --sol-model '&lt;MODEL_FROM_KILO_CATALOGUE&gt;' \
-  --sol-reasoning-effort high
+  --role-transport tester=kilocode --tester-model '&lt;MODEL_FROM_KILO_CATALOGUE&gt;' \
+  --tester-reasoning-effort high
 # A run on Claude Code with the Tester on a Kilo account (#2049).
 autocode &quot;Your task&quot; --engine claude \
-  --role-transport sol=kilocode --sol-model '&lt;MODEL_FROM_KILO_CATALOGUE&gt;'
+  --role-transport tester=kilocode --tester-model '&lt;MODEL_FROM_KILO_CATALOGUE&gt;'
 </code></pre>
 <p>The other roles retain their routes selected by the ordinary model flags and
 OpenCode defaults. Roles derived mid-run (such as the Design Reviewer's Architect,
@@ -3151,7 +3151,7 @@ from the config's own <code>planner</code> model and effort. For a new provider-
 independent of <code>--planner-reasoning-effort</code>; use <code>--requirements-reasoning-effort</code> to
 change it. OpenCode keeps its separately defined Requirements defaults when
 neither model override is given.</p>
-<p>An existing Requirements route keeps its saved model when <code>--glm-model</code> changes
+<p>An existing Requirements route keeps its saved model when <code>--planner-model</code> changes
 the Planner. Enabling joint planning at a supported migration boundary uses the
 same fallback only when creating a missing Requirements route. Pass
 <code>--requirements-model</code> to explicitly change that role, or <code>--single-model</code> on a
@@ -3445,7 +3445,7 @@ dashboard; its model pickers list that tool's models.</p>
 <!-- BEGIN provider conformance matrix -->
 
 <p>Generated by <code>python tools/provider_matrix.py --write</code> from
-<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+<a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
 A version the offline conformance suite has not been run against is
 <code>untested</code> — never guess. Run the suite with
 <code>python tools/provider_conformance.py --fake</code> (no model calls).</p>

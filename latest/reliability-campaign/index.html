@@ -1934,15 +1934,15 @@
 
 
 <h1 id="a-pinned-reliability-campaign-declaration">A pinned reliability campaign declaration<a class="headerlink" href="#a-pinned-reliability-campaign-declaration" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/arena/campaign.json"><code>arena/campaign.json</code></a> is the <strong>PLANNED</strong> first
+<p><a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/arena/campaign.json"><code>arena/campaign.json</code></a> is the <strong>PLANNED</strong> first
 protocol slice of <a href="https://github.com/charlieanna/autocode/issues/634">#634</a>.
 It declares 13 tasks and two repetitions each: 26 scheduled rows. It contains
 no run results, and no campaign has been executed for it. It is a measurement
 specification, not a command accepted by the current Arena or scenario CLI.
-<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/tools/reliability_ledger.py"><code>tools/reliability_ledger.py</code></a> checks a
+<a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/tools/reliability_ledger.py"><code>tools/reliability_ledger.py</code></a> checks a
 published attempt ledger against it and reports the portfolio
 (<a href="#attempt-ledger-and-portfolio-report">below</a>), and
-<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/tools/reliability_import.py"><code>tools/reliability_import.py</code></a> fills ledger
+<a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/tools/reliability_import.py"><code>tools/reliability_import.py</code></a> fills ledger
 rows from scenario and Arena result records
 (<a href="#importing-native-results">below</a>). Automatic execution and fresh holdout
 rotation remain separate work in #634.</p>
@@ -2163,7 +2163,7 @@ rescored. What a record does not establish stays null:</p>
   names every model, a role's own effort flag overrides <code>--reasoning-effort</code>
   (which the scenario harness writes as the builder's effort), and
   <code>--resolver-model</code> and <code>--resolver-reasoning-effort</code> override the resolver's
-  <code>--astra-*</code> flags. It also compares the options as a whole with the declared
+  <code>--task-planner-*</code> flags. It also compares the options as a whole with the declared
   configuration: the scenario harness's flags for the profile (<code>--provider</code>,
   <code>--joint-planning</code>, the profile's extra options and the role flags) and the
   task's <code>--max-iterations</code> cap. Each option that is missing, added or set to
