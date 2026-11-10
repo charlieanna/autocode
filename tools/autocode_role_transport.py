@@ -39,13 +39,10 @@ def resume_session(state: RunState, role, stage, joint, report_only, supports, r
 
 
 DERIVED_ROLES: dict[str, tuple[str, ...]] = {
-    "analyst": ("plan_reviewer", "astra"),
-    "investigator": ("plan_reviewer", "astra"),
     "architect": ("plan_reviewer", "astra"),
     "acceptance_tester": ("sol",),
     "resolver": ("astra",),
     "stuck_investigator": ("plan_reviewer", "astra"),
-    "utility": ("plan_reviewer", "requirements", "astra"),
 }
 
 

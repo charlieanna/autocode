@@ -10,7 +10,6 @@ from pathlib import Path
 import autocode_process as processes
 from autocode_taskrun import TaskRun
 
-from tests import legacy_bugfix_fixture
 from tests import test_subprocess as subprocess_test_support
 
 
@@ -98,9 +97,6 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
             env=self.env,
             cwd=self.root,
             timeout=60,
-            # A new question goes through the full pipeline (#3010); this run is launched as an earlier
-            # runtime saved it, at the Analyst job whose idle stop the current runtime still settles.
-            command=legacy_bugfix_fixture.COMMAND,
         )
         status = subprocess.run(
             [*run.command, "--status", "--workspace", str(self.project), "--run-dir", str(run.run_dir)],
@@ -113,7 +109,8 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         )
         envelope = json.loads(status.stdout)
         view = envelope["view"]
-        self.assertEqual("PAUSED_JOB_FAILURE", view["status"], view.get("stop_reason"))
+        # The idle stop is an operational stop: AutoCode's bounded recoveries run, then it waits.
+        self.assertEqual("WAITING_FOR_USER", view["status"], view.get("stop_reason"))
         stop_diagnostic = view["stop_reason"] + "\nNative name probes: " + json.dumps(native_names)
         if "No new provider activity" not in stop_diagnostic:
             observed = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]
@@ -125,7 +122,6 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
                         json.loads(receipt_path.read_text()).get("processes")
                     )
         self.assertIn("No new provider activity", view["stop_reason"], stop_diagnostic)
-        self.assertEqual("retry_job", view["needs"]["kind"])
         self.assertFalse(view["done"])
         self.assertIsNone(view.get("approved_contract"))
         limits = envelope["settings"]["limits"]
@@ -138,16 +134,14 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         )
         self.assertEqual("fixture/astra", envelope["settings"]["roles"]["astra"]["model"])
         attempts = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]
-        self.assertEqual(1, len(attempts), "No automatic provider replay")
         attempt = attempts[0]
-        self.assertEqual("answer_question", attempt["stage"])
+        self.assertTrue(all(row["timed_out"] for row in attempts), attempts)
         self.assertTrue(attempt["timed_out"])
         self.assertFalse(attempt["active"])
         events = Path(attempt["events"])
         rows = [json.loads(line) for line in events.read_text().splitlines()]
         self.assertEqual(3, sum(row["type"] == "tool_use" for row in rows))
         self.assertEqual("pending-model", rows[-1]["part"]["id"])
-        self.assertEqual(1, len(probe.read_text().splitlines()))
         # Job failure archives its event prefix; the keeper receipt remains at
         # the original iteration-level artifact path named by that event stem.
         receipt = json.loads((events.parent.parent / events.with_suffix(".supervision.json").name).read_text())

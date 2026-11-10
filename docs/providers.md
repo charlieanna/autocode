@@ -687,8 +687,8 @@ autocode "Your task" --engine claude \
 ```
 
 The other roles retain their routes selected by the ordinary model flags and
-OpenCode defaults. Roles derived mid-run (such as Analyst, Investigator, Architect,
-Acceptance Tester, Resolver, Stuck Investigator, or Utility) inherit the external
+OpenCode defaults. Roles derived mid-run (such as the Design Reviewer's Architect,
+Acceptance Tester, Resolver or Stuck Investigator) inherit the external
 tool transport identity bound to their source role when their own route is on that
 tool. A derived role whose own route stays on the run's tool, such as a Resolver
 given its own `--resolver-model` on OpenCode, inherits nothing and runs there. Keep the GLM and MiMo role flags when using a profile that

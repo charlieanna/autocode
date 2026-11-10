@@ -1,11 +1,9 @@
 """Read-only diagnosis and bounded repair planning; never writes application code.
 
 Owns three stages: ``astra_resolve`` (why did a reviewed build fail, and what bounded
-rework fixes it), the bug-fix workflow's ``investigate_bug`` (autocode_bug_job:
-reproduce a reported misbehavior and diagnose it before any fix exists), and the
-discuss workflow's ``answer_question`` (autocode_discuss_job: answer a question or
-weigh a tradeoff from the repository, building nothing), and ``investigate_stuck``
-(autocode_stuck_job: why a stage stopped converging, before the run pauses)."""
+rework fixes it), ``astra_diagnose`` (an operational diagnosis that can only recommend a
+retry or escalation) and ``investigate_stuck`` (autocode_stuck_job: why a stage stopped
+converging, before the run pauses)."""
 
 from __future__ import annotations
 
@@ -24,19 +22,11 @@ if TYPE_CHECKING:
     from ..autocode_run_state import RunState
 
 try:
-    from .. import autocode_bug_job as bug_job
-    from .. import autocode_bug_questions as bug_questions
-    from .. import autocode_compact_planning as compact_planning
     from .. import autocode_counterexample as counterexample
-    from .. import autocode_discuss_job as discuss_job
     from .. import autocode_failures as failures
     from .. import autocode_goal_lifecycle as lifecycle
     from .. import autocode_goals as goals
-    from .. import autocode_investigation_evidence as investigation_evidence
-    from .. import autocode_investigation_workspace as investigation_workspace
-    from .. import autocode_job_report_recovery as job_report_recovery
     from .. import autocode_launch_inputs as launch_inputs
-    from .. import autocode_package_writes as package_writes
     from .. import autocode_providers
     from .. import autocode_recovery_novelty as novelty
     from .. import autocode_resolver_human as human
@@ -46,24 +36,15 @@ try:
     from .. import autocode_route_permission as route_permission
     from .. import autocode_source_scope as source_scope
     from .. import autocode_stuck_job as stuck_job
-    from .. import autocode_test_environment as test_environment
     from .. import autocode_util as util
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_verify as verify
 except ImportError:
-    import autocode_bug_job as bug_job
-    import autocode_bug_questions as bug_questions
-    import autocode_compact_planning as compact_planning
     import autocode_counterexample as counterexample
-    import autocode_discuss_job as discuss_job
     import autocode_failures as failures
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
-    import autocode_investigation_evidence as investigation_evidence
-    import autocode_investigation_workspace as investigation_workspace
-    import autocode_job_report_recovery as job_report_recovery
     import autocode_launch_inputs as launch_inputs
-    import autocode_package_writes as package_writes
     import autocode_providers
     import autocode_recovery_novelty as novelty
     import autocode_resolver_human as human
@@ -73,148 +54,44 @@ except ImportError:
     import autocode_route_permission as route_permission
     import autocode_source_scope as source_scope
     import autocode_stuck_job as stuck_job
-    import autocode_test_environment as test_environment
     import autocode_util as util
     import autocode_verification_plan as verification_plan
     import autocode_verify as verify
 import contextlib
 
 from . import autoplanner
-from .common import ModelRequest, capped_route, execution_request
+from .common import ModelRequest, execution_request
 
-PROBE_TIMEOUT = 120  # seconds per discuss probe; a probe checks one claim, it is not a test suite
-
-
-def prepare_answer(state: RunState):
-    """The Analyst inherits the Plan Reviewer's model (the Resolver's when there is none) on its
-    own route and session, effort capped at medium, with the same scratch-copy rule as the
-    Investigator. Like the Architect: GPT-6 Astra stays reserved for the Resolver (docs/models.md)."""
-    state["phase"] = "INVESTIGATING"
-    roles = state["settings"]["roles"]
-    source = "plan_reviewer" if "plan_reviewer" in roles else "astra"
-    roles.setdefault("analyst", capped_route(roles.get(source) or roles["astra"]))
-    role_transport.inherit(state.get("settings"), "analyst", source)
-    prompt, metrics = discuss_job.prompt(
-        state,
-        autoplanner.workspace_inventory(state["workspace"], state["task"]),
-        state["settings"].get("context_soft_tokens", 10000),
-        autoplanner.engine_for(state["settings"], "analyst"),
-    )
-    return ModelRequest("astra", "analyst", prompt, metrics, discuss_job.SCHEMA, True)
-
-
-def prepare_investigation(state: RunState):
-    """The Investigator inherits the Plan Reviewer's model (the Resolver's when there is none) on
-    its own route and session, so its reproduction context never leaks into later planning or
-    review. It may write, but only to a scratch copy of its own; the runner rejects any change
-    to the workspace itself. GPT-6 Astra stays reserved for the Resolver (docs/models.md)."""
-    state["phase"] = "INVESTIGATING"
-    roles = state["settings"]["roles"]
-    source = "plan_reviewer" if "plan_reviewer" in roles else "astra"
-    roles.setdefault("investigator", copy.deepcopy(roles.get(source) or roles["astra"]))
-    role_transport.inherit(state.get("settings"), "investigator", source)
-    # A retry of this run reuses its own untouched copy; the cost of the copy goes with the attempt (#2606).
-    scratch, setup = investigation_workspace.prepare_measured(state["workspace"], owner=state.get("run_dir"))
-    prompt, metrics = bug_job.prompt(
-        state,
-        autoplanner.workspace_inventory(state["workspace"], state["task"]),
-        state["settings"].get("context_soft_tokens", 10000),
-        autoplanner.engine_for(state["settings"], "investigator"),
-        scratch_workspace=str(scratch),
-        python_executable=test_environment.python_for_test_command(
-            state["workspace"], (state["settings"].get("regression") or {}).get("test_command")
-        )
-        or verify.python_for(state["workspace"]),
-        # A package run names its package and suite; the diagnosis must stay inside it (#711).
-        package_context=package_writes.context(state["settings"], bug_job.STAGE),
-    )
-    metrics["investigation_setup"] = setup
-    return ModelRequest("astra", "investigator", prompt, metrics, bug_job.SCHEMA, True)
+PROBE_TIMEOUT = 120  # seconds per probe; a probe checks one claim, it is not a test suite
 
 
 def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None):
-    """Autopilot hands a job stage's validated report here. The Analyst's answer completes
-    the run. For the Investigator, a small reproduced bug becomes one Builder task at once
-    while that short path is enabled (bug_job.SMALL_CORRECTION_ENABLED); anything else
-    continues where bug_job.apply sent it."""
+    """Autopilot hands a job stage's validated report here: the Investigator's diagnosis of a stuck stage."""
+    if stage != stuck_job.STAGE:
+        raise ValueError(f"Autoresolver cannot apply {stage}")
     clean_run, _ = launch_inputs.runners(
         state, workspace, run_dir or Path(record.get("output") or workspace).parent.parent, verify.scratch_run
     )
-    if stage == discuss_job.STAGE:
-        # The runner, not the Analyst, runs each claim's probe, in a scratch copy of the code, and again
-        # in one with the claim's counterexample made, where it must fail (#1769).
-        probes = Path(record.get("output") or workspace).parent / "answer-probes"
-        return discuss_job.apply(
-            state,
-            value,
-            record,
-            workspace,
-            run_probe=lambda command: clean_run(workspace, probes, command=command, timeout=PROBE_TIMEOUT),
-            run_counterexample=counterexample.runner(clean_run, workspace, probes, timeout=PROBE_TIMEOUT),
-        )
-    if stage == stuck_job.STAGE:
-        # The runner shows the diagnosed cause: the probe runs in a scratch tree holding only the cited files,
-        # and again with its counterexample made, where it must fail (#1769).
-        probes = Path(record.get("output") or workspace).parent / "investigation-probe"
-
-        def contained(workspace, directory, *, command, timeout, **inputs):
-            if (state.get("stuck_investigation") or {}).get("mode") == "builder_failure":
-                try:
-                    from .. import autocode_builder_failure as builder_failure
-                except ImportError:
-                    import autocode_builder_failure as builder_failure
-                command = builder_failure.readonly_probe(command)
-            return clean_run(workspace, directory, command=command, timeout=timeout, **inputs)
-
-        def probe(command, files):
-            return contained(workspace, probes, command=command, files=files, timeout=PROBE_TIMEOUT)
-
-        def against(command, edit, files):
-            return counterexample.runner(contained, workspace, probes, timeout=PROBE_TIMEOUT, files=files)(
-                command, edit
-            )
-
-        return stuck_job.apply(state, value, record, workspace, run_probe=probe, run_counterexample=against)
-    # The runner, not the Investigator, shows the bug: its probe must exit 0 on the code as it is.
-    guard = job_report_recovery.BEFORE_WRITE.get()
-    if guard:
-        guard()
-
+    # The runner shows the diagnosed cause: the probe runs in a scratch tree holding only the cited files,
+    # and again with its counterexample made, where it must fail (#1769).
     probes = Path(record.get("output") or workspace).parent / "investigation-probe"
 
-    def guarded(*args, **kwargs):
-        result = clean_run(*args, **kwargs)
-        if guard:
-            guard()  # No note or result is published if inspected bytes/source changed during the probe.
-        return result
+    def contained(workspace, directory, *, command, timeout, **inputs):
+        if (state.get("stuck_investigation") or {}).get("mode") == "builder_failure":
+            try:
+                from .. import autocode_builder_failure as builder_failure
+            except ImportError:
+                import autocode_builder_failure as builder_failure
+            command = builder_failure.readonly_probe(command)
+        return clean_run(workspace, directory, command=command, timeout=timeout, **inputs)
 
-    def run_probe(command):
-        return guarded(workspace, probes, command=command, timeout=PROBE_TIMEOUT)
+    def probe(command, files):
+        return contained(workspace, probes, command=command, files=files, timeout=PROBE_TIMEOUT)
 
-    # The probe must also fail with the bug removed, in another scratch copy (#1769).
-    against = counterexample.runner(guarded, workspace, probes, timeout=PROBE_TIMEOUT)
-    captured = investigation_evidence.begin(
-        state, value, record, workspace, run_dir or Path(record["output"]).parent.parent.parent
-    )
-    bug_job.apply(state, value, record, workspace, run_probe=run_probe, run_counterexample=against)
-    investigation_evidence.finish(state, value, record, workspace, captured)
-    if bug_questions.has_questions(state):
-        human.queue(
-            state,
-            "clarification",
-            {"stage": bug_job.STAGE, "output": record.get("output"), "source_revision": record.get("source_revision")},
-            questions=bug_questions.questions(state),
-            evidence=bug_questions.evidence(state),
-            phase="INVESTIGATING",
-            next_stage=bug_job.STAGE,
-        )
-        return
-    if bug_job.small_correction(state):
-        start_small_correction(state, workspace)
-        return
-    # An opted-in, reproduced, localized bug may plan on the compact path: the runner's draft goes to the Plan
-    # Reviewer and then to the person; otherwise the Planner drafts, as bug_job.apply arranged (#2021).
-    compact_planning.start(state, workspace)
+    def against(command, edit, files):
+        return counterexample.runner(contained, workspace, probes, timeout=PROBE_TIMEOUT, files=files)(command, edit)
+
+    return stuck_job.apply(state, value, record, workspace, run_probe=probe, run_counterexample=against)
 
 
 def wait_on_existing_diagnosis(state: RunState, decision, record, request, *, source_stage):
@@ -267,42 +144,6 @@ def wait_on_existing_diagnosis(state: RunState, decision, record, request, *, so
         **{key: record[key] for key in ("output", "source_revision", "task_id") if key in record},
     }
     lifecycle.wait_for_user(state, asked, origin=origin, evidence=evidence, next_stage="astra_review")
-
-
-def start_small_correction(state: RunState, workspace):
-    """Install the diagnosis as a one-task contract, approve it under the recorded policy
-    (never as the user), and assign the Builder task exactly as a user approval would."""
-    try:
-        from .. import autocode_dispatch as dispatch
-    except ImportError:
-        import autocode_dispatch as dispatch
-    body = bug_job.correction_contract(state)
-    # Approved here under the recorded policy, so no approval request is queued for the user.
-    lifecycle.install_draft(state, body, origin=bug_job.ORIGIN, queue_human=False)
-    lifecycle.validate_body(state, body, ready=True)
-    contract = cast(dict, state["goal_contract"])
-    event = {
-        "kind": "goal_approval",
-        "actor": "workflow_policy",
-        "policy": bug_job.SMALL_FIX_POLICY,
-        "at": util.now(),
-        "token": goals.token(contract),
-    }
-    state.setdefault("user_events", []).append(event)
-    contract.update(approval_status="approved", approval_event=event)
-    state.update({"phase": "READY_TO_EXECUTE", "status": "RUNNING", "pending_questions": []})
-    decision = goals.initial_decision(body)
-    lifecycle.assign_task(state, decision, source_scope.snapshot(Path(workspace), state))
-    state.update(
-        {
-            "next_action": decision["next_objective"],
-            "affected_paths": decision["affected_paths"],
-            "next_stage": dispatch.build_stage(state),
-        }
-    )
-    goals.record_decision(state, decision)
-    if not goals.approved(state):
-        raise ValueError("The small-correction contract did not pass the approval check")
 
 
 def guard(state: RunState, workspace):
@@ -371,10 +212,6 @@ def prepare_stuck(state: RunState, state_path):
 def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorization=None):
     if stage == stuck_job.STAGE:
         return prepare_stuck(state, state_path)
-    if stage == bug_job.STAGE:
-        return prepare_investigation(state)
-    if stage == discuss_job.STAGE:
-        return prepare_answer(state)
     if stage == "astra_diagnose":
         return prepare_diagnosis(state, stage, state_path, schema_dir)
     if stage != "astra_resolve":

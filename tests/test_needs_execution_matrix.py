@@ -590,8 +590,8 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.state.update(status="PAUSED_JOB_FAILURE", stop_reason="The original source capture is unavailable")
         self.state["job_failure"] = {
             "reason": "The original source capture is unavailable",
-            "stage": "answer_question",
-            "attempt_id": "001/answer_question-01",
+            "stage": "check_design",
+            "attempt_id": "001/check_design-01",
             "job_retry_token": "inspected-job-token",
             "archive": str(self.directory / "archive"),
             "source_identity": None,
@@ -722,16 +722,18 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertIn("no execution, approval or additional allowance was authorized", after["stop_reason"])
 
     def test_exact_job_retry_checks_source_and_current_token(self):
+        (self.workspace / "docs").mkdir(exist_ok=True)
+        (self.workspace / "docs/greet.md").write_text("# Greeting\n\nThe greeting reads one name from argv.\n")
         self.state.update(
             status="PAUSED_JOB_FAILURE",
-            stop_reason="The Analyst stopped",
-            next_stage="answer_question",
-            workflow={"kind": "discuss", "then": "requirements_gather"},
+            stop_reason="The Design Reviewer stopped",
+            next_stage="check_design",
+            workflow={"kind": "build", "then": "astra_discovery", "design_document": "docs/greet.md"},
         )
         self.state["job_failure"] = {
-            "reason": "The Analyst stopped",
-            "stage": "answer_question",
-            "attempt_id": "001/answer_question-01",
+            "reason": "The Design Reviewer stopped",
+            "stage": "check_design",
+            "attempt_id": "001/check_design-01",
             "job_retry_token": "jr:fixture",
             "archive": str(self.directory / "archive"),
             "source_identity": support.digest(job_source.identity(self.workspace)),
@@ -751,22 +753,31 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         (self.workspace / "greet.py").write_bytes(source)
 
         def answer(**kwargs):
-            output = self.directory / "analyst-fixture.json"
+            output = self.directory / "design-check-fixture.json"
             value = {
-                "answer": "The greeting reads one name from argv",
-                "evidence": [{"claim": "The CLI reads argv", "source": "greet.py", "example": "", "probe": ""}],
-                "questions": [],
-                "note_path": "",
-                "note_content": "",
+                "design_document": "docs/greet.md",
+                "summary": "The greeting reads one name from argv",
+                "constraints": [],
+                "conflicts": [
+                    {
+                        "design_says": "The greeting reads one name from argv",
+                        "conflicts_with": "greet.py's own argument handling",
+                        "files": ["greet.py"],
+                        "options": ["keep greet.py", "change the design"],
+                        "example": "greet.py run with two names",
+                        "probe": "",
+                        "counterexample": {"file": "", "find": "", "replace": ""},
+                    }
+                ],
             }
             support.atomic_json(output, value)
             return value, {"output": str(output), "duration_seconds": 0.01, "changed_files": []}
 
         self.provider.side_effect = answer
         after = self.run.retry_job(before["needs"]["job_retry_token"])
-        self.assertTrue(after["done"])
-        self.assertIsNone(after["needs"])
-        self.assertEqual("nothing needed from you", after["progress"]["needs_you"])
+        # The retried check ran once and its report was applied: its conflict stops the run before planning.
+        self.assertEqual("PAUSED_DESIGN_CONFLICT", after["status"], after)
+        self.assertTrue((self.workspace / "docs/greet.blockers.json").is_file())
         self.assertEqual(source, (self.workspace / "greet.py").read_bytes())
         self.assertEqual(1, self.provider.call_count)
 

@@ -1,8 +1,7 @@
 """Edits that apply to a saved run on their own (a step of autocode_run_actions.handle).
 
-A design reference revision (--revise-figma-manifest), a dependency delivery, an inspected
-Investigator report (--recover-job-report) and a repair handoff (--export-repair, --submit-repair)
-each apply and end the invocation; nothing builds. A conversation handoff and the expected goal
+A design reference revision (--revise-figma-manifest), a dependency delivery and a repair
+handoff (--export-repair, --submit-repair) each apply and end the invocation; nothing builds. A conversation handoff and the expected goal
 token are checked and recorded, and the invocation goes on.
 
 Like every step of autocode_run_actions.handle, its steps take the invocation's arguments and
@@ -25,7 +24,6 @@ try:
     from . import autocode_dependency as dependency
     from . import autocode_design_revision as design_revision
     from . import autocode_goals as goals
-    from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_pause_authority as pause_authority
     from . import autocode_repair_handoff as repair_handoff
     from . import autocode_resolver_human as resolver_human
@@ -36,7 +34,6 @@ except ImportError:
     import autocode_dependency as dependency
     import autocode_design_revision as design_revision
     import autocode_goals as goals
-    import autocode_job_report_recovery as job_report_recovery
     import autocode_pause_authority as pause_authority
     import autocode_repair_handoff as repair_handoff
     import autocode_resolver_human as resolver_human
@@ -99,15 +96,6 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
     )
     if dependency_result is not None:
         return dependency_result
-    if getattr(args, "recover_job_report", None) is not None:
-        try:
-            with runner.checkout_lock.exclusive(workspace, run_dir):
-                job_report_recovery.apply(runner, state, run_dir, workspace, args.recover_job_report)
-        except (ValueError, OSError, KeyError, RuntimeError) as error:
-            print(f"Input rejected: {error}", file=sys.stderr)
-            return 2
-        print("Inspected Investigator report applied; provider exit remains unknown. No model launched.")
-        return 0
     if args.export_repair or getattr(args, "submit_repair", None) is not None:
         try:
             if args.export_repair:

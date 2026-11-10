@@ -17,8 +17,8 @@ again with the answers. Before that, the default flow refused such a handoff as 
 live ``program plan`` on "build an adaptive learning engine" asked three good questions and stalled
 until a person resumed it.
 
-Published through the ordinary clarification request, like the bug Investigator's questions
-(autocode_bug_questions): resolver_human admits these exact questions with ``accepts``. Imports
+Published through the ordinary clarification request: resolver_human admits these exact questions
+with ``accepts``. Imports
 only the shared helpers, so the goal lifecycle, AutoResolver and the CLI can all use it.
 """
 
@@ -84,7 +84,7 @@ JOBS = ("build", "bugfix", *READ_ONLY_JOBS)
 
 
 def job(state: RunState, report: dict | None = None) -> str | None:
-    """The job this run is for: the recognized or pinned kind, else the one Requirements named (#1846)."""
+    """The job this run is for: the named or pinned kind, else the one Requirements named (#1846)."""
     known = (state.get("workflow") or {}).get("kind")
     if known:
         return known

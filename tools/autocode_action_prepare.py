@@ -41,7 +41,7 @@ def prepare(runner, args, parser, state: RunState, state_path, run_dir, workspac
             runner.write_json(backup, state)
         lifecycle.migrate(state, fresh=not args.run_dir)
         runner.write_json(state_path, state)
-    if args.workflow:  # after migration: a new run's recognizer is begun there
+    if args.workflow:  # after migration: a new run's first stage is begun there
         try:
             workflows.pin(state, args.workflow)
         except ValueError as error:

@@ -14,7 +14,6 @@ import autocode_direct_config as config
 import autocode_direct_runtime as runtime
 import autocode_taskrun as taskrun
 
-from tests import legacy_bugfix_fixture
 from tests.test_direct_connections import HttpFixture, settings
 
 
@@ -285,126 +284,6 @@ class DirectCliTests(unittest.TestCase):
         self.assertEqual([], reviewer.requests, "the reviewer provider received traffic a producer stage owed")
         for headers, _body in producer.requests:
             self.assertEqual("Bearer openai-secret", headers["Authorization"])
-
-    def test_discussion_tool_roundtrip_completes_through_the_supervised_cli(self):
-        (self.workspace / "README.md").write_text("DIRECT_TOOL_EVIDENCE\n")
-        subprocess.run(["git", "-C", str(self.workspace), "add", "README.md"], check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(self.workspace),
-                "-c",
-                "user.name=T",
-                "-c",
-                "user.email=t@example.test",
-                "commit",
-                "-qm",
-                "readme",
-            ],
-            check=True,
-        )
-        stages = []
-        tool_results = []
-
-        def respond(body):
-            data = json.loads(body["messages"][1]["content"].split("CURRENT HANDOFF DATA\n", 1)[1])
-            stages.append(data["stage"])
-            if data["stage"] == "requirements_gather":
-                report = {
-                    "job": "discuss",
-                    "design_document": "",
-                    "clarity": "clear",
-                    "summary": "Answer a repository question",
-                    "intended_outcome": "Explain README.md without changing files.",
-                    "required_behaviors": ["Explain README.md without changing files."],
-                    "constraints": ["Read only"],
-                    "acceptance_tests": ["Answer cites README.md"],
-                    "source_refs": ["README.md"],
-                    "proposed_assumptions": [],
-                    "requirements": [],
-                    "ignored_statements": [],
-                    "workspace_scope": {"spans_repositories": False, "external_parts": []},
-                    "conflicts": [],
-                    "proposed_reframes": [],
-                    "ignored_requirements": [],
-                    "machine_resolutions": [],
-                    "access_blockers": [],
-                    "open_questions": [],
-                }
-            elif body["messages"][-1]["role"] != "tool":
-                return 200, {
-                    "choices": [
-                        {
-                            "message": {
-                                "role": "assistant",
-                                "content": None,
-                                "tool_calls": [
-                                    {
-                                        "id": "read-source",
-                                        "type": "function",
-                                        "function": {
-                                            "name": "shell",
-                                            "arguments": '{"command":"cat README.md; exit 7"}',
-                                        },
-                                    }
-                                ],
-                            },
-                            "finish_reason": "tool_calls",
-                        }
-                    ],
-                    "usage": {"prompt_tokens": 15, "completion_tokens": 10},
-                }
-            else:
-                tool_results.append(json.loads(body["messages"][-1]["content"]))
-                report = {
-                    "answer": "README contains DIRECT_TOOL_EVIDENCE.",
-                    "evidence": [
-                        {
-                            "claim": "README contains the marker",
-                            "source": "README.md",
-                            "example": "",
-                            "probe": "",
-                            "counterexample": {"file": "", "find": "", "replace": ""},
-                        }
-                    ],
-                    "questions": [],
-                    "note_path": "",
-                    "note_content": "",
-                }
-            return 200, {
-                "choices": [{"message": {"role": "assistant", "content": json.dumps(report)}, "finish_reason": "stop"}],
-                "usage": {"prompt_tokens": 15, "completion_tokens": 10},
-            }
-
-        fixture = HttpFixture(respond)
-        self.addCleanup(fixture.close)
-        self.save(settings(fixture.url))
-        run = taskrun.TaskRun.start(
-            self.workspace,
-            "Explain README.md without changing files.",
-            options=(
-                "--provider",
-                "autocode",
-                "--evidence-provenance",
-                "fake",
-                "--max-seconds",
-                "120",
-                "--max-stage-seconds",
-                "60",
-            ),
-            env=self.env,
-            timeout=180,
-            # A new question goes through the full pipeline (#3010); the Analyst carries this tool round
-            # trip, so the run is launched as an earlier runtime saved it, at the Analyst.
-            command=legacy_bugfix_fixture.COMMAND,
-        )
-        view = run.status()
-        self.assertTrue(view["done"], view.get("stop_reason"))
-        self.assertEqual(["requirements_gather", "answer_question", "answer_question"], stages)
-        self.assertEqual(7, tool_results[0]["exit_code"])
-        self.assertIn("DIRECT_TOOL_EVIDENCE", tool_results[0]["output"])
-        self.assertEqual("DIRECT_TOOL_EVIDENCE\n", (self.workspace / "README.md").read_text())
 
     def test_kernel_tools_enforce_readonly_and_hide_api_key(self):
         run_dir = self.workspace / ".autocode" / "runs" / "test"

@@ -19,7 +19,8 @@ import autocode_run_view as run_view
 
 class RecoveryViewTests(unittest.TestCase):
     def test_paused_discussion_explains_queued_requirements_handoff_without_resuming(self):
-        state = self.state("PAUSED_INTERVENTION", next_stage="answer_question", goal_contract={})
+        state = self.state("PAUSED_INTERVENTION", next_stage="astra_discovery", goal_contract={})
+        state["workflow"] = {"kind": "discuss", "then": "astra_discovery"}
         state["settings"]["spec_first"] = True
         state["pause_intent"] = {"request_ids": ["pause-1"], "acknowledged_at": None}
         state["user_events"] = [{"kind": "run_message", "id": "run-message-1", "text": "Please fix it.", "live": True}]
@@ -633,11 +634,11 @@ class RecoveryViewTests(unittest.TestCase):
             with self.subTest(status=status):
                 state = self.state(
                     status,
-                    next_stage="investigate_bug",
+                    next_stage="check_design",
                     job_failure={
                         "reason": "Provider stopped",
-                        "stage": "investigate_bug",
-                        "attempt_id": "001/bug-investigation-01",
+                        "stage": "check_design",
+                        "attempt_id": "001/design-check-01",
                         "job_retry_token": "old",
                         "archive": "/run/archive",
                         "source_identity": None,

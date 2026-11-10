@@ -375,7 +375,7 @@ def _project(state: RunState, *, run_dir=None):
         checkpoints = []
     revisions += [row.get("commit") for row in checkpoints if isinstance(row, dict)]
     workflow = state.get("workflow")
-    # Only an explicit creation choice skips the recognizer. A model decision
+    # Only an explicit creation choice is a pin. A model decision
     # remains a recorded dispatch; legacy missing provenance grants no pin.
     pin = (
         {"workflow_pin": workflow["kind"]}

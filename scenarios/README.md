@@ -625,13 +625,11 @@ cover five kinds of job and check three things beyond the deliverable:
    docs/task-run.md) carries a `workflow` field naming one of the five,
    named by Requirements, the first stage of every run and follow-up turn
    (owner decision 2026-10-22, #1860), unless the user named it with
-   `--workflow`; a flow without Requirements still has the Job recognizer
-   (`recognize_workflow`) name it. Oracles check it through `run_checks`,
-   together with which saved stages ran: a review must not dispatch a Builder
-   or ask for plan approval; every job runs Requirements once, first, and then
-   its own first stage (`after_requirements`: the Investigator for a bug fix,
-   the Code Reviewer for a review), so a bug fix never gathers requirements a
-   second time; a three-line fix must not get plan-review rounds. In fake mode
+   `--workflow`; a flow without Requirements is planned as a build. Oracles
+   check it through `run_checks`, together with which saved stages ran: every
+   job runs Requirements once, first, and then the Planner, the entry every
+   kind takes (#3010), so a bug fix never gathers requirements a second time; a
+   three-line fix must not get plan-review rounds. In fake mode
    the scripted provider names the job with keyword rules
    (`harness/fake_codex.py`, `recognize`), which proves the plumbing and
    nothing about model quality.
@@ -714,7 +712,7 @@ checks it first as an approved design, then plans the build afresh from it).
 
 When a job's report itself changes from turn to turn, the solution scripts each
 turn's report in `.fake-turns/<turn>/<stage>.json` (`0` for the brief). Only the
-Architect (`review_design.json`) reads one today; a revision's concerns carry
+design-review conversation's Builder (`review_design.json`) reads one today; a revision's concerns carry
 their `status` and `resolution`. `.fake-turns/` is never part of a project: it
 is not materialized, listed or copied, and the solution's
 `review/design-review.json` is the report the runner wrote in a fake run, for

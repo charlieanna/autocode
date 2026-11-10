@@ -13,7 +13,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import autocode_bug_job as bug_job
 import autocode_native_test_names as native_names
 import autocode_package_scope as package_scope
 import autocode_preflight_worker as preflight_worker
@@ -120,7 +119,7 @@ class PackageNames(unittest.TestCase):
         self.assertEqual([admin], package_scope.outside(web, [admin, "packages/web/test_web.py"]))
 
     def test_a_report_may_name_the_package_directory_and_plain_paths_inside_it(self):
-        # The bug-fix Investigator's affected and test paths (autocode_bug_job.check, #711).
+        # A report's affected and test paths (#711).
         inside = ["packages/web", "packages/web/", "./packages/web/app.py", "packages/web/tests/"]
         outside = ["packages/web-admin/app.py", "tests/test_app.py", "package.json"]
         self.assertEqual(sorted(outside), package_scope.named_outside("packages/web", [*inside, *outside]))
@@ -626,34 +625,6 @@ class PackageSuite(unittest.TestCase):
         self.assertIn(
             "Files outside the package packages/greet/ changed, and its suite does not cover them: "
             "packages/other/other.py",
-            proof["unverified"],
-        )
-
-    def test_only_the_unchanged_diagnosis_note_the_runner_wrote_is_not_the_change(self):
-        # The bug-fix workflow's note is at the repository root, under docs/bugs/ (autocode_bug_job): the proof,
-        # like the check before review (tests.test_package_writes), leaves it out only while it is unchanged.
-        from tests.test_bug_job import diagnosis
-
-        note = "docs/bugs/blank-name.json"
-        case = {"id": "blank", "given": "a blank name", "when": "greet runs", "then": "it is rejected"}
-        report = diagnosis(
-            note_path=note,
-            test_cases=[case],
-            affected_paths=[f"{GREET}/greet.py"],
-            test_paths=[f"{GREET}/test_greet.py"],
-        )
-        output = self.run_dir / "bug-investigation-01.json"
-        output.write_text(json.dumps(report))
-        state = bugfix_state(self.project)
-        bug_job.apply(state, report, {"changed_files": [], "output": str(output)}, self.project.root)
-        self.project.write(FIX)
-        proof = regression.prove(state, self.project.root, self.run_dir / "unchanged")
-        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
-        written = json.loads((self.project.root / note).read_text())
-        self.project.write({note: json.dumps({**written, "conclusion": "edited"}, indent=2) + "\n"})
-        proof = regression.prove(state, self.project.root, self.run_dir / "edited")
-        self.assertIn(
-            f"Files outside the package packages/greet/ changed, and its suite does not cover them: {note}",
             proof["unverified"],
         )
 

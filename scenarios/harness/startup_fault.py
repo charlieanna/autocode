@@ -47,8 +47,8 @@ def before_launch():
     sys.stdin = io.StringIO(prompt)
     data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     stage = data.get("stage") or (data.get("original") or {}).get("stage")
-    # By default the run's first stage: Requirements, or the job recognizer on a flow without it (#1860).
-    if stage not in fault.get("stages", ["requirements_gather", "recognize_workflow"]):
+    # By default the run's first stage, Requirements (#1860).
+    if stage not in fault.get("stages", ["requirements_gather"]):
         return
     count_path = root / "startup-count.txt"
     count = int(count_path.read_text()) + 1 if count_path.exists() else 1

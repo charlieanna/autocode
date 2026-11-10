@@ -317,10 +317,6 @@ def main():
             if data["original"]["stage"] in ("astra_challenge", "astra_finalize"):
                 result.setdefault("source_trace", source_trace_for(result["contract"], data))
         record("repair")
-    elif data["stage"] == "recognize_workflow":
-        result = dict(
-            workflow="build", reason="Handwritten fixture: every request is a build", signals=[], design_document=""
-        )
     elif data["stage"] == "investigate_stuck" and data.get("builder_failure"):
         result = classify_failure(data, mode, spec)
         record("classification", report=result)

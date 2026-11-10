@@ -38,13 +38,6 @@ PAIRS = (
     ("glm", "plan_reviewer", _label("planner", "plan_reviewer")),
 )
 
-# Workflows in which no producer role of PAIRS runs. The review workflow's only stage
-# (review_change, on the Tester's route) judges a change written outside the run, and a
-# follow-up turn that builds starts a new workflow, so no route there grades its own work.
-# The discuss workflow's only stage (answer_question, the Analyst) answers and builds
-# nothing; its runner rejects any workspace change.
-WITHOUT_PRODUCERS = frozenset({"review", "discuss"})
-
 
 def verifiers(producer):
     """The roles that check the given producer role's work."""
@@ -95,15 +88,15 @@ def same_vendor_engine(settings):
     return settings.get("provider") == "claude" or settings.get("engine") == "codex"
 
 
-def clashes(settings, workflow=None):
+def clashes(settings):
     """Every broken producer/verifier pair as structured rows for a model question.
 
     Each row names the verifier role a person can reroute so it stops grading its
-    own producer's work. Empty in single-model mode and in a ``workflow`` in which
-    no producer runs (WITHOUT_PRODUCERS).
+    own producer's work. Empty in single-model mode. Every kind of job takes the same
+    path (#3010), so a review or discussion builds and is checked like any other.
     """
     settings = settings or {}
-    if settings.get("single_model_mode") or workflow in WITHOUT_PRODUCERS:
+    if settings.get("single_model_mode"):
         return []
     roles = settings.get("roles") or {}
     found = []
@@ -127,10 +120,9 @@ def clashes(settings, workflow=None):
     return found
 
 
-def violations(settings, workflow=None):
+def violations(settings):
     """Every producer/verifier pair of a run's routes that breaks independence.
 
-    Empty in single-model mode, which the user chose knowing one model checks itself,
-    and in a ``workflow`` in which no producer runs.
+    Empty in single-model mode, which the user chose knowing one model checks itself.
     """
-    return [f"{row['label']}: {row['problem']}" for row in clashes(settings, workflow)]
+    return [f"{row['label']}: {row['problem']}" for row in clashes(settings)]

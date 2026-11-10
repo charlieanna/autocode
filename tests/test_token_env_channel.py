@@ -45,7 +45,6 @@ class SentinelResolutionTests(unittest.TestCase):
                 "resolver_token",
                 "AUTOCODE_RESOLVER_TOKEN",
             ),
-            (["--recover-job-report", "-"], "recover_job_report", "AUTOCODE_RECOVER_JOB_REPORT"),
             (["--approve-goal", "-"], "approve_goal", "AUTOCODE_APPROVE_GOAL_TOKEN"),
             (["--review-token", "-"], "review_token", "AUTOCODE_REVIEW_TOKEN"),
             (["--expected-goal-token", "-"], "expected_goal_token", "AUTOCODE_EXPECTED_GOAL_TOKEN"),

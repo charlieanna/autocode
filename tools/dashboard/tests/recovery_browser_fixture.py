@@ -151,11 +151,11 @@ def main():
                     state["_fixture_monitor"]["live"] = {"state": "exited", "label": "Recorded worker exited"}
                 elif kind == "source":
                     state["status"] = "PAUSED_STAGE_ABANDONED"
-                    state["next_stage"] = "investigate_bug"
+                    state["next_stage"] = "investigate_stuck"
                     state["job_failure"] = {
                         "reason": "Provider stopped",
-                        "stage": "investigate_bug",
-                        "attempt_id": "001/bug-investigation-01",
+                        "stage": "investigate_stuck",
+                        "attempt_id": "001/stuck-investigation-01",
                         "job_retry_token": "historical-token",
                         "archive": str(run / "archive"),
                         "source_identity": None,

@@ -1,27 +1,22 @@
 """A bug-fix criterion's "today" text lives in its own box, filled from the bound diagnosis (#2133)."""
 
 import copy
-import hashlib
-import json
-import tempfile
 import unittest
-from pathlib import Path
 
 import autocode_approval_view as approval_view
 import autocode_bridge_relay as relay
-import autocode_bug_job as bug_job
 import autocode_chat_client as chat
 import autocode_current_behavior as current_behavior
 import autocode_goal_lifecycle as lifecycle
 
-from tests import test_bug_job
+from tests import saved_diagnosis
 
-OBSERVED = test_bug_job.diagnosis()["observed"]
+OBSERVED = saved_diagnosis.diagnosis()["observed"]
 
 
 def investigation(**overrides):
     return {
-        **test_bug_job.diagnosis(),
+        **saved_diagnosis.diagnosis(),
         "output": "/nowhere/investigator-01.jsonl",
         "output_hash": "a" * 64,
         "source_revision": "abc123",
@@ -91,36 +86,6 @@ class EvidenceTests(unittest.TestCase):
             "stages": [{"stage": "investigate_bug", "output": found["output"]}],
             "turns": [{"stage_index": 1}],
         }
-        self.assertIsNone(current_behavior.evidence(state))
-
-    def test_an_applied_investigation_binds_its_observed_text(self):
-        workspace = tempfile.mkdtemp()
-        probe = "python3 -c 'from epp.client import renew; assert renew.calls == 2'"
-        report = test_bug_job.diagnosis(
-            fix_size="large",
-            probe=probe,
-            untestable="",
-            counterexample={"file": "epp/client.py", "find": "fresh_cl_trid()", "replace": "cl_trid"},
-        )
-        output = Path(workspace) / "investigator-01.json"
-        output.write_text(json.dumps(report))
-        state = test_bug_job.state_for(workspace)
-        record = {"changed_files": [], "output": str(output), "source_revision": "rev1"}
-        bug_job.apply(
-            state,
-            report,
-            record,
-            workspace,
-            run_probe=lambda command: {"exit_code": 0, "stdout": "", "stderr": ""},
-            run_counterexample=lambda command, edit: {"exit_code": 1, "stdout": "", "stderr": "AssertionError"},
-        )
-        found = current_behavior.evidence(state)
-        self.assertEqual(OBSERVED, found["text"])
-        self.assertEqual(hashlib.sha256(output.read_bytes()).hexdigest(), found["output_hash"])
-        self.assertEqual("rev1", found["source_revision"])
-        # An untestable reproduction (no probe the runner could see) is the Investigator's word, not evidence.
-        state = test_bug_job.state_for(workspace)
-        bug_job.apply(state, test_bug_job.diagnosis(fix_size="large"), record, workspace)
         self.assertIsNone(current_behavior.evidence(state))
 
 
@@ -207,7 +172,7 @@ class DisplayTests(unittest.TestCase):
     def test_the_approval_screen_lists_the_receipt(self):
         found = current_behavior.evidence({"investigation": investigation()})
         state = {
-            **test_bug_job.state_for(),
+            **saved_diagnosis.state_for(),
             "task_id": "t",
             "goal_contract": {
                 "task_id": "t",

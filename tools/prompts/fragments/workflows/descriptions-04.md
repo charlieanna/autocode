@@ -1,1 +1,0 @@
-Judge or produce an architecture or design: review a design document, propose how something should be structured, 'design this but do not implement it'. Nothing is built. Steps: understand, challenge, design.

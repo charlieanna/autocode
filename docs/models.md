@@ -21,8 +21,6 @@ Model overrides use the role names: `--requirements-model`, `--glm-model`,
 `--plan-reviewer-model`, `--astra-model`, `--terra-model`, `--sol-model`,
 `--completion-model`, `--resolver-model`, and the matching
 `--<role>-reasoning-effort` flags.
-`--utility-model` is a cheaper route for the stages that only classify or
-reformat ([the utility route](#the-utility-route)).
 See [CLI](cli.md). When constructing a new Requirements route from provider
 defaults, an explicit `--requirements-model` wins; otherwise `--glm-model` supplies
 its initial model. Changing the Planner on resume keeps the saved Requirements
@@ -141,10 +139,9 @@ is read as the Resolver's ladder, and the saved state is not rewritten. A climb 
 a settings change for the recovery packet the Resolver works from: the climbed attempt
 is held or admitted by that packet's causal-progress check, as the attempt before it was.
 
-The one-stage jobs use the Plan Reviewer's model on a route of their own: the
-Investigator (bug fixes), the Analyst (discuss) and the Designer (design reviews),
-the last two with effort capped at medium. A run without a Plan Reviewer route falls
-back to the Resolver's. The Code Reviewer (code review) runs on the Tester's route.
+The Design Reviewer uses the Plan Reviewer's model on a route of its own (`architect`),
+with effort capped at medium. A run without a Plan Reviewer route falls back to the
+Resolver's. Every task, whatever its kind, otherwise takes the stages above (#3010).
 
 Other engines keep their own defaults, set where each engine is configured:
 
@@ -190,16 +187,15 @@ levels each model takes:
 | --- | --- | --- |
 | Requirements | Turns your idea into requirements; asks you only about real ambiguity | A capable all-round model at medium |
 | Planner | Drafts the plan and revises it after review | A capable model at high |
-| Plan Reviewer | Challenges the plan and makes the final planning call; its model also runs the Investigator, the Analyst, the Designer and the Design Reviewer | Your strongest judge at high, never the Planner's model |
+| Plan Reviewer | Challenges the plan and makes the final planning call; its model also runs the Design Reviewer | Your strongest judge at high, never the Planner's model |
 | Builder | Writes the code for one task; several run in parallel | A fast, cheaper model at medium |
-| Tester | Checks each Builder's work and proves its tests fail without the change; its model also writes the acceptance tests and runs the Code Reviewer | A strong model at high, never the Builder's |
+| Tester | Checks each Builder's work and proves its tests fail without the change; its model also writes the acceptance tests | A strong model at high, never the Builder's |
 | Completion Reviewer | Decides whether the task is done or goes back for more work | A strong judge at medium, never the Builder's model |
 | Resolver and per-task Planner | Steps in when a stage stops progressing; plans each task's steps | Your strongest model at high |
 
 The workflow jobs have no list of their own: each starts from the stage that names it. The
-Investigator of a bug fix takes the Plan Reviewer's model and level; the Analyst, the Designer
-and the Design Reviewer take its model at a capped level; the acceptance tests and the Code
-Reviewer run on the Tester's. A Plan Reviewer level you did not choose runs one rung lower on a
+Design Reviewer takes the Plan Reviewer's model at a capped level; the acceptance tests run on
+the Tester's. A Plan Reviewer level you did not choose runs one rung lower on a
 small, clear task ([adaptive planning](adaptive-planning.md)); a level you chose is kept.
 
 The models come from your backend: for OpenCode and Kilo, the models your connected accounts
@@ -491,40 +487,6 @@ when switching between Codex and OpenCode; their session IDs cannot be reused ac
 engines. Saved runs retain their original role engines and sessions; no existing run
 is migrated by a dashboard selection.
 
-## The utility route
-
-Some calls in a run only classify or reformat and need no frontier model.
-`--utility-model MODEL` (new runs only) sends those stages to a cheaper model:
-
-```sh
-autocode "Your rough idea" --utility-model ollama/qwen3:8b
-```
-
-The stages it serves are listed in one place, `UTILITY_STAGES` in
-`tools/autocode_roles.py`. Today that is the Job recognizer
-(`recognize_workflow`), which picks one of the five workflows on a flow without
-a Requirements stage; elsewhere Requirements names the job (#1860). The route copies
-the Plan Reviewer's engine, provider and reasoning effort and replaces only the
-model (`--utility-reasoning-effort` sets its own effort). A run started without
-the flag saves no utility route, so every stage keeps the route it had before.
-The flag is refused on a saved run.
-
-A stage that writes code or judges evidence is never put on the utility route:
-the Planner, Builder, Plan Reviewer, Tester, Completion Reviewer, Resolver,
-Designer, Design and Code Reviewers, and the Investigator. A weak utility model
-can therefore misroute a request (the console line after recognition names the
-workflow and how to override it with `--workflow`) but cannot produce or accept
-work. Builder-failure classification stays on the Investigator because it judges
-the failure's evidence, and report-only repair keeps the route of the stage
-whose report it repairs.
-
-A local model runs through OpenCode's local providers (for example Ollama or LM
-Studio, configured in OpenCode): name it as `provider/model` the way
-`opencode models` lists it, and the launch checks it is listed like any other
-route. No local model has yet been qualified on the utility route; run the
-[conformance probe](provider-conformance.md) for your provider/model before
-relying on one, and record a reliability sweep before changing the default.
-
 ## When a model is not in your plans
 
 A new run first asks its provider which models your plans offer (`opencode models`).
@@ -696,8 +658,7 @@ authentication failures never ask for a model.
 
 ### When the stopped role is a workflow job
 
-A workflow job (the Code Reviewer, Designer, Design Reviewer, Analyst, bug-fix
-Investigator or Design inventory) that stops on quota pauses differently: its attempt is set aside at
+A workflow job (the Design Reviewer, the acceptance-test writer or the Design inventory) that stops on quota pauses differently: its attempt is set aside at
 once and the job takes one exact retry, bound to the run's configuration
 (`PAUSED_JOB_FAILURE`, `needs.kind` `retry_job`; see [CLI](cli.md#waiting-or-finished)).
 The stop names the job, the model and the provider's words, and the status view's
@@ -705,21 +666,20 @@ The stop names the job, the model and the provider's words, and the status view'
 token instead of a resolver token, then retry with the new token it issues:
 
 ```sh
-autocode --run-dir RUN --answer route-sol=gpt-6-luna --job-retry-token TOKEN
+autocode --run-dir RUN --answer route-architect=gpt-6-luna --job-retry-token TOKEN
 autocode --run-dir RUN --resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN
 ```
 
 The answer applies the same checks and records the same `route_assignment`. The old
 token stops working, so the job never runs again on the model that stopped without
-your saying so. `--abandon-stage` and a `--sol-model` flag are refused at this stop
-(the flag would make the exact retry stale; only putting back the model the retry is
-bound to is saved), and so is the flag next to an `--abandon-stage` that sets the
-job's uncertain attempt aside: set it aside on its own, then answer. The answer
+your saying so. `--abandon-stage` is refused at this stop, and so is a configuration change next to
+the retry (it would make the exact retry stale; only putting back the model the retry is
+bound to is saved). The answer
 itself changes nothing but the job's model; given with another setting it is refused
 and nothing is saved, and so is the answer next to the retry (`--resume-paused
 --retry-failed-stage`), since the retry needs the new token. Once you have named a
-model, the status line and recovery card ask only for the retry on it. The Architect
-(Designer, Design Reviewer), Analyst and Investigator routes have no flag at all: the answer is the only
+model, the status line and recovery card ask only for the retry on it. The Design Reviewer
+(`architect`) and acceptance-test writer routes have no flag at all: the answer is the only
 way to move them. After a quota stop the shown token also retries the job unchanged,
 once the quota resets. The stuck-stage Investigator (`investigate_stuck`) is the
 exception: its route is rebuilt for every investigation, so its stop keeps only the

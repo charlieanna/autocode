@@ -59,11 +59,8 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
             "sol": "Tester",
             "completion": "Completion Reviewer",
             "resolver": "Resolver",
-            "architect": "Designer",
-            "investigator": "Investigator",
+            "architect": "Design Reviewer",
             "stuck_investigator": "Investigator",
-            "analyst": "Analyst",
-            "utility": "Job recognizer",
             "acceptance_tester": "Tester",
         }.items():
             self.assertEqual(expected, roles.route_name(role, {}))
@@ -116,7 +113,9 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
     def test_completion_is_completion_reviewer_not_bare_reviewer(self):
         for stage in ("astra_review", "decision_owner"):
             self.assertEqual("Completion Reviewer", status.role_name(stage))
+        # A run an earlier runtime saved at a retired stage still shows that stage by its job.
         self.assertEqual("Code Reviewer", status.role_name("review_change"))
+        self.assertEqual("Job recognizer", status.role_name("recognize_workflow"))
 
     def test_planner_draft_and_revision_job_names(self):
         # prompts/discovery.md and prompts/requirements-revise.md both open "You are the

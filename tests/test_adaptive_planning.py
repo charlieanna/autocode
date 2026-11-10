@@ -43,12 +43,6 @@ class EntryStage(unittest.TestCase):
         self.assertEqual((state["next_stage"], state["workflow"]["clarity"]), ("astra_discovery", "clear"))
         self.assertNotIn("requirements_skipped", state["workflow"])
 
-    def test_a_clear_recognition_keeps_the_requirements_stage(self):
-        state = {"settings": {"adaptive_planning": True}, "workspace": "."}
-        workflows.begin(state, "requirements_gather")
-        workflows.apply(state, {"workflow": "build", "reason": "", "signals": [], "clarity": "clear"}, {})
-        self.assertEqual((state["next_stage"], state["workflow"]["clarity"]), ("requirements_gather", "clear"))
-
     def test_requirements_judges_clarity_only_while_it_names_the_job(self):
         """The recognizer's clarity judgment moves to Requirements in every adaptive run (#1846, #1860), so
         #1564's reduced review depth still has it; a job already known is not judged again."""
@@ -78,46 +72,34 @@ class EntryStage(unittest.TestCase):
         workflows.from_requirements(state, {"job": "build", "clarity": "clear"})
         self.assertNotIn("clarity", state["workflow"])
 
-    def test_recognition_of_another_kind_continues_into_the_full_pipeline(self):
-        # #3010: a bug fix goes through the full pipeline; it has no Investigator first stage.
-        state = {"settings": {"adaptive_planning": True}, "workspace": "."}
-        workflows.begin(state, "requirements_gather")
-        workflows.apply(state, {"workflow": "bugfix", "reason": "", "signals": [], "clarity": "clear"}, {})
-        self.assertEqual(state["next_stage"], "requirements_gather")
 
-
-def recognized(settings, clarity="clear", kind="build", then="requirements_gather", **saved):
-    """The workflow record a recognition with this clarity leaves (autocode_workflows.apply)."""
-    state = {"settings": settings, "workspace": ".", **saved}
-    workflows.begin(state, then)
-    workflows.apply(state, {"workflow": kind, "reason": "", "signals": [], "clarity": clarity}, {})
+def recognized(settings, clarity="clear", kind="build", **saved):
+    """The workflow record Requirements leaves when it names the job with this clarity
+    (autocode_workflows.from_requirements)."""
+    state = {"settings": {**settings, "roles": {"requirements": {}}}, "workspace": ".", **saved}
+    workflows.begin_requirements(state)
+    workflows.from_requirements(state, {"job": kind, "intended_outcome": "Greet", "clarity": clarity})
     return state["workflow"]
 
 
 class RecordedSkip(unittest.TestCase):
     """A new run never skips Requirements, so it records no skip; a saved run's record is still shown (#697)."""
 
-    def test_no_recognition_records_a_skip(self):
+    def test_naming_the_job_records_no_skip(self):
         for clarity in ("clear", "vague"):
             self.assertNotIn("requirements_skipped", recognized(ON["settings"], clarity=clarity), clarity)
         self.assertNotIn("requirements_skipped", recognized(OFF["settings"]), "fixed planning sequence")
-        self.assertNotIn("requirements_skipped", recognized(ON["settings"], kind="bugfix"), "its own first stage")
+        self.assertNotIn("requirements_skipped", recognized(ON["settings"], kind="bugfix"), "another kind")
 
     def test_a_build_from_an_approved_design_records_nothing(self):
         import tempfile
 
         with tempfile.TemporaryDirectory() as root:
             Path(root, "design.md").write_text("# Design\n")
-            state = {**ON, "workspace": root}
-            workflows.begin(state, "requirements_gather")
-            value = {
-                "workflow": "build",
-                "reason": "",
-                "signals": [],
-                "clarity": "clear",
-                "design_document": "design.md",
-            }
-            workflows.apply(state, value, {})
+            state = {"settings": {"adaptive_planning": True, "roles": {"requirements": {}}}, "workspace": root}
+            workflows.begin_requirements(state)
+            value = {"job": "build", "intended_outcome": "Build it", "clarity": "clear", "design_document": "design.md"}
+            workflows.from_requirements(state, value)
         self.assertEqual(workflows.DESIGN_CHECK_STAGE, state["next_stage"])
         self.assertNotIn("requirements_skipped", state["workflow"], "the design, not clarity, decides")
 
@@ -142,7 +124,7 @@ class StatusView(unittest.TestCase):
         self.assertEqual(self.EMPTY, adaptive.view({}))
         self.assertEqual(self.EMPTY, adaptive.view({"settings": ["adaptive_planning"]}), "malformed settings")
 
-    def test_after_recognition_it_shows_clarity_and_a_saved_skip(self):
+    def test_once_the_job_is_named_it_shows_clarity_and_a_saved_skip(self):
         state = {**ON, "workflow": recognized(ON["settings"])}
         self.assertEqual({**self.EMPTY, "adaptive": True, "clarity": "clear"}, adaptive.view(state))
         # A run saved before 2026-10-22, when a clear build skipped Requirements, still shows it.
@@ -240,11 +222,6 @@ class NewRunsOnly(unittest.TestCase):
 
 
 class Schemas(unittest.TestCase):
-    def test_recognizer_asks_for_clarity_only_in_adaptive_runs(self):
-        self.assertNotIn("clarity", autoplanner.schema_for(OFF, autoplanner.RECOGNIZE)["properties"])
-        self.assertIn("clarity", autoplanner.schema_for(ON, autoplanner.RECOGNIZE)["properties"])
-        self.assertEqual(adaptive.recognizer_rule(OFF), "")
-
     def test_adaptive_planner_drafts_carry_initial_task(self):
         for stage in ("astra_discovery", "glm_revise"):
             contract = autoplanner.schema_for(ON, stage)["properties"]["contract"]

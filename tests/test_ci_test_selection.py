@@ -264,23 +264,9 @@ class DynamicDependenciesTests(unittest.TestCase):
         kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
         self.assertEqual(consumers, set(kept))
 
-    def test_bugfix_policy_keeps_current_sequence_and_legacy_resume_consumers(self):
+    def test_workflow_policy_keeps_its_current_sequence_consumers(self):
         cases = {
             "tools/autocode_workflows.py": {"tests.test_requirements_first_cli", "tests.test_saved_run_replay_cli"},
-            "tests/legacy_bugfix_fixture.py": {
-                "tests.test_acceptance_tests",
-                "tests.test_job_failure_recovery",
-                "tests.test_job_report_recovery",
-                "tests.test_investigation_progress",
-                "tests.test_bug_job",
-                "tests.test_bug_questions",
-                "tests.test_package_investigator_cli",
-                "tests.test_pilot_investigator_cli",
-                "tests.test_stale_diagnosis_feedback_cli",
-                "tests.test_investigation_handoff_cli",
-                "tests.test_provider_auth_cli",
-                "tests.test_go_reproduction",
-            },
         }
         for path, consumers in cases.items():
             with self.subTest(path=path):
@@ -640,7 +626,6 @@ class DynamicDependenciesTests(unittest.TestCase):
         for path in (
             "tools/autocode_review_source.py",
             "tools/autocode_stage_context.py",
-            "tools/autocode_bug_job.py",
         ):
             with self.subTest(path=path):
                 selected = run_suite.select_tests([path], {module: "" for module in consumers})
@@ -701,7 +686,7 @@ class DynamicDependenciesTests(unittest.TestCase):
         self.assertEqual([consumer], list(kept))
 
     def test_clean_review_fixture_keeps_its_oracle_and_public_cli_consumers(self):
-        consumers = {"tests.test_review_clean_fixture", "tests.test_review_attribution_cli"}
+        consumers = {"tests.test_review_clean_fixture"}
         for path in (
             "scenarios/catalog/review-clean-pr/oracle.py",
             "scenarios/catalog/review-clean-pr/seed/pr-191.patch",
@@ -811,34 +796,6 @@ class DynamicDependenciesTests(unittest.TestCase):
                 selected = run_suite.select_tests([path], {module: "" for module in expected})
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in expected})
                 self.assertEqual(expected, set(kept))
-
-    def test_investigation_reuse_resources_and_units_keep_the_public_cli_consumer(self):
-        consumer = "tests.test_investigation_handoff_cli"
-        for path in (
-            "tools/autocode_investigation_evidence.py",
-            "tools/units/autoplanner.py",
-            "tools/units/autoresolver.py",
-            "tools/prompts/discovery.md",
-            "tools/prompts/fragments/autoplanner/bug-diagnosis-rule.md",
-        ):
-            with self.subTest(path=path):
-                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
-                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
-                self.assertEqual([consumer], list(kept))
-
-    def test_review_attribution_and_adversarial_nit_keep_the_public_consumer(self):
-        consumer = "tests.test_review_attribution_cli"
-        for path in (
-            "tools/autocode_review_job.py",
-            "tools/autocode_review_proof.py",
-            "tools/autocode_review_attribution.py",
-            "tools/prompts/review-change.md",
-            "scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/review/findings.json",
-        ):
-            with self.subTest(path=path):
-                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
-                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
-                self.assertEqual([consumer], list(kept))
 
     def test_brief_review_ownership_keeps_its_public_cli_consumer_even_when_slow(self):
         consumer = "tests.test_brief_cli"
@@ -1102,29 +1059,6 @@ class DynamicDependenciesTests(unittest.TestCase):
         self.assertIn(
             "tests.test_package_writes", dependencies.dependencies("tools/prompts/fragments/package-scope/builder.md")
         )
-
-    def test_the_package_investigator_wiring_selects_its_cli_consumer(self):
-        # A --package bug fix's Investigator is told the package (autocode_package_writes, through
-        # units.autoresolver, in the package-scope prompt fragment) and its diagnosis is checked by
-        # autocode_bug_job against autocode_package_scope's rules; only the CLI module drives them (#711).
-        for path in (
-            "tools/autocode_bug_job.py",
-            "tools/units/autoresolver.py",
-            "tools/autocode_package_writes.py",
-            "tools/autocode_package_scope.py",
-            "tools/prompts/fragments/package-scope/investigator.md",
-        ):
-            with self.subTest(path=path):
-                self.assertIn("tests.test_package_investigator_cli", dependencies.dependencies(path))
-        self.assertNotIn(
-            "tests.test_package_investigator_cli", dependencies.dependencies("tools/autocode_bug_questions.py")
-        )
-        # Mapping a module takes away the fake flows an unmapped one selects; these two had them and keep them.
-        for path in ("tools/autocode_bug_job.py", "tools/units/autoresolver.py"):
-            with self.subTest(path=path):
-                self.assertLessEqual(
-                    {*dependencies.CORE_CONSUMERS, *dependencies.PUBLIC_FLOW_CONSUMERS}, dependencies.dependencies(path)
-                )
 
     def test_unknown_runtime_and_repository_data_select_actual_fake_flows(self):
         for path in ("tools/new_runtime_rule.json", "new_runtime_rule.json", "tools/new_runtime_rule.py"):

@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import autocode_review_job as review_job
+import autocode_design_check_job as design_check_job
 import autocode_stray_writes as stray
 import autocode_util as util
 
@@ -97,16 +97,16 @@ class RejectionTests(unittest.TestCase):
 
     setUp = base.RetrofitTest.setUp
 
-    def test_a_review_that_wrote_files_is_restored_and_gets_no_report_repair(self):
+    def test_a_design_check_that_wrote_files_is_restored_and_gets_no_report_repair(self):
         (self.root / "client.py").write_text("RETRY = False\n")
         git(self.root, "add", "client.py")
         git(self.root, "commit", "-qm", "client")
         self.state["settings"]["report_repair"] = {"max_attempts": 2}
-        stage = self.run / "iterations" / "001" / "review_change-01"
+        stage = self.run / "iterations" / "001" / "check_design-01"
         stage.parent.mkdir(parents=True)
         record = {
-            "role": "sol",
-            "stage": "review_change",
+            "role": "astra",
+            "stage": "check_design",
             "iteration": 1,
             "exit_code": 0,
             "duration_seconds": 1,
@@ -120,7 +120,9 @@ class RejectionTests(unittest.TestCase):
             record[key] = f"{stage}{suffix}"
         record["changed_files"] = ["client.py"]
         with self.assertRaises(stray.StrayWrites) as raised:
-            review_job.apply(self.state, {"verdict": "approve", "findings": []}, record, self.root)
+            design_check_job.apply(
+                self.state, {"design_document": "docs/design.md", "conflicts": [], "constraints": []}, record, self.root
+            )
         with self.assertRaises(runner.support.Paused) as stopped:
             runner.reject_completed_stage(self.state, self.run, record, raised.exception)
         self.assertNotIn("pending_report_repair", self.state)

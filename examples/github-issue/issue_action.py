@@ -69,7 +69,7 @@ def provider_options(value):
                  "--resolver-response", "--resolver-request", "--resolver-token", "--resolver-message",
                  "--retry-failed-stage", "--retry-builder", "--diagnose-failed-stage", "--retry-report",
                  "--grant-recovery", "--accept-source-edit", "--accept-transport-change",
-                 "--abandon-stage", "--recover-job-report", "--request-milestone-checkpoints",
+                 "--abandon-stage", "--request-milestone-checkpoints",
                  "--planning-review-call-limit", "--bind-dependency", "--receive-dependency",
                  "--show-goal", "--status", "--dry-run", "--migrate-only", "--no-requirements",
                  "--workspace", "--run-dir", "--in-place", "--ui-run", "--adaptive-planning"}

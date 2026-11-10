@@ -45,9 +45,7 @@ except ImportError:
 
 
 class PlanningCalls:
-    def __init__(
-        self, context, intent, *, initial_task, run_dir, workspace, write, snapshot, planning_stages, recognizer
-    ):
+    def __init__(self, context, intent, *, initial_task, run_dir, workspace, write, snapshot, planning_stages):
         self.context = context
         self.intent = profiles.profile_value(intent)
         if not isinstance(initial_task, str) or not initial_task:
@@ -55,7 +53,7 @@ class PlanningCalls:
         self.initial_task = initial_task
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.snapshot = snapshot
-        self.stages = frozenset(planning_stages) | {recognizer}
+        self.stages = frozenset(planning_stages)
         self.repairable = frozenset(planning_stages)
         self.sink = parent.ParentSink(run_dir, factory=context.factory, ordinary_write=write, snapshot=snapshot)
         context.factory.bind_parent_sink(self.sink, parent.ParentSink)

@@ -996,7 +996,7 @@ when its lifecycle observation fails, and only the runner closes them, when that
 observation passes (see [Process-recovery proof](#process-recovery-proof-for-declared-lifecycle-apis)).
 In a `--package` run it also raises one when the candidate changes a file outside
 the package, checked before each Tester and Completion Reviewer dispatch (not
-before the Code Reviewer, Designer or Design Reviewer) and by
+before the Design Reviewer) and by
 `--accept-completion`, and closes it when a later check finds no such change
 ([Monorepo packages](workflow.md#monorepo-packages)).
 When the regression proof owed for completion does not pass on the source about to

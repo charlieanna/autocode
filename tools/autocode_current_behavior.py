@@ -1,7 +1,8 @@
 """What happens today, kept beside each bug-fix criterion instead of inside it (#2133).
 
-The Investigator's observed behavior is evidence the runner binds to its report (autocode_bug_job.apply:
-``investigation.observed`` under ``output_hash`` and ``source_revision``). A planning draft that wrote that
+The bug-fix Investigator of an earlier runtime saved its observed behavior as evidence the runner bound to
+its report (``investigation.observed`` under ``output_hash`` and ``source_revision``); a run saved past
+that stage still carries it. A planning draft that wrote that
 text into a criterion and later corrected it could not be told from a draft changing the agreed behavior,
 so each correction cost a report repair and a question to the person. The ``current_behavior`` box holds
 that text instead: the runner fills an empty one from the bound diagnosis, the approval screen shows it as
@@ -44,7 +45,7 @@ def evidence(state: RunState) -> dict | None:
 
     Only this turn's reproduced investigation counts (autocode_test_cases.current_diagnosis), only one whose
     report is pinned by output_hash, and only one whose probe the runner saw exit 0 on today's code
-    (autocode_bug_job.apply records that as probe_result): an unbound, stale or untestable diagnosis is the
+    (recorded as probe_result): an unbound, stale or untestable diagnosis is the
     Investigator's word, not evidence of today's behavior.
     """
     found = test_cases.current_diagnosis(state)

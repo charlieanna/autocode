@@ -2,7 +2,7 @@
 
 A hard stage limit is AutoCode's own machinery: the model was working, and nothing about its
 route needs deciding. So instead of pausing on a person question about models, the stopped job
-(the Investigator, the Code Reviewer, ...) is retried once more on the same route with its stage
+(the Investigator of a stuck stage, the Design Reviewer, ...) is retried once more on the same route with its stage
 deadline doubled, never past the run's remaining total time, at most ``MAX_EXTENSIONS`` times for
 that job in a run. The run's money cap still applies before every launch. Each extension is
 recorded as a runner ``user_events`` entry (``EVENT``) with its reason, so the report and the

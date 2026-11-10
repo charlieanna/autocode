@@ -115,26 +115,13 @@ def progress(
         # the Tester is already queued (#1711).
         headline = f"{stage} finished · Next: {following}" if following else f"{stage} finished"
     elif stage and state.get("active_stage"):
-        # Recognition chooses the workflow before planning. Explain the activity
-        # without making it sound like a separate conversation with another agent;
-        # keep the canonical stage name in the detailed projection below.
-        headline = (
-            "Understanding your request"
-            if _mapping(state.get("active_stage")).get("stage") == "recognize_workflow"
-            else f"{stage} working"
-        )
+        headline = f"{stage} working"
     elif _unchosen(state):
         # A new run's first save holds the default next stage until the run chooses its first one,
         # a moment later; naming it put "Next: Planner" ahead of Requirements in the chat's log.
         headline, stage = "Starting the run", None
     elif stage:
-        # Preflight can leave recognition queued for a while. Explain the next
-        # activity here too, without claiming a model has already started.
-        headline = (
-            "Next: Understand your request"
-            if status == "RUNNING" and state.get("next_stage") == "recognize_workflow"
-            else f"Next: {stage}"
-        )
+        headline = f"Next: {stage}"
     else:
         headline = status.replace("_", " ").capitalize() or "Not started"
     line = " · ".join(

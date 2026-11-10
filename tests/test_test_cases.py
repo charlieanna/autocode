@@ -1196,9 +1196,9 @@ class PromptTests(unittest.TestCase):
     def test_planning_stages_get_the_rule_and_requirements_does_not(self):
         from units import autoplanner
 
-        from tests.test_bug_job import SmallCorrectionTests
+        from tests.saved_diagnosis import investigated
 
-        state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
+        state = investigated(fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
         for stage in ("astra_discovery", "astra_finalize"):
@@ -1210,9 +1210,9 @@ class PromptTests(unittest.TestCase):
     def test_the_plan_reviewer_recomputes_worked_examples(self):
         from units import autoplanner
 
-        from tests.test_bug_job import SmallCorrectionTests
+        from tests.saved_diagnosis import investigated
 
-        state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
+        state = investigated(fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
         for stage, wanted in (
@@ -1230,9 +1230,9 @@ class PromptTests(unittest.TestCase):
         # without the brackets and everything downstream honestly served the corrupted criteria.
         from units import autoplanner
 
-        from tests.test_bug_job import SmallCorrectionTests
+        from tests.saved_diagnosis import investigated
 
-        state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
+        state = investigated(fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
         for stage, wanted in (
@@ -1248,9 +1248,9 @@ class PromptTests(unittest.TestCase):
     def test_every_planning_stage_forbids_timing_criteria_except_requirements(self):
         from units import autoplanner
 
-        from tests.test_bug_job import SmallCorrectionTests
+        from tests.saved_diagnosis import investigated
 
-        state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
+        state = investigated(fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
         for stage, wanted in (
@@ -1266,9 +1266,9 @@ class PromptTests(unittest.TestCase):
     def test_the_builder_is_told_to_write_the_named_tests(self):
         from units import common
 
-        from tests.test_bug_job import approved_small_fix
+        from tests.saved_diagnosis import approved_fix
 
-        state = approved_small_fix()
+        state = approved_fix()
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"
         prompt = common.execution_request(state, "terra", state_path, schemas).prompt
@@ -1292,9 +1292,9 @@ class PromptTests(unittest.TestCase):
     def test_both_builder_prompt_paths_assign_base_and_candidate_proof_to_the_runner(self):
         from units import common
 
-        from tests.test_bug_job import approved_small_fix
+        from tests.saved_diagnosis import approved_fix
 
-        state = approved_small_fix()
+        state = approved_fix()
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"
         diagnosis_prompt = common.execution_request(state, "terra", state_path, schemas).prompt
@@ -1398,9 +1398,9 @@ class DiagnosisCaseBuilderTests(unittest.TestCase):
     def test_the_actual_builder_prompt_lists_every_diagnosis_case_and_its_proof(self):
         from units import common
 
-        from tests.test_bug_job import approved_small_fix
+        from tests.saved_diagnosis import approved_fix
 
-        state = approved_small_fix(test_cases=self.CASES)
+        state = approved_fix(test_cases=self.CASES)
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         prompt = common.execution_request(state, "terra", Path(state["workspace"]) / "state.json", schemas).prompt
         note = prompt.split("\nCURRENT HANDOFF DATA\n")[0]
@@ -1535,7 +1535,7 @@ class DesignOnlyTests(unittest.TestCase):
     def test_the_planner_gets_the_design_rule_instead_of_the_test_rule(self):
         from units import autoplanner
 
-        from tests.test_bug_job import state_for
+        from tests.saved_diagnosis import state_for
 
         for kind, present, absent in (
             ("design", autoplanner.DESIGN_DELIVERABLES_RULE, autoplanner.EXAMPLE_CRITERIA_RULE),
@@ -1556,7 +1556,7 @@ class FileListingRuleTests(unittest.TestCase):
     def test_build_plans_are_told_to_test_behavior_not_the_file_listing(self):
         from units import autoplanner
 
-        from tests.test_bug_job import state_for
+        from tests.saved_diagnosis import state_for
 
         state = {**state_for(), "workflow": {"kind": "build"}, "answers": {}, "user_events": []}
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}

@@ -179,7 +179,6 @@ def unit_for(stage):
     if stage in ("astra_resolve", "astra_diagnose"):
         return "autoresolver"
     if stage in (
-        planning_unit.RECOGNIZE,
         "requirements_gather",
         "astra_discovery",
         "astra_challenge",
@@ -520,8 +519,6 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
     requirements_triage.validate_application(
         state, stage, value, checked, schema_for=planning_unit.schema_for, validate=support.validate_schema
     )
-    if stage == planning_unit.RECOGNIZE:
-        return planning_unit.recognize(state, value, record)
     if stage == "astra_discovery" and planning_unit.rerun_requirements(state, value):
         return  # the draft is discarded before any of its checks: Requirements runs next
     value, deferred = planning_unit.planning_scope.prepare_handoff(
@@ -1159,7 +1156,7 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
     if planning.is_planning(state, stage) or (modern and stage == "astra_discovery"):
         apply_planning_result(state, stage, value, record, run_dir=run_dir)
         save_record(state, record)
-        return lifecycle.refresh_diagnosis(state, workspace)
+        return
     if modern:
         if progressive_state.enabled(state):
             progressive_state.check_result_binding(

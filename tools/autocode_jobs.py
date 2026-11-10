@@ -16,36 +16,24 @@ if TYPE_CHECKING:
 try:
     from . import autocode_acceptance_tests_job as acceptance_tests_job
     from . import autocode_approval_provenance as approval_provenance
-    from . import autocode_bug_job as bug_job
     from . import autocode_cost as cost
     from . import autocode_design_check_job as design_check_job
     from . import autocode_design_intake as design_intake
-    from . import autocode_design_job as design_job
-    from . import autocode_discuss_job as discuss_job
     from . import autocode_prompts as prompts
-    from . import autocode_review_job as review_job
     from . import autocode_stuck_job as stuck_job
 except ImportError:
     import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_approval_provenance as approval_provenance
-    import autocode_bug_job as bug_job
     import autocode_cost as cost
     import autocode_design_check_job as design_check_job
     import autocode_design_intake as design_intake
-    import autocode_design_job as design_job
-    import autocode_discuss_job as discuss_job
     import autocode_prompts as prompts
-    import autocode_review_job as review_job
     import autocode_stuck_job as stuck_job
 
-JOBS = (review_job, bug_job, design_job, discuss_job, design_check_job, stuck_job, design_intake, acceptance_tests_job)
+JOBS = (design_check_job, stuck_job, design_intake, acceptance_tests_job)
 # Which unit prepares and applies each job's stage (autopilot.unit_for). Units
 # expose apply_job(stage, state, value, record, workspace).
 UNIT = {
-    review_job.STAGE: "autoreview",
-    bug_job.STAGE: "autoresolver",
-    design_job.STAGE: "autoreview",
-    discuss_job.STAGE: "autoresolver",
     design_check_job.STAGE: "autoreview",
     stuck_job.STAGE: "autoresolver",
     design_intake.STAGE: "autoreview",
@@ -55,7 +43,7 @@ STAGES = tuple(UNIT)
 
 # The jobs whose report carries evidence rows the runner probes. `investigate_stuck` is not here: its
 # repair prompt already states its own evidence and probe-path policy (autocode_stuck_repair_context).
-PROBING_STAGES = frozenset({discuss_job.STAGE, bug_job.STAGE, design_job.STAGE, design_check_job.STAGE})
+PROBING_STAGES = frozenset({design_check_job.STAGE})
 # The probing jobs whose probes must also fail on a deliberately constructed counterexample (#1769): all of
 # them. `investigate_stuck` requires one too, stated in its own repair instruction.
 COUNTEREXAMPLE_STAGES = PROBING_STAGES

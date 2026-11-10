@@ -53,7 +53,6 @@ the executable stages and their current unit owners, including v2 planning.
 
 | Stage ID | Human job | Unit |
 | --- | --- | --- |
-| `recognize_workflow` | Job recognizer | AutoPlanner |
 | `requirements_gather`, `astra_discovery`, `glm_revise`, `requirements` | Requirements | AutoPlanner |
 | `plan`, `plan_revise` | Planner | AutoPlanner |
 | `astra_plan` | Planner | AutoCode |
@@ -63,12 +62,9 @@ the executable stages and their current unit owners, including v2 planning.
 | `sol`, `write_acceptance_tests` | Tester | AutoReview |
 | `astra_review`, `astra_checkpoint` | Completion Reviewer | AutoReview |
 | `collect_design` | Design inventory | AutoReview |
-| `review_design` | Designer | AutoReview |
 | `check_design` | Design Reviewer | AutoReview |
-| `review_change` | Code Reviewer | AutoReview |
-| `investigate_bug`, `investigate_stuck` | Investigator | AutoResolver |
+| `investigate_stuck` | Investigator | AutoResolver |
 | `astra_resolve`, `astra_diagnose` | Resolver | AutoResolver |
-| `answer_question` | Analyst | AutoResolver |
 
 Under `glm_first_v1` reviewer routing, `astra_checkpoint` does the **Tester**
 job; the name describes its work, not the model running it. `_report_repair`
@@ -198,53 +194,51 @@ replacement for CI.
 
 ### Worked example: wiring a workflow-owned stage
 
-Use the existing `review_change` stage as the example when an agreed change
-needs a workflow-owned job. It reviews an existing change and produces
-`review/findings.json`; it does not plan or build the requested product. A new
-job or workflow still needs scope agreement under the ground rules above.
+Use the existing `check_design` stage (the Design Reviewer) as the example when an
+agreed change needs a workflow-owned job. It checks an approved design document
+against the repository before any planning and either stops the run on conflicts
+or hands the design's binding decisions to the Planner; it builds nothing itself.
+Every task still takes the same path (Requirements, Planner, Plan Reviewer,
+Builder, Tester, Completion Reviewer), so a new job or workflow needs scope
+agreement under the ground rules above.
 
-1. **Give the job one module.** [autocode_review_job.py](tools/autocode_review_job.py)
+1. **Give the job one module.** [autocode_design_check_job.py](tools/autocode_design_check_job.py)
    defines `STAGE`, `SCHEMA`, `packet()`/`prompt()`, `apply()`, `owns()` and
-   `render()`. Its prompt is the packaged resource
-   [review-change.md](tools/prompts/review-change.md). It receives the test-runner
-   callback rather than importing the CLI/controller. Review's report uses
-   its job schema, not the build roles' `autocode_role_schema` extensions.
+   `render()`. Its prompt is the packaged resources `design-check-02.md` and
+   `design-check.md` under [tools/prompts/](tools/prompts/). It receives the
+   probe-runner callbacks rather than importing the CLI/controller.
 2. **Register dispatch and completion.** Import the module and add it to `JOBS`
-   and `UNIT` in [autocode_jobs.py](tools/autocode_jobs.py). `review_change`
+   and `UNIT` in [autocode_jobs.py](tools/autocode_jobs.py). `check_design`
    belongs to `autoreview`; the registry lets the runner/controller recognize
    the job and select its completion renderer. Registration alone does not
    prepare the model request or choose the workflow's entry stage.
 3. **Wire the owning unit.** [units/autoreview.py](tools/units/autoreview.py)
    includes the job in its local `JOBS`, prepares the request with `job_request()`
-   and applies it through `apply_job()`. Review uses the existing `sol` route
-   and its own scratch-proof callback from the unit. If an agreed job needs a
-   separate route, keep preparation and `route_for()` in
-   [units/autoplanner.py](tools/units/autoplanner.py) consistent; do not silently
+   and applies it through `apply_job()`. The Design Reviewer runs on its own
+   `architect` route; keep preparation and `route_for()` in
+   [units/autoplanner.py](tools/units/autoplanner.py) consistent, and do not silently
    borrow a different model, effort or saved session.
 4. **Choose a supported entry.** [autocode_workflows.py](tools/autocode_workflows.py)
-   maps the existing `review` workflow to `REVIEW_STAGE` in `FIRST_STAGE`.
-   Recognition or the existing `--workflow review` override reaches it.
-   Adding a workflow requires its own agreed scope and recognition/schema
-   changes; adding a job does not imply a new CLI subcommand.
+   starts a build at `DESIGN_CHECK_STAGE` when Requirements names an approved design
+   document that exists in the workspace; every other task starts at the Planner.
+   Adding a job does not imply a new CLI subcommand.
 5. **Declare names and write boundaries.** Add the stage's human job in
    [autocode_roles.py](tools/autocode_roles.py) and a unique artifact stem in
-   [autocode_artifacts.py](tools/autocode_artifacts.py). Review's
-   [stage-access rules](tools/autocode_stage_access.py) allow only `review/`
-   repository artifacts and put scratch work under `.autocode/scratch/`.
-   Its `apply()` rejects stray writes and requires a test for each testable
-   blocking finding to fail independently on the reviewed change. Native
-   snapshot allowances in [autocode_readonly_events.py](tools/autocode_readonly_events.py)
-   also retain source protection; a write-enabled request does not authorize
-   arbitrary source changes.
-6. **Keep the saved/public contracts explicit.** Review stores its result in
-   the existing `review` key in [autocode_run_state.py](tools/autocode_run_state.py).
-   New keys need named writers/readers, and new status-view fields belong in
+   [autocode_artifacts.py](tools/autocode_artifacts.py). The
+   [stage-access rules](tools/autocode_stage_access.py) let the check change nothing
+   in the repository and put scratch work under `.autocode/scratch/`; its `check()`
+   rejects stray writes, and only the runner writes the blockers file beside the design.
+6. **Keep the saved/public contracts explicit.** The check stores its result in
+   the existing `design_check` and `design_constraint` keys in
+   [autocode_run_state.py](tools/autocode_run_state.py). New keys need named
+   writers/readers, and new status-view fields belong in
    [autocode_run_view.py](tools/autocode_run_view.py). Preserve old stage IDs,
    tokens, approvals and evidence; do not add a new direct status writer past
    the architecture ratchet.
-7. **Exercise the behavior with focused fakes.** [test_review_job.py](tests/test_review_job.py)
-   covers routing, schema/request preparation, allowed writes, completion and
-   rejection of invented blocking findings. [test_workflows.py](tests/test_workflows.py),
+7. **Exercise the behavior with focused fakes.** [test_design_check_job.py](tests/test_design_check_job.py)
+   covers the schema, allowed writes, conflicts and the hand-off to planning, and
+   [test_job_failure_recovery.py](tests/test_job_failure_recovery.py) drives a stopped
+   check's exact retry through the CLI. [test_workflows.py](tests/test_workflows.py),
    [test_stage_access.py](tests/test_stage_access.py), [test_roles.py](tests/test_roles.py)
    and [test_artifacts.py](tests/test_artifacts.py) show the registration guards.
    For changed user behavior, add a public CLI/TaskRun regression or a catalog

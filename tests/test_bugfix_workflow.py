@@ -27,7 +27,7 @@ import autocode_run_view as run_view  # noqa: E402
 import scenario_references as references  # noqa: E402
 import task_scenarios as scenarios  # noqa: E402
 
-from tests import test_bug_job, test_planning, test_subprocess  # noqa: E402
+from tests import saved_diagnosis, test_planning, test_subprocess  # noqa: E402
 
 # Requirements runs first and names the job (#1860); this fixture names a build.
 PLANNING = [
@@ -111,7 +111,7 @@ class BugfixWorkflow(unittest.TestCase):
         runner = next(row for row in final["stages"] if row["stage"] == "regression_proof")
         self.assertTrue(runner["runner_owned"])
         self.assertEqual(0, runner["metrics"]["provider_tokens"]["input_tokens"])
-        # Small-job guard (#15): nine model calls (Requirements names the job, so no recognizer call, #1860),
+        # Small-job guard (#15): nine model calls (Requirements names the job, #1860),
         # no report-format repair, one runner proof.
         model_calls = [row for row in final["stages"] if not row.get("runner_owned")]
         self.assertEqual(9, len(model_calls))
@@ -399,7 +399,7 @@ class CurrentBehaviorPlanning(unittest.TestCase):
         self.launch(["Fix the blank-name bug", "--no-chat"], 2)
         run, state = self.saved()
         self.assertEqual("WAITING_FOR_USER", state["status"])
-        report = {**test_bug_job.diagnosis(fix_size="large"), "observed": self.OBSERVED, "test_cases": []}
+        report = {**saved_diagnosis.diagnosis(fix_size="large"), "observed": self.OBSERVED, "test_cases": []}
         output = run / "iterations" / "investigator-fixture.json"
         output.write_text(json.dumps(report))
         state["investigation"] = {

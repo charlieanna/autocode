@@ -54,22 +54,6 @@ def states(view):
 
 
 class ProgressLineTests(unittest.TestCase):
-    def test_queued_recognition_explains_the_next_activity_without_claiming_it_is_running(self):
-        saved = state(active_stage=None, next_stage="recognize_workflow")
-        shown = project(saved, stage="Job recognizer")
-        self.assertEqual("Next: Understand your request", shown["headline"])
-        self.assertTrue(shown["line"].startswith("Next: Understand your request ·"))
-        self.assertEqual("Job recognizer", shown["stage"])
-        self.assertEqual("nothing needed from you", shown["needs_you"])
-        self.assertEqual(
-            "Job recognizer stopped without saving a report",
-            project(saved, stage="Job recognizer", stopped="Inspect the failed attempt")["headline"],
-        )
-        saved.update(status="WAITING_FOR_USER", pending_questions=[{"id": "Q1", "question": "What outcome?"}])
-        self.assertEqual("Waiting for you", project(saved, stage="Job recognizer")["headline"])
-        saved = state(active_stage=None, next_stage="terra")
-        self.assertEqual("Next: Builder", project(saved)["headline"])
-
     def test_a_fresh_runs_first_save_names_no_stage_it_has_not_chosen(self):
         """A new run's first save carries the default next stage (astra_plan) for a moment before the
         run chooses its first stage; the chat read that save and logged "Next: Planner" ahead of
@@ -85,19 +69,6 @@ class ProgressLineTests(unittest.TestCase):
         planned = {**fresh, "phase": "PLANNING"}  # a run that does start at astra_plan says so once it has
         shown = progress_view.progress(planned, accepted=[], stage="Planner", needs=run_view.needs(planned))
         self.assertEqual("Next: Planner", shown["headline"])
-
-    def test_recognition_explains_the_activity_but_keeps_the_stage_and_stop_truthful(self):
-        saved = state(active_stage={"stage": "recognize_workflow"})
-        view = project(saved, stage="Job recognizer")
-        self.assertEqual("Understanding your request", view["headline"])
-        self.assertTrue(view["line"].startswith("Understanding your request ·"))
-        self.assertEqual("Job recognizer", view["stage"])
-        self.assertEqual("Job recognizer finished", project(saved, stage="Job recognizer", finished=True)["headline"])
-        self.assertEqual(
-            "Job recognizer stopped without saving a report",
-            project(saved, stage="Job recognizer", stopped="Inspect the failed attempt")["headline"],
-        )
-        self.assertEqual("Builder working", project(state())["headline"])
 
     def test_a_finished_run(self):
         saved = state(

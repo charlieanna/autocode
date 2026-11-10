@@ -37,7 +37,6 @@ try:
     from . import autocode_support as support
     from . import autocode_transport_relocation as transport_relocation
     from . import autocode_workflow as workflow
-    from . import autocode_workflows as workflows
     from . import autopilot
     from .units import common
 except ImportError:
@@ -62,7 +61,6 @@ except ImportError:
     import autocode_support as support
     import autocode_transport_relocation as transport_relocation
     import autocode_workflow as workflow
-    import autocode_workflows as workflows
     import autopilot
     from units import common
 
@@ -180,10 +178,6 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             print(
                 "Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True
             )
-        if autopilot.lifecycle.refresh_diagnosis(current, workspace):
-            runner.write_json(state_path, current)
-            if current["status"] != "RUNNING":
-                raise support.Paused(current["status"], current["stop_reason"])
         workflow.guard(current)
         # spec-first: the Tester writes the tests before the Builder, for a parallel batch's whole wave (#1200)
         acceptance_tests.route(current, wave=lambda: dispatch.select(current))
@@ -390,8 +384,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
 
     def after_code_stage(current, stage, _record):
         print(
-            f"{stage}: saved; next={current['next_stage']}; status={current['status']}"
-            + workflows.describe(current, stage),
+            f"{stage}: saved; next={current['next_stage']}; status={current['status']}",
             flush=True,
         )
         autopilot.publish_handoffs(current, run_dir)

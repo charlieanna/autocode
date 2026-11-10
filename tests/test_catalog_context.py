@@ -132,14 +132,6 @@ class CatalogContextTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed"):
             context.read_roots(self.state)
 
-    def test_initial_investigator_receives_the_catalog(self):
-        import autocode_bug_job as bug_job
-
-        catalog.add_root(self.repo.parent)
-        self.state.update(task="Fix the unreadable history", settings={})
-        data = bug_job.packet(self.state)
-        self.assertEqual(str(self.repo), data["source_catalog"]["repositories"][0]["path"])
-
     def test_catalog_source_citations_can_ground_external_repository_scope(self):
         import autocode_workspace_scope as scope
 
@@ -160,7 +152,7 @@ class CatalogContextTests(unittest.TestCase):
     def test_requirements_handoff_receives_the_same_pinned_source_catalog(self):
         import autocode_stage_context as stage_context
 
-        from tests.test_bug_job import state_for
+        from tests.saved_diagnosis import state_for
 
         catalog.add_root(self.repo.parent)
         state = {**state_for(self.state["workspace"]), "run_dir": self.state["run_dir"]}
@@ -174,7 +166,7 @@ class CatalogContextTests(unittest.TestCase):
     def test_spec_first_public_planner_context_receives_the_pinned_catalog(self):
         from units import autoplanner
 
-        from tests.test_bug_job import state_for
+        from tests.saved_diagnosis import state_for
 
         catalog.add_root(self.repo.parent)
         state = {**state_for(self.state["workspace"]), "run_dir": self.state["run_dir"]}
@@ -200,31 +192,10 @@ class CatalogContextTests(unittest.TestCase):
         self.assertEqual(str(self.repo), found["evidence_repository"])
         self.assertEqual(row["head"], found["evidence_revision"])
 
-    def test_investigator_accepts_validated_catalog_citations_from_an_unrelated_workspace(self):
-        import autocode_bug_job as bug_job
-        from autocode_workspace_scope_state import current
-
-        from tests.test_bug_job import diagnosis, state_for
-
-        catalog.add_root(self.repo.parent)
-        row = context.context(self.state)["repositories"][0]
-        part = {
-            "target": "api",
-            "work": "Preserve result metadata",
-            "source_quote": "",
-            "evidence": "catalog/" + row["id"] + "/go.mod:1",
-        }
-        state = {**state_for(self.state["workspace"]), "run_dir": self.state["run_dir"]}
-        value = diagnosis(
-            "not_reproduced", questions=[], workspace_scope={"spans_repositories": True, "external_parts": [part]}
-        )
-        bug_job.apply(state, value, {"changed_files": []}, state["workspace"])
-        self.assertEqual([part], current(state)["external_parts"])
-
     def test_requirements_accept_catalog_source_refs_without_demanding_launch_repo_evidence(self):
         import autocode_requirements_handoff as handoff
 
-        from tests.test_bug_job import state_for
+        from tests.saved_diagnosis import state_for
         from tests.test_requirements_handoff import report
 
         catalog.add_root(self.repo.parent)
@@ -254,7 +225,7 @@ class CatalogContextTests(unittest.TestCase):
     def test_requirements_rejection_names_all_invalid_citations_and_keeps_valid_evidence(self):
         import autocode_requirements_handoff as handoff
 
-        from tests.test_bug_job import state_for
+        from tests.saved_diagnosis import state_for
         from tests.test_requirements_handoff import report
 
         catalog.add_root(self.repo.parent)
@@ -289,7 +260,7 @@ class CatalogContextTests(unittest.TestCase):
     def test_catalog_bug_confirms_requirements_and_keeps_real_questions(self):
         import autocode_requirements_review as review
 
-        from tests.test_bug_job import state_for
+        from tests.saved_diagnosis import state_for
         from tests.test_requirements_handoff import QUESTION, report
 
         catalog.add_root(self.repo.parent)

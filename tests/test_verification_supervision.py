@@ -16,7 +16,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import textwrap
 import threading
 import time
 import unittest
@@ -28,12 +27,7 @@ import autocode_supervision as supervision
 import autocode_taskrun as taskrun
 import psutil
 
-from tests import legacy_bugfix_fixture
-
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
-# A new review goes through the full pipeline (#3010); a review-stage fault is launched as an earlier
-# runtime saved the run, at the Code Reviewer.
-LEGACY_LAUNCH = legacy_bugfix_fixture.COMMAND
 BRIEF = (
     "Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
     "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
@@ -374,9 +368,7 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
         path = self.root / "provider-called"
         return path.read_text().splitlines() if path.exists() else []
 
-    def taskrun_fault(
-        self, workspace, environment, script, *, stage, provider_calls, expected_worker_context=None, launcher=None
-    ):
+    def taskrun_fault(self, workspace, environment, script, *, stage, provider_calls, expected_worker_context=None):
         sentinel = subprocess.Popen(
             [sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE, start_new_session=True
         )
@@ -399,7 +391,7 @@ Path({str(self.root / "collected-result.json")!r}).write_text(json.dumps(result)
         ancestors = psutil.Process(command["pid"]).parents()
         owner = next((parent for parent in ancestors if parent.ppid() == self.driver.pid), None)
         self.assertIsNotNone(owner, "Verification command has no disposable CLI owner")
-        self.assertIn(launcher or str(TOOLS / "autocode.py"), owner.cmdline())
+        self.assertIn(str(TOOLS / "autocode.py"), owner.cmdline())
         owner_identity = self.capture(owner.pid)
         for parent in ancestors:
             if parent.pid == self.driver.pid:
@@ -653,111 +645,3 @@ TaskRun.start({str(workspace)!r},{BRIEF!r},options={OPTIONS!r},
 
     def test_taskrun_owner_loss_stops_v2_worker_prerequisite_without_accepting_readiness(self):
         self.prerequisite_owner_loss(version=2, execution="worker")
-
-    def test_taskrun_owner_loss_during_finished_review_result_application(self):
-        workspace = self.root / "project"
-        workspace.mkdir()
-        (workspace / "calc.py").write_text("def double(value):\n    return value + 1\n")
-        (workspace / ".gitignore").write_text(".autocode/\n__pycache__/\n")
-        subprocess.run(["git", "init", "-q", str(workspace)], check=True)
-        for key in ("maintenance.auto", "gc.auto"):
-            subprocess.run(
-                ["git", "-C", str(workspace), "config", key, "false" if key == "maintenance.auto" else "0"], check=True
-            )
-        subprocess.run(["git", "-C", str(workspace), "add", "calc.py", ".gitignore"], check=True)
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(workspace),
-                "-c",
-                "user.name=T",
-                "-c",
-                "user.email=t@example.test",
-                "commit",
-                "-qm",
-                "review result-application fixture",
-            ],
-            check=True,
-        )
-        worker = (
-            "import json,os,signal,socket; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
-            f"channel=socket.socket(socket.AF_UNIX); channel.connect({self.endpoint!r}); "
-            "channel.sendall((json.dumps({'kind':'worker','pid':os.getpid(),'parent':os.getppid(),"
-            "'term_ignored':True})+'\\n').encode()); channel.recv(1); signal.pause()"
-        )
-        barrier = f"""subprocess.Popen([sys.executable,'-u','-c',{worker!r}],start_new_session=True)
-channel=socket.socket(socket.AF_UNIX)
-channel.connect({self.endpoint!r})
-channel.sendall((json.dumps({{'kind':'command','pid':os.getpid(),'parent':os.getppid(),'cwd':os.getcwd()}})+'\\n').encode())
-channel.recv(1)
-"""
-        delivered = (
-            "import json,os,socket,subprocess,sys,unittest\nfrom calc import double\n"
-            "class Finding(unittest.TestCase):\n    def test_f1_owner(self):\n"
-            + textwrap.indent(barrier, "        ")
-            + "        self.assertEqual(6,double(3))\n"
-        )
-        report = {
-            "verdict": "request_changes",
-            "summary": "One scripted blocking finding",
-            "change_under_review": "The existing double implementation",
-            "change_patch": "",
-            "findings": [
-                {
-                    "id": "F1",
-                    "severity": "blocking",
-                    "file": "calc.py",
-                    "lines": [1, 2],
-                    "summary": "Adds one instead of doubling",
-                    "evidence": "double(3) is 4",
-                    "example": "Given input 3, when double runs, it returns 4 (expected 6)",
-                    "untestable": "",
-                }
-            ],
-            "tests_run": [],
-            "delivered_tests": ["review/tests/test_f1_owner.py"],
-        }
-        bindir = self.root / "bin"
-        bindir.mkdir()
-        provider = bindir / "codex"
-        provider.write_text(f"""#!/usr/bin/env python3
-import json,sys,uuid
-from pathlib import Path
-if sys.argv[1:] == ['login','status']:
-    print('Logged in using ChatGPT (offline review fixture)')
-    raise SystemExit(0)
-prompt=sys.stdin.read()
-data=json.loads(prompt.split('CURRENT HANDOFF DATA\\n',1)[1])
-stage=data.get('stage')
-with Path({str(self.root / "provider-called")!r}).open('a') as calls:
-    calls.write(str(stage)+'\\n')
-assert stage == 'review_change', stage
-path=Path('review/tests/test_f1_owner.py')
-path.parent.mkdir(parents=True,exist_ok=True)
-path.write_text({delivered!r})
-Path(sys.argv[sys.argv.index('-o')+1]).write_text(json.dumps({report!r}))
-print(json.dumps({{'type':'thread.started','thread_id':str(uuid.uuid4())}}),flush=True)
-print(json.dumps({{'type':'turn.completed','usage':{{'input_tokens':10,'output_tokens':10}}}}),flush=True)
-""")
-        provider.chmod(0o755)
-        environment = {
-            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-            "AUTOCODE_HOME": str(self.root / "registry"),
-            "PYTHONDONTWRITEBYTECODE": "1",
-        }
-        self.assertEqual([], taskrun.TaskRun.runs_in(workspace))
-        script = f"""import sys
-sys.path.insert(0,{str(TOOLS)!r})
-from autocode_taskrun import TaskRun
-TaskRun.start({str(workspace)!r},'Review the double implementation and deliver a finding test.',options={OPTIONS!r},
-    start_options=('--workflow','review'),env={environment!r},timeout=300,command={LEGACY_LAUNCH!r})
-"""
-        self.taskrun_fault(
-            workspace,
-            environment,
-            script,
-            stage="review_change",
-            provider_calls=["review_change"],
-            launcher=LEGACY_LAUNCH[1],
-        )

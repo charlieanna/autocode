@@ -196,7 +196,6 @@ class OwnedTransportTests(unittest.TestCase):
         }
         args = SimpleNamespace(replay_recording=tape.manifest_path, replay_checks="fresh")
         state["settings"] = transport.configure(args, state)
-        self.assertEqual("investigator", planning.route_for(state, "investigate_bug"))
         self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
         self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         self.assertEqual({"plan_reviewer": "auto_selected"}, state["settings"]["effort_origins"])

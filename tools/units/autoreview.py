@@ -1,6 +1,6 @@
-"""Autoreview owns independent verification and evidence validation, the review
-workflow's Reviewer stage (autocode_review_job), the design workflow's
-Architect stage (autocode_design_job) and a spec-first run's acceptance tests
+"""Autoreview owns independent verification and evidence validation, the Design
+Reviewer's check of an approved design (autocode_design_check_job), the Figma design
+inventory (autocode_design_intake) and a spec-first run's acceptance tests
 (autocode_acceptance_tests_job)."""
 
 from __future__ import annotations
@@ -24,16 +24,11 @@ try:
     from .. import autocode_counterexample as counterexample
     from .. import autocode_design_check_job as design_check_job
     from .. import autocode_design_intake as design_intake
-    from .. import autocode_design_job as design_job
     from .. import autocode_goals as goals
     from .. import autocode_launch_inputs as launch_inputs
     from .. import autocode_recovery_novelty as novelty
-    from .. import autocode_review_job as review_job
-    from .. import autocode_review_mutation as review_mutation
-    from .. import autocode_review_proof as review_proof
     from .. import autocode_role_transport as role_transport
     from .. import autocode_run_status as run_status
-    from .. import autocode_source_scope as source_scope
     from .. import autocode_task_authority as task_authority
     from .. import autocode_verification_commands as command_policy
     from .. import autocode_verification_plan as verification_plan
@@ -43,16 +38,11 @@ except ImportError:
     import autocode_counterexample as counterexample
     import autocode_design_check_job as design_check_job
     import autocode_design_intake as design_intake
-    import autocode_design_job as design_job
     import autocode_goals as goals
     import autocode_launch_inputs as launch_inputs
     import autocode_recovery_novelty as novelty
-    import autocode_review_job as review_job
-    import autocode_review_mutation as review_mutation
-    import autocode_review_proof as review_proof
     import autocode_role_transport as role_transport
     import autocode_run_status as run_status
-    import autocode_source_scope as source_scope
     import autocode_task_authority as task_authority
     import autocode_verification_commands as command_policy
     import autocode_verification_plan as verification_plan
@@ -60,15 +50,12 @@ except ImportError:
 from . import autoplanner
 from .common import ModelRequest, capped_route, execution_request
 
-STAGE = review_job.STAGE
 PROBE_TIMEOUT = 120  # seconds per design probe; a probe checks one fact about the code, it is not a suite
 COMPLETION_REVIEW_STOP = (
     "All required criteria already pass; request completion instead of another implementation batch"
 )
 SEND_BACK_NOTE = prompts.get("fragments/autoreview/send-back-note.md")
 JOBS = {
-    review_job.STAGE: review_job,
-    design_job.STAGE: design_job,
     design_check_job.STAGE: design_check_job,
     design_intake.STAGE: design_intake,
     acceptance_tests_job.STAGE: acceptance_tests_job,
@@ -99,12 +86,6 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         state["phase"] = "DISCOVERING"
         role = next(name for name in ("requirements", "glm", "astra") if name in state["settings"]["roles"])
         return job_request(state, design_intake, role, role)
-    if stage == review_job.STAGE:
-        # The Reviewer runs on the Validator's route with write access, so it can
-        # make and test a scratch copy of its own; the runner rejects the report
-        # if the workspace itself changed (review_job.apply).
-        state["phase"] = "REVIEWING"
-        return job_request(state, review_job, "sol", autoplanner.route_for(state, stage, "sol"))
     if stage == acceptance_tests_job.STAGE:
         # Spec-first (#1200): the Validator's model writes the acceptance tests, on a route of its own so
         # that session never leaks into validation. The Builder's model stays a different one (cross-model).
@@ -113,11 +94,10 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         roles.setdefault("acceptance_tester", deepcopy(roles["sol"]))
         role_transport.inherit(state.get("settings"), "acceptance_tester", "sol")
         return job_request(state, acceptance_tests_job, "sol", "acceptance_tester")
-    if stage in (design_job.STAGE, design_check_job.STAGE):
-        # The Architect inherits the Plan Reviewer's model (the planner's own when
+    if stage == design_check_job.STAGE:
+        # The Design Reviewer inherits the Plan Reviewer's model (the planner's own when
         # there is none), with effort capped at ARCHITECT_MAX_EFFORT, on a route of
-        # its own so its session never leaks into later planning. Same
-        # scratch-copy rule as the Reviewer.
+        # its own ("architect") so its session never leaks into later planning.
         state["phase"] = "REVIEWING"
         roles = state["settings"]["roles"]
         roles.setdefault("architect", architect_route(roles))
@@ -251,23 +231,7 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
             send_back=lambda body, changes: send_back_plan(state, body, changes, record),
         )
         return
-    if stage == review_job.STAGE:
-        # The runner, not the Reviewer, shows each blocking finding: its test must fail on the change.
-        review_job.apply(
-            state,
-            value,
-            record,
-            workspace,
-            run_tests=lambda tests, patch: review_proof.collect(
-                workspace, evidence_dir / "review-proof", tests, patch, clean_run, timeout=verify.DEFAULT_TIMEOUT
-            ),
-            snapshot=lambda root: source_scope.snapshot(root, state),
-            run_mutation_check=lambda patch: review_mutation.collect(
-                workspace, evidence_dir / "review-mutation", patch, clean_run
-            ),
-        )
-        return
-    # The Architect's concerns and conflicts about today's code carry probes the runner runs itself, on the
+    # The Design Reviewer's concerns and conflicts about today's code carry probes the runner runs itself, on the
     # code and again with each one's counterexample made, where the probe must fail (#1769).
     JOBS[stage].apply(
         state,

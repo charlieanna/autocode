@@ -248,7 +248,9 @@ def parser() -> argparse.ArgumentParser:
     steps = command.add_subparsers(dest="step", required=True)
     start = steps.add_parser("start", help="start a run; engine, model and budget flags follow --")
     start.add_argument("brief", help="the request; '-' reads it from standard input")
-    start.add_argument("--workflow", choices=WORKFLOWS, help="name the kind of job instead of recognizing it")
+    start.add_argument(
+        "--workflow", choices=WORKFLOWS, help="name the kind of job instead of having Requirements name it"
+    )
     status = steps.add_parser("status", help="where the run stands (reads only)")
     status.add_argument("--full", action="store_true", help="add the whole status view")
     approve = steps.add_parser("approve", help="approve the displayed plan, then continue")

@@ -203,6 +203,8 @@ def _time(value):
 
 
 def _category(row):
+    # A saved run's rows may name stages this runtime no longer runs (autocode_workflows.RETIRED_STAGES):
+    # they keep their categories so its efficiency stays readable.
     stage = str(row.get("stage") or "")
     if row.get("report_only") or stage.endswith("_report_repair"):
         return "report_repair"

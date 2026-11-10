@@ -1,1 +1,0 @@
-A reproduced bug the Investigator sized small becomes one Builder task built from the diagnosis and runs without plan approval; an independent Validator and the Completion Owner must still accept it, with a regression test that fails before the fix.

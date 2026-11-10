@@ -79,7 +79,7 @@ _model_family = model_identity.family
 
 def enforce_cross_model_verification(state: RunState):
     """Pause before dispatch unless the run explicitly uses single-model mode."""
-    problems = verifier_independence.violations(state.get("settings"), (state.get("workflow") or {}).get("kind"))
+    problems = verifier_independence.violations(state.get("settings"))
     if problems:
         raise s.Paused(
             "PAUSED_CROSS_MODEL",

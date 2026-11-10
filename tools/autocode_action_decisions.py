@@ -325,7 +325,7 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
             if args.delegate_all:
                 goals.delegate_all(candidate, args.review_token)
             requirements_review.after_answers(candidate, queue=resolver_human.queue)
-            requirements_chat.recognize_after_approval(candidate)
+            requirements_chat.start_after_approval(candidate)
             for assumption_id in args.reject_assumption:
                 goals.reject_assumption(candidate, assumption_id, args.review_token)
             if args.feedback is not None:

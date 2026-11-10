@@ -322,10 +322,6 @@ def _validate(document):
         raise RecordingError("Recording artifact paths are duplicated")
     if document["launch"].get("git_pack") is not None and document["launch"]["git_pack"] not in document["artifacts"]:
         raise RecordingError("Recording Git source is missing")
-    if "workflow_pin" in document["launch"] and any(
-        row.get("stage") == workflows.STAGE for row in document["dispatches"] if isinstance(row, dict)
-    ):
-        raise RecordingError("Recording initial workflow pin conflicts with a recognizer dispatch")
     ids = set()
     for ordinal, row in enumerate(document["dispatches"]):
         _object(row, DISPATCH_KEYS, {"prompts_hash"})

@@ -160,7 +160,7 @@ class ActivityMonitor:
         progress=None,
     ):
         self.path = Path(events_path)
-        # Optional reproduction-first budget (autocode_investigation_progress.Budget): observe(row), reason().
+        # Optional exploration budget with observe(row) and reason(); no stage passes one today.
         self._progress = progress
         self.idle_limit = max(0, float(idle_seconds))
         self.tool_limit = max(0, float(tool_seconds))

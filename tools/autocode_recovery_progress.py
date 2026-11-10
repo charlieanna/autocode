@@ -15,7 +15,7 @@ except ImportError:
     import autocode_roles as roles
 
 PLANNING = frozenset(roles.ALL_PLANNING_STAGES)
-PRE_BUILD = PLANNING | {"recognize_workflow"}
+PRE_BUILD = PLANNING
 
 
 def routine_resume(state: RunState, issued):

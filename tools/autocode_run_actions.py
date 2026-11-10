@@ -49,6 +49,7 @@ try:
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_stop as stop
     from . import autocode_support as support
+    from . import autocode_workflows as workflows
     from . import autocode_worktrees as worktrees
 except ImportError:
     import autocode_action_authority as action_authority
@@ -74,6 +75,7 @@ except ImportError:
     import autocode_skip_requirements as skip_requirements
     import autocode_stop as stop
     import autocode_support as support
+    import autocode_workflows as workflows
     import autocode_worktrees as worktrees
 
 
@@ -83,7 +85,6 @@ class Decided:
 
     dispatch: bool = False  # go straight to the build loop: a classification retry, or --resume-paused after a decision
     gate: str | None = None  # job_failure.resume_gate: 'authorize' once an exact job retry is validated
-    retained_report: object = None  # an inspected Investigator report on offer, never authority to adopt it
     decision_action: bool = False  # an answer, approval, feedback or other decision was given
     information_admitted: bool = False  # AutoResolver admitted corrective information for one continuation
     evidence_reconciled: bool = False  # exact retained evidence corrected; ordinary admission, no allowance resets
@@ -184,17 +185,6 @@ def honor_stops(runner, args, parser, state: RunState, state_path, run_dir, work
             file=sys.stderr,
         )
         return 2
-    active = state.get("active_stage") or {}
-    if (
-        (
-            getattr(args, "recover_job_report", None) is not None
-            or (active.get("stage") == "investigate_bug" and active.get("output_mode") == "report_file")
-        )
-        and stop.pending_stop(run_dir) is not None
-        and runner.consume_interventions(state, run_dir, workspace)
-    ):
-        print(f"{state['status']}: {state['stop_reason']}")
-        return 2
     # A pause intervention that landed on a held run, or a request it stranded, leaves that pause in
     # force: the checks below apply its own authority, never the generic resume (#486).
     if (
@@ -211,11 +201,9 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
 
     It runs only when no user decision was given: action_decisions.apply stops for every one.
     """
-    if args.resume_paused and lifecycle.refresh_diagnosis(state, workspace):
-        runner.write_json(state_path, state)
-        if state["status"] == "PAUSED_STALE_DIAGNOSIS":
-            print(f"{state['status']}: {state['stop_reason']}")
-            return 2
+    if state.get("status") != "TASK_COMPLETE" and (retired := workflows.retired_stage(state)):
+        print(f"Input rejected: {retired}", file=sys.stderr)
+        return 2
     if state["status"] == "TASK_COMPLETE":
         runner.recheck_completion(state, workspace, run_dir=run_dir)
         if state["status"] != "TASK_COMPLETE":

@@ -205,9 +205,9 @@ PIPELINE_ENTRY = "astra_discovery"
 
 
 def bugfix_entry(run: dict | None) -> str:
-    """Expected bug-fix entry under the run's public saved launch policy."""
-    settings = (((run or {}).get("view") or {}).get("related_profile") or {}).get("settings") or {}
-    return "astra_discovery" if settings.get("implementation_flow") == "standard" else "investigate_bug"
+    """Expected bug-fix entry after Requirements: the Planner, as for every task (#3010). A bug fix no
+    longer starts at an Investigator, whatever launch policy the run saved."""
+    return PIPELINE_ENTRY
 
 
 def _has_initial_triage(run: dict, model: list[str]) -> bool:

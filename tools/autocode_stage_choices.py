@@ -76,7 +76,7 @@ STAGES = (
         "plan_reviewer",
         "plan_reviewer",
         "Challenges the plan before you see it and makes the final planning call. Its model also runs the "
-        "Investigator that diagnoses a bug, the Analyst that answers a question, and the Designer and Design Reviewer.",
+        "Investigator that finds why a stage got stuck, and the Design Reviewer.",
         "Your strongest judge at high. It never runs the Planner's model, so it catches what the Planner missed.",
     ),
     (
@@ -90,7 +90,7 @@ STAGES = (
         "sol",
         "tester",
         "Checks each Builder's work in a separate session and proves its new tests fail without the change. "
-        "Its model also writes the acceptance tests and runs the Code Reviewer when you ask for a review.",
+        "Its model also writes the acceptance tests.",
         "A strong model at high, never the Builder's. A bug caught here costs less than one caught at completion.",
     ),
     (

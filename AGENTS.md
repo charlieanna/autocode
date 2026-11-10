@@ -64,7 +64,7 @@ behavior and evidence, not a 100% line count:
  the candidate.
 - **Every changed product line is executed by a test the proof runs, or carries a
  recorded reason it is not** (for example, a defensive branch unreachable from
- public input). AutoCode decides the reason itself; the Code Reviewer checks it.
+ public input). AutoCode decides the reason itself; the Tester checks it.
  Neither is a question for the person.
 - **The tests must notice a broken line.** The mutation check on changed lines
  (`autocode_mutation_check`, `autocode_review_mutation`) shows that a test fails
@@ -326,7 +326,6 @@ AutoCode, AutoReview, AutoResolver) stay behind the scenes.
 
 | In code | Job on screen (`autocode_roles`) | Unit |
 | --- | --- | --- |
-| `recognize_workflow` | Job recognizer: which of the five workflows (`autocode_workflows.py`) | AutoPlanner |
 | `requirements_gather` | Requirements | AutoPlanner |
 | `astra_discovery`, `glm_revise` | Planner | AutoPlanner |
 | `astra_plan` | Planner | AutoCode build unit |
@@ -334,26 +333,26 @@ AutoCode, AutoReview, AutoResolver) stay behind the scenes.
 | `orchestrator` | Orchestrator: parallel milestone scheduling (no model) | AutoCode build unit |
 | `terra` | Builder | AutoCode build unit |
 | `sol` | Tester | AutoReview |
-| `review_change` | Code Reviewer: a saved review run's stage (`autocode_review_job.py`) | AutoReview |
-| `review_design` | Designer: a saved design run's first stage (`autocode_design_job.py`) | AutoReview |
 | `check_design` | Design Reviewer: checks an approved design against the repository (`autocode_design_check_job.py`) | AutoReview |
 | `investigate_stuck` | Investigator: why a stage stopped converging (`autocode_stuck_job.py`) | AutoResolver |
 | `astra_review`, `astra_checkpoint` | Completion Reviewer (`astra_checkpoint` is Tester under reviewer routing) | AutoReview |
 | `astra_resolve` | Resolver | AutoResolver |
-| `investigate_bug` | Investigator: a saved bug-fix run's first stage (`autocode_bug_job.py`) | AutoResolver |
-| `answer_question` | Analyst: a saved discuss run's stage (`autocode_discuss_job.py`) | AutoResolver |
 
-**Every new task goes through the full pipeline (#3010).** Requirements names the job (build, bug
-fix, review, design or discuss), and the kind labels the run and its report, but every kind is then
-planned, built and checked: Planner, Plan Reviewer, Builder, Tester, Completion Reviewer. A build that
-names an existing design document still starts at the Design Reviewer (`check_design`). The Code
-Reviewer, Investigator (`investigate_bug`), Designer and Analyst stages no longer start a new run;
-they still serve runs an earlier runtime saved at them, and their tests launch such a run with
-`tests/legacy_bugfix_fixture.py` rather than editing a checkpoint.
+**Every task goes through the same path (#3010; requested 2026-11-10).** Requirements names the
+job (build, bug fix, review, design or discuss), and the kind labels the run and its report, but every
+kind is then planned, built and checked: Planner, Plan Reviewer, Builder, Tester, Completion Reviewer.
+A flow without a Requirements stage is planned as a build (`workflow.source` `default`); `--workflow`
+still names the kind. A build that names an existing design document still starts at the Design
+Reviewer (`check_design`). The Job recognizer (`recognize_workflow`), Code Reviewer (`review_change`),
+bug Investigator (`investigate_bug`), Designer (`review_design`) and Analyst (`answer_question`) are
+removed: a run saved at one of those stages is refused with a message to start a new task
+(`autocode_workflows.RETIRED_STAGES`); its status and saved reports stay readable, and
+`autocode_roles` keeps their screen names only to show such a run. Do not bring them back.
 
-Stages that belong to one workflow rather than to the build pipeline (`review_change`,
-`investigate_bug`, `review_design`, `answer_question`, `check_design`, `investigate_stuck`) are listed in `tools/autocode_jobs.py`; the runner and Autopilot
-consult that table, so a new one is added there, not in `autocode.py` or `autopilot.py`.
+Stages that belong to one workflow rather than to the build pipeline (`check_design`,
+`investigate_stuck`, `collect_design`, `write_acceptance_tests`) are listed in `tools/autocode_jobs.py`;
+the runner and Autopilot consult that table, so a new one is added there, not in `autocode.py` or
+`autopilot.py`.
 
 CLI model flags follow the code names: `--astra-model`, `--glm-model`,
 `--terra-model`, `--sol-model`. Do not introduce a fourth naming scheme.

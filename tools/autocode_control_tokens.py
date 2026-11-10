@@ -11,7 +11,6 @@ TOKEN_ENV_VARS = {
     "resolver_token": "AUTOCODE_RESOLVER_TOKEN",
     "reconcile_only": "AUTOCODE_RECONCILE_ONLY_TOKEN",
     "job_retry_token": "AUTOCODE_JOB_RETRY_TOKEN",
-    "recover_job_report": "AUTOCODE_RECOVER_JOB_REPORT",
     "approve_goal": "AUTOCODE_APPROVE_GOAL_TOKEN",
     "changeset_token": "AUTOCODE_CHANGESET_TOKEN",
     "review_token": "AUTOCODE_REVIEW_TOKEN",

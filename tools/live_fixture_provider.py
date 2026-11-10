@@ -476,17 +476,8 @@ def main() -> int:
     if repairing and not adaptive:
         with contextlib.suppress(OSError):
             adaptive = '"initial_task"' in Path((data.get("rejected_report") or {}).get("path") or "").read_text()
-    if stage == "recognize_workflow":
-        report: dict[str, Any] = {
-            "workflow": "build",
-            "reason": "Handwritten fixture: every request is a build",
-            "signals": [],
-            "design_document": "",
-        }
-        if 'Add "clarity"' in prompt:
-            # Vague keeps the Requirements stage the fixture's handwritten trace relies on.
-            report["clarity"] = os.environ.get("LIVE_FIXTURE_CLARITY", "vague")
-    elif stage == "investigate_stuck":
+    report: dict[str, Any]
+    if stage == "investigate_stuck":
         report = {
             "diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.",
             "cause": "other",
@@ -575,7 +566,7 @@ def main() -> int:
             else {}
         ).get("properties", {})
         if 'Add "clarity"' in prompt or "clarity" in asked:
-            # Judged as the recognizer judged it before #1860; a report repair's schema still asks for it.
+            # Requirements judges clarity in an adaptive run; a report repair's schema still asks for it.
             report["clarity"] = os.environ.get("LIVE_FIXTURE_CLARITY", "vague")
         if data.get("spec_first"):
             report["assistant_reply"] = "I understand you want a deterministic greeting CLI. Is that right?"

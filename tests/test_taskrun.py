@@ -1346,18 +1346,22 @@ class TaskRunTests(unittest.TestCase):
         self.assertEqual("continue", view["needs"]["kind"], view)
 
     def test_joint_planning_upgrade_before_first_draft_reaches_approval_and_completes(self):
-        run = taskrun.TaskRun.start(
-            self.workspace,
-            BRIEF,
-            options=("--evidence-provenance", "fake", "--engine", "codex"),
-            start_options=("--pause-after-stage",),
-            env=self.env,
-            timeout=60,
-        )
+        # Another run holds the checkout, so this one saves its checkpoint and stops before its first stage.
+        import autocode_checkout_lock as checkout_lock
+
+        with checkout_lock.exclusive(self.workspace, self.workspace / ".autocode" / "runs" / "other-run"):
+            run = taskrun.TaskRun.start(
+                self.workspace,
+                BRIEF,
+                options=("--evidence-provenance", "fake", "--engine", "codex"),
+                env=self.env,
+                timeout=60,
+            )
         paused = run.status()
-        self.assertEqual(("PAUSED_REQUESTED", "astra_discovery"), (paused["status"], paused["next_stage"]), paused)
+        self.assertEqual("astra_discovery", paused["next_stage"], paused)
+        self.assertFalse(list(run.run_dir.glob("iterations/*/*")), "no stage ran before the upgrade")
         upgraded = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env, timeout=120)
-        view = upgraded.resume_paused()
+        view = upgraded.advance_until_input()
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
         self.assertFalse((self.workspace / "greet.py").exists(), "Upgrade is not approval")
         with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):

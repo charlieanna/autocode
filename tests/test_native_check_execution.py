@@ -887,7 +887,6 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
             write=util.atomic_json,
             snapshot=lambda value: source_scope.snapshot(self.root, value),
             planning_stages=("requirements_gather",),
-            recognizer="recognize_workflow",
         )
         for stage in ("terra", "sol", "astra_checkpoint", "plan_finalize"):
             with self.subTest(stage=stage), self.assertRaises(util.Paused):

@@ -1,13 +1,11 @@
 """A change outside a package run's package is a runner finding (#711).
 
 ``--package PATH`` (autocode_package_scope) is the Builder's write scope, and its handoff says so
-(``context``). The bug-fix Investigator's handoff names the package and its suite (``context`` too),
-and autocode_bug_job.check refuses a reproduced diagnosis that names a file outside it; no other
-stage is given the package. Before each Tester and Completion Reviewer dispatch (``sol``,
+(``context``); no other stage is given the package. Before each Tester and Completion Reviewer dispatch (``sol``,
 ``astra_checkpoint``, ``astra_review``; autocode_regression.before_review calls ``check``), whether
 or not the run owes a regression proof, the runner compares the candidate with the run's base as the
 regression proof reads it (autocode_verify.changed_files, with the approved plan's declared source
-paths). The Code Reviewer, Designer and Design Reviewer dispatches are not checked. A change outside
+paths). The Design Reviewer's dispatch is not checked. A change outside
 the package opens one blocking finding with source ``runner`` in the findings ledger, naming each
 path and what happened to it. The ordinary route carries it: the completion gate and a milestone's
 acceptance refuse while it is open, every stage sees it in ``open_findings``, and a correction task
@@ -34,11 +32,8 @@ package, the check also sorts out what is not the Builder's change:
   tells the Builder to leave them to the person, never to delete or reset anything there. A run saved
   before this record existed has none: its check leaves out every nested repository and submodule work it
   finds outside the package, since it cannot tell whether the checkout held it at launch.
-- the files the runner wrote for this run whose content it recorded: the bug-fix workflow's
-  diagnosis note (exempt only while it is what autocode_bug_job.apply wrote: a reproduced one while
-  autocode_bug_job.diagnosis_artifact identifies it unchanged, one that did not reproduce while its
-  content is the saved investigation's note), a review's or design review's report (exempt only
-  while it matches its saved ``report_sha256``) and a design check's blockers file (exempt only
+- the files the runner wrote for this run whose content it recorded: a review's or design review's
+  report an earlier runtime saved (exempt only while it matches its saved ``report_sha256``) and a design check's blockers file (exempt only
   while it matches its saved ``blockers_sha256``).
   Once changed, the finding names it separately: put back what the runner wrote, do not delete it.
 - the files the runner wrote that it recorded only by path: a design check's blockers file saved
@@ -52,16 +47,14 @@ by every package, so a change to it is reported too.
 
 It imports nothing above it: autocode_regression (the check before review, the launch record of an
 in-place run, the proof's ``exempt``), autocode_run_setup (the launch record of a new task
-worktree), autocode_stage_context and units.autoresolver (``context``) and the --accept-completion
+worktree), autocode_stage_context (``context``) and the --accept-completion
 step (autocode_action_decisions, ``refuse``) call it. State: ``package_outside_at_launch`` ({path:
 added or modified}, written once by ``at_launch`` in every new package run whose base is known, {}
 when nothing is there; read here); and findings_ledger rows with source ``runner`` and ``package``
 (the run's package), ``paths`` ({path: added, modified or deleted}), ``runner_files`` ({path:
 change}), ``held`` ({path: deleted or no longer a Git repository}) and ``source_revision`` (the
-source the check last found them on), fields read only here. It also reads ``investigation``,
-``review``, ``design_review``, ``design_check.blockers`` and ``design_check.blockers_sha256``,
-``turns[].previous.wrote`` and, for the
-Investigator's handoff, ``settings.protected_tests``.
+source the check last found them on), fields read only here. It also reads ``review``, ``design_review``,
+``design_check.blockers`` and ``design_check.blockers_sha256`` and ``turns[].previous.wrote``.
 """
 
 from __future__ import annotations
@@ -74,7 +67,6 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
-    from . import autocode_bug_job as bug_job
     from . import autocode_findings as findings_ledger
     from . import autocode_package_scope as package_scope
     from . import autocode_prompts as prompts
@@ -84,7 +76,6 @@ try:
     from . import autocode_verify as verify
     from .autocode_runner_files import runner_files as _runner_files
 except ImportError:
-    import autocode_bug_job as bug_job
     import autocode_findings as findings_ledger
     import autocode_package_scope as package_scope
     import autocode_prompts as prompts
@@ -100,22 +91,13 @@ SOURCE = "runner"
 STAGES = ("sol", "astra_checkpoint", "astra_review")
 
 
-def context(settings, stage="terra") -> dict | None:
-    """What a package run's handoff tells ``stage`` about its package; None for a run of the whole repository.
+def context(settings) -> dict | None:
+    """What a package run's handoff tells the Builder about its package; None for a run of the whole repository.
 
-    The Builder's is its write scope (``write_scope``, autocode_stage_context). The bug-fix Investigator's
-    (``package_scope``, units.autoresolver) also names the command the run's protected tests run with
-    (``suite``: the suite detected in the package, or --test-command), when the run has one."""
+    The Builder's is its write scope (``write_scope``, autocode_stage_context)."""
     package = package_scope.of(settings)
     if package is None:
         return None
-    if stage == bug_job.STAGE:
-        suite = (settings.get("protected_tests") or {}).get("command")
-        return {
-            "package": package + "/",
-            **({"suite": suite} if isinstance(suite, str) and suite.strip() else {}),
-            "instruction": prompts.get("fragments/package-scope/investigator.md").format(package=package),
-        }
     return {
         "package": package + "/",
         "instruction": prompts.get("fragments/package-scope/builder.md").format(package=package),
