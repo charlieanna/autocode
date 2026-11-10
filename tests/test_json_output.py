@@ -77,6 +77,28 @@ class JsonOutputTests(unittest.TestCase):
         json_output.begin(SimpleNamespace(json=False))
         self.assertNotIsInstance(sys.stdout, json_output._Copy)
 
+    def test_the_launch_answer_is_the_one_object_and_no_result_is_added_to_it(self):
+        """``--status --json`` of a run still starting prints its launch note and nothing else: a client
+        that reads the one object must not find a second one, or a ``result`` beside it."""
+        out = io.StringIO()
+        with (
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(io.StringIO()),
+            patch.object(
+                json_output.status_command,
+                "render_launch",
+                lambda *_: print('{"version": 1, "starting": {"phase": "preparing_run"}}'),
+            ),
+        ):
+            json_output.begin(self.args())
+            json_output.launch(None, None, {"phase": "preparing_run"})
+            json_output.finish(0)
+            json_output.restore()
+        self.assertEqual(
+            {"version": 1, "starting": {"phase": "preparing_run"}},
+            json.loads(out.getvalue()),
+        )
+
 
 class JsonActionCliTests(unittest.TestCase):
     """The CLI on a saved run whose plan waits for approval, in process (autocode.main)."""

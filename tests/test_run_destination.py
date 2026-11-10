@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode as runner
+import autocode_launch_record as launch_record
 import autocode_model_preflight as preflight
 import autocode_run_destination as destination
 import autocode_support as support
@@ -54,6 +55,23 @@ class FreshDestinationTests(unittest.TestCase):
         link.symlink_to(self.root)
         self.assertFalse(destination.discard_unsaved(link), "a link is never followed")
         self.assertTrue(self.root.is_dir())
+
+    def test_a_start_that_only_left_its_note_is_discarded_with_the_directory(self):
+        """The launch now says what it is doing before it can save anything; that note is not a reason
+        to keep a directory, and keeping it would keep the task worktree discard_unused exists to remove."""
+        destination.reserve(self.workspace, self.target)
+        (self.target / "writer.lock").touch()
+        launch_record.write(self.target, "preparing_run", workspace=self.workspace)
+        self.assertTrue(destination.discard_unsaved(self.target))
+        self.assertFalse(self.target.exists())
+
+    def test_a_start_that_saved_a_checkpoint_keeps_its_note_and_everything_else(self):
+        self.target.mkdir(parents=True)
+        (self.target / "writer.lock").touch()
+        launch_record.write(self.target, "resolving_models", workspace=self.workspace)
+        (self.target / "state.json").write_text("{}")
+        self.assertFalse(destination.discard_unsaved(self.target))
+        self.assertTrue((self.target / "state.json").is_file())
 
     def test_an_existing_empty_or_saved_run_is_never_reused(self):
         self.target.mkdir(parents=True)

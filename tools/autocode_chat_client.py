@@ -55,6 +55,7 @@ from pathlib import Path
 try:
     from . import autocode_chat_attention as attention
     from . import autocode_chat_attention_discovery as attention_discovery
+    from . import autocode_chat_boot as boot
     from . import autocode_chat_changeset as changeset
     from . import autocode_chat_confirmation as confirmations
     from . import autocode_chat_context as contexts
@@ -76,6 +77,7 @@ try:
 except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_discovery as attention_discovery
+    import autocode_chat_boot as boot
     import autocode_chat_changeset as changeset
     import autocode_chat_confirmation as confirmations
     import autocode_chat_context as contexts
@@ -395,6 +397,7 @@ class ChatClient:
         observe_coordination: Callable[[dict], None] | None = None,
         observe_conversation: Callable[[dict], None] | None = None,
         unavailable: Callable[[str], None] | None = None,
+        starting: Callable[[dict], None] | None = None,
         wait: Callable[[float], str | None] | None = None,
         stream: Callable[[str | None], None] | None = None,
         execution: dict | None = None,
@@ -410,6 +413,8 @@ class ChatClient:
         self._observe_coordination = observe_coordination
         self._observe_conversation = observe_conversation
         self._unavailable = unavailable
+        # What a run's start is doing before it saves a checkpoint, as its renderer draws it (``boot``).
+        self._observe_starting = starting
         # Coordination temporarily detaches these callbacks while a member owns
         # the foreground; the terminal still has its persistent status indicators.
         self._status_in_view = observe is not None and unavailable is not None
@@ -427,6 +432,12 @@ class ChatClient:
         self.tabs_changed: Callable[[list[dict]], None] | None = None
         self.seen: set[str | tuple[str, str]] = set()
         self.viewed: set[str] = set()  # runs that have answered --status, so a refusal before one is told apart
+        # A run that has saved no checkpoint answers --status with what its start is doing, not with a view.
+        # It is kept apart from _status_view so that nothing can take an action from it.
+        self._starting_note: dict | None = None
+        self._starting_said: str | None = None  # the phase a line chat has already said, so it says each once
+        # The engine and mode this chat launched the run with, which the core's note does not name.
+        self._boot_context: dict = {}
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
         self._local_echoes: set[tuple[str, str]] = set()  # direct prompts awaiting their next public-message echo
         # What this chat put to the person before the conversation recorded it: each question (a Requirements
@@ -512,15 +523,22 @@ class ChatClient:
                 self._attention.listing(raw, error, started=self._poller.completed.get(key, 0))
                 continue
             try:
-                view = json.loads(raw)["view"] if not error else None
+                answer = None if error else json.loads(raw)
+                answer = answer if isinstance(answer, dict) else {}
+                view = answer.get("view")
+                # A run that is starting has no view to answer with. Its launch note says what the
+                # start is doing, and because it carries no ``view`` it names no action: a client
+                # shows it and can take nothing from it, least of all a second launch of that start.
+                starting = answer.get("starting")
                 if not error and not isinstance(view, dict):
-                    error = "status response has no view"
+                    error = "" if isinstance(starting, dict) else "status response has no view"
                 if error:
-                    view = None
+                    view = starting = None
                 if view is not None and not actions.same_run(view, key[0], key[1]):
                     raise ValueError("response belongs to another run")
             except (ValueError, KeyError, TypeError, actions.ClientGap):
-                view, error = None, "status response has no valid view for this chat"
+                view, starting = None, None
+                error = "status response has no valid view for this chat"
             # A run that has not answered a status read yet has no view to lose, so a failed read
             # before its first view is not an outage to tell the person about: at cold start the
             # controller is still writing the run this client just created (#1998). The tab state
@@ -544,6 +562,7 @@ class ChatClient:
                 if error and self._observe is not None and self._unavailable is not None:
                     self._unavailable(error)
                 if view is not None:
+                    self._starting_note = None  # from the first checkpoint the run's own view answers
                     self._attention.observe(view, received=time.monotonic())
                     self._status_view = view
                     self.accept_status(view)
@@ -555,6 +574,8 @@ class ChatClient:
                         # chat silently dropping the person's reply (#2593 withdrew other questions).
                         and not self._approval_open
                     )
+                elif starting is not None:
+                    self.show_starting({**starting, **self._boot_context})
             elif key[1] in self.others and view is not None:
                 self.viewed.add(key[1])  # a background tab has answered a read too, so it can lose a view
                 self._attention.observe(view, received=time.monotonic())
@@ -588,6 +609,23 @@ class ChatClient:
             if not self._status_error and self._status_view is not None:
                 return self._status_view
         raise actions.ClientGap(self._status_error or "status response has no view")
+
+    def note_boot(self, options, mode_label: str | None = None) -> None:
+        """What this chat chose for the run it is launching, which the core cannot say until it has a
+        checkpoint: the engine the flags name and the label of the mode row whose flags were passed.
+        Display only, and dropped for a run this chat did not launch, whose note says only what it knows."""
+        self._boot_context = {"engine": setup.engine_of(list(options)), "mode": mode_label}
+
+    def show_starting(self, note: dict) -> None:
+        """A run that has saved no checkpoint yet: its start note goes to the renderer that draws a
+        status row, and a line chat has nothing that updates on its own, so each phase is said once."""
+        self._starting_note = note
+        if self._observe_starting is not None:
+            self._observe_starting(note)
+            return
+        if self._starting_said != note.get("phase"):
+            self._starting_said = str(note.get("phase"))
+            self.say(boot.line(note))
 
     def accept_status(self, view: dict) -> None:
         self.viewed.add(str(self.run_dir))
@@ -1116,6 +1154,9 @@ class ChatClient:
         self._local_echoes = set()
         self.last_progress = None
         self._status_view, self._status_error = None, ""
+        # Another run's start note, and the flags this chat chose for a run it launched itself, say
+        # nothing about the run now being watched; the first read of it answers for that.
+        self._starting_note, self._starting_said, self._boot_context = None, None, {}
         self._replied_context = None
         self._recoveries_seen = set()  # another run's recoveries are its own
         self._pause_pending = False  # an unsubmitted keyboard request cannot transfer to another run
@@ -1222,7 +1263,7 @@ class ChatClient:
         self.talk_to(self.others[row["run"]][0], Path(row["run"]))
         raise Switched
 
-    def begin(self, brief: str, start_args, options, *, notice: str | None = None) -> None:
+    def begin(self, brief: str, start_args, options, *, notice: str | None = None, mode_label=None) -> None:
         """Start a new run here and talk to it, as `start` does for the first one."""
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         workspace = actions.project_folder(self.workspace).resolve()  # not the worktree another chat builds in
@@ -1231,6 +1272,7 @@ class ChatClient:
         if notice:
             self.say("\n" + notice)
         self.started = True
+        self.note_boot(options, mode_label)
         self.advance(
             [brief, *PLACEMENT, "--no-chat", *start_args, *options]
             + ["--workspace", str(workspace), "--new-run-dir", str(self.run_dir)]
@@ -1268,7 +1310,7 @@ class ChatClient:
         if not added and not guard_workspace(folder, self.ask, self.say):
             self.say("Nothing started; this chat carries on.")
             return
-        self.begin(brief, list(chosen.get("start_args") or []), options, notice=added)
+        self.begin(brief, list(chosen.get("start_args") or []), options, notice=added, mode_label=chosen.get("label"))
 
     def check_others(self, every: float = OTHERS_SECONDS) -> None:
         """Admit due reads without waiting on other chats; the poller owns their cadence."""
@@ -2033,6 +2075,7 @@ def start(
     env=None,
     created=None,
     notice: str | None = None,
+    mode_label=None,
     **kwargs,
 ) -> ChatClient:
     """A client for a fresh run directory it names, so it watches the run it created.
@@ -2050,6 +2093,7 @@ def start(
     if notice:
         client.say("\n" + notice)
     client.started = True
+    client.note_boot(options, mode_label)
     if created is not None:
         created(client)
     try:
@@ -2338,7 +2382,15 @@ def open_chat(
         return None
     added = launch_sources(workspace, history)  # a folder of checkouts: its run searches them
     return start(
-        workspace, brief, list(chosen.get("start_args") or []), options, ask=ask, say=say, notice=added, **kwargs
+        workspace,
+        brief,
+        list(chosen.get("start_args") or []),
+        options,
+        ask=ask,
+        say=say,
+        notice=added,
+        mode_label=chosen.get("label"),
+        **kwargs,
     )
 
 
@@ -2428,6 +2480,7 @@ def cli(argv: list[str] | None = None) -> int:
                 "observe_coordination": ui.observe_coordination,
                 "observe_conversation": ui.observe_conversation,
                 "unavailable": ui.status_unavailable,
+                "starting": ui.status_starting,
                 "wait": ui.wait,
                 "stream": ui.stream,
                 "launched": ui.worker_launch,
@@ -2486,6 +2539,7 @@ def cli(argv: list[str] | None = None) -> int:
                 say=say,
                 created=handover(ui, history),
                 notice=added,
+                mode_label=chosen.get("label"),
                 **seen,
             )
         elif args.run_dir is not None:

@@ -1512,6 +1512,58 @@ runs tests, changes the checkpoint, approves work or substitutes for the full
 completion gate. The dashboard uses this supported inspection for selected task
 detail; list polling does not hash every project checkout.
 
+## What a start answers before its first checkpoint
+
+A new run saves its first checkpoint only after it has prepared the workspace and
+resolved which model each stage runs, so the window a person watches right after their
+first message has no `state.json` to read. `--status` does not refuse during that
+window: where the run directory holds a launch note and no checkpoint, it prints the
+note and exits 0.
+
+```json
+{
+  "version": 1,
+  "workspace": "/abs/path/project",
+  "run_dir": "/abs/path/project/.autocode/runs/recording-replay",
+  "starting": {
+    "phase": "resolving_models",
+    "label": "resolving which model each stage runs",
+    "at": "2026-11-09T12:00:41+00:00",
+    "started_at": "2026-11-09T12:00:00+00:00",
+    "owner_alive": true
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `phase` | `preparing_run` while the workspace and run directory are made ready, `resolving_models` while the model and reasoning level each stage runs is chosen. Boot phases, not stages: no model runs in either. |
+| `label` | The words a client shows for the phase. |
+| `at` | When the launcher entered the current phase. |
+| `started_at` | When this start began, kept across phases so a client can count the whole wait rather than this phase alone. |
+| `owner_alive` | Whether the process that wrote the note still lives: `false` when the launcher stopped reporting rather than still working, `null` when the check cannot tell. |
+
+There is deliberately no `view` key. The answer names no `needs`, no action and no
+`next_command`, so a thin client can show what the start is doing and can do nothing
+else with it — least of all take a second launch of a start that is already running. A
+client that reads only `view` sees what it saw before, "no view yet"; what changes is
+that it can now say why.
+
+The note is `launch.json` in the run directory, written by `autocode_launch_record`. It
+is display only: nothing reads it as a checkpoint and it grants no authority. The run
+clears it as soon as its first checkpoint is saved, so a status read sees one of the
+two and never both. A start that is refused before saving anything leaves no run
+directory behind — `autocode_run_destination.discard_unsaved` removes one holding only
+the note and the writer lock.
+
+A run directory with neither a checkpoint nor a note still exits 2 with the `has no
+state.json` refusal, so an unreadable run stays unreadable rather than looking like a
+start. The terminal chat renders the answer as
+`Starting the run · <label> · on <engine> · <mode> · <elapsed>` in place of the line it
+used to freeze on, and says each phase once in its line form. The engine and mode are
+the choices that chat launched the run with, taken from its own flags; a run it did not
+start is named only by what the note says.
+
 ## Status view
 
 Produced by `tools/autocode_run_view.py` from the saved state. Fields may be

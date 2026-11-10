@@ -49,6 +49,7 @@ try:
     from . import autocode_job_route as job_route
     from . import autocode_keep_awake as keep_awake
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_launch_record as launch_record
     from . import autocode_limit_events as limit_events
     from . import autocode_milestones as milestones
     from . import autocode_package_scope as package_scope
@@ -98,6 +99,7 @@ except ImportError:
     import autocode_job_route as job_route
     import autocode_keep_awake as keep_awake
     import autocode_launch_inputs as launch_inputs
+    import autocode_launch_record as launch_record
     import autocode_limit_events as limit_events
     import autocode_milestones as milestones
     import autocode_package_scope as package_scope
@@ -297,6 +299,12 @@ def resolve(runner, args, parser):
         if not (workspace / ".git").exists():
             parser.error(f"workspace is not a Git repository: {workspace}")
         state_path = run_dir / "state.json"
+        if not state_path.is_file() and args.status and (starting := launch_record.read(run_dir)):
+            # The person's first message has a client polling this path. Answer it with what the
+            # launch is doing instead of a refusal; the answer names no action, so no client can
+            # take a second launch of a run that is already launching.
+            runner.json_output.launch(workspace, run_dir, starting)
+            return 0
         if not state_path.is_file():
             # Not ``[Errno 2] No such file or directory: '.../state.json'``: say what a run directory is.
             what = "is not a directory" if not run_dir.is_dir() else "has no state.json"
@@ -381,6 +389,11 @@ def resolve(runner, args, parser):
             except (OSError, ValueError) as error:
                 parser.error(f"Invalid fresh run destination: {error}")
         args._fresh_run_dir = run_dir  # removed again, if still unsaved, when the launch stops before its first save
+        # Nothing before the first checkpoint gives a client's --status an answer, which is the silent
+        # stretch after a person's first message. A note says what the launch is doing without saving a
+        # partial checkpoint, which would pin the worktree discard_unused exists to remove.
+        if not read_only:  # --explain, --status and --dry-run answer from the request and touch nothing
+            launch_record.write(run_dir, "preparing_run", workspace=workspace)
         state_path = run_dir / "state.json"
         state = {
             "version": 2,
@@ -547,6 +560,10 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     args._resumed_pause = resumed_pause(state) if args.resume_paused else None
     recovering_report = getattr(args, "recover_job_report", None) is not None
     changing_job_caps = getattr(args, "_job_cap_change", False)
+    if not args.run_dir:
+        # configure() and the model catalogue ask the connected tools what they serve, which is the
+        # slowest part of a start and the last thing a client can see before the first checkpoint.
+        launch_record.write(run_dir, "resolving_models", workspace=workspace)
     try:
         settings = runner.configure(args, copy.deepcopy(state) if recovering_report or changing_job_caps else state)
     except ValueError as error:
@@ -602,6 +619,7 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             else:
                 state["next_stage"] = planning.entry_stage(state)
         runner.write_json(state_path, state)
+        launch_record.clear(run_dir)  # from here the checkpoint is the only thing a status read answers with
     try:
         registry.register_run(workspace, run_dir, state)
     except registry.RegistryError as error:

@@ -9,9 +9,11 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest import mock
 
+import autocode_chat_boot as boot
 import autocode_chat_client as chat
 import autocode_chat_recoveries as recoveries
 import autocode_client_actions as actions
@@ -2407,6 +2409,107 @@ class FirstStageCommandTests(unittest.TestCase):
         self.addCleanup(plain.close)
         chat.handover(None, history)(plain)  # the line-by-line chat has no screen to bind
         self.assertIs(history, plain.history)
+
+
+class StartingNoteTests(unittest.TestCase):
+    """What a chat does with the answer a run gives before it saves its first checkpoint: it shows it,
+    and takes nothing from it. The note carries no view, so no action can come of it, least of all a
+    second launch of the start that is already running."""
+
+    def note(self, phase="resolving_models", **extra) -> dict:
+        labels = {"preparing_run": "preparing the run", "resolving_models": "resolving which model each stage runs"}
+        return {
+            "version": 1,
+            "workspace": str(WORKSPACE),
+            "run_dir": str(RUN),
+            "starting": {
+                "phase": phase,
+                "label": labels[phase],
+                "at": "2026-11-09T12:00:00+00:00",
+                "started_at": "2026-11-09T12:00:00+00:00",
+                "owner_alive": True,
+                **extra,
+            },
+        }
+
+    def read(self, client, payload) -> None:
+        key = (str(client.workspace), str(client.run_dir))
+        with mock.patch.object(client._poller, "tick", return_value=[(key, json.dumps(payload), "")]):
+            client.poll()
+
+    def test_a_line_chat_says_each_phase_once(self):
+        said: list[str] = []
+        client = chat.ChatClient(WORKSPACE, RUN, say=said.append, poll_seconds=0)
+        self.addCleanup(client.close)
+        self.read(client, self.note("preparing_run"))
+        self.read(client, self.note("preparing_run"))  # the next read of the same phase says nothing new
+        self.read(client, self.note("resolving_models"))
+        self.assertEqual(2, len(said), "one line per phase, not one per read")
+        self.assertIn("Starting the run · preparing the run", said[0])
+        self.assertIn("Starting the run · resolving which model each stage runs", said[1])
+
+    def test_the_note_never_becomes_a_view_and_answers_no_action(self):
+        said: list[str] = []
+        client = chat.ChatClient(WORKSPACE, RUN, say=said.append, poll_seconds=0)
+        self.addCleanup(client.close)
+        self.read(client, self.note())
+        self.assertIsNone(client._status_view, "a note is not a view, and nothing may be taken from it")
+        self.assertEqual("resolving_models", client._starting_note["phase"])
+        self.assertEqual("", client._status_error)  # the read answered; this is not the outage row
+        key = (str(WORKSPACE), str(RUN))
+        with (
+            mock.patch.object(client._poller, "refresh"),
+            mock.patch.object(client._poller, "tick", return_value=[(key, json.dumps(self.note()), "")]),
+        ):
+            with self.assertRaises(actions.ClientGap) as refused:
+                client.status()
+        self.assertIn("no view", str(refused.exception), "the note names no action for a client to take")
+
+    def test_the_chat_reports_the_engine_and_mode_it_launched_the_run_with(self):
+        seen: list[dict] = []
+        client = chat.ChatClient(WORKSPACE, RUN, say=lambda text: None, starting=seen.append, poll_seconds=0)
+        self.addCleanup(client.close)
+        client.note_boot(["--engine", "codex"], "Plan first")
+        self.read(client, self.note())
+        self.assertEqual(1, len(seen), "a screen that draws a status row gets the note, not a printed line")
+        self.assertEqual("resolving which model each stage runs", seen[0]["label"])
+        self.assertEqual("codex", seen[0]["engine"])
+        self.assertEqual("Plan first", seen[0]["mode"])
+        self.assertEqual(
+            "Starting the run · resolving which model each stage runs · on Codex · Plan first · 0s",
+            boot.line(seen[0], now=datetime(2026, 11, 9, 12, 0, 0, tzinfo=UTC)),
+        )
+
+    def test_a_run_this_chat_did_not_launch_is_named_only_by_what_its_note_says(self):
+        client = chat.ChatClient(WORKSPACE, RUN, say=lambda text: None, poll_seconds=0)
+        self.addCleanup(client.close)
+        self.read(client, self.note())
+        self.assertNotIn("engine", client._starting_note, "it chose nothing, so it claims nothing")
+
+    def test_the_first_view_ends_the_note(self):
+        notes: list[dict] = []
+        client = chat.ChatClient(
+            WORKSPACE,
+            RUN,
+            say=lambda text: None,
+            observe=lambda view: None,
+            starting=notes.append,
+            poll_seconds=0,
+        )
+        self.addCleanup(client.close)
+        self.read(client, self.note())
+        self.read(client, {"view": {"status": "RUNNING", "workspace": str(WORKSPACE), "run_dir": str(RUN)}})
+        self.assertIsNone(client._starting_note, "the run answers from its checkpoint now")
+        self.assertEqual(1, len(notes))
+
+    def test_an_answer_with_neither_view_nor_note_is_still_the_refusal_it_was(self):
+        said: list[str] = []
+        client = chat.ChatClient(WORKSPACE, RUN, say=said.append, poll_seconds=0)
+        self.addCleanup(client.close)
+        client.viewed.add(str(RUN))
+        self.read(client, {"status": "RUNNING"})
+        self.assertIsNone(client._starting_note)
+        self.assertIn("Status unavailable", "\n".join(said))
 
 
 class RefusedStartTests(unittest.TestCase):

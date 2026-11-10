@@ -35,6 +35,14 @@ class Read:
             return
         self.snapshot = {**{key: sample[key] for key in ("workspace", "run_dir")}, "token": token, "time": parsed}
 
+    def answered(self) -> None:
+        """A read that returned something other than a view, so it ends an outage but reads no view.
+
+        A run that is starting answers with its launch note: the reader is reachable, which is what the
+        outage row said it was not. ``received`` stays as it was, because no view has been read.
+        """
+        self.error = None
+
     def fail(self, error):
         self.error = error
 

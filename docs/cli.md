@@ -741,6 +741,14 @@ stay on the terminal: an error, where to pick the run up, or the command a stop
 leaves for you to run. `--line` keeps the plain
 prompts, and scripts get them automatically when there is no terminal.
 
+The row under the transcript says what the run is doing while you wait. After your first
+message it names the part of the start you are in — `Starting the run · preparing the run
+· on OpenCode · Full · 4s`, then `resolving which model each stage runs` — because a new
+run saves its first checkpoint only after those two steps. The seconds count the whole
+start, not the phase. From the first checkpoint the row comes from the run's status view
+as before (`Requirements working`), and the side panel's stage pipeline appears with it.
+A start whose launcher stopped with no checkpoint says so instead of waiting.
+
 At a question with options, the option's number or its exact label answers it;
 any other reply goes to Requirements as feedback, which reopens the question. A
 reply that names an option and says more (`Option 1, because …`, `Keep the
