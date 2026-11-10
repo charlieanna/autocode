@@ -52,12 +52,12 @@ except ImportError:
 
 # The review stages whose saved level is a ceiling, by the route that launches them.
 STAGES = {
-    "astra_challenge": "plan_reviewer",
-    "astra_finalize": "plan_reviewer",
-    "sol": "sol",
-    "astra_review": "completion",
+    "review_plan": "plan_reviewer",
+    "finalize_plan": "plan_reviewer",
+    "tester": "tester",
+    "review_completion": "completion",
 }
-PLANNING = ("astra_challenge", "astra_finalize")
+PLANNING = ("review_plan", "finalize_plan")
 SMALL_CLEAR = "small_clear"
 KEPT = ("not_small_clear", "earlier_attempt", "no_lower_level", "levels_unknown", "climbed", "full_review")
 

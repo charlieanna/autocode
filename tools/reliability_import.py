@@ -70,11 +70,11 @@ SCENARIO_SPEND = {
 # --joint-planning and `extra` flags they are the options the declared configuration forwards.
 ROLE_FLAGS = {
     "requirements": ("--requirements-model", "--requirements-reasoning-effort"),
-    "planner": ("--glm-model", "--glm-reasoning-effort"),
+    "planner": ("--planner-model", "--planner-reasoning-effort"),
     "reviewer": ("--plan-reviewer-model", "--plan-reviewer-reasoning-effort"),
-    "builder": ("--terra-model", "--reasoning-effort"),
-    "validator": ("--sol-model", "--sol-reasoning-effort"),
-    "resolver": ("--astra-model", "--astra-reasoning-effort"),
+    "builder": ("--builder-model", "--reasoning-effort"),
+    "validator": ("--tester-model", "--tester-reasoning-effort"),
+    "resolver": ("--task-planner-model", "--task-planner-reasoning-effort"),
     "completion": ("--completion-model", "--completion-reasoning-effort"),
 }
 
@@ -83,20 +83,20 @@ ROLE_FLAGS = {
 # model; the Requirements stage falls back to the planner's model; a role's own effort flag overrides
 # --reasoning-effort, which the harness writes as the builder's effort and the builder, validator, resolver
 # and completion roles fall back to; and --resolver-model and --resolver-reasoning-effort set the resolver
-# over the --astra-* role it otherwise copies. Arena records the options it forwarded, and this table reads
+# over the --task-planner-* role it otherwise copies. Arena records the options it forwarded, and this table reads
 # each role back from them.
 EFFECTIVE_FLAGS = {
     "requirements": (
-        ("--single-model", "--requirements-model", "--glm-model"),
+        ("--single-model", "--requirements-model", "--planner-model"),
         ("--requirements-reasoning-effort",),
     ),
-    "planner": (("--single-model", "--glm-model"), ("--glm-reasoning-effort",)),
+    "planner": (("--single-model", "--planner-model"), ("--planner-reasoning-effort",)),
     "reviewer": (("--single-model", "--plan-reviewer-model"), ("--plan-reviewer-reasoning-effort",)),
-    "builder": (("--single-model", "--terra-model"), ("--terra-reasoning-effort", "--reasoning-effort")),
-    "validator": (("--single-model", "--sol-model"), ("--sol-reasoning-effort", "--reasoning-effort")),
+    "builder": (("--single-model", "--builder-model"), ("--builder-reasoning-effort", "--reasoning-effort")),
+    "validator": (("--single-model", "--tester-model"), ("--tester-reasoning-effort", "--reasoning-effort")),
     "resolver": (
-        ("--resolver-model", "--single-model", "--astra-model"),
-        ("--resolver-reasoning-effort", "--astra-reasoning-effort", "--reasoning-effort"),
+        ("--resolver-model", "--single-model", "--task-planner-model"),
+        ("--resolver-reasoning-effort", "--task-planner-reasoning-effort", "--reasoning-effort"),
     ),
     "completion": (
         ("--single-model", "--completion-model"),

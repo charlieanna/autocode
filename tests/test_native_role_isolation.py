@@ -77,7 +77,7 @@ class IsolationTests(unittest.TestCase):
                 "engine": "opencode",
                 "provider": "opencode",
                 "roles": {
-                    "terra": {
+                    "builder": {
                         "engine": "opencode",
                         "model": "zai-coding-plan/glm-5.3",
                         "reasoning_effort": "high",
@@ -97,7 +97,7 @@ class IsolationTests(unittest.TestCase):
             "--format",
             "json",
             "--agent",
-            "autocode_terra",
+            "autocode_builder",
             "--model",
             "zai-coding-plan/glm-5.3",
             "--variant",
@@ -123,7 +123,7 @@ class IsolationTests(unittest.TestCase):
                     "autoupdate": False,
                     "plugin": [self.activity.as_uri()],
                     "agent": {
-                        "autocode_terra": {
+                        "autocode_builder": {
                             "description": "controlled fixture",
                             "mode": "primary",
                             "permission": {"task": "deny", "question": "deny", "edit": "deny"},
@@ -133,7 +133,7 @@ class IsolationTests(unittest.TestCase):
             ),
         }
         self.actual = {
-            "name": "autocode_terra",
+            "name": "autocode_builder",
             "tools": {"bash": True, "read": False, "edit": False},
             "permission": [
                 {"permission": "*", "pattern": "*", "action": "deny"},
@@ -148,7 +148,7 @@ class IsolationTests(unittest.TestCase):
             self.state,
             self.root,
             self.run,
-            "terra",
+            "builder",
             sdk_path=".autocode/sdk",
             sdk_manifest_sha256=util.file_hash(self.manifest),
             transport_identity_sha256=util.digest(self.state["settings"]["transport_identity"]),
@@ -233,7 +233,7 @@ class IsolationTests(unittest.TestCase):
         self.assertNotIn("UNRELATED_SECRET", env)
         final = json.loads(env["OPENCODE_CONFIG_CONTENT"])
         self.assertEqual(["zai-coding-plan"], final["enabled_providers"])
-        self.assertEqual("zai-coding-plan/glm-5.3", final["agent"]["autocode_terra"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", final["agent"]["autocode_builder"]["model"])
         self.assertEqual(
             {"title", "summary", "compaction"},
             {name for name, value in final["agent"].items() if value == {"disable": True}},
@@ -250,7 +250,7 @@ class IsolationTests(unittest.TestCase):
         self.assertEqual(before, set(self.run.iterdir()))
 
     def test_custom_singapore_configuration_is_held_without_route_substitution(self):
-        self.state["settings"]["roles"]["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        self.state["settings"]["roles"]["builder"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
         self.state["settings"]["transport_identity"]["config_hashes"]["/custom/opencode.json"] = "a" * 64
         saved = deepcopy(self.state)
         with self.assertRaisesRegex(ValueError, "cannot discard saved inputs"):
@@ -262,11 +262,11 @@ class IsolationTests(unittest.TestCase):
         for key, value in (("reasoning_effort", "max"), ("model", "openai/gpt-6-sol")):
             with self.subTest(key=key):
                 owner = self.owner()
-                old = self.state["settings"]["roles"]["terra"][key]
-                self.state["settings"]["roles"]["terra"][key] = value
+                old = self.state["settings"]["roles"]["builder"][key]
+                self.state["settings"]["roles"]["builder"][key] = value
                 with self.assertRaisesRegex(ValueError, "route, caps or workspace changed"):
                     self.stage(owner)
-                self.state["settings"]["roles"]["terra"][key] = old
+                self.state["settings"]["roles"]["builder"][key] = old
 
     def test_actual_native_name_tools_and_ordered_rules_are_required(self):
         for change in (
@@ -306,10 +306,10 @@ class IsolationTests(unittest.TestCase):
 
     def test_planning_agent_launch_requires_this_runs_private_read_denial(self):
         # #1250: the owner refuses a native planning shell that could read private run state.
-        agent = "autocode_terra_plan_" + "0" * 32
+        agent = "autocode_builder_plan_" + "0" * 32
         self.command[self.command.index("--agent") + 1] = agent
         config = json.loads(self.env["OPENCODE_CONFIG_CONTENT"])
-        config["agent"] = {agent: config["agent"]["autocode_terra"]}
+        config["agent"] = {agent: config["agent"]["autocode_builder"]}
         self.env["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
         self.actual["name"] = agent
         sibling = self.root / ".autocode" / "runs" / "sibling"
@@ -373,7 +373,7 @@ class IsolationTests(unittest.TestCase):
             with self.subTest(owner_type=type(owner).__name__), patch.object(containment.subprocess, "run") as run:
                 with self.assertRaisesRegex(ValueError, "exact CODE owner"):
                     opencode.launch(
-                        "terra",
+                        "builder",
                         self.root,
                         self.run,
                         None,
@@ -440,8 +440,8 @@ class IsolationTests(unittest.TestCase):
                 provider_launch.prepare(
                     engine="opencode",
                     adapter=opencode,
-                    role="terra",
-                    route_role="terra",
+                    role="builder",
+                    route_role="builder",
                     workspace=self.root,
                     run_dir=self.run,
                     session=None,
@@ -471,8 +471,8 @@ class IsolationTests(unittest.TestCase):
                     provider_launch.prepare(
                         engine="opencode",
                         adapter=opencode,
-                        role="terra",
-                        route_role="terra",
+                        role="builder",
+                        route_role="builder",
                         workspace=self.root,
                         run_dir=self.run,
                         session=None,
@@ -565,7 +565,7 @@ class IsolationTests(unittest.TestCase):
         with patch.object(containment.subprocess, "run") as run:
             with self.assertRaisesRegex(ValueError, "planning must remain readonly"):
                 opencode.launch(
-                    "terra",
+                    "builder",
                     self.root,
                     self.run,
                     None,
@@ -765,7 +765,7 @@ class IsolationTests(unittest.TestCase):
         }
         final = json.loads(env["OPENCODE_CONFIG_CONTENT"])
         final["shell"] = boundary["shell"]
-        final["agent"]["autocode_terra"]["permission"] = containment.shell_permissions(self.actual["permission"])
+        final["agent"]["autocode_builder"]["permission"] = containment.shell_permissions(self.actual["permission"])
         env.update(OPENCODE_CONFIG_CONTENT=json.dumps(final), SHELL=boundary["shell"])
         proof = control / "conformance.json"
         proof.write_text(

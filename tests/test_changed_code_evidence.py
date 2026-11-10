@@ -128,7 +128,7 @@ class ChangedCodeEvidenceTests(unittest.TestCase):
         reason = exception(assess()["obligations"][1])
         reason.update(
             reason_kind="defensive_unreachable",
-            reviewer={"stage": "sol", "role": "sol", "output": "owned/tester.json"},
+            reviewer={"stage": "tester", "role": "tester", "output": "owned/tester.json"},
         )
         result = assess(coverage(), mutations([mutant(3)]), exceptions=[reason])
         accepted = result["obligations"][1]["exception"]

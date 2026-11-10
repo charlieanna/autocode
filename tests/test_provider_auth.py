@@ -88,7 +88,7 @@ class ProviderAuthReasonTests(unittest.TestCase):
         # Access checks can classify the rejected login; a launched stage still
         # requires reconciliation of its partial work before any retry.
         self.assertEqual("PAUSED_AUTH", support.failure_status(path))
-        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(path, record={"stage": "terra"}))
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(path, record={"stage": "builder"}))
 
     def test_authentication_is_not_inferred_from_tool_output_or_usage(self):
         for event in (
@@ -119,7 +119,7 @@ class ProviderAuthReasonTests(unittest.TestCase):
                 self.assertNotIn("private-test-canary", message)
                 self.assertEqual("PAUSED_AUTH", support.failure_status(path))
                 self.assertEqual(
-                    "PAUSED_PROVIDER_UNCERTAIN", support.failure_status(path, record={"stage": "glm_revise"})
+                    "PAUSED_PROVIDER_UNCERTAIN", support.failure_status(path, record={"stage": "revise_plan"})
                 )
 
     def test_403_requires_a_provider_owned_terminal_authentication_code(self):

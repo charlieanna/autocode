@@ -35,7 +35,7 @@ def reconcile(runner, state: RunState, run_dir, validate):
         if origin == "adaptive_review_approval":
             # This reviewer accepts a draft but cannot rewrite it in its saved schema.
             # Ask its actual Planner to repair, then run the independent review again.
-            origin = "astra_discovery"
+            origin = "draft_plan"
         report = cast(dict, state.get("planning", {})).get("reports", {}).get(origin, {})
         original = next(
             (

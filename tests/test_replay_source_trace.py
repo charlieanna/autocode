@@ -30,7 +30,7 @@ class ReplaySourceTraceTests(unittest.TestCase):
         output.write_bytes(self.report_bytes)
         events.write_text('{"type":"thread.started","thread_id":"fresh-session"}\n')
         record = {
-            "stage": "astra_challenge",
+            "stage": "review_plan",
             "output": str(output),
             "events": str(events),
             "exit_code": 0,
@@ -59,12 +59,12 @@ class ReplaySourceTraceTests(unittest.TestCase):
                     {
                         "id": "review",
                         "ordinal": 0,
-                        "stage": "astra_challenge",
+                        "stage": "review_plan",
                         "exit_code": 0,
                         "events": "review-events",
                         "report": "review-output",
                     },
-                    {"id": "check", "ordinal": 1, "stage": "sol"},
+                    {"id": "check", "ordinal": 1, "stage": "tester"},
                 ],
             },
             artifact=self.artifact,
@@ -141,12 +141,12 @@ class ReplaySourceTraceTests(unittest.TestCase):
 
     def test_report_only_review_requires_the_declared_original_stage(self):
         row = self.tape.document["dispatches"][0]
-        row.update(stage="astra_challenge_report_repair", report_only=True, original_stage="astra_challenge")
+        row.update(stage="review_plan_report_repair", report_only=True, original_stage="review_plan")
         self.state["stages"][0].update(
-            stage="astra_challenge_report_repair", report_only=True, original_stage="astra_challenge"
+            stage="review_plan_report_repair", report_only=True, original_stage="review_plan"
         )
         self.assertEqual(self.state["goal_contract"]["body"], self.rebind()["contract_body"])
-        row["original_stage"] = "astra_finalize"
+        row["original_stage"] = "finalize_plan"
         with self.assertRaises(ValueError):
             self.rebind()
 

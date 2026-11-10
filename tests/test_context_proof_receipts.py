@@ -15,7 +15,7 @@ import autocode_stage_context as stage_context
 from . import test_handoff_dedup as fixtures
 
 
-def packet(stage="sol"):
+def packet(stage="tester"):
     return {
         "stage": stage,
         "goal_contract": {"body": {"constraints": ["No network"]}},
@@ -53,7 +53,9 @@ class ProofReceiptContextTests(unittest.TestCase):
                 version=3,
                 task="Implement the approved requirements",
                 workspace=tmp,
-                settings={"roles": {r: {"engine": "codex", "model": "fake"} for r in ("task_planner", "terra", "sol")}},
+                settings={
+                    "roles": {r: {"engine": "codex", "model": "fake"} for r in ("task_planner", "builder", "tester")}
+                },
                 answers=state["saved_answers"],
             )
             proof = packet()["regression_proof"]
@@ -61,7 +63,7 @@ class ProofReceiptContextTests(unittest.TestCase):
                 patch.object(stage_context.support, "snapshot", return_value={"revision": "r", "head": "h"}),
                 patch.object(regression, "handoff", return_value=proof),
             ):
-                for stage in ("sol", "astra_review", "astra_checkpoint"):
+                for stage in ("tester", "review_completion", "review_checkpoint"):
                     with self.subTest(stage=stage):
                         prompt, metrics = stage_context.context_packet(state, stage, Path(tmp) / "state.json")
                         data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -72,7 +74,7 @@ class ProofReceiptContextTests(unittest.TestCase):
                         self.assertGreater(metrics["handoff_bytes_saved"], 100000)
 
     def test_large_review_packet_preserves_every_outcome_and_retrievable_receipt(self):
-        for stage in ("sol", "astra_review", "astra_checkpoint"):
+        for stage in ("tester", "review_completion", "review_checkpoint"):
             with self.subTest(stage=stage), tempfile.TemporaryDirectory() as tmp:
                 original = packet(stage)
                 before = copy.deepcopy(original)
@@ -118,12 +120,12 @@ class ProofReceiptContextTests(unittest.TestCase):
                     context.compact(original, path)
 
     def test_small_missing_malformed_and_nonreview_receipts_stay_inline(self):
-        cases = [packet(stage) for stage in ("terra", "astra_plan", "astra_resolve", "investigate_stuck")]
+        cases = [packet(stage) for stage in ("builder", "plan_task", "resolve", "investigate_stuck")]
         for receipts in (None, [], [{"exit_code": 1}], ["malformed"]):
             data = packet()
             data["regression_proof"]["changed_code_receipts"] = receipts
             cases.append(data)
-        cases.extend([{"stage": "sol"}, {"stage": "sol", "regression_proof": None}])
+        cases.extend([{"stage": "tester"}, {"stage": "tester", "regression_proof": None}])
         already_externalized = packet()
         already_externalized["context_artifact"] = {"path": "/saved/context.json", "sha256": "a" * 64}
         cases.append(already_externalized)

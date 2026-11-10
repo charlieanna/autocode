@@ -51,7 +51,7 @@ def normalize_absent_authority(value, schema, record):
     concern_fields = properties.get("concerns", {}).get("items", {}).get("properties", {})
     kind = concern_fields.get("draft_failure_correction", {}).get("type")
     nullable = kind == "null" or isinstance(kind, list) and "null" in kind
-    if stage == "astra_challenge" and nullable and isinstance(result.get("concerns"), list):
+    if stage == "review_plan" and nullable and isinstance(result.get("concerns"), list):
         for row in result["concerns"]:
             if isinstance(row, dict):
                 row.setdefault("draft_failure_correction", None)
@@ -60,11 +60,11 @@ def normalize_absent_authority(value, schema, record):
     request = result.get("user_request")
     kind = properties.get("user_request", {}).get("properties", {}).get("recommended_revision", {}).get("type")
     nullable = kind == "null" or isinstance(kind, list) and "null" in kind
-    if stage == "astra_resolve" and isinstance(request, dict) and nullable:
+    if stage == "resolve" and isinstance(request, dict) and nullable:
         request.setdefault("recommended_revision", None)
     kind = properties.get("user_request", {}).get("properties", {}).get("correction", {}).get("type")
     nullable = kind == "null" or isinstance(kind, list) and "null" in kind
-    if stage == "astra_resolve" and isinstance(request, dict) and nullable:
+    if stage == "resolve" and isinstance(request, dict) and nullable:
         request.setdefault("correction", None)
     return result
 
@@ -80,7 +80,7 @@ def review_generation_schema(schema, state: RunState, stage):
     result = changed_code_review.generation_schema(
         result, (state.get("regression_proof") or {}).get("changed_code_evidence"), stage
     )
-    if stage not in ("sol", "astra_review", "astra_checkpoint"):
+    if stage not in ("tester", "review_completion", "review_checkpoint"):
         return result
     props = result.get("properties", {})
     contract = state.get("goal_contract") or {}
@@ -91,7 +91,7 @@ def review_generation_schema(schema, state: RunState, stage):
     ):
         if field in props and value is not None:
             props[field] = {**props[field], "enum": [value]}
-    source = "sol" if stage == "sol" else "task_planner"
+    source = "tester" if stage == "tester" else "task_planner"
     own = [r["id"] for r in state.get("findings_ledger", []) if r.get("source") == source and r.get("status") == "open"]
     for field in ("findings", "finding_dispositions"):
         fields = props.get(field, {}).get("items", {}).get("properties", {})
@@ -107,7 +107,7 @@ def review_generation_schema(schema, state: RunState, stage):
     return result
 
 
-COMPLETION_STAGES = {"astra_review"}
+COMPLETION_STAGES = {"review_completion"}
 
 
 def review_validation_schema(schema, state: RunState | None, record, value):
@@ -118,7 +118,7 @@ def review_validation_schema(schema, state: RunState | None, record, value):
     """
     schema = planning_policy.concern_validation_schema(schema, record)
     stage = record.get("original_stage") or record.get("stage")
-    if state and stage in ("sol", "astra_checkpoint"):
+    if state and stage in ("tester", "review_checkpoint"):
         design_coverage.report_refs(state, value.get("validation", value))
     criteria = (state or {}).get("acceptance_criteria") or []
     if stage not in COMPLETION_STAGES or not criteria or "acceptance_criteria" not in schema.get("properties", {}):

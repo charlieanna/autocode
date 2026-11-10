@@ -15,8 +15,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_names as names
     from . import autocode_roles as role_names
 except ImportError:
+    import autocode_names as names
     import autocode_roles as role_names
 
 STAGES = role_names.PLANNING_STAGES
@@ -44,9 +46,9 @@ def role_for(state: RunState, stage):
         return V2_STAGE_ROLES[stage]
     if is_planning(state, stage) and stage == "requirements_gather":
         return "requirements"
-    if is_planning(state, stage) and stage in ("astra_discovery", "glm_revise"):
+    if is_planning(state, stage) and stage in ("draft_plan", "revise_plan"):
         return "planner"
-    return "task_planner" if stage.startswith("astra") else stage
+    return "task_planner" if names.task_planner_stage(stage) else stage
 
 
 def engine_for(settings, role):

@@ -50,7 +50,7 @@ class ResolverRecommendationLifecycleTests(unittest.TestCase):
             "workspace": str(self.root),
             "run_dir": str(self.run),
             "status": "RUNNING",
-            "next_stage": "astra_plan",
+            "next_stage": "plan_task",
             "settings": {},
             "answers": {},
             "user_events": [],
@@ -81,7 +81,7 @@ class ResolverRecommendationLifecycleTests(unittest.TestCase):
         }
 
     def publish(self, *, text=recommendation.ACCEPTANCE, action="provide_information", raw_changes=None, source=None):
-        self.state.update(status="RUNNING", next_stage="astra_resolve")
+        self.state.update(status="RUNNING", next_stage="resolve")
         self.output = self.run / "resolver.json"
         self.report = {
             "status": "BLOCKED",
@@ -103,7 +103,7 @@ class ResolverRecommendationLifecycleTests(unittest.TestCase):
         self.output.write_text(json.dumps(self.report))
         source = source or support.snapshot(self.root)["revision"]
         record = {
-            "stage": "astra_resolve",
+            "stage": "resolve",
             "output": str(self.output),
             "source_revision": source,
             "exit_code": 0,
@@ -115,7 +115,7 @@ class ResolverRecommendationLifecycleTests(unittest.TestCase):
             copy.deepcopy(self.report["user_request"]),
             origin=record,
             evidence={"diagnosis": self.report["diagnosis"], "output": str(self.output)},
-            next_stage="astra_review",
+            next_stage="review_completion",
         )
         self.assertEqual("escalate", human.evaluate(self.state))
         self.published = human.current(self.state)
@@ -231,7 +231,7 @@ class ResolverRecommendationLifecycleTests(unittest.TestCase):
         }
         self.publish()
         self.assertTrue(lifecycle.apply_resolver_recommendation(self.state, run_dir=self.run))
-        self.assertEqual("astra_challenge", self.state["next_stage"])
+        self.assertEqual("review_plan", self.state["next_stage"])
         self.assertEqual("PLANNING", self.state["phase"])
         self.assertFalse(goals.approved(self.state))
         self.assertFalse(human.current(self.state))

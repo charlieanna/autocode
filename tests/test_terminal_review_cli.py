@@ -90,7 +90,7 @@ class TerminalReviewCLITests(unittest.TestCase):
         self.assertFalse(after["done"])
         self.assertNotEqual("review", (after["needs"] or {}).get("kind"))
         self.assertEqual("DISCOVERING", after["phase"])
-        self.assertEqual("astra_discovery", after["next_stage"])
+        self.assertEqual("draft_plan", after["next_stage"])
         self.assertEqual(launches, self.probe.read_bytes())
         displayed = self.launch(["--run-dir", str(self.run_dir), "--show-goal"], 0).stdout
         self.assertIn(note, displayed)

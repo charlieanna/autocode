@@ -72,10 +72,10 @@ class CrashCase(t06.SolControllerCase):
         schema_path = self.run / f"schemas/{name}.json"
         schema_path.parent.mkdir(parents=True, exist_ok=True)
         legacy = support.read(runner.SCHEMA_DIR / "v2/sol-report.schema.json")
-        support.atomic_json(schema_path, goals.role_schema(legacy, "sol"))
+        support.atomic_json(schema_path, goals.role_schema(legacy, "tester"))
         return {
-            "role": "sol",
-            "stage": "sol",
+            "role": "tester",
+            "stage": "tester",
             "iteration": 5,
             "output": str(report.with_suffix(".json")),
             "events": str(report.with_suffix(".jsonl")),
@@ -123,7 +123,7 @@ class CrashScenarios(CrashCase):
             self.bundle.operation("launch", stage=stage)
             out = self.run / f"{stage}.json"
             ev = self.run / f"{stage}.jsonl"
-            if stage == "terra":
+            if stage == "builder":
                 # A documentation deliverable: this synthetic project has no base commit or tests, so a
                 # product change could not be proved (#2474) and the run would turn to the Investigator.
                 (self.root / "notes.md").write_text("fixed")
@@ -150,7 +150,7 @@ class CrashScenarios(CrashCase):
                     )
                     + "\n"
                 )
-            elif stage == "sol":
+            elif stage == "tester":
                 # A real check the runner can re-run on the Builder's output (autocode_check_replay).
                 ev.write_text(
                     json.dumps(
@@ -188,7 +188,7 @@ class CrashScenarios(CrashCase):
                 "iteration": 5,
                 "output": str(out),
                 "events": str(ev),
-                "changed_files": ["notes.md"] if stage == "terra" else [],
+                "changed_files": ["notes.md"] if stage == "builder" else [],
                 "after_ref": str(self.run / "check.log"),
                 "source_revision": support.snapshot(self.root)["revision"],
                 "duration_seconds": 0.01,
@@ -198,7 +198,7 @@ class CrashScenarios(CrashCase):
         # This durable historical checkpoint has no current controller owner.
         code = self.invoke_main("--resume-paused", role=staged_role)
         self.check("restarted_run_completes", 0, code)
-        self.check("single_launch_per_stage", ["terra", "sol", "astra_review"], launches)
+        self.check("single_launch_per_stage", ["builder", "tester", "review_completion"], launches)
         again = self.invoke_main(role=staged_role)
         self.check("second_restart_launches_nothing", (0, 3), (again, len(launches)))
         self.finish(summary="READY_BUILD: one eventual launch per stage from durable approved state")
@@ -213,11 +213,11 @@ class CrashScenarios(CrashCase):
         terra_schema = self.run / "schemas/terra.json"
         terra_schema.parent.mkdir(parents=True, exist_ok=True)
         support.atomic_json(
-            terra_schema, goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "terra")
+            terra_schema, goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "builder")
         )
         self.state["active_stage"] = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "output": str(self.run / "iterations/005/terra-01.json"),
             "events": str(events),
@@ -253,7 +253,9 @@ class CrashScenarios(CrashCase):
         events.write_text('{"type":"thread.started","thread_id":"t-1"}\n{"type":"turn.completed"}\n')
         with self.forbid_real_launches(runner):
             runner.reconcile_active(self.state, self.run, self.root)
-        self.check("reconciled_exactly_once", 1, sum(1 for rec in self.state["stages"] if rec.get("stage") == "terra"))
+        self.check(
+            "reconciled_exactly_once", 1, sum(1 for rec in self.state["stages"] if rec.get("stage") == "builder")
+        )
         self.finish(summary="RECONCILED_PROGRESS: one admitted worker, never two")
 
     def test_crh03_crash_after_launch_before_metadata(self):
@@ -263,8 +265,8 @@ class CrashScenarios(CrashCase):
         events.write_text('{"type":"thread.started"}\n')
         support.atomic_json(self.run / "iterations/005/terra-01.before.json", support.snapshot(self.root))
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "output": str(self.run / "iterations/005/terra-01.json"),
             "events": str(events),
@@ -303,8 +305,8 @@ class CrashScenarios(CrashCase):
         base.with_suffix(".jsonl").write_text('{"type":"thread.started","thread_id":"t-session"}\n')
         (self.root / "partial.py").write_text("# preserved partial implementation\n")
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "duration_seconds": 8,
             "output": str(base.with_suffix(".json")),
@@ -323,7 +325,7 @@ class CrashScenarios(CrashCase):
             "implementation" not in self.state or self.state.get("implementation") is None,
         )
         self.check("writer_disposition_recorded", True, self.state["stages"][-1].get("abandoned") is True)
-        self.check("session_released", True, "terra" not in self.state["sessions"])
+        self.check("session_released", True, "builder" not in self.state["sessions"])
         self.finish(summary="RECOVERABLE_PARTIAL_WORK: retained edits, honest disposition, no overlap")
 
     def test_crh05_result_durable_before_application(self):
@@ -353,11 +355,11 @@ class CrashScenarios(CrashCase):
         terra_schema = self.run / "schemas/terra.json"
         terra_schema.parent.mkdir(parents=True, exist_ok=True)
         support.atomic_json(
-            terra_schema, goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "terra")
+            terra_schema, goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "builder")
         )
         self.state["active_stage"] = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "output": str(base.with_suffix(".json")),
             "events": str(base.with_suffix(".jsonl")),
@@ -367,15 +369,15 @@ class CrashScenarios(CrashCase):
         with patch.object(runner, "run_role", side_effect=AssertionError("no replay")):
             runner.reconcile_active(self.state, self.run, self.root)
             runner.reconcile_active(self.state, self.run, self.root)
-        self.check("result_applied_once", 1, sum(1 for rec in self.state["stages"] if rec.get("stage") == "terra"))
+        self.check("result_applied_once", 1, sum(1 for rec in self.state["stages"] if rec.get("stage") == "builder"))
         self.check("completed_edit_retained", "print('v2')\n", (self.root / "greet.py").read_text())
-        self.check("review_next_step", "sol", self.state["next_stage"])
+        self.check("review_next_step", "tester", self.state["next_stage"])
         self.finish(summary="RECOVERED_RESULT: durable implementation applied without re-execution")
 
     def test_crh06_review_result_before_transition(self):
         """CRH-06. Existing: FND-4 (sol PASS); REWORK variant new here."""
         rework = self.decision("REWORK", "Empty names are accepted")
-        base = self.run / "iterations/005/astra_review-01"
+        base = self.run / "iterations/005/review_completion-01"
         base.parent.mkdir(parents=True)
         support.atomic_json(base.with_suffix(".json"), rework)
         base.with_suffix(".jsonl").write_text('{"type":"turn.completed"}\n')
@@ -386,7 +388,7 @@ class CrashScenarios(CrashCase):
         support.atomic_json(schema_path, goals.role_schema(legacy, "task_planner"))
         self.state["active_stage"] = {
             "role": "task_planner",
-            "stage": "astra_review",
+            "stage": "review_completion",
             "iteration": 5,
             "output": str(base.with_suffix(".json")),
             "events": str(base.with_suffix(".jsonl")),
@@ -398,7 +400,7 @@ class CrashScenarios(CrashCase):
             runner.reconcile_active(self.state, self.run, self.root)
         self.check("rejection_not_lost", 1, len(findings.open_entries(self.state, "task_planner")))
         self.check("single_repair_creation", True, bool(self.state.get("resolution_request")))
-        self.check("next_action_resolve", "astra_resolve", self.state["next_stage"])
+        self.check("next_action_resolve", "resolve", self.state["next_stage"])
         self.finish(summary="RECOVERED_REVIEW: bound report applied exactly once")
 
     def test_crh07_atomic_replacement_fault_matrix(self):
@@ -468,7 +470,7 @@ class CrashScenarios(CrashCase):
         with self.forbid_real_launches(runner):
             runner.reconcile_active(self.state, self.run, self.root)
         self.check(
-            "second_recovery_applies_once", 1, sum(1 for rec in self.state["stages"] if rec.get("stage") == "sol")
+            "second_recovery_applies_once", 1, sum(1 for rec in self.state["stages"] if rec.get("stage") == "tester")
         )
         self.finish(summary="RECOVERABLE_WITHOUT_DUPLICATES: the sole valid result is never consumed")
 
@@ -514,7 +516,7 @@ class CrashScenarios(CrashCase):
         support.atomic_json(self.run / "blocked.json", blocked)
         runner.apply_result(
             self.state,
-            "astra_review",
+            "review_completion",
             blocked,
             {"output": str(self.run / "blocked.json"), "source_revision": support.snapshot(self.root)["revision"]},
             self.root,
@@ -546,7 +548,12 @@ class CrashScenarios(CrashCase):
         support.atomic_json(self.run / "complete.json", complete)
         with self.forbid_real_launches(runner):
             runner.apply_result(
-                self.state, "astra_review", complete, {"output": str(self.run / "complete.json")}, self.root, self.run
+                self.state,
+                "review_completion",
+                complete,
+                {"output": str(self.run / "complete.json")},
+                self.root,
+                self.run,
             )
         acceptance = copy.deepcopy(self.state["final_decision"])
         self.state["settings"]["limits"] = {
@@ -574,7 +581,12 @@ class CrashScenarios(CrashCase):
         support.atomic_json(self.run / "complete.json", complete)
         with self.forbid_real_launches(runner):
             runner.apply_result(
-                self.state, "astra_review", complete, {"output": str(self.run / "complete.json")}, self.root, self.run
+                self.state,
+                "review_completion",
+                complete,
+                {"output": str(self.run / "complete.json")},
+                self.root,
+                self.run,
             )
         (self.root / "greet.py").write_text("print('user edit after completion')\n")
         user_edit = (self.root / "greet.py").read_text()

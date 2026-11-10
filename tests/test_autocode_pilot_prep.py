@@ -47,15 +47,15 @@ FIXTURE_OPTIONS = [
     "--engine",
     "codex",
     "--joint-planning",
-    "--astra-model",
+    "--task-planner-model",
     "gpt-6-astra",
-    "--terra-model",
+    "--builder-model",
     "gpt-5.6-terra",
-    "--sol-model",
+    "--tester-model",
     "gpt-5.6-sol",
     "--completion-model",
     "gpt-6-astra",
-    "--glm-model",
+    "--planner-model",
     "gpt-5.6-sol",
     "--plan-reviewer-model",
     "gpt-6-astra",
@@ -268,6 +268,15 @@ class PilotPrepTests(unittest.TestCase):
         self.assertIn("README.md", refs)
         self.assertNotIn("a-proof.md", refs)
         self.assertNotIn("ignored/PROOF.md", refs)
+
+
+class ModelFlagTests(unittest.TestCase):
+    def test_an_old_model_flag_is_taken_and_forwarded_by_its_job_name(self):
+        import autocode_pilot_prep as pilot_prep
+
+        base = ["--workspace", "w", "--manifest", "m", "--brief", "b", "--report", "r"]
+        args = pilot_prep.parse_args([*base, "--terra-model", "x", "--tester-model", "y"])
+        self.assertEqual(("--builder-model", "x", "--tester-model", "y"), pilot_prep.engine_options(args))
 
 
 if __name__ == "__main__":

@@ -91,7 +91,7 @@ class CommandOnlyShapeTests(unittest.TestCase):
         self.assertTrue(cmd_only.matches(error))
         self.assertFalse(cmd_only.matches("$: missing summary"))
         # The failure ledger groups it as its own class, apart from other invalid reports.
-        record = {"stage": "astra_challenge", "source_revision": "rev"}
+        record = {"stage": "review_plan", "source_revision": "rev"}
         self.assertEqual("CommandOnlyReport", failures.identity(record, error)["error_class"])
         self.assertNotEqual(
             failures.key(failures.identity(record, error)),
@@ -119,7 +119,7 @@ class CorrectionRouteTests(unittest.TestCase):
         record = {
             "role": "task_planner",
             "route_role": "plan_reviewer",
-            "stage": "astra_challenge",
+            "stage": "review_plan",
             "planning": True,
             "engine": "codex",
             "supports_sessions": True,
@@ -218,7 +218,7 @@ class CorrectionRouteTests(unittest.TestCase):
         # that session on it: the full repair runs instead, and the correction stays unspent.
         fallback = {"engine": "opencode", "provider": "opencode", "model": "fallback-model", "reasoning_effort": "high"}
         self.state["settings"]["roles"].update(
-            plan_reviewer={**fallback, "model": "reviewer-model"}, glm=dict(fallback)
+            plan_reviewer={**fallback, "model": "reviewer-model"}, planner=dict(fallback)
         )
         pending = self.pending(engine="opencode", route_role="planner", launch_route=dict(fallback))
         self.assertIsNone(self.correct(pending, "plan_reviewer"))

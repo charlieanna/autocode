@@ -55,8 +55,10 @@ class RouteLevelsTests(unittest.TestCase):
         self.assertEqual({}, levels.metadata("openai/example\n{broken"))
 
     def test_escalation_cannot_add_an_account_or_an_unsupported_level(self):
-        settings = {"route_selection": {"candidates": {"terra": [{"model": "plan/model", "levels": ["low", "high"]}]}}}
-        self.assertTrue(permission.allows(settings, "terra", "plan/model", "high"))
-        self.assertFalse(permission.allows(settings, "terra", "plan/model", "max"))
-        self.assertFalse(permission.allows(settings, "terra", "other/model", "high"))
-        self.assertTrue(permission.allows({}, "terra", "other/model", "high"))
+        settings = {
+            "route_selection": {"candidates": {"builder": [{"model": "plan/model", "levels": ["low", "high"]}]}}
+        }
+        self.assertTrue(permission.allows(settings, "builder", "plan/model", "high"))
+        self.assertFalse(permission.allows(settings, "builder", "plan/model", "max"))
+        self.assertFalse(permission.allows(settings, "builder", "other/model", "high"))
+        self.assertTrue(permission.allows({}, "builder", "other/model", "high"))

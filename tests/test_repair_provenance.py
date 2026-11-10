@@ -31,7 +31,7 @@ class RepairSchemaWitnessTests(unittest.TestCase):
         self.output = self.root / "repaired.json"
         util.atomic_json(self.output, {"summary": "Accepted citation correction"})
         self.original = {
-            "stage": "astra_discovery",
+            "stage": "draft_plan",
             "exit_code": 0,
             "source_revision": "source",
             "role": "planner",
@@ -48,8 +48,8 @@ class RepairSchemaWitnessTests(unittest.TestCase):
         }
         self.repair = {
             **self.original,
-            "stage": "astra_discovery_report_repair",
-            "original_stage": "astra_discovery",
+            "stage": "draft_plan_report_repair",
+            "original_stage": "draft_plan",
             "report_only": True,
             "rejected": False,
             "applied_original_events": str(self.events),
@@ -74,11 +74,11 @@ class RepairSchemaWitnessTests(unittest.TestCase):
             "content": json.loads(self.original_output.read_text()),
             "sha256": util.file_hash(self.original_output),
         }
-        self.repair["schema"] = str(edits.prepare(self.schema, source, "astra_discovery"))
+        self.repair["schema"] = str(edits.prepare(self.schema, source, "draft_plan"))
         return Path(self.repair["schema"])
 
     def witness(self):
-        return provenance.witness(self.state, "astra_discovery", str(self.output))
+        return provenance.witness(self.state, "draft_plan", str(self.output))
 
     def test_same_schema_repair_keeps_its_original_session(self):
         self.assertEqual((self.original, "original-session"), self.witness())

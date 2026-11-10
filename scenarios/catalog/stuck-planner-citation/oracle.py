@@ -29,7 +29,7 @@ def investigation_checks(project):
     states = sorted((project / ".autocode" / "runs").glob("*/state.json"))
     state = json.loads(states[-1].read_text()) if states else {}
     history = state.get("stuck_investigations") or []
-    planner = [row for row in history if row.get("stage") == "astra_discovery"]
+    planner = [row for row in history if row.get("stage") == "draft_plan"]
     checks = [
         Check(
             "planner_was_investigated_once",
@@ -78,7 +78,7 @@ def investigation_checks(project):
     kept = [
         entry
         for entry in (state.get("failure_history") or {}).values()
-        if (entry.get("identity") or {}).get("stage") == "astra_discovery"
+        if (entry.get("identity") or {}).get("stage") == "draft_plan"
     ]
     checks.append(
         Check(

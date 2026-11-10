@@ -78,7 +78,7 @@ def public_view():
             }
         },
         "routes": {
-            "sol": {
+            "tester": {
                 "job": "Tester",
                 "model": "zai-coding-plan/glm-5.3",
                 "reasoning_effort": "low",
@@ -197,7 +197,7 @@ class CostDisplayTests(unittest.TestCase):
         before = copy.deepcopy(first)
         details(first)
         self.assertEqual(before, first)
-        later = {"cost": {"complete": False}, "routes": {"sol": {"job": "Tester"}}}
+        later = {"cost": {"complete": False}, "routes": {"tester": {"job": "Tester"}}}
         shown = details(later)
         self.assertIn("unknown", shown)
         self.assertNotIn("$1.25", shown)
@@ -329,7 +329,7 @@ class CostDisplayTests(unittest.TestCase):
 
         current = public_view()
         model = "provider/" + "long-model-name-" * 20
-        current["routes"]["sol"]["model"] = model
+        current["routes"]["tester"]["model"] = model
         transcript = tui.Transcript()
         transcript.info("/details", details(current))
         rendered = transcript.lines(80)

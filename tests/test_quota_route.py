@@ -44,7 +44,7 @@ class QuotaRouteTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
 
-    def state(self, error=QUOTA, *, stage="sol", role="sol", sol="gpt-5.6-sol", engine="codex"):
+    def state(self, error=QUOTA, *, stage="tester", role="tester", tester="gpt-5.6-sol", engine="codex"):
         events = self.root / "validator-01.jsonl"
         events.write_text(json.dumps({"type": "thread.started", "thread_id": "t"}) + "\n" + json.dumps(error) + "\n")
         return {
@@ -52,12 +52,12 @@ class QuotaRouteTests(unittest.TestCase):
             "settings": {
                 "engine": engine,
                 "roles": {
-                    "terra": {"model": "zai-coding-plan/glm-5.3" if engine == "opencode" else "gpt-5.6-terra"},
-                    "sol": {"model": sol},
+                    "builder": {"model": "zai-coding-plan/glm-5.3" if engine == "opencode" else "gpt-5.6-terra"},
+                    "tester": {"model": tester},
                     "completion": {"model": "gpt-6-astra"},
                 },
             },
-            "sessions": {"sol": "old-session", "terra": "builder-session"},
+            "sessions": {"tester": "old-session", "builder": "builder-session"},
             "active_stage": {
                 "stage": stage,
                 "role": role,
@@ -70,7 +70,7 @@ class QuotaRouteTests(unittest.TestCase):
     def stopped(self, state):
         return quota_route.stopped_attempt(state, failure_status=support.failure_status)
 
-    def validate(self, state, model, role="sol", configured_tool=False):
+    def validate(self, state, model, role="tester", configured_tool=False):
         quota_route.validate(
             state, role, model, configured_tool=configured_tool, cross_check=dispatch.enforce_cross_model_verification
         )
@@ -93,11 +93,11 @@ class QuotaRouteTests(unittest.TestCase):
         state = self.state()
         attempt = self.stopped(state)
         self.assertEqual(
-            {"role": "sol", "stage": "sol", "attempt_id": "001/validator-01", "active": True},
+            {"role": "tester", "stage": "tester", "attempt_id": "001/validator-01", "active": True},
             {key: attempt[key] for key in ("role", "stage", "attempt_id", "active")},
         )
         asked = quota_route.question(state, attempt)
-        self.assertEqual("route-sol", asked["id"])
+        self.assertEqual("route-tester", asked["id"])
         self.assertTrue(asked["question"].startswith("Tester's quota is exhausted"))
         self.assertEqual(
             ("", [], False, "quota"),
@@ -105,18 +105,18 @@ class QuotaRouteTests(unittest.TestCase):
         )
         self.assertEqual("gpt-5.6-sol", asked["current_model"])
         advice = quota_route.advice(asked, attempt["attempt_id"])
-        self.assertIn("--answer route-sol=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", advice)
-        self.assertIn("--abandon-stage 001/validator-01, then --resume-paused --sol-model MODEL", advice)
+        self.assertIn("--answer route-tester=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", advice)
+        self.assertIn("--abandon-stage 001/validator-01, then --resume-paused --tester-model MODEL", advice)
 
     def test_an_output_limit_question_names_the_cap_and_offers_the_other_configured_models(self):
         # The remedy for "reasoning and report text shared the response output limit" is
         # a larger cap or another model; the question had been naming neither.
-        state = self.state(engine="opencode", sol="zai-coding-plan/glm-5.3")
-        state["settings"]["roles"]["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        state = self.state(engine="opencode", tester="zai-coding-plan/glm-5.3")
+        state["settings"]["roles"]["builder"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
         state["settings"]["roles"]["completion"]["model"] = "alibaba-token-plan/deepseek-v4-pro"
         attempt = {
-            "role": "sol",
-            "stage": "sol",
+            "role": "tester",
+            "stage": "tester",
             "attempt_id": "001/validator-01",
             "model": "zai-coding-plan/glm-5.3",
             "pause_status": quota_route.OUTPUT_STATUS,
@@ -136,10 +136,10 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertFalse(asked["delegable"])
 
     def test_an_output_limit_question_without_a_recorded_cap_still_asks_for_a_model(self):
-        state = self.state(engine="opencode", sol="zai-coding-plan/glm-5.3")
+        state = self.state(engine="opencode", tester="zai-coding-plan/glm-5.3")
         attempt = {
-            "role": "sol",
-            "stage": "sol",
+            "role": "tester",
+            "stage": "tester",
             "attempt_id": "001/validator-01",
             "model": "zai-coding-plan/glm-5.3",
             "pause_status": quota_route.OUTPUT_STATUS,
@@ -152,12 +152,12 @@ class QuotaRouteTests(unittest.TestCase):
     def test_an_output_limit_stop_lists_same_account_models_the_answer_path_accepts(self):
         # #2870: the cap is the model's, not a provider refusal; the gate excluded
         # same-account models while validate() accepted zai-coding-plan/glm-5.3-flash.
-        state = self.state(engine="opencode", sol="zai-coding-plan/glm-5.3")
-        state["settings"]["roles"]["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        state = self.state(engine="opencode", tester="zai-coding-plan/glm-5.3")
+        state["settings"]["roles"]["builder"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
         state["settings"]["roles"]["completion"]["model"] = "zai-coding-plan/glm-5.3-flash"
         attempt = {
-            "role": "sol",
-            "stage": "sol",
+            "role": "tester",
+            "stage": "tester",
             "attempt_id": "001/validator-01",
             "model": "zai-coding-plan/glm-5.3",
             "pause_status": quota_route.OUTPUT_STATUS,
@@ -171,12 +171,12 @@ class QuotaRouteTests(unittest.TestCase):
         # #2870: the live pool held only the stopped model and an independence-refused one;
         # the advice claimed another provider was required while the answer path accepted
         # the same account's flash model.
-        state = self.state(engine="opencode", sol="zai-coding-plan/glm-5.3")
-        state["settings"]["roles"]["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        state = self.state(engine="opencode", tester="zai-coding-plan/glm-5.3")
+        state["settings"]["roles"]["builder"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
         state["settings"]["roles"]["completion"]["model"] = "zai-coding-plan/glm-5.3"
         attempt = {
-            "role": "sol",
-            "stage": "sol",
+            "role": "tester",
+            "stage": "tester",
             "attempt_id": "001/validator-01",
             "model": "zai-coding-plan/glm-5.3",
             "pause_status": quota_route.OUTPUT_STATUS,
@@ -188,7 +188,7 @@ class QuotaRouteTests(unittest.TestCase):
         self.validate(state, "zai-coding-plan/glm-5.3-flash")
 
     def test_completion_stop_asks_for_the_completion_route(self):
-        state = self.state(stage="astra_review", role="task_planner")
+        state = self.state(stage="review_completion", role="task_planner")
         state["active_stage"]["route_role"] = "completion"
         asked = quota_route.question(state, self.stopped(state))
         self.assertEqual("route-completion", asked["id"])
@@ -201,7 +201,7 @@ class QuotaRouteTests(unittest.TestCase):
                 self.assertIsNone(self.stopped(self.state(error)))
 
     def test_a_used_up_plan_sent_as_a_429_asks_for_the_completion_route(self):
-        state = self.state(PLAN_LIMIT, stage="astra_review", role="task_planner")
+        state = self.state(PLAN_LIMIT, stage="review_completion", role="task_planner")
         state["active_stage"]["route_role"] = "completion"
         self.assertEqual("PAUSED_BUDGET", support.failure_status(state["active_stage"]["events"]))
         asked = quota_route.question(state, self.stopped(state))
@@ -242,7 +242,7 @@ class QuotaRouteTests(unittest.TestCase):
         record = dict(state.pop("active_stage"), abandoned=True)
         state["stages"] = [record, {"stage": "resolver", "runner_owned": True}]
         self.assertFalse(self.stopped(state)["active"])
-        state["stages"].append({"stage": "sol", "role": "sol", "events": record["events"]})
+        state["stages"].append({"stage": "tester", "role": "tester", "events": record["events"]})
         self.assertIsNone(self.stopped(state))
 
     def test_validate_accepts_another_model_and_refuses_launch_violations(self):
@@ -258,7 +258,7 @@ class QuotaRouteTests(unittest.TestCase):
                 self.validate(state, model)
 
     def test_validate_keeps_the_engine_and_the_model_family_rule(self):
-        state = self.state(engine="opencode", sol="openai/gpt-6-sol")
+        state = self.state(engine="opencode", tester="openai/gpt-6-sol")
         self.validate(state, "xiaomi-token-plan-sgp/mimo-v2")
         with self.assertRaisesRegex(ValueError, "same family glm"):
             self.validate(state, "zai-coding-plan/glm-5.3-flash")
@@ -270,37 +270,43 @@ class QuotaRouteTests(unittest.TestCase):
         """#2006: the Analyst moved to GLM 5.3 at its profile effort medium, which GLM does not declare, and the
         retry refused before any request; the Analyst has no effort flag to pin."""
         state = self.state()
-        state["settings"]["roles"]["sol"]["reasoning_effort"] = "medium"
+        state["settings"]["roles"]["tester"]["reasoning_effort"] = "medium"
         state["settings"]["route_selection"] = {
             "candidates": {"completion": [{"model": "zai-coding-plan/glm-5.3", "levels": ["low", "high", "max"]}]}
         }
-        record = quota_route.assign(state, "sol", "zai-coding-plan/glm-5.3", at="t", via="answer")
-        self.assertEqual("high", state["settings"]["roles"]["sol"]["reasoning_effort"])
+        record = quota_route.assign(state, "tester", "zai-coding-plan/glm-5.3", at="t", via="answer")
+        self.assertEqual("high", state["settings"]["roles"]["tester"]["reasoning_effort"])
         self.assertEqual({"from": "medium", "to": "high"}, record["effort"])
         unknown = self.state()
-        unknown["settings"]["roles"]["sol"]["reasoning_effort"] = "medium"
-        record = quota_route.assign(unknown, "sol", "gpt-6-luna", at="t", via="answer")
-        self.assertEqual("medium", unknown["settings"]["roles"]["sol"]["reasoning_effort"], "no listing: unchanged")
+        unknown["settings"]["roles"]["tester"]["reasoning_effort"] = "medium"
+        record = quota_route.assign(unknown, "tester", "gpt-6-luna", at="t", via="answer")
+        self.assertEqual("medium", unknown["settings"]["roles"]["tester"]["reasoning_effort"], "no listing: unchanged")
         self.assertNotIn("effort", record)
 
     def test_assign_applies_the_model_drops_the_session_and_records_the_change(self):
         state = self.state()
         attempt = self.stopped(state)
         record = quota_route.assign(
-            state, "sol", "gpt-6-luna", at="2026-10-05T00:00:00+00:00", via="answer", attempt=attempt, request_id="r1"
+            state,
+            "tester",
+            "gpt-6-luna",
+            at="2026-10-05T00:00:00+00:00",
+            via="answer",
+            attempt=attempt,
+            request_id="r1",
         )
-        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["sol"]["model"])
-        self.assertNotIn("sol", state["sessions"])
-        self.assertEqual("builder-session", state["sessions"]["terra"])
+        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["tester"]["model"])
+        self.assertNotIn("tester", state["sessions"])
+        self.assertEqual("builder-session", state["sessions"]["builder"])
         self.assertEqual(
             {
                 "kind": "route_assignment",
                 "actor": "user_cli",
-                "role": "sol",
+                "role": "tester",
                 "job": "Tester",
                 "from": "gpt-5.6-sol",
                 "to": "gpt-6-luna",
-                "stage": "sol",
+                "stage": "tester",
                 "via": "answer",
                 "pause_status": "PAUSED_BUDGET",
                 "at": "2026-10-05T00:00:00+00:00",
@@ -314,44 +320,44 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertEqual([record], quota_route.assignments(state))
 
     def test_a_named_model_is_kept_when_the_next_milestone_starts(self):
-        state = self.state(stage="terra", role="terra")
+        state = self.state(stage="builder", role="builder")
         state.update(goal_contract={"hash": "h"}, current_task={"milestone_id": "M1"})
         builder_policy.lane(state)
-        quota_route.assign(state, "terra", "gpt-6-luna", at="t", via="answer", attempt=self.stopped(state))
+        quota_route.assign(state, "builder", "gpt-6-luna", at="t", via="answer", attempt=self.stopped(state))
         state["current_task"] = {"milestone_id": "M2"}
         builder_policy.lane(state)
-        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["builder"]["model"])
         # A checker moved off the Builder's model keeps the named model the same way.
         lane = state["builder_retries"][state["builder_retry_key"]]
-        lane["checker_routes"] = {"sol": {"model": "gpt-5.6-sol"}}
-        quota_route.assign(state, "sol", "gpt-6-nova", at="t", via="answer")
+        lane["checker_routes"] = {"tester": {"model": "gpt-5.6-sol"}}
+        quota_route.assign(state, "tester", "gpt-6-nova", at="t", via="answer")
         state["current_task"] = {"milestone_id": "M3"}
         builder_policy.lane(state)
-        self.assertEqual("gpt-6-nova", state["settings"]["roles"]["sol"]["model"])
+        self.assertEqual("gpt-6-nova", state["settings"]["roles"]["tester"]["model"])
 
     def test_a_named_model_keeps_a_recovery_packet_binding(self):
         state = self.state()
         bound = resolver_recovery._binding(state, "rev")
-        quota_route.assign(state, "sol", "gpt-6-luna", at="t", via="answer", attempt=self.stopped(state))
+        quota_route.assign(state, "tester", "gpt-6-luna", at="t", via="answer", attempt=self.stopped(state))
         self.assertEqual(bound, resolver_recovery._binding(state, "rev"))
-        state["settings"]["roles"]["sol"]["model"] = "gpt-6-nova"  # not named at a quota stop
+        state["settings"]["roles"]["tester"]["model"] = "gpt-6-nova"  # not named at a quota stop
         self.assertNotEqual(bound, resolver_recovery._binding(state, "rev"))
 
     def test_resume_change_is_recorded_only_for_the_quota_stopped_role(self):
         state = self.state()
         previous = state["settings"]
         changed = json.loads(json.dumps(previous))
-        changed["roles"]["terra"]["model"] = "gpt-6-sol"
+        changed["roles"]["builder"]["model"] = "gpt-6-sol"
         self.assertEqual(
             [],
             quota_route.record_resume_change(state, previous, changed, failure_status=support.failure_status, at="t"),
         )
-        changed["roles"]["sol"]["model"] = "gpt-6-luna"
+        changed["roles"]["tester"]["model"] = "gpt-6-luna"
         [record] = quota_route.record_resume_change(
             state, previous, changed, failure_status=support.failure_status, at="t"
         )
         self.assertEqual(
-            ("sol", "gpt-5.6-sol", "gpt-6-luna", "resume_flag"),
+            ("tester", "gpt-5.6-sol", "gpt-6-luna", "resume_flag"),
             (record["role"], record["from"], record["to"], record["via"]),
         )
         capacity = self.state(CAPACITY)
@@ -365,22 +371,22 @@ class QuotaRouteTests(unittest.TestCase):
     def test_parse_answer_accepts_only_the_published_quota_question(self):
         asked = quota_route.question(self.state(), self.stopped(self.state()))
         origin = {"pause_status": "PAUSED_BUDGET"}
-        self.assertEqual((asked, "gpt-6-luna"), quota_route.parse_answer(["route-sol=gpt-6-luna"], [asked], origin))
+        self.assertEqual((asked, "gpt-6-luna"), quota_route.parse_answer(["route-tester=gpt-6-luna"], [asked], origin))
         for answers, where, message in (
             (
-                ["route-sol=gpt-6-luna"],
+                ["route-tester=gpt-6-luna"],
                 {"pause_status": "PAUSED_TIME_LIMIT"},
                 "Only a quota, content-filter, output-limit, context-window, failed-job authentication, stopped-job timeout or cross-model stop",
             ),
-            (["route-terra=gpt-6-luna"], origin, "not the model question"),
-            (["route-sol="], origin, "Name the model"),
-            (["route-sol=a", "Q1=b"], origin, "on its own"),
+            (["route-builder=gpt-6-luna"], origin, "not the model question"),
+            (["route-tester="], origin, "Name the model"),
+            (["route-tester=a", "Q1=b"], origin, "on its own"),
         ):
             with self.subTest(answers=answers), self.assertRaisesRegex(ValueError, message):
                 quota_route.parse_answer(answers, [asked], where)
         disguised = {**asked, "category": "requested_outcome"}
         with self.assertRaisesRegex(ValueError, "not the model question"):
-            quota_route.parse_answer(["route-sol=gpt-6-luna"], [disguised], origin)
+            quota_route.parse_answer(["route-tester=gpt-6-luna"], [disguised], origin)
 
     def test_status_view_adds_routes_assignments_and_the_route_need(self):
         state = self.state()
@@ -397,13 +403,13 @@ class QuotaRouteTests(unittest.TestCase):
                 "account": None,
                 "origin": "unrecorded",
             },
-            view["routes"]["sol"],
+            view["routes"]["tester"],
         )
         self.assertEqual([], view["route_assignments"])
         self.assertEqual(
             {
-                "question_id": "route-sol",
-                "role": "sol",
+                "question_id": "route-tester",
+                "role": "tester",
                 "job": "Tester",
                 "current_model": "gpt-5.6-sol",
                 "engine": "codex",
@@ -413,7 +419,7 @@ class QuotaRouteTests(unittest.TestCase):
             view["needs"]["route"],
         )
         self.assertEqual("", view["needs"]["questions"][0]["proposed_default"])
-        quota_route.assign(state, "sol", "gpt-6-luna", at="t", via="answer")
+        quota_route.assign(state, "tester", "gpt-6-luna", at="t", via="answer")
         self.assertEqual("gpt-6-luna", run_view.view(state)["route_assignments"][0]["to"])
 
     def test_status_exposes_all_configured_models_before_any_attempt_without_private_settings(self):
@@ -424,12 +430,12 @@ class QuotaRouteTests(unittest.TestCase):
                 "provider": "kilocode",
                 "roles": {
                     "requirements": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "medium"},
-                    "terra": {
+                    "builder": {
                         "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
                         "reasoning_effort": "high",
                         "api_key": "private",
                     },
-                    "sol": {"model": "gpt-6-sol", "engine": "codex"},
+                    "tester": {"model": "gpt-6-sol", "engine": "codex"},
                     "completion": {"model": "other", "provider": "claude"},
                 },
             },
@@ -437,13 +443,13 @@ class QuotaRouteTests(unittest.TestCase):
         view = run_view.view(state)
         self.assertEqual([], view["usage"]["accounting"]["attempts"])
         routes = view["routes"]
-        self.assertEqual({"requirements", "terra", "sol", "completion"}, set(routes))
+        self.assertEqual({"requirements", "builder", "tester", "completion"}, set(routes))
         self.assertEqual("Requirements", routes["requirements"]["job"])
-        self.assertEqual("Builder", routes["terra"]["job"])
-        self.assertEqual("high", routes["terra"]["reasoning_effort"])
-        self.assertEqual("kilocode", routes["terra"]["provider"])
-        self.assertEqual("codex", routes["sol"]["provider"])
-        self.assertIsNone(routes["sol"]["reasoning_effort"])
+        self.assertEqual("Builder", routes["builder"]["job"])
+        self.assertEqual("high", routes["builder"]["reasoning_effort"])
+        self.assertEqual("kilocode", routes["builder"]["provider"])
+        self.assertEqual("codex", routes["tester"]["provider"])
+        self.assertIsNone(routes["tester"]["reasoning_effort"])
         self.assertEqual("claude", routes["completion"]["provider"])
         self.assertNotIn("private", json.dumps(routes))
 
@@ -452,7 +458,7 @@ class QuotaRouteTests(unittest.TestCase):
         error=REFUSED,
         *,
         stage="review_change",
-        role="sol",
+        role="tester",
         route_role=None,
         pause_status="PAUSED_CONTENT_FILTER",
         status="PAUSED_JOB_FAILURE",
@@ -482,7 +488,7 @@ class QuotaRouteTests(unittest.TestCase):
             {
                 "kind": "job",
                 "active": False,
-                "role": "sol",
+                "role": "tester",
                 "stage": "review_change",
                 "attempt_id": "001/validator-01",
                 "pause_status": "PAUSED_CONTENT_FILTER",
@@ -490,14 +496,16 @@ class QuotaRouteTests(unittest.TestCase):
             {key: attempt[key] for key in ("kind", "active", "role", "stage", "attempt_id", "pause_status")},
         )
         asked = quota_route.question(state, attempt)
-        self.assertEqual(("route-sol", "Code Reviewer", "content_filter"), (asked["id"], asked["job"], asked["cause"]))
+        self.assertEqual(
+            ("route-tester", "Code Reviewer", "content_filter"), (asked["id"], asked["job"], asked["cause"])
+        )
         advice = quota_route.advice(asked, attempt["attempt_id"], kind="job")
         self.assertIn(
-            "--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN), then retry the job with the new token: "
+            "--answer route-tester=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN), then retry the job with the new token: "
             "--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN",
             advice,
         )
-        for refused in ("--abandon-stage", "--sol-model", "--resolver-token", "quota resets"):
+        for refused in ("--abandon-stage", "--tester-model", "--resolver-token", "quota resets"):
             self.assertNotIn(refused, advice)
         quota = self.job_state(QUOTA, pause_status="PAUSED_BUDGET")
         asked = quota_route.question(quota, self.stopped(quota))
@@ -509,7 +517,7 @@ class QuotaRouteTests(unittest.TestCase):
 
     def test_the_active_stage_comes_first_and_only_a_routed_job_pause_is_a_job_stop(self):
         state = self.job_state()
-        state["active_stage"] = dict(state["stages"][0], stage="sol")
+        state["active_stage"] = dict(state["stages"][0], stage="tester")
         self.assertEqual("stage", self.stopped(state)["kind"])
         failure = self.job_state()["job_failure"]
         for change in (
@@ -527,7 +535,7 @@ class QuotaRouteTests(unittest.TestCase):
         record = dict(plain.pop("active_stage"), abandoned=True)
         plain["stages"] = [
             record,
-            {"stage": "terra", "role": "terra", "worker_attempt": "w", "events": record["events"]},
+            {"stage": "builder", "role": "builder", "worker_attempt": "w", "events": record["events"]},
         ]
         self.assertEqual("abandoned", self.stopped(plain)["kind"])
 
@@ -553,24 +561,24 @@ class QuotaRouteTests(unittest.TestCase):
         state = self.job_state()
         previous = state["settings"]
         changed = json.loads(json.dumps(previous))
-        changed["roles"]["sol"]["model"] = "gpt-6-luna"
+        changed["roles"]["tester"]["model"] = "gpt-6-luna"
         for abandoning in (None, "001/validator-01"):
             refusal = quota_route.resume_refusal(
                 state, previous, changed, failure_status=support.failure_status, abandoning=abandoning
             )
             self.assertIn(
                 "The Code Reviewer attempt that its provider's content filter refused was set aside for one "
-                "exact retry bound to its configuration; --sol-model is not saved.",
+                "exact retry bound to its configuration; --tester-model is not saved.",
                 refusal,
             )
-            self.assertIn("--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", refusal)
+            self.assertIn("--answer route-tester=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", refusal)
             self.assertNotIn("--abandon-stage", refusal)
         self.assertEqual(
             [],
             quota_route.record_resume_change(state, previous, changed, failure_status=support.failure_status, at="t"),
         )
         other = json.loads(json.dumps(previous))
-        other["roles"]["terra"]["model"] = "gpt-6-nova"  # not the stopped job's route: the exact retry decides
+        other["roles"]["builder"]["model"] = "gpt-6-nova"  # not the stopped job's route: the exact retry decides
         self.assertIsNone(
             quota_route.resume_refusal(state, previous, other, failure_status=support.failure_status, abandoning=None)
         )
@@ -578,13 +586,13 @@ class QuotaRouteTests(unittest.TestCase):
     def test_a_flag_that_puts_back_the_bound_model_is_saved_and_never_recorded(self):
         # A route moved off the model the exact retry is bound to (a flag saved before #463) can be put back.
         state = self.job_state()
-        state["job_failure"]["configuration"] = {"roles": {"sol": {"model": "gpt-5.6-sol"}}}
+        state["job_failure"]["configuration"] = {"roles": {"tester": {"model": "gpt-5.6-sol"}}}
         drifted = json.loads(json.dumps(state["settings"]))
-        drifted["roles"]["sol"]["model"] = "gpt-6-luna"
+        drifted["roles"]["tester"]["model"] = "gpt-6-luna"
         attempt = self.stopped({**state, "settings": drifted})
         self.assertEqual((True, "gpt-5.6-sol"), (attempt["workflow_job"], attempt["bound_model"]))
         back = json.loads(json.dumps(drifted))
-        back["roles"]["sol"]["model"] = "gpt-5.6-sol"
+        back["roles"]["tester"]["model"] = "gpt-5.6-sol"
         self.assertIsNone(
             quota_route.resume_refusal(state, drifted, back, failure_status=support.failure_status, abandoning=None)
         )
@@ -592,22 +600,22 @@ class QuotaRouteTests(unittest.TestCase):
             [], quota_route.record_resume_change(state, drifted, back, failure_status=support.failure_status, at="t")
         )
         other = json.loads(json.dumps(drifted))
-        other["roles"]["sol"]["model"] = "gpt-6-nova"
+        other["roles"]["tester"]["model"] = "gpt-6-nova"
         self.assertIn(
-            "--sol-model is not saved",
+            "--tester-model is not saved",
             quota_route.resume_refusal(state, drifted, other, failure_status=support.failure_status, abandoning=None),
         )
 
     def test_a_model_flag_while_a_workflow_job_is_uncertain_is_refused_even_when_setting_it_aside(self):
         state = self.state(REFUSED, stage="review_change")
-        state["active_stage"]["job_configuration"] = {"roles": {"sol": {"model": "gpt-5.6-sol"}}}  # admit saved it
+        state["active_stage"]["job_configuration"] = {"roles": {"tester": {"model": "gpt-5.6-sol"}}}  # admit saved it
         attempt = self.stopped(state)
         self.assertEqual(
             ("stage", True, "gpt-5.6-sol"), (attempt["kind"], attempt["workflow_job"], attempt["bound_model"])
         )
         previous = state["settings"]
         changed = json.loads(json.dumps(previous))
-        changed["roles"]["sol"]["model"] = "gpt-6-luna"
+        changed["roles"]["tester"]["model"] = "gpt-6-luna"
         for abandoning in (None, "001/validator-01"):
             with self.subTest(abandoning=abandoning):
                 refusal = quota_route.resume_refusal(
@@ -616,11 +624,13 @@ class QuotaRouteTests(unittest.TestCase):
                 self.assertIn(
                     "The Code Reviewer attempt that its provider's content filter refused is a workflow job: "
                     "setting it aside keeps one exact retry bound to the configuration it ran under, so "
-                    "--sol-model is not saved. Set it aside first with --abandon-stage 001/validator-01 alone.",
+                    "--tester-model is not saved. Set it aside first with --abandon-stage 001/validator-01 alone.",
                     refusal,
                 )
-                self.assertIn("--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", refusal)
-                self.assertNotRegex(refusal, r"--resume-paused --sol-model|--resolver-token")
+                self.assertIn(
+                    "--answer route-tester=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", refusal
+                )
+                self.assertNotRegex(refusal, r"--resume-paused --tester-model|--resolver-token")
         self.assertEqual(
             [],
             quota_route.record_resume_change(state, previous, changed, failure_status=support.failure_status, at="t"),
@@ -653,14 +663,14 @@ class QuotaRouteTests(unittest.TestCase):
         # The exact retry would replay the refused model: the next step names another one, and the card
         # offers no retry until a person has. The token stays on the need (the CLI still accepts it).
         self.assertEqual(
-            ("retry_job", "--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", "jr:t"),
+            ("retry_job", "--answer route-tester=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", "jr:t"),
             (view["needs"]["kind"], view["needs"]["action"], view["needs"]["job_retry_token"]),
         )
         self.assertEqual(["inspect", "feedback"], [row["kind"] for row in view["recovery"]["actions"]])
         self.assertEqual(
             {
-                "question_id": "route-sol",
-                "role": "sol",
+                "question_id": "route-tester",
+                "role": "tester",
                 "job": "Code Reviewer",
                 "current_model": "gpt-5.6-sol",
                 "engine": "codex",
@@ -671,7 +681,7 @@ class QuotaRouteTests(unittest.TestCase):
         )
         # The answer is named as a command too (#2005): here it is the next step itself.
         self.assertEqual(view["next_command"], view["needs"]["route"]["command"])
-        self.assertIn("--answer route-sol=MODEL --job-retry-token", view["needs"]["route"]["command"])
+        self.assertIn("--answer route-tester=MODEL --job-retry-token", view["needs"]["route"]["command"])
         self.assertIn(
             "content filter refused the Code Reviewer's response on gpt-5.6-sol", view["recovery"]["what_happened"]
         )
@@ -690,7 +700,7 @@ class QuotaRouteTests(unittest.TestCase):
 
         # Once a person named another model, the retry with the new token is the way on.
         named = self.routed_job()
-        named["job_failure"].update(job_retry_token="jr:new", route_assignment={"role": "sol", "to": "gpt-6-luna"})
+        named["job_failure"].update(job_retry_token="jr:new", route_assignment={"role": "tester", "to": "gpt-6-luna"})
         self.assertEqual((retry, [("inspect", None), ("retry_job", "jr:new"), ("feedback", None)]), offered(named))
         # After a quota stop, the unchanged retry once the quota resets is one too.
         quota = self.routed_job(QUOTA, "PAUSED_BUDGET")
@@ -704,7 +714,7 @@ class QuotaRouteTests(unittest.TestCase):
         abandoned["status"] = "PAUSED_STAGE_ABANDONED"
         self.assertEqual(
             (
-                "--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)",
+                "--answer route-tester=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)",
                 [("inspect", None), ("feedback", None)],
             ),
             offered(abandoned),

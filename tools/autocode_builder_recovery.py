@@ -28,7 +28,7 @@ def request_serial_retry(state: RunState, selected, *, pause_status=None):
     current = state.get("builder_retries", {}).get(policy.key(state))
     if (
         (pause_status or state.get("status")) != "PAUSED_BUILDER_RETRY_LIMIT"
-        or state.get("next_stage") != "terra"
+        or state.get("next_stage") != "builder"
         or state.get("parent_run")
         or not policy.enabled(state)
         or not current
@@ -45,10 +45,10 @@ def request_serial_retry(state: RunState, selected, *, pause_status=None):
         raise ValueError("Pending Builder repair belongs to a different approved contract")
     if not pending and task.get("kind") != "implement":
         raise ValueError("Serial Builder retry requires an implementation task or a pending Resolver repair")
-    route = state["settings"]["roles"]["terra"]
+    route = state["settings"]["roles"]["builder"]
     at = util.now()
     current["action"] = "retry"
-    state.setdefault("sessions", {}).pop("terra", None)
+    state.setdefault("sessions", {}).pop("builder", None)
     state.setdefault("builder_retry_decisions", []).append(
         {
             "at": at,
@@ -74,4 +74,4 @@ def request_serial_retry(state: RunState, selected, *, pause_status=None):
     )
     # Exhaustion can precede assignment of the Resolver's proposed repair. Let
     # the ordinary Resolver path apply its contract/scope checks before building.
-    state["next_stage"] = "astra_resolve" if pending else "terra"
+    state["next_stage"] = "resolve" if pending else "builder"

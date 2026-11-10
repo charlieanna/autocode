@@ -1472,7 +1472,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         rejected = report_retry.rejected_attempt(state) or {}
         if (
             status == "PAUSED_REPEATED_FAILURE"
-            and (pending.get("original") or {}).get("stage") == "sol"
+            and (pending.get("original") or {}).get("stage") == "tester"
             and not any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
             and report_retry.retryable(pending.get("error"))
             and report_retry.bounded_failure(

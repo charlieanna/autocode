@@ -25,6 +25,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_job_failure as job_failure
     from . import autocode_milestones as milestones
+    from . import autocode_names as names
     from . import autocode_output_policy as output_policy
     from . import autocode_planning as planning
     from . import autocode_planning_cycle as planning_cycle
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_job_failure as job_failure
     import autocode_milestones as milestones
+    import autocode_names as names
     import autocode_output_policy as output_policy
     import autocode_planning as planning
     import autocode_planning_cycle as planning_cycle
@@ -220,7 +222,7 @@ def normalize_human_boundary(state: RunState, run_dir):
         return
     # An internal diagnostic is already scheduled; repeated persistence must
     # neither ask the user nor requeue the same provider call.
-    if state.get("next_stage") == "astra_resolve" and state.get("resolution_request"):
+    if state.get("next_stage") == "resolve" and state.get("resolution_request"):
         return
     disposition = resolver_human.evaluate(state)
     if disposition == "permission_loop":
@@ -290,7 +292,7 @@ def normalize_human_boundary(state: RunState, run_dir):
                 first = (
                     "requirements_gather"
                     if "requirements" in state.get("settings", {}).get("roles", {})
-                    else "astra_discovery"
+                    else "draft_plan"
                 )
                 state.update({"status": "RUNNING", "phase": "DISCOVERING", "next_stage": first})
                 return
@@ -304,13 +306,13 @@ def normalize_human_boundary(state: RunState, run_dir):
             ),
             None,
         )
-        if source and proposal["origin"]["stage"] != "astra_resolve":
+        if source and proposal["origin"]["stage"] != "resolve":
             value = read_json(Path(output))
             semantic = source.get("original_stage") or source["stage"]
             autopilot.queue_resolution(
-                state, value, source, source_stage=semantic, source_report=not semantic.startswith("astra")
+                state, value, source, source_stage=semantic, source_report=not names.task_planner_stage(semantic)
             )
-            if state.get("next_stage") == "astra_resolve" and state.get("resolution_request"):
+            if state.get("next_stage") == "resolve" and state.get("resolution_request"):
                 state.update({"status": "RUNNING", "phase": "RESOLVING"})
                 return
             # Requeueing scheduled no diagnosis: this task and source already have one, so it staged
@@ -360,7 +362,7 @@ def normalize_plan_challenge_blocking(value, record):
     Missing flags cannot clear a finding. The raw provider report is preserved by
     load_stage_report, and the complete normalized report still faces its schema.
     """
-    if record.get("stage") not in ("astra_challenge", "astra_challenge_report_repair") or not isinstance(value, dict):
+    if record.get("stage") not in ("review_plan", "review_plan_report_repair") or not isinstance(value, dict):
         return value
     concerns = value.get("concerns")
     if not isinstance(concerns, list) or not any(isinstance(row, dict) and "blocking" not in row for row in concerns):
@@ -678,12 +680,12 @@ def timeout_recovery_route(state: RunState, record):
         return stage, run_status.PAUSE_PHASE
     if planning.is_planning(state, stage):
         return stage, "PLANNING"
-    if stage == "astra_discovery":
+    if stage == "draft_plan":
         return stage, "DISCOVERING"
-    if stage == "astra_plan":
+    if stage == "plan_task":
         return stage, "READY_TO_EXECUTE"
     # Final-audit-only runs keep the Builder in charge of implementation. Other routing
     # modes retain the established Plan Reviewer recovery review before another writer.
-    if workflow.final_only(state) and role in ("terra", "sol"):
-        return "terra", "EXECUTING"
-    return ("astra_review" if role != "task_planner" else stage), "EXECUTING"
+    if workflow.final_only(state) and role in ("builder", "tester"):
+        return "builder", "EXECUTING"
+    return ("review_completion" if role != "task_planner" else stage), "EXECUTING"

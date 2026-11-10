@@ -23,6 +23,7 @@ try:
     from . import autocode_builder_policy as builder_policy
     from . import autocode_findings as findings_ledger
     from . import autocode_goal_lifecycle as lifecycle
+    from . import autocode_names as names
     from . import autocode_progressive_state as progressive_state
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_rework_policy as rework_policy
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_builder_policy as builder_policy
     import autocode_findings as findings_ledger
     import autocode_goal_lifecycle as lifecycle
+    import autocode_names as names
     import autocode_progressive_state as progressive_state
     import autocode_resolver_recovery as resolver_recovery
     import autocode_rework_policy as rework_policy
@@ -51,8 +53,8 @@ def user_request(
         "stage": stage,
         **{key: record[key] for key in ("output", "source_revision", "task_id") if key in record},
     }
-    if workflow.final_only(state) and not stage.startswith("astra"):
-        if stage == "terra":
+    if workflow.final_only(state) and not names.task_planner_stage(stage):
+        if stage == "builder":
             assert_within_assignment(state, record)
         if request["kind"] in ("blocker", "clarification"):
             queue_resolution(state, value, record, source_stage=stage, source_report=True)
@@ -61,23 +63,23 @@ def user_request(
                 state, request, origin=origin, evidence={"provenance": "source_report_not_accepted_review"}
             )
         return True
-    if stage.startswith("astra"):
+    if names.task_planner_stage(stage):
         if value["status"] != "BLOCKED":
             raise ValueError("The Plan Reviewer must choose BLOCKED when requesting a user decision")
         # Record the defects already identified, then pause. The controller's early return
         # never reaches the normal review path.
-        if stage != "astra_resolve":
+        if stage != "resolve":
             definitions = support.criteria_definition(value["acceptance_criteria"])
             if len({row["id"] for row in definitions}) != len(
                 definitions
             ) or definitions != support.criteria_definition(state["acceptance_criteria"]):
                 raise support.Paused("PAUSED_CRITERIA_CHANGE", "A blocked decision cannot change approved criteria")
             findings_ledger.record_decision(state, value, record)
-        if stage != "astra_resolve" and request["kind"] in ("blocker", "clarification"):
+        if stage != "resolve" and request["kind"] in ("blocker", "clarification"):
             queue_resolution(state, value, record, source_stage=stage)
         else:
             evidence = {}
-            if stage == "astra_resolve":
+            if stage == "resolve":
                 evidence = {
                     "diagnosis": value["diagnosis"],
                     "output": record["output"],
@@ -85,12 +87,12 @@ def user_request(
                 }
                 evidence["hashes"][record["output"]] = support.file_hash(Path(record["output"]))
                 resolver_recovery.retain_diagnosis(state, record)
-            lifecycle.wait_for_user(state, request, origin=origin, evidence=evidence, next_stage="astra_review")
+            lifecycle.wait_for_user(state, request, origin=origin, evidence=evidence, next_stage="review_completion")
         goals.record_decision(state, value)
         state.pop("agent_request", None)
         return True
     state["agent_request"] = {"role": stage, "request": copy.deepcopy(value["user_request"])}
-    if stage == "terra":
+    if stage == "builder":
         state.update(
             {
                 "implementation": {
@@ -101,7 +103,7 @@ def user_request(
                 "changed_files": record.get("changed_files", []),
                 "source_snapshot": record.get("after_ref"),
                 "diff_ref": record.get("diff_ref"),
-                "next_stage": "astra_review",
+                "next_stage": "review_completion",
             }
         )
         return True
@@ -172,7 +174,7 @@ def resolver_builder_failure(runtime, state: RunState, value, record, workspace,
                 row
                 for row in state.get("stages", [])
                 if row.get("output") == validation.get("output")
-                and row.get("stage") == "sol"
+                and row.get("stage") == "tester"
                 and not row.get("rejected")
             ),
             None,

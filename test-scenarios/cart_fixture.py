@@ -460,7 +460,7 @@ def main() -> None:
     session = argv[argv.index("resume") + 1] if "resume" in argv else str(uuid.uuid4())
     out_path = argv[argv.index("-o") + 1]
     result = validate(data=data)
-    if data.get("stage") == "astra_checkpoint":
+    if data.get("stage") == "review_checkpoint":
         passed = result["verdict"] == "PASS"
         result = {
             "validation": result,

@@ -314,18 +314,18 @@ class RouteTests(unittest.TestCase):
 
     def state(self, exit_code=1):
         roles = {
-            "terra": {"engine": "opencode", "model": SOL},
+            "builder": {"engine": "opencode", "model": SOL},
             "task_planner": {"engine": "opencode", "model": SOL},
-            "sol": {"engine": "opencode", "model": GLM},
+            "tester": {"engine": "opencode", "model": GLM},
             "completion": {"engine": "opencode", "model": GLM},
         }
         return {
             "status": "WAITING_FOR_USER",
             "settings": {"engine": "opencode", "roles": roles},
-            "sessions": {"terra": "ses_builder"},
+            "sessions": {"builder": "ses_builder"},
             "active_stage": {
-                "stage": "terra",
-                "role": "terra",
+                "stage": "builder",
+                "role": "builder",
                 "iteration": 1,
                 "exit_code": exit_code,
                 "output": str(self.root / "builder-01.json"),
@@ -340,12 +340,12 @@ class RouteTests(unittest.TestCase):
                 state = self.state(exit_code)
                 attempt = quota_route.stopped_attempt(state, failure_status=support.failure_status)
                 self.assertEqual(
-                    ("terra", "001/builder-01", SOL, "PAUSED_CONTEXT_WINDOW", True),
+                    ("builder", "001/builder-01", SOL, "PAUSED_CONTEXT_WINDOW", True),
                     tuple(attempt[key] for key in ("role", "attempt_id", "model", "pause_status", "active")),
                 )
                 asked = quota_route.question(state, attempt, cross_check=dispatch.enforce_cross_model_verification)
                 self.assertEqual(
-                    ("route-terra", "context_window", SOL), (asked["id"], asked["cause"], asked["stopped_model"])
+                    ("route-builder", "context_window", SOL), (asked["id"], asked["cause"], asked["stopped_model"])
                 )
                 self.assertEqual(
                     "Builder's request no longer fit its model's context window; name a model with a larger window",
@@ -354,20 +354,20 @@ class RouteTests(unittest.TestCase):
                 self.assertIn(f"The Builder stopped on {SOL}", asked["why"])
                 self.assertIn("smaller task", asked["why"])
                 advice = quota_route.advice(asked, attempt["attempt_id"])
-                self.assertIn("--answer route-terra=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", advice)
+                self.assertIn("--answer route-builder=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", advice)
                 self.assertIn(
                     "ran out of its model's context window", quota_route.stop_description("PAUSED_CONTEXT_WINDOW")
                 )
 
     def test_a_context_window_stop_is_answered_with_a_model(self):
         with self.assertRaisesRegex(ValueError, "context-window"):
-            quota_route.parse_answer(["route-terra=x"], [], {"pause_status": "PAUSED_UNCERTAIN_STAGE"})
+            quota_route.parse_answer(["route-builder=x"], [], {"pause_status": "PAUSED_UNCERTAIN_STAGE"})
         asked, model = quota_route.parse_answer(
-            ["route-terra=" + GLM],
-            [{"id": "route-terra", "route_role": "terra", "category": quota_route.CATEGORY}],
+            ["route-builder=" + GLM],
+            [{"id": "route-builder", "route_role": "builder", "category": quota_route.CATEGORY}],
             {"pause_status": "PAUSED_CONTEXT_WINDOW"},
         )
-        self.assertEqual(("route-terra", GLM), (asked["id"], model))
+        self.assertEqual(("route-builder", GLM), (asked["id"], model))
 
 
 class LaunchTests(unittest.TestCase):
@@ -390,7 +390,7 @@ class LaunchTests(unittest.TestCase):
             with self.subTest(given=given):
                 env = {"PATH": "/usr/bin", **({"KILO_CONFIG_CONTENT": json.dumps(given)} if given else {})}
                 _, child, _ = provider.launch(
-                    "terra", Path("/workspace"), Path("/run"), None, GLM, "medium", True, env=env
+                    "builder", Path("/workspace"), Path("/run"), None, GLM, "medium", True, env=env
                 )
                 self.assertEqual(expected, json.loads(child["KILO_CONFIG_CONTENT"])["compaction"])
         # Through the runner's launch preparation too, and the native-isolation route is untouched here.
@@ -398,8 +398,8 @@ class LaunchTests(unittest.TestCase):
             _, child, _, worker = provider_launch.prepare(
                 engine="opencode",
                 adapter=provider,
-                role="terra",
-                route_role="terra",
+                role="builder",
+                route_role="builder",
                 workspace=Path("/workspace"),
                 run_dir=Path("/run"),
                 session=None,
@@ -427,24 +427,24 @@ class ViewTests(unittest.TestCase):
         state = {
             "stages": [
                 {
-                    "stage": "terra",
+                    "stage": "builder",
                     "iteration": 1,
                     "metrics": {"request_context": {"peak_input_tokens": 120_000, "complete": True}},
                 },
                 {
-                    "stage": "sol",
+                    "stage": "tester",
                     "iteration": 1,
                     "metrics": {"request_context": {"peak_input_tokens": None, "complete": False}},
                 },
-                {"stage": "astra_review", "iteration": 1, "metrics": {}},
+                {"stage": "review_completion", "iteration": 1, "metrics": {}},
                 "not a record",
             ]
         }
         view = request_usage.view(state)
         self.assertEqual(
             [
-                {"stage": "terra", "iteration": 1, "peak_input_tokens": 120_000, "complete": True},
-                {"stage": "sol", "iteration": 1, "peak_input_tokens": None, "complete": False},
+                {"stage": "builder", "iteration": 1, "peak_input_tokens": 120_000, "complete": True},
+                {"stage": "tester", "iteration": 1, "peak_input_tokens": None, "complete": False},
             ],
             view["stages"],
         )

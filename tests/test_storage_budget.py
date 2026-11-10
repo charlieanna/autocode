@@ -182,7 +182,7 @@ class VerdictTests(unittest.TestCase):
             (workspace / "large.py").write_bytes(b"x" * 1000)
             with mock.patch.object(storage_budget.shutil, "disk_usage", side_effect=fake_disk(free=999)):
                 task_preflight.guard(state, workspace, workspace / "run")
-                state["next_stage"] = "astra_discovery"
+                state["next_stage"] = "draft_plan"
                 with self.assertRaisesRegex(util.Paused, "source copy"):
                     task_preflight.guard(state, workspace, workspace / "run")
             state["next_stage"] = "requirements_gather"
@@ -299,7 +299,7 @@ class BuildLoopFloorTests(unittest.TestCase):
                 self.code = code
 
         def drive(current, dispatch, *, before, **kwargs):
-            current["next_stage"] = "astra_discovery"
+            current["next_stage"] = "draft_plan"
             before(current)
             self.fail("planning dispatched without the storage refusal")
 

@@ -156,10 +156,10 @@ class V2FlowTests(unittest.TestCase):
             }
         }
         self.assertEqual("requirements_gather", planning.entry_stage(default))
-        self.assertTrue(planning.is_planning(default, "astra_discovery"))
+        self.assertTrue(planning.is_planning(default, "draft_plan"))
         self.assertFalse(planning.is_planning(default, "requirements"))
-        self.assertEqual("planner", planning.role_for(default, "astra_discovery"))
-        self.assertEqual("plan_reviewer", planning.route_for(default, "astra_challenge"))
+        self.assertEqual("planner", planning.role_for(default, "draft_plan"))
+        self.assertEqual("plan_reviewer", planning.route_for(default, "review_plan"))
         self.assertEqual("requirements-model", default["settings"]["roles"]["requirements"]["model"])
         self.assertEqual("technical-model", default["settings"]["roles"]["planner"]["model"])
         self.assertEqual("reviewer-model", default["settings"]["roles"]["plan_reviewer"]["model"])
@@ -261,7 +261,7 @@ class V2FlowTests(unittest.TestCase):
             limits={"max_seconds": 7200, "stage_timeout_seconds": 900, "idle_timeout_seconds": 300},
             roles={
                 role: {"model": role, "reasoning_effort": "high"}
-                for role in ("requirements", "planner", "plan_reviewer", "terra", "sol", "completion")
+                for role in ("requirements", "planner", "plan_reviewer", "builder", "tester", "completion")
             },
         )
         goals.clarification_episode(state)
@@ -531,11 +531,11 @@ class V2FlowTests(unittest.TestCase):
             "validator",
         }
         runner_stages = set(planning.STAGES) | {
-            "astra_plan",
-            "astra_review",
-            "astra_checkpoint",
-            "terra",
-            "sol",
+            "plan_task",
+            "review_completion",
+            "review_checkpoint",
+            "builder",
+            "tester",
             "completion",
         }
         self.assertFalse(set(planning.V2_STAGES) & figma_stages)
@@ -543,7 +543,7 @@ class V2FlowTests(unittest.TestCase):
         for stage in figma_stages:
             with self.subTest(stage=stage):
                 self.assertFalse(planning.is_planning(state, stage))
-        self.assertEqual("task_planner", planning.role_for(state, "astra_plan"))
+        self.assertEqual("task_planner", planning.role_for(state, "plan_task"))
 
     def test_v2_plan_applies_the_design_coverage_its_own_schema_advertised(self):
         import autocode_design_manifest as design_manifest

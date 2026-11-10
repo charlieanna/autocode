@@ -47,13 +47,13 @@ class FirstWriterCallerControls(unittest.TestCase):
             checkpoint.require_launch(value, options["current"], options["visual_proof"])
             seen.append((stage, options["visual_proof"]))
 
-        native.dispatch_guard(state, "terra", guard)
-        self.assertEqual("terra", seen[0][0])
+        native.dispatch_guard(state, "builder", guard)
+        self.assertEqual("builder", seen[0][0])
         self.assertFalse(seen[0][1].current_scope_accepted)
         changed = deepcopy(state)
         changed["current_task"]["affected_paths"].append("tracked.txt")
         with self.assertRaises(util.Paused):
-            native.dispatch_guard(changed, "terra", guard)
+            native.dispatch_guard(changed, "builder", guard)
         self.assertEqual(1, len(seen))
 
     def test_untouched_implement_cannot_claim_readonly_producer_authority(self):
@@ -62,15 +62,15 @@ class FirstWriterCallerControls(unittest.TestCase):
             self.owner.readonly_task_authority(state, snapshot=current)
 
     def test_writer_revision_change_requires_exact_actual_after_and_only_builder(self):
-        before = {"stage": "terra", "role": "terra", "source_revision": "before"}
-        after = {"stage": "terra", "role": "terra", "source_revision": "after"}
+        before = {"stage": "builder", "role": "builder", "source_revision": "before"}
+        after = {"stage": "builder", "role": "builder", "source_revision": "after"}
         protection.check_finished_record(before, after, source_after={"revision": "after"})
         with self.assertRaises(util.Paused):
             protection.check_finished_record(before, after, source_after={"revision": "wrong"})
         with self.assertRaises(util.Paused):
             protection.check_finished_record(
-                {**before, "stage": "sol", "role": "sol"},
-                {**after, "stage": "sol", "role": "sol"},
+                {**before, "stage": "tester", "role": "tester"},
+                {**after, "stage": "tester", "role": "tester"},
                 source_after={"revision": "after"},
             )
         with self.assertRaises(util.Paused):
@@ -87,7 +87,7 @@ class OriginalWriterTransportControls(unittest.TestCase):
     def setUp(self):
         original_fixture.FirstWriterAuthorityTests.setUp(self)
         self.state["settings"]["roles"] = {
-            "terra": {
+            "builder": {
                 "engine": "opencode",
                 "provider": "opencode",
                 "model": "controlled/model",
@@ -152,8 +152,8 @@ class OriginalWriterTransportControls(unittest.TestCase):
         before_ref = self.run / "builder.before.json"
         util.atomic_json(before_ref, self.before)
         self.record = {
-            "stage": "terra",
-            "role": "terra",
+            "stage": "builder",
+            "role": "builder",
             "engine": "opencode",
             "command": self.command,
             "task_id": self.state["current_task"]["id"],
@@ -161,7 +161,7 @@ class OriginalWriterTransportControls(unittest.TestCase):
             "contract_revision": self.state["goal_contract"]["revision"],
             "source_revision": self.before["revision"],
             "launch_route": {
-                key: self.state["settings"]["roles"]["terra"].get(key)
+                key: self.state["settings"]["roles"]["builder"].get(key)
                 for key in ("engine", "provider", "model", "reasoning_effort")
             },
             "before_ref": str(before_ref),
@@ -324,10 +324,10 @@ class OriginalWriterTransportControls(unittest.TestCase):
     def test_uncharged_mutation_and_foreign_pending_handle_refuse(self):
         handle = self.preparation()
         value = self.owner._writer_executions[handle.nonce]
-        self.state["settings"]["roles"]["terra"]["reasoning_effort"] = "max"
+        self.state["settings"]["roles"]["builder"]["reasoning_effort"] = "max"
         with self.assertRaises(util.Paused):
             value.recheck()
-        self.state["settings"]["roles"]["terra"]["reasoning_effort"] = "high"
+        self.state["settings"]["roles"]["builder"]["reasoning_effort"] = "high"
         self.owner._pending[handle.nonce] = object()
         with self.assertRaises(util.Paused):
             value.recheck()
@@ -450,10 +450,10 @@ class FinalWriterSealControls(unittest.TestCase):
 
     def test_late_saved_reasoning_route_change_refuses_before_target_execution(self):
         def mutation():
-            self.state["settings"]["roles"]["terra"]["reasoning_effort"] = "max"
+            self.state["settings"]["roles"]["builder"]["reasoning_effort"] = "max"
 
         def retained():
-            self.assertEqual("max", self.state["settings"]["roles"]["terra"]["reasoning_effort"])
+            self.assertEqual("max", self.state["settings"]["roles"]["builder"]["reasoning_effort"])
             self.assertEqual("selected ignored source\n", (self.root / "ignored.txt").read_text())
 
         self._refuse_at_final_seal(mutation, retained)
@@ -613,7 +613,7 @@ class OperationWriterHistoryControls(unittest.TestCase):
         self._during_recheck(lambda: task.update(id="controlled-new-task"), lambda: task.update(id=before))
 
     def test_within_operation_route_change_refuses(self):
-        route = self.state["settings"]["roles"]["terra"]
+        route = self.state["settings"]["roles"]["builder"]
         before = route["reasoning_effort"]
         self._during_recheck(
             lambda: route.update(reasoning_effort="max"), lambda: route.update(reasoning_effort=before)

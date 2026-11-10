@@ -30,11 +30,11 @@ class PermissionRecoveryTests(unittest.TestCase):
                 "evidence_hashes": {str(self.evidence): file_hash(self.evidence)},
             },
         }
-        self.record = {"stage": "astra_review", "source_revision": "source", "changed_files": []}
+        self.record = {"stage": "review_completion", "source_revision": "source", "changed_files": []}
 
     def test_unchanged_completion_keeps_validation_and_human_reviews(self):
         before = copy.deepcopy(self.state)
-        self.assertEqual("astra_review", recovery.permission_retry(self.state, self.record))
+        self.assertEqual("review_completion", recovery.permission_retry(self.state, self.record))
         self.assertEqual(before, self.state)
 
     def test_changed_source_contract_task_or_receipt_requires_fresh_validation(self):
@@ -49,23 +49,23 @@ class PermissionRecoveryTests(unittest.TestCase):
             with self.subTest(field=field):
                 state = copy.deepcopy(self.state)
                 state["validation"][field] = wrong
-                self.assertEqual("sol", recovery.permission_retry(state, self.record))
+                self.assertEqual("tester", recovery.permission_retry(state, self.record))
                 self.assertNotIn("validation", state)
                 self.assertEqual({}, state["human_reviews"])
         self.evidence.write_text("changed evidence\n")
-        self.assertEqual("sol", recovery.permission_retry(self.state, self.record))
+        self.assertEqual("tester", recovery.permission_retry(self.state, self.record))
 
     def test_completion_without_validation_goes_to_validator_first(self):
         self.state.pop("validation")
-        self.assertEqual("sol", recovery.permission_retry(self.state, self.record))
+        self.assertEqual("tester", recovery.permission_retry(self.state, self.record))
 
     def test_stale_completion_uses_the_workflows_verification_route(self):
         self.state.pop("validation")
         self.assertEqual(
-            "astra_checkpoint", recovery.permission_retry(self.state, self.record, review_stage="astra_checkpoint")
+            "review_checkpoint", recovery.permission_retry(self.state, self.record, review_stage="review_checkpoint")
         )
 
     def test_builder_interruption_archives_prior_validation_even_without_changes(self):
-        self.record["stage"] = "terra"
-        self.assertEqual("terra", recovery.permission_retry(self.state, self.record))
+        self.record["stage"] = "builder"
+        self.assertEqual("builder", recovery.permission_retry(self.state, self.record))
         self.assertNotIn("validation", self.state)

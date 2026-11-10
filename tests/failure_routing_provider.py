@@ -72,7 +72,7 @@ def main():
         refs = failure["evidence_refs"]
         report = Path(failure["record"]["output"])
         if choice in ("execution", "stale"):
-            if retained_rework and failure["record"].get("stage") == "astra_review":
+            if retained_rework and failure["record"].get("stage") == "review_completion":
                 diagnosis = "The saved Reviewer blocker identifies the approved greeting that the first Builder did not deliver."
                 condition = (
                     "assert r['status']=='BLOCKED' and r['user_request']['kind']=='blocker'; "
@@ -110,7 +110,7 @@ def main():
         if probe:
             original_report = report.read_text()
             opposite = json.loads(original_report)
-            if retained_rework and failure["record"].get("stage") == "astra_review":
+            if retained_rework and failure["record"].get("stage") == "review_completion":
                 opposite["status"] = "COMPLETE"
             else:
                 opposite["results"] = ["check exit=1" if choice == "plan" else "check exit=0"]
@@ -186,7 +186,10 @@ def main():
         result = json.loads(output.read_text())
         calls = [json.loads(line) for line in log.read_text().splitlines()]
         modified = False
-        if data["stage"] == "terra" and sum(row["event"] == "call" and row["stage"] == "terra" for row in calls) == 1:
+        if (
+            data["stage"] == "builder"
+            and sum(row["event"] == "call" and row["stage"] == "builder" for row in calls) == 1
+        ):
             assert result["changed_files"] == [] and result["results"] == ["check exit=1"]
             result["user_request"] = dict(
                 kind="blocker",
@@ -198,14 +201,14 @@ def main():
             )
             modified = True
             record("retained_execution_blocker", report=result)
-        elif data["stage"] == "astra_review" and (
+        elif data["stage"] == "review_completion" and (
             ((data.get("agent_request") or {}).get("request") or {}).get("kind") == "blocker"
         ):
             result.update(status="BLOCKED", user_request=data["agent_request"]["request"])
             result["blocker"] = result["user_request"]["decision_needed"]
             modified = True
             record("retained_blocker_review", report=result)
-        elif data["stage"] == "astra_resolve":
+        elif data["stage"] == "resolve":
             result.update(
                 status="REWORK",
                 next_objective="Deliver the approved greeting after the local failure is diagnosed",
@@ -220,9 +223,9 @@ def main():
             output.write_text(json.dumps(result))
     rework = os.environ.get("FAILURE_ROUTING_REWORK")
     if (
-        data["stage"] in ("astra_review", "astra_resolve")
+        data["stage"] in ("review_completion", "resolve")
         and rework == "unchanged"
-        or data["stage"] in ("astra_review", "astra_resolve")
+        or data["stage"] in ("review_completion", "resolve")
         and correcting
         and not corrected
     ):

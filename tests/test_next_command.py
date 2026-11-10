@@ -35,7 +35,7 @@ class NextCommandTests(unittest.TestCase):
         # This pins the projection and the published reason. Whether any command then advances such
         # a run is #1899: on an unchanged source the plain resume holds again before reconciliation.
         blockers = {
-            "active_stage": {"stage": "sol", "attempts": 2},
+            "active_stage": {"stage": "tester", "attempts": 2},
             "uncertain_artifacts": ["iterations/002/builder-01.json"],
             "pending_report_repair": {"attempts": 2},
         }
@@ -55,7 +55,7 @@ class NextCommandTests(unittest.TestCase):
         # An active runner check or a building batch refuses a novelty hold's scoped retry, not this
         # one: withholding --retry-failed-stage here would hide a command the person can run (#1897).
         for key, value in (
-            ("active_runner_check", {"stage": "sol"}),
+            ("active_runner_check", {"stage": "tester"}),
             ("orchestration_batch", {"status": "BUILDING"}),
         ):
             with self.subTest(key=key):

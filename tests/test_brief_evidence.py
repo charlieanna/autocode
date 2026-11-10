@@ -65,7 +65,7 @@ def build_state(root, task=TASK, setup=("brief-probe",), expect=None):
         state,
         body,
         proposals,
-        {"stage": "astra_challenge", "events": str(events), "output": str(output)},
+        {"stage": "review_plan", "events": str(events), "output": str(output)},
         trace={"out_of_scope": [], "negation_waivers": []},
     )
     state["goal_contract"] = {"body": body, "hash": util.digest(body)}

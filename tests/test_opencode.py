@@ -222,7 +222,7 @@ class DuplicateEmptyParameterTests(unittest.TestCase):
             "task": "Build a greeting CLI. Reject an empty name.",
             "workspace": str(root),
             "status": "RUNNING",
-            "next_stage": "astra_discovery",
+            "next_stage": "draft_plan",
             "sessions": {},
             "stages": [],
             "history": [],
@@ -251,7 +251,7 @@ class DuplicateEmptyParameterTests(unittest.TestCase):
         elif case == "citation":
             contract["acceptance_criteria"][0]["sources"][1]["quote"] = "task:0#9"
         schema = base.with_suffix(".schema.json")
-        support.atomic_json(schema, autoplanner.schema_for(state, "astra_discovery"))
+        support.atomic_json(schema, autoplanner.schema_for(state, "draft_plan"))
         before = support.snapshot(root)
         before_path = base.with_suffix(".before.json")
         support.atomic_json(before_path, before)
@@ -261,7 +261,7 @@ class DuplicateEmptyParameterTests(unittest.TestCase):
         record = {
             "engine": "opencode",
             "role": "task_planner",
-            "stage": "astra_discovery",
+            "stage": "draft_plan",
             "iteration": 1,
             "output": str(base.with_suffix(".json")),
             "events": str(events),
@@ -296,7 +296,7 @@ class DuplicateEmptyParameterTests(unittest.TestCase):
         reject.assert_not_called()
         public = run_view.view(state)
         self.assertEqual(
-            ("RUNNING", "PLANNING", "astra_challenge"), (public["status"], public["phase"], public["next_stage"])
+            ("RUNNING", "PLANNING", "review_plan"), (public["status"], public["phase"], public["next_stage"])
         )
         self.assert_retained_report(record, report, text, event_bytes)
 
@@ -316,7 +316,7 @@ class DuplicateEmptyParameterTests(unittest.TestCase):
                 self.assertIn("summary" if case == "schema" else "no such sentence id", error)
                 public = run_view.view(state)
                 self.assertEqual(
-                    ("RUNNING", "REPORT_REPAIR", "astra_discovery"),
+                    ("RUNNING", "REPORT_REPAIR", "draft_plan"),
                     (public["status"], public["phase"], public["next_stage"]),
                 )
                 self.assert_retained_report(record, report, text, event_bytes)
@@ -402,7 +402,7 @@ class OpenCodeTests(unittest.TestCase):
 
     def test_opencode_2_launch_uses_standalone_and_a_model_variant(self):
         command, _, _ = oc.launch(
-            "sol",
+            "tester",
             Path("/workspace"),
             Path("/run"),
             "ses_saved",
@@ -416,7 +416,7 @@ class OpenCodeTests(unittest.TestCase):
         self.assertNotIn("--variant", command)
         self.assertEqual("openai/gpt-6-sol#high", command[command.index("--model") + 1])
         self.assertEqual("ses_saved", command[command.index("--session") + 1])
-        unchanged, _, _ = oc.launch("sol", Path("/workspace"), Path("/run"), None, "openai/gpt-6-sol", "high", False)
+        unchanged, _, _ = oc.launch("tester", Path("/workspace"), Path("/run"), None, "openai/gpt-6-sol", "high", False)
         self.assertIn("--dir", unchanged)
         self.assertEqual("high", unchanged[unchanged.index("--variant") + 1])
         self.assertNotIn("--standalone", unchanged)
@@ -625,13 +625,13 @@ class OpenCodeTests(unittest.TestCase):
         original = {"provider": {"custom": {"models": {"m": {}}}}, "permission": {"bash": "ask"}}
         with patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT": json.dumps(original)}):
             command, env, config = oc.launch(
-                "sol", Path("/workspace"), Path("/run"), "ses_saved", "zai-coding-plan/glm-5.3", "high", False
+                "tester", Path("/workspace"), Path("/run"), "ses_saved", "zai-coding-plan/glm-5.3", "high", False
             )
         self.assertEqual("ses_saved", command[command.index("--session") + 1])
         self.assertNotIn("--auto", command)
         self.assertNotIn("--continue", command)
         self.assertEqual("high", command[command.index("--variant") + 1])
-        self.assertEqual("deny", config["agent"]["autocode_sol"]["permission"]["edit"])
+        self.assertEqual("deny", config["agent"]["autocode_tester"]["permission"]["edit"])
         combined = json.loads(env["OPENCODE_CONFIG_CONTENT"])
         self.assertEqual(original["provider"], combined["provider"])
         self.assertEqual(original["permission"], combined["permission"])
@@ -700,13 +700,13 @@ class OpenCodeTests(unittest.TestCase):
                     os.environ,
                     {
                         "OPENCODE_CONFIG_CONTENT": json.dumps(
-                            {"agent": {"autocode_sol": {"permission": policy, "temperature": 0.2}}}
+                            {"agent": {"autocode_tester": {"permission": policy, "temperature": 0.2}}}
                         )
                     },
                 ),
             ):
-                _, env, _ = oc.launch("sol", Path("/workspace"), Path("/run"), None, "test/model", None, False)
-                role = json.loads(env["OPENCODE_CONFIG_CONTENT"])["agent"]["autocode_sol"]
+                _, env, _ = oc.launch("tester", Path("/workspace"), Path("/run"), None, "test/model", None, False)
+                role = json.loads(env["OPENCODE_CONFIG_CONTENT"])["agent"]["autocode_tester"]
                 expected = {"*": "deny"} if isinstance(policy, str) else policy
                 for key, value in expected.items():
                     if key != "edit":
@@ -718,7 +718,7 @@ class OpenCodeTests(unittest.TestCase):
         with patch.object(
             oc.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="fixture/model\n")
         ) as call:
-            oc.check_models({"sol": {"model": "fixture/model"}}, Path("/target/repo"))
+            oc.check_models({"tester": {"model": "fixture/model"}}, Path("/target/repo"))
         self.assertEqual(Path("/target/repo"), call.call_args.kwargs["cwd"])
 
     def test_custom_config_and_agent_changes_are_detected(self):
@@ -738,7 +738,7 @@ class OpenCodeTests(unittest.TestCase):
                 config.write_text('{"permission":{"bash":"allow"}}')
                 second = oc.local_settings(root)
                 self.assertTrue(oc.transport_drift(second, first))
-                (custom / "agents/autocode_sol.md").write_text("---\npermission:\n  bash: deny\n---\nReview")
+                (custom / "agents/autocode_tester.md").write_text("---\npermission:\n  bash: deny\n---\nReview")
                 self.assertTrue(oc.transport_drift(oc.local_settings(root), second))
                 # A coverage upgrade retains all checks present in old checkpoints.
                 old = {k: v for k, v in first.items() if k != "identity_version"}
@@ -760,8 +760,8 @@ class OpenCodeTests(unittest.TestCase):
                     "active_seconds": 2,
                     "active_stage": {
                         "engine": "opencode",
-                        "role": "terra",
-                        "stage": "terra",
+                        "role": "builder",
+                        "stage": "builder",
                         "iteration": 1,
                         "events": str(log),
                         "output": str(base.with_suffix(".json")),
@@ -866,7 +866,7 @@ class OpenCodeTests(unittest.TestCase):
                 "version": 2,
                 "workspace": str(root),
                 "status": "RUNNING",
-                "next_stage": "terra",
+                "next_stage": "builder",
                 "sessions": {},
                 "stages": [],
                 "history": [],
@@ -874,8 +874,8 @@ class OpenCodeTests(unittest.TestCase):
                 "settings": {"engine": "opencode"},
                 "active_stage": {
                     "engine": "opencode",
-                    "role": "terra",
-                    "stage": "terra",
+                    "role": "builder",
+                    "stage": "builder",
                     "iteration": 1,
                     "output": str(base.with_suffix(".json")),
                     "events": str(log),
@@ -885,9 +885,9 @@ class OpenCodeTests(unittest.TestCase):
             }
             with patch.object(runner, "run_role", side_effect=AssertionError("No relaunch")):
                 runner.reconcile_active(state, run, root)
-            self.assertEqual("sol", state["next_stage"])
+            self.assertEqual("tester", state["next_stage"])
             self.assertNotIn("active_stage", state)
-            self.assertEqual("ses_fixture", state["sessions"]["terra"])
+            self.assertEqual("ses_fixture", state["sessions"]["builder"])
             self.assertEqual(report, json.loads(base.with_suffix(".json").read_text()))
 
     def test_archive_checkpoint_failure_leaves_original_evidence_recoverable(self):
@@ -903,8 +903,8 @@ class OpenCodeTests(unittest.TestCase):
                 "active_seconds": 2,
                 "active_stage": {
                     "engine": "opencode",
-                    "role": "terra",
-                    "stage": "terra",
+                    "role": "builder",
+                    "stage": "builder",
                     "iteration": 1,
                     "events": str(log),
                     "output": str(log.with_suffix(".json")),
@@ -1038,10 +1038,10 @@ class OpenCodeFlow(unittest.TestCase):
             self.env.pop(key, None)
 
     def test_a_model_the_plans_do_not_offer_stops_a_new_run_before_any_model_call(self):
-        result = self.launch(["Greeting tool", "--no-chat", "--sol-model", "openai/gpt-7-nope"], 2)
+        result = self.launch(["Greeting tool", "--no-chat", "--tester-model", "openai/gpt-7-nope"], 2)
         self.assertIn("Cannot use with OpenCode: openai/gpt-7-nope (Tester).", result.stderr)
         self.assertIn("Z.AI Coding Plan · subscription", result.stderr)
-        self.assertIn("--sol-model openai/gpt-6-sol", result.stderr)
+        self.assertIn("--tester-model openai/gpt-6-sol", result.stderr)
         runs = self.project / ".autocode/runs"
         states = [json.loads(path.read_text()) for path in runs.glob("*/state.json")] if runs.exists() else []
         self.assertEqual([], [state for state in states if state.get("stages") or state.get("settings")])
@@ -1057,11 +1057,11 @@ class OpenCodeFlow(unittest.TestCase):
 
     def test_in_chat_an_accepted_replacement_becomes_the_runs_route(self):
         result = self.launch(
-            ["Greeting tool", "--chat", "--sol-model", "openai/gpt-7-nope"], 0, answers="y\nCLI\nyes\nyes\n"
+            ["Greeting tool", "--chat", "--tester-model", "openai/gpt-7-nope"], 0, answers="y\nCLI\nyes\nyes\n"
         )
         self.assertIn("Use the suggested replacements for this run?", result.stdout)
         _, state = self.saved()
-        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["sol"]["model"])
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["tester"]["model"])
         self.assertEqual("COMPLETE", state["phase"])
 
     def test_models_lists_the_plans_by_tier_and_checks_the_default_routes(self):
@@ -1090,10 +1090,12 @@ class OpenCodeFlow(unittest.TestCase):
     def test_cli_completes_with_mimo_token_plan_builder_and_api_authenticated_checker(self):
         self.env["AUTOCODE_FIXTURE_OPENAI_AUTH"] = "api"
         self.launch(
-            ["Greeting tool", "--chat", "--terra-model", "mimo-token-plan/mimo-v2.6-pro"], 0, answers="CLI\nyes\nyes\n"
+            ["Greeting tool", "--chat", "--builder-model", "mimo-token-plan/mimo-v2.6-pro"],
+            0,
+            answers="CLI\nyes\nyes\n",
         )
         run, state = self.saved()
-        self.assertEqual("mimo-token-plan/mimo-v2.6-pro", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("mimo-token-plan/mimo-v2.6-pro", state["settings"]["roles"]["builder"]["model"])
         self.assertEqual("COMPLETE", state["phase"])
 
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
@@ -1107,18 +1109,18 @@ class OpenCodeFlow(unittest.TestCase):
             "requirements": "zai-coding-plan/glm-5.3",
             "planner": "zai-coding-plan/glm-5.3",
             "task_planner": "openai/gpt-6-astra",
-            "terra": "zai-coding-plan/glm-5.3",
-            "sol": "openai/gpt-6-sol",
+            "builder": "zai-coding-plan/glm-5.3",
+            "tester": "openai/gpt-6-sol",
             "completion": "openai/gpt-6-sol",
             "plan_reviewer": "openai/gpt-6-sol",
         }
         self.assertEqual(expected, {role: settings["model"] for role, settings in state["settings"]["roles"].items()})
         self.assertEqual("COMPLETE", state["phase"])
-        self.assertNotEqual(state["sessions"]["terra"], state["sessions"]["sol"])
-        self.assertNotEqual(state["sessions"]["plan_reviewer"], state["sessions"]["sol"])
+        self.assertNotEqual(state["sessions"]["builder"], state["sessions"]["tester"])
+        self.assertNotEqual(state["sessions"]["plan_reviewer"], state["sessions"]["tester"])
         engines = {
             role: "opencode"
-            for role in ("requirements", "planner", "terra", "task_planner", "sol", "completion", "plan_reviewer")
+            for role in ("requirements", "planner", "builder", "task_planner", "tester", "completion", "plan_reviewer")
         }
         for record in state["stages"]:
             if record.get("runner_owned"):

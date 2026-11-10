@@ -16,7 +16,7 @@ import autocode_validation_scope_recovery as recovery
 def retain_misroute(state, folder, revision, *, scope="operational_exhaustion", pause="PAUSED_NO_PROGRESS"):
     """Write a synthetic pre-upgrade checkpoint; callers observe recovery publicly."""
     contract = state["goal_contract"]
-    state.update(status="PAUSED_NO_PROGRESS", next_stage="terra", iteration=5, no_progress_batches=3)
+    state.update(status="PAUSED_NO_PROGRESS", next_stage="builder", iteration=5, no_progress_batches=3)
     state.setdefault("settings", {}).setdefault("milestone_checkpoints", {})["enabled"] = True
     state["settings"].setdefault("limits", {})["no_progress_batches"] = 3
     state["current_task"] = {
@@ -42,7 +42,7 @@ def retain_misroute(state, folder, revision, *, scope="operational_exhaustion", 
         "verdict": "PASS",
         "output": str(report),
         "source_revision": revision,
-        "reviewer_role": "sol",
+        "reviewer_role": "tester",
         "task_id": "validation-M1",
         "contract_hash": contract["hash"],
         "contract_revision": contract["revision"],
@@ -51,9 +51,9 @@ def retain_misroute(state, folder, revision, *, scope="operational_exhaustion", 
     }
     state.setdefault("stages", []).append(
         {
-            "stage": "sol_report_repair",
-            "original_stage": "sol",
-            "role": "sol",
+            "stage": "tester_report_repair",
+            "original_stage": "tester",
+            "role": "tester",
             "exit_code": 0,
             "output": str(report),
             "task_id": "validation-M1",
@@ -90,7 +90,7 @@ def retain_misroute(state, folder, revision, *, scope="operational_exhaustion", 
     human.queue(
         state,
         scope,
-        {"stage": "terra", "pause_status": pause},
+        {"stage": "builder", "pause_status": pause},
         request={
             "kind": "blocker",
             "decision_needed": "Raise the no-progress limit",
@@ -117,8 +117,8 @@ class ValidationScopeRecoveryTests(unittest.TestCase):
             "goal_contract": contract,
             "criteria_revision": 6,
             "user_events": [approval],
-            "settings": {"roles": {"sol": {"model": "saved", "reasoning_effort": "high"}}},
-            "findings_ledger": [{"id": "F1", "source": "sol", "status": "open", "blocking": True}],
+            "settings": {"roles": {"tester": {"model": "saved", "reasoning_effort": "high"}}},
+            "findings_ledger": [{"id": "F1", "source": "tester", "status": "open", "blocking": True}],
             "no_progress_reports": [{"output": "earlier-implementation"}],
         }
         retain_misroute(state, folder, "rev", **options)
@@ -141,7 +141,7 @@ class ValidationScopeRecoveryTests(unittest.TestCase):
         state = self.fixture()
         before = deepcopy(state)
         self.assertTrue(recovery.settle(state, "rev", at="now"))
-        self.assertEqual(("RUNNING", "astra_review"), (state["status"], state["next_stage"]))
+        self.assertEqual(("RUNNING", "review_completion"), (state["status"], state["next_stage"]))
         for key in (
             "current_task",
             "goal_contract",

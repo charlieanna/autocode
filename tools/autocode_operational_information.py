@@ -68,7 +68,7 @@ except ImportError:
 
 VERSION = 1
 KEY = "information_reviews"
-REVIEW_STAGES = ("astra_challenge", "astra_finalize")
+REVIEW_STAGES = ("review_plan", "finalize_plan")
 BOUND_FLAGS = {
     "PAUSED_TIME_LIMIT": "--max-seconds",
     "PAUSED_COST_LIMIT": "--max-cost-usd",
@@ -267,7 +267,7 @@ def operator_flags(state: RunState, cause):
     ):
         return None  # --retry-failed-stage refuses until the pending repair is reconciled.
     if cause == "PAUSED_BUILDER_RETRY_LIMIT" and not (
-        state.get("next_stage") == "terra"
+        state.get("next_stage") == "builder"
         and any(
             isinstance(lane, dict) and lane.get("action") == "pause" and lane.get("failures")
             for lane in (state.get("builder_retries") or {}).values()
@@ -279,7 +279,7 @@ def operator_flags(state: RunState, cause):
 
 def _stalled_validation(runner, probe, workspace):
     """The validation-only rounds stop the Validator gate would make next, or None (autopilot.admit_validation)."""
-    if probe.get("next_stage") != "sol":
+    if probe.get("next_stage") != "tester":
         return None
     blocking = findings_ledger.blocking_entries(probe)
     if not blocking:

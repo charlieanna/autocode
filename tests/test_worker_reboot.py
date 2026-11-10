@@ -47,7 +47,7 @@ def snapshots():
                             "identity": "accepted-attempt",
                             "attempt_id": "tester-1",
                             "worker_attempt": 1,
-                            "stage": "sol",
+                            "stage": "tester",
                             "events": 2,
                             "output": "iterations/tester-01.jsonl",
                             "model": "offline-tester",
@@ -158,7 +158,7 @@ class RebootOracleTests(unittest.TestCase):
             **before["view"]["usage"]["accounting"]["attempts"][0],
             "identity": "finished-planner",
             "attempt_id": "planner-1",
-            "stage": "astra_plan",
+            "stage": "plan_task",
             "active": False,
             "finished_at": "2026-10-25T00:00:00Z",
             "tokens": {"input_tokens": 120, "output_tokens": 30, "cached_input_tokens": None},
@@ -338,7 +338,7 @@ class GuestPreparationTests(unittest.TestCase):
         budget = guest.Budget(30, clock=lambda: 0)
         view = {
             "status": "RUNNING",
-            "next_stage": "terra",
+            "next_stage": "builder",
             "needs": {"kind": "continue", "token": "secret-token"},
             "chat": {"messages": [{"text": "secret-prose"}]},
         }

@@ -55,7 +55,7 @@ def _require(condition, reason):
 
 
 def _delivery_backend(state: RunState):
-    if state.get("settings", {}).get("roles", {}).get("sol", {}).get("provider") != "kilocode":
+    if state.get("settings", {}).get("roles", {}).get("tester", {}).get("provider") != "kilocode":
         return delivery, "OPENCODE_CONFIG_CONTENT"
     try:
         from . import autocode_kilo_image_delivery as kilo_delivery
@@ -220,7 +220,7 @@ def _runtime_hash():
 
 
 def _route(state: RunState):
-    route = state["settings"]["roles"]["sol"]
+    route = state["settings"]["roles"]["tester"]
     engine = route.get("engine") or state["settings"].get("engine")
     _require(engine == "opencode" and route.get("model"), "Visual review needs a known native Sol route")
     return {"provider": route.get("provider") or engine, "model": route["model"]}
@@ -365,12 +365,12 @@ def _session(record, run):
 
 
 def _producer(state: RunState, run, snapshot):
-    record = next((row for row in reversed(state.get("stages", [])) if row.get("stage") == "terra"), None)
+    record = next((row for row in reversed(state.get("stages", [])) if row.get("stage") == "builder"), None)
     if record is None:
         goal, task = cast(dict, state.get("goal_contract", {})), state.get("current_task") or {}
         initial = goal.get("body", {}).get("initial_task") or {}
         writers = any(
-            str(row.get("stage", "")).startswith("terra") or row.get("role") in ("terra", "builder")
+            str(row.get("stage", "")).startswith("builder") or row.get("role") in ("builder", "builder")
             for row in state.get("stages", [])
         )
         ids = {row["id"] for row in goal.get("body", {}).get("acceptance_criteria", [])}
@@ -409,7 +409,7 @@ def _producer(state: RunState, run, snapshot):
         }
     _require(
         record
-        and record.get("role") == "terra"
+        and record.get("role") == "builder"
         and record.get("engine") == "opencode"
         and type(record.get("exit_code")) is int
         and record["exit_code"] == 0
@@ -506,7 +506,7 @@ def _prepare(
     {width,height,pixels,bytes} for byte-preserving PNG delivery. No default exists.
     A config-less OpenCode plugin can bootstrap its SDK globally, so it is unsafe.
     """
-    if stage != "sol":
+    if stage != "tester":
         return None, command, env, prompt
     if not state.get("settings", {}).get("design_manifest"):
         return (
@@ -800,8 +800,8 @@ def _record_identity(record):
 
 def _stage(record, current, *, state: RunState, run, snapshot, accepted_validation, context):
     _require(
-        record.get("stage") == record.get("role") == "sol"
-        and record.get("route_role", "sol") == "sol"
+        record.get("stage") == record.get("role") == "tester"
+        and record.get("route_role", "tester") == "tester"
         and record.get("engine") == "opencode"
         and type(record.get("exit_code")) is int
         and record["exit_code"] == 0
@@ -856,7 +856,7 @@ def _stage(record, current, *, state: RunState, run, snapshot, accepted_validati
     producer = context["producer"]
     _require(session != producer["session_id"] and route["model"] != producer["model"], "Builder cannot review itself")
     return {
-        "stage": "sol",
+        "stage": "tester",
         "accepted": True,
         "read_only": True,
         "independent": True,
@@ -894,7 +894,7 @@ def accept_review(
     cannot acquire visual authority. Attempted READY acceptance still pauses on
     any failed visual gate, rather than entering report-format repair.
     """
-    if record.get("stage") != "sol":
+    if record.get("stage") != "tester":
         return None
     context = record.get("visual_runtime")
     scoped = _has_scope_marker(state)

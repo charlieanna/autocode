@@ -43,12 +43,12 @@ class ValidationEvidenceCLI(unittest.TestCase):
                 "stderr": run.last_advance.stderr[-2500:] if run.last_advance else "",
             },
         )
-        testers = [row for row in trace if row["stage"] == "sol"]
+        testers = [row for row in trace if row["stage"] == "tester"]
         self.assertEqual([False, True], [row["repair"] for row in testers], trace)
         self.assertIn(testers[0]["missing_evidence_id"], testers[1]["error"])
         self.assertIn("evidence", testers[1]["error"])
         self.assertEqual([testers[0]["missing_evidence_id"]], testers[1]["repaired_ids"])
-        completion_indices = [i for i, row in enumerate(trace) if row["stage"] == "astra_review"]
+        completion_indices = [i for i, row in enumerate(trace) if row["stage"] == "review_completion"]
         self.assertEqual(1, len(completion_indices), trace)
         self.assertLess(trace.index(testers[1]), completion_indices[0])
-        self.assertEqual(1, sum(row["stage"] == "terra" for row in trace), "report repair must not replay Builder")
+        self.assertEqual(1, sum(row["stage"] == "builder" for row in trace), "report repair must not replay Builder")

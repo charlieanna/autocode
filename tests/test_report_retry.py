@@ -20,16 +20,16 @@ from .opencode_fixture_cli import entrypoint
 
 class ReportRetryPolicyTests(unittest.TestCase):
     def state(self):
-        identity = {"stage": "sol", "artifact_hash": "source", "error_class": "RuntimeError"}
+        identity = {"stage": "tester", "artifact_hash": "source", "error_class": "RuntimeError"}
         key = failures.key(identity)
         return {
             "status": "PAUSED_REPEATED_FAILURE",
-            "next_stage": "sol",
+            "next_stage": "tester",
             "settings": {"report_repair": {"max_attempts": 2}},
             "pending_report_repair": {
                 "attempts": 1,
                 "error": retry.RETRYABLE_ERRORS[0],
-                "original": {"stage": "sol", "source_revision": "source", "failure_key": key},
+                "original": {"stage": "tester", "source_revision": "source", "failure_key": key},
                 "latest_rejected": {"failure_key": key, "iteration": 1, "output": "/run/repair-01.json"},
             },
             "failure_history": {key: {"identity": identity, "count": 3, "streak": 3}},
@@ -80,11 +80,11 @@ class ReportRetryPolicyTests(unittest.TestCase):
         self.assertNotIn("retry_report_attempt", changed)
         for key in ("active_stage", "active_runner_check", "uncertain_artifacts"):
             with self.subTest(key=key):
-                held = {**state, key: {"stage": "sol"}}
+                held = {**state, key: {"stage": "tester"}}
                 self.assertNotIn("retry_report_attempt", run_view.needs(held))
                 actions = [row["kind"] for row in run_view.view(held)["recovery"]["actions"]]
                 self.assertNotIn("retry_failed_stage", actions)
-        for stage in ("terra", "astra_review"):
+        for stage in ("builder", "review_completion"):
             held = self.state()
             held["next_stage"] = stage
             identity = {"stage": stage, "artifact_hash": "source", "error_class": "RuntimeError"}
@@ -119,7 +119,7 @@ class ReportRetryPolicyTests(unittest.TestCase):
         state = self.state()
         key = state["pending_report_repair"]["original"]["failure_key"]
         fresh = {
-            "stage": "sol",
+            "stage": "tester",
             "iteration": 2,
             "output": "/run/validator-02.json",
             "rejected": True,
@@ -194,7 +194,7 @@ class ReportRetryCLITests(unittest.TestCase):
         self.assertEqual(before["failure_history"][key]["count"], after["failure_history"][key]["count"])
         self.assertEqual(before["failure_history"][key]["attempts"], after["failure_history"][key]["attempts"])
         self.assertEqual(1, after["report_repair_archive"][-1]["repair"]["attempts"])
-        self.assertEqual(2, sum(row["stage"] == "sol" for row in after["stages"]))
+        self.assertEqual(2, sum(row["stage"] == "tester" for row in after["stages"]))
 
     def test_exact_report_retry_runs_fresh_validation_after_partial_repair_stop(self):
         public, need, before = self.paused()
@@ -256,7 +256,9 @@ class ReportRetryCLITests(unittest.TestCase):
         stages = lambda: [row["stage"] for row in self.saved()[1]["stages"]]
         # Delivery is still broken: one fresh Validator attempt, stopped by the bound before any repair.
         need = public.retry_report(first)["needs"]
-        self.assertEqual(["sol"], [stage for stage in stages()[len(before["stages"]) :] if stage.startswith("sol")])
+        self.assertEqual(
+            ["tester"], [stage for stage in stages()[len(before["stages"]) :] if stage.startswith("tester")]
+        )
         self.assertEqual(4, self.saved()[1]["failure_history"][key]["streak"])
         self.assertEqual("operational_exhaustion", need["resolver_scope"])
         self.respond(public, need)

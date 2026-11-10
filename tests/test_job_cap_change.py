@@ -70,7 +70,7 @@ class JobCapChangeTests(JobHarness):
             ("--max-stage-seconds", "901"),
             ("--max-idle-seconds", "1"),
             ("--max-tool-seconds", "1"),
-            ("--sol-model", "another-model"),
+            ("--tester-model", "another-model"),
             ("--planning-review-call-limit", "3"),
             ("--grant-recovery", "1"),
             ("--feedback", "Change the plan"),

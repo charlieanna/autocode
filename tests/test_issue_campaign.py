@@ -354,7 +354,7 @@ class ReportCaptureTest(unittest.TestCase):
                 "status": "TASK_COMPLETE",
                 "stages": [
                     {
-                        "stage": "terra",
+                        "stage": "builder",
                         "command": ["cmd", "--model", "zai-coding-plan/glm-5.3"],
                         "metrics": {"provider_tokens": {"input_tokens": 10, "output_tokens": 20}},
                     }

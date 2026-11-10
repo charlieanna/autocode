@@ -212,7 +212,7 @@ class CurrentDiagnosisTests(unittest.TestCase):
 
     def test_a_second_feature_turn_does_not_reactivate_the_old_bug(self):
         state = self.state()
-        state["stages"].append({"stage": "terra", "output": "feature.json"})
+        state["stages"].append({"stage": "builder", "output": "feature.json"})
         state["turns"].append({"stage_index": 2})
         self.assertEqual([], test_cases.diagnosis_cases(state))
 
@@ -381,7 +381,7 @@ class ContractCasesTests(unittest.TestCase):
                 "brief_feedback": [],
             }
             body = {"acceptance_criteria": [{**EXAMPLE, "criterion": text, "verification_method": method}]}
-            goals.revision_guard(state, body, [], "glm_revise")
+            goals.revision_guard(state, body, [], "revise_plan")
 
         revise("guard: test_c2_subtracts")
         revise("  GUARD:  test_c2_subtracts")
@@ -736,7 +736,7 @@ class FinalCompletionScopeTests(unittest.TestCase):
         self.assertFalse(regression.complete(state, "rev", all_due=True))
 
     def test_a_milestone_review_proves_only_the_cases_due_now(self):
-        # astra_review also reviews M1 before M2 is built: M2's unbuilt test must not fail M1's proof.
+        # review_completion also reviews M1 before M2 is built: M2's unbuilt test must not fail M1's proof.
         state = self.state()
         with (
             patch.object(regression.schedule, "guard"),
@@ -744,10 +744,10 @@ class FinalCompletionScopeTests(unittest.TestCase):
             patch.object(regression.source_scope, "snapshot", return_value={"revision": "rev"}),
             patch.object(regression, "prove") as prove,
         ):
-            regression.before_review(state, "astra_review", "/work", "/run")
+            regression.before_review(state, "review_completion", "/work", "/run")
             prove.assert_not_called()
             state["current_task"] = {"milestone_id": "M2"}
-            regression.before_review(state, "astra_review", "/work", "/run")
+            regression.before_review(state, "review_completion", "/work", "/run")
         prove.assert_called_once_with(state, "/work", "/run")
 
 
@@ -1201,7 +1201,7 @@ class PromptTests(unittest.TestCase):
         state = investigated(fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
-        for stage in ("astra_discovery", "astra_finalize"):
+        for stage in ("draft_plan", "finalize_plan"):
             self.assertIn(autoplanner.EXAMPLE_CRITERIA_RULE, autoplanner.context(state, stage, state_path)[0], stage)
         self.assertNotIn(
             autoplanner.EXAMPLE_CRITERIA_RULE, autoplanner.context(state, "requirements_gather", state_path)[0]
@@ -1216,10 +1216,10 @@ class PromptTests(unittest.TestCase):
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
         for stage, wanted in (
-            ("astra_challenge", True),
-            ("astra_finalize", True),
-            ("astra_discovery", False),
-            ("glm_revise", False),
+            ("review_plan", True),
+            ("finalize_plan", True),
+            ("draft_plan", False),
+            ("revise_plan", False),
         ):
             with self.subTest(stage=stage):
                 prompt = autoplanner.context(state, stage, state_path)[0]
@@ -1236,10 +1236,10 @@ class PromptTests(unittest.TestCase):
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
         for stage, wanted in (
-            ("astra_challenge", True),
-            ("astra_finalize", True),
-            ("astra_discovery", False),
-            ("glm_revise", False),
+            ("review_plan", True),
+            ("finalize_plan", True),
+            ("draft_plan", False),
+            ("revise_plan", False),
         ):
             with self.subTest(stage=stage):
                 prompt = autoplanner.context(state, stage, state_path)[0]
@@ -1254,10 +1254,10 @@ class PromptTests(unittest.TestCase):
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
         for stage, wanted in (
-            ("astra_discovery", True),
-            ("astra_challenge", True),
-            ("glm_revise", True),
-            ("astra_finalize", True),
+            ("draft_plan", True),
+            ("review_plan", True),
+            ("revise_plan", True),
+            ("finalize_plan", True),
             ("requirements_gather", False),
         ):
             with self.subTest(stage=stage):
@@ -1271,13 +1271,13 @@ class PromptTests(unittest.TestCase):
         state = approved_fix()
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"
-        prompt = common.execution_request(state, "terra", state_path, schemas).prompt
+        prompt = common.execution_request(state, "builder", state_path, schemas).prompt
         self.assertNotIn("TESTS NAMED IN THE PLAN", prompt)
         self.assertIn("TESTS NAMED IN THE DIAGNOSIS", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
         self.assertIn("BUG FIX TESTS", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
         state.pop("investigation")
         with patch.object(test_cases, "contract_cases", return_value=[{"id": "C2", "text": "x"}]):
-            prompt = common.execution_request(state, "terra", state_path, schemas).prompt
+            prompt = common.execution_request(state, "builder", state_path, schemas).prompt
         instruction = " ".join(prompt.split("\nCURRENT HANDOFF DATA\n")[0].split())
         self.assertIn("TESTS NAMED IN THE PLAN", instruction)
         self.assertIn("The runner checks fail-first tests and base guards in a separate checkout", instruction)
@@ -1297,10 +1297,10 @@ class PromptTests(unittest.TestCase):
         state = approved_fix()
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"
-        diagnosis_prompt = common.execution_request(state, "terra", state_path, schemas).prompt
+        diagnosis_prompt = common.execution_request(state, "builder", state_path, schemas).prompt
         state.pop("investigation")
         with patch.object(test_cases, "contract_cases", return_value=[{"id": "C2", "text": "x"}]):
-            contract_prompt = common.execution_request(state, "terra", state_path, schemas).prompt
+            contract_prompt = common.execution_request(state, "builder", state_path, schemas).prompt
         for heading, prompt in (
             ("TESTS NAMED IN THE DIAGNOSIS", diagnosis_prompt),
             ("TESTS NAMED IN THE PLAN", contract_prompt),
@@ -1402,7 +1402,7 @@ class DiagnosisCaseBuilderTests(unittest.TestCase):
 
         state = approved_fix(test_cases=self.CASES)
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
-        prompt = common.execution_request(state, "terra", Path(state["workspace"]) / "state.json", schemas).prompt
+        prompt = common.execution_request(state, "builder", Path(state["workspace"]) / "state.json", schemas).prompt
         note = prompt.split("\nCURRENT HANDOFF DATA\n")[0]
         self.assertIn("TESTS NAMED IN THE DIAGNOSIS", note)
         self.assertIn("one separate test for each Investigator case", note)
@@ -1543,7 +1543,7 @@ class DesignOnlyTests(unittest.TestCase):
         ):
             state = {**state_for(), "workflow": {"kind": kind}, "answers": {}, "user_events": []}
             state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
-            prompt, _ = autoplanner.context(state, "astra_discovery", Path("/tmp/state.json"))
+            prompt, _ = autoplanner.context(state, "draft_plan", Path("/tmp/state.json"))
             with self.subTest(kind=kind):
                 self.assertIn(present, prompt)
                 self.assertNotIn(absent, prompt)
@@ -1560,7 +1560,7 @@ class FileListingRuleTests(unittest.TestCase):
 
         state = {**state_for(), "workflow": {"kind": "build"}, "answers": {}, "user_events": []}
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
-        prompt, _ = autoplanner.context(state, "astra_discovery", Path("/tmp/state.json"))
+        prompt, _ = autoplanner.context(state, "draft_plan", Path("/tmp/state.json"))
         rule = "A test checks what the program does, never which files the repository contains."
         self.assertIn(rule, autoplanner.EXAMPLE_CRITERIA_RULE)
         self.assertIn(rule, prompt)

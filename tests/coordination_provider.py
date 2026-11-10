@@ -255,7 +255,7 @@ def main():
     if (
         os.environ.get("COORDINATION_FIXTURE_MEMBER_CONTEXT")
         and root.parent.name == "worktrees"
-        and stage in ("astra_challenge", "astra_finalize")
+        and stage in ("review_plan", "finalize_plan")
         and "REAL JOINT PROOF IS NOT A LOCAL PROXY" not in prompt
     ):
         raise RuntimeError("Member review must scope the ordinary out-of-checkout proxy rule")
@@ -504,14 +504,14 @@ def main():
                             },
                         ]
                     )
-    elif stage == "astra_challenge":
+    elif stage == "review_plan":
         if os.environ.get("COORDINATION_FIXTURE_SCOPE_METADATA") and name == "history":
             exclusions = contract["body"]["scope_exclusions"]
             for target in ("tax", "tax repository", "checkout", "checkout repository"):
                 if not any(row.startswith("Not covered: changes in " + target + ": ") for row in exclusions):
                     raise RuntimeError("Reviewer must see every core-assigned exclusion before approval: " + target)
         report.update(concerns=[], source_trace=source_trace_for((contract.get("body") or body), data))
-    elif stage == "terra":
+    elif stage == "builder":
         changed = []
         for name, content in payloads.items():
             path = root / name
@@ -537,7 +537,7 @@ def main():
             tests_run=[SUITE],
             delivered_tests=[],
         )
-    elif stage in ("sol", "astra_checkpoint") and "verdict" in schema.get("properties", {}):
+    elif stage in ("tester", "review_checkpoint") and "verdict" in schema.get("properties", {}):
         report.update(
             verdict="PASS",
             checks_run=[SUITE],
@@ -551,8 +551,11 @@ def main():
                 "pending_human_criteria": [],
             },
         )
-    elif stage in ("astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"):
-        done = stage in ("astra_review", "astra_checkpoint") and (data.get("validation") or {}).get("verdict") == "PASS"
+    elif stage in ("plan_task", "review_completion", "review_checkpoint", "resolve"):
+        done = (
+            stage in ("review_completion", "review_checkpoint")
+            and (data.get("validation") or {}).get("verdict") == "PASS"
+        )
         report.update(
             status="COMPLETE" if done else "CONTINUE",
             acceptance_criteria=[
@@ -575,7 +578,7 @@ def main():
                 "findings": [],
             },
         )
-    if stage in ("terra", "sol", "astra_review", "astra_checkpoint", "review_change"):
+    if stage in ("builder", "tester", "review_completion", "review_checkpoint", "review_change"):
         checked = subprocess.run(shlex.split(SUITE), capture_output=True, text=True)
         print(
             json.dumps(

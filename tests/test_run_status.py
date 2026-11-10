@@ -50,15 +50,15 @@ def phase_writes(source: str) -> list[int]:
 
 class PauseTests(unittest.TestCase):
     def test_pause_sets_status_phase_reason_and_fields(self):
-        state = {"status": "RUNNING", "phase": "EXECUTING", "next_stage": "terra"}
-        result = run_status.pause(state, "PAUSED_NO_PROGRESS", "no progress", next_stage="sol", paused_at="t")
+        state = {"status": "RUNNING", "phase": "EXECUTING", "next_stage": "builder"}
+        result = run_status.pause(state, "PAUSED_NO_PROGRESS", "no progress", next_stage="tester", paused_at="t")
         self.assertIs(result, state)
         self.assertEqual(
             {
                 "status": "PAUSED_NO_PROGRESS",
                 "phase": "PAUSED_OR_BLOCKED",
                 "stop_reason": "no progress",
-                "next_stage": "sol",
+                "next_stage": "tester",
                 "paused_at": "t",
             },
             state,
@@ -72,16 +72,16 @@ class PauseTests(unittest.TestCase):
 
     def test_running_sets_status_and_phase_and_retires_stop_reason(self):
         state = {"status": "PAUSED_TIMEOUT", "phase": "PAUSED_OR_BLOCKED", "stop_reason": "timed out"}
-        result = run_status.running(state, "EXECUTING", next_stage="terra")
+        result = run_status.running(state, "EXECUTING", next_stage="builder")
         self.assertIs(result, state)
-        self.assertEqual({"status": "RUNNING", "phase": "EXECUTING", "next_stage": "terra"}, state)
+        self.assertEqual({"status": "RUNNING", "phase": "EXECUTING", "next_stage": "builder"}, state)
 
     def test_awaiting_approval_returns_to_the_human_gate_without_granting_it(self):
         state = {"status": "RUNNING", "phase": "PLANNING", "stop_reason": "old", "next_stage": "requirements_gather"}
-        result = run_status.awaiting_approval(state, next_stage="astra_plan")
+        result = run_status.awaiting_approval(state, next_stage="plan_task")
         self.assertIs(result, state)
         self.assertEqual(
-            {"status": "AWAITING_GOAL_APPROVAL", "phase": "AWAITING_GOAL_APPROVAL", "next_stage": "astra_plan"}, state
+            {"status": "AWAITING_GOAL_APPROVAL", "phase": "AWAITING_GOAL_APPROVAL", "next_stage": "plan_task"}, state
         )
         with self.assertRaises(TypeError):
             run_status.awaiting_approval({}, status="TASK_COMPLETE")

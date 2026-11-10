@@ -256,7 +256,7 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
                 phase="PLANNING"
                 if planning.is_planning(state, state["next_stage"])
                 else "DISCOVERING"
-                if state["next_stage"] == "astra_discovery"
+                if state["next_stage"] == "draft_plan"
                 else "READY_TO_EXECUTE",
             )
             state.pop("stop_reason", None)

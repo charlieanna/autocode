@@ -187,7 +187,7 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertEqual(before, path.read_bytes())
 
     def test_operational_exhaustion_is_published_by_resolver_not_overwritten(self):
-        self.state.update(status="PAUSED_TIMEOUT_RECOVERY", next_stage="astra_challenge")
+        self.state.update(status="PAUSED_TIMEOUT_RECOVERY", next_stage="review_plan")
         run = Path(self.state["run_dir"])
         error = support.Paused("PAUSED_TIMEOUT_RECOVERY", "Bounded recovery exhausted")
         self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, self.state, run, error))
@@ -259,7 +259,7 @@ class HumanResponseCLITests(unittest.TestCase):
 
     def stopped_operational_checkpoint(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
-        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_review"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_completion"
         self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
         run, paused = self.saved()
         self.launch(["--run-dir", str(run), "--abandon-stage", runner.attempt_id(paused["active_stage"])], 0)
@@ -277,7 +277,7 @@ class HumanResponseCLITests(unittest.TestCase):
 
     def timeout_exhausted_checkpoint(self, *, publish_request=True):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
-        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_review"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_completion"
         self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
         run, paused = self.saved()
         self.launch(["--run-dir", str(run), "--abandon-stage", runner.attempt_id(paused["active_stage"])], 0)
@@ -289,9 +289,9 @@ class HumanResponseCLITests(unittest.TestCase):
             consecutive_timeout_recoveries=3,
         )
         stopped["automatic_timeout_recoveries"] = [
-            {"stage": "terra", "timeout_reason": "idle watchdog"},
-            {"stage": "terra", "timeout_reason": "idle watchdog"},
-            {"stage": "terra", "timeout_reason": "idle watchdog"},
+            {"stage": "builder", "timeout_reason": "idle watchdog"},
+            {"stage": "builder", "timeout_reason": "idle watchdog"},
+            {"stage": "builder", "timeout_reason": "idle watchdog"},
         ]
         if publish_request:
             self.assertTrue(
@@ -307,7 +307,7 @@ class HumanResponseCLITests(unittest.TestCase):
 
     def test_abandon_stage_retires_its_request_and_explicit_resume_dispatches(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
-        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_review"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_completion"
         self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
         run, paused = self.saved()
         published = human.current(paused)
@@ -557,7 +557,7 @@ class HumanResponseCLITests(unittest.TestCase):
         self.assertTrue(runner.goals.approved(saved))
         self.assertEqual(before["goal_contract"], saved["goal_contract"])
         self.assertEqual(before["stages"], saved["stages"])
-        self.assertNotEqual("astra_discovery", saved["next_stage"])
+        self.assertNotEqual("draft_plan", saved["next_stage"])
         self.assertIsNone(human.current(saved))
         resolutions = saved["resolver"]["human_response_resolutions"]
         self.assertEqual(1, len(resolutions))
@@ -582,7 +582,7 @@ class HumanResponseCLITests(unittest.TestCase):
 
     def test_real_cli_operational_response_does_not_replan_or_reset_limits(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
-        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_review"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_completion"
         self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
         run, paused = self.saved()
         published = human.current(paused)

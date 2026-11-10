@@ -31,7 +31,7 @@ def paused(role, effort="medium", *, origin=route_fit.USER_EXPLICIT, declared=DE
     settings = {
         "engine": "opencode",
         "roles": {
-            "terra": {"engine": "opencode", "model": "openai/gpt-5.6-terra", "reasoning_effort": "high"},
+            "builder": {"engine": "opencode", "model": "openai/gpt-5.6-terra", "reasoning_effort": "high"},
             role: {"engine": "opencode", "model": GLM, "reasoning_effort": effort},
         },
         "declared_variants": {GLM: list(declared)} if declared is not None else {},

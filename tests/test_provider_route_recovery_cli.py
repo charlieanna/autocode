@@ -35,8 +35,8 @@ class ProviderRouteRecoveryCliTests(unittest.TestCase):
                 for role, model in {
                     "task_planner": "glm-5",
                     "planner": "glm-5",
-                    "terra": "gpt-6.1-sol",
-                    "sol": "gpt-6.1-sol",
+                    "builder": "gpt-6.1-sol",
+                    "tester": "gpt-6.1-sol",
                     "completion": "qwen3-235b-a22b-2507",
                     "plan_reviewer": "claude-opus-5-5",
                 }.items()
@@ -62,14 +62,14 @@ class ProviderRouteRecoveryCliTests(unittest.TestCase):
         view = run.status()
         self.assertEqual("PAUSED_CROSS_MODEL", view["status"])
         question = view["needs"]["questions"][0]
-        self.assertEqual("route-sol", question["id"])
+        self.assertEqual("route-tester", question["id"])
         for model in models[1:]:
             self.assertIn(model, question["why"])
 
         def respond(model, expected):
             command = shlex.split(run.status()["next_command"])
             self.assertEqual("autocode", command[0])
-            command = [item.replace("route-sol=MODEL", "route-sol=" + model) for item in command[1:]]
+            command = [item.replace("route-tester=MODEL", "route-tester=" + model) for item in command[1:]]
             result = subprocess.run(
                 [*self.entry, *command], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=60
             )
@@ -78,12 +78,12 @@ class ProviderRouteRecoveryCliTests(unittest.TestCase):
 
         self.assertIn("Models unavailable", respond("claude-unavailable", 2).stderr)
         rejected = run.status()
-        self.assertEqual("gpt-6.1-sol", rejected["routes"]["sol"]["model"])
+        self.assertEqual("gpt-6.1-sol", rejected["routes"]["tester"]["model"])
         self.assertEqual(view["route_assignments"], rejected["route_assignments"])
-        run.assign_model("sol", "claude-opus-5-5")
+        run.assign_model("tester", "claude-opus-5-5")
         assigned = run.status()
-        self.assertEqual("claude-opus-5-5", assigned["routes"]["sol"]["model"])
-        self.assertEqual("gpt-6.1-sol", assigned["routes"]["terra"]["model"])
+        self.assertEqual("claude-opus-5-5", assigned["routes"]["tester"]["model"])
+        self.assertEqual("gpt-6.1-sol", assigned["routes"]["builder"]["model"])
         self.assertEqual("gocode", assigned["provider"])
         self.assertEqual("claude-opus-5-5", assigned["route_assignments"][-1]["to"])
         self.assertEqual(view["usage"]["accounting"]["attempts"], assigned["usage"]["accounting"]["attempts"])

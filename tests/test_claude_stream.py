@@ -166,8 +166,8 @@ class LiveSampleTests(TempMixin, unittest.TestCase):
         rows, _ = translate(sample(RUN))
         metrics = autocode_event_metrics.summarize(rows, {"accounting": {"requests": [], "issues": []}}, 0.0665591)
         record = {
-            "stage": "terra",
-            "role": "terra",
+            "stage": "builder",
+            "role": "builder",
             "attempt_id": "001/builder-01",
             "engine": "opencode",  # the Claude facade runs on the OpenCode engine with Codex-shaped events
             "output_mode": "codex_events",

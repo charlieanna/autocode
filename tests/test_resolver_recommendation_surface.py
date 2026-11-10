@@ -50,7 +50,7 @@ class ResolverRecommendationSurfaceTests(unittest.TestCase):
             "resolution_request": {"source_revision": "source"},
         }
         with patch.object(autoresolver, "guard"), patch.object(autoresolver, "execution_request", return_value=source):
-            request = autoresolver.prepare(state, "astra_resolve", Path("state.json"), Path("schemas"))
+            request = autoresolver.prepare(state, "resolve", Path("state.json"), Path("schemas"))
         saved = request.schema["properties"]["user_request"]
         self.assertEqual(before, original)
         self.assertNotIn("recommended_revision", role_schema.USER_REQUEST["properties"])
@@ -91,7 +91,7 @@ class ResolverRecommendationSurfaceTests(unittest.TestCase):
         original = copy.deepcopy(state["goal_contract"])
         request = self.request(revision)
         request_before = copy.deepcopy(request)
-        proposal = human.queue(state, "blocker", {"stage": "astra_resolve"}, request=request)
+        proposal = human.queue(state, "blocker", {"stage": "resolve"}, request=request)
         text = proposal["request"]["decision_needed"]
         self.assertIn("C1 current: " + json.dumps(old), text)
         self.assertIn("C1 proposed: " + json.dumps(new), text)
@@ -132,9 +132,9 @@ class ResolverRecommendationSurfaceTests(unittest.TestCase):
             },
         }
         for scope, stage, questions in (
-            ("blocker", "astra_review", []),
-            ("permission", "astra_resolve", []),
-            ("blocker", "astra_resolve", [{"id": "Q1"}, {"id": "Q2"}]),
+            ("blocker", "review_completion", []),
+            ("permission", "resolve", []),
+            ("blocker", "resolve", [{"id": "Q1"}, {"id": "Q2"}]),
         ):
             state = copy.deepcopy(initial)
             with self.subTest(scope=scope, stage=stage, questions=questions), self.assertRaises(ValueError):
@@ -209,7 +209,7 @@ class ResolverRecommendationSurfaceTests(unittest.TestCase):
                         "identity": {
                             "proposal": {
                                 "scope": "blocker",
-                                "origin": {"stage": "astra_resolve"},
+                                "origin": {"stage": "resolve"},
                                 "request": self.request(),
                             }
                         }

@@ -30,7 +30,7 @@ def finish(identity="p1", *, session="session", **changes):
     return row
 
 
-def attempt(name="terra", identity="one", *, start=0, end=10, **extra):
+def attempt(name="builder", identity="one", *, start=0, end=10, **extra):
     rows = [{"type": "step_start", "sessionID": "session", "timestamp": 1000}, finish(identity)]
     return {
         "stage": name,
@@ -112,7 +112,7 @@ class NativeAccountingTests(unittest.TestCase):
                 self.assertFalse(measured["complete"])
 
     def test_duplicate_finish_and_cross_attempt_replay_are_counted_once(self):
-        first, second = attempt(), attempt("sol", "two", start=10, end=20)
+        first, second = attempt(), attempt("tester", "two", start=10, end=20)
         events = [finish(), finish(), finish("new")]
         first["metrics"]["request_context"]["accounting"] = requests.accounting([finish()])
         second["metrics"]["request_context"]["accounting"] = requests.accounting(events)
@@ -187,7 +187,7 @@ class NativeAccountingTests(unittest.TestCase):
 
     def test_model_attribution_conflict_does_not_erase_identical_known_token_quantities(self):
         first = attempt(model="model-one")
-        second = attempt("sol", "two", model="model-two")
+        second = attempt("tester", "two", model="model-two")
         second["metrics"] = deepcopy(first["metrics"])
         measured = usage.accounting({"stages": [first, second]})
         self.assertEqual(33, measured["tokens"]["input_tokens"]["value"])
@@ -226,8 +226,8 @@ class NativeAccountingTests(unittest.TestCase):
     def test_failed_interrupted_and_report_repair_attempts_all_count(self):
         records = [
             attempt(identity="fail", exit_code=1, rejected=True),
-            attempt("sol_report_repair", "repair", start=10, end=20, report_only=True),
-            attempt("sol", "interrupt", start=20, end=25, interrupted=True),
+            attempt("tester_report_repair", "repair", start=10, end=20, report_only=True),
+            attempt("tester", "interrupt", start=20, end=25, interrupted=True),
         ]
         measured = usage.accounting({"stages": records})
         self.assertEqual(3, measured["attempt_count"])
@@ -541,7 +541,7 @@ class InjectedVisualProjectionTests(unittest.TestCase):
             },
         )
         failed = attempt(identity=run.strip("/") + "-failed", start=0, end=6, exit_code=1, rejected=True)
-        review = attempt("sol", run.strip("/") + "-review", start=8, end=20)
+        review = attempt("tester", run.strip("/") + "-review", start=8, end=20)
         request = review["metrics"]["request_context"]["accounting"]["requests"][0]
         request.update(started_at_ms=9000, finished_at_ms=19000)
         state["stages"] = [failed, review]
@@ -712,7 +712,7 @@ class InjectedVisualProjectionTests(unittest.TestCase):
 
     def test_first_current_time_and_native_cutoff_are_separate_from_history_and_later_cost(self):
         state = self.state()
-        later = attempt("astra_resolve", "later-failed", start=25, end=30, exit_code=1)
+        later = attempt("resolve", "later-failed", start=25, end=30, exit_code=1)
         later["metrics"]["request_context"]["accounting"]["requests"][0].update(
             started_at_ms=26000, finished_at_ms=29000
         )
@@ -761,7 +761,7 @@ class InjectedVisualProjectionTests(unittest.TestCase):
             with self.subTest(missing=missing):
                 state = self.state()
                 if missing == "active":
-                    state["active_stage"] = attempt("astra_resolve", "unfinished", start=25, end=30)
+                    state["active_stage"] = attempt("resolve", "unfinished", start=25, end=30)
                 else:
                     state["stages"] = []
                 result = self.measure(state, self.projection(state))
@@ -938,7 +938,7 @@ class TimingAndProvenanceTests(unittest.TestCase):
         self.assertIsNone(efficiency.summary(state)["time"]["wall_union_seconds"])
 
     def test_parallel_union_and_summed_durations_are_distinct_without_double_counting(self):
-        result = efficiency.summary({"stages": [attempt(start=0, end=10), attempt("sol", "two", start=5, end=15)]})
+        result = efficiency.summary({"stages": [attempt(start=0, end=10), attempt("tester", "two", start=5, end=15)]})
         timing = result["time"]
         self.assertEqual(15, timing["wall_union_seconds"])
         self.assertEqual(20, timing["summed_execution_seconds"])
@@ -1004,7 +1004,7 @@ class TimingAndProvenanceTests(unittest.TestCase):
         self.assertEqual(1, result["repeats"]["suppressed_observed"])
 
     def test_stage_categories_and_visual_observation_usage_are_disjoint(self):
-        names = ["astra_discovery", "terra", "sol", "task_preflight", "astra_resolve", "sol_report_repair"]
+        names = ["draft_plan", "builder", "tester", "task_preflight", "resolve", "tester_report_repair"]
         state = {"stages": [attempt(name, str(n), start=n * 10, end=(n + 1) * 10) for n, name in enumerate(names)]}
         efficiency.record_observation(
             state,

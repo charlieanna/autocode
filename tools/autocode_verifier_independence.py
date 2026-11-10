@@ -33,8 +33,8 @@ def _label(producer_job, verifier_job):
 # (producer, verifier, label): the roles whose models must stay independent, labelled with
 # the jobs' screen names.
 PAIRS = (
-    ("terra", "sol", _label("builder", "tester")),
-    ("terra", "completion", _label("builder", "completion")),
+    ("builder", "tester", _label("builder", "tester")),
+    ("builder", "completion", _label("builder", "completion")),
     ("planner", "plan_reviewer", _label("planner", "plan_reviewer")),
 )
 

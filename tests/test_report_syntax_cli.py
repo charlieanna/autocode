@@ -22,8 +22,8 @@ class SyntaxCLI(unittest.TestCase):
         _, state, view, trace = self.plan(fixture)
         self.assert_approval_boundary(fixture, state, view, trace)
         self.assertFalse(any(row["repair"] for row in trace), trace)
-        self.assertEqual(1, sum(row["stage"] == "astra_discovery" for row in trace))
-        for report in (row for row in state["stages"] if row["stage"] == "astra_discovery"):
+        self.assertEqual(1, sum(row["stage"] == "draft_plan" for row in trace))
+        for report in (row for row in state["stages"] if row["stage"] == "draft_plan"):
             raw = Path(report["response_text"]).read_text()
             self.assertTrue(raw.endswith(",}"))
             self.assertEqual(hashlib.sha256(raw.encode()).hexdigest(), report["syntax_corrections"]["source_sha256"])

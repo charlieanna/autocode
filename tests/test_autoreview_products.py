@@ -296,7 +296,7 @@ class ReviewProducts(unittest.TestCase):
             bb.BuildBlackbox.setUp(self)
         # Unlike plain BuildBlackbox/PolicyBlackbox fixtures, prepare() below
         # points REVIEW_AUDIT_LIVE_CODEX at a real codex binary and the fake
-        # provider delegates the sol/astra_review stage to it (see
+        # provider delegates the sol/review_completion stage to it (see
         # blackbox_build_provider.py). That live call needs this machine's
         # actual Codex login, so undo BuildBlackbox.setUp's offline isolation
         # here; the fake provider itself never reads either variable.
@@ -317,13 +317,13 @@ class ReviewProducts(unittest.TestCase):
             # override rather than a second, colliding one.
             args = [
                 *args,
-                "--astra-model",
+                "--task-planner-model",
                 "gpt-6-luna",
-                "--astra-reasoning-effort",
+                "--task-planner-reasoning-effort",
                 "medium",
-                "--sol-model",
+                "--tester-model",
                 "gpt-5.6-sol",
-                "--sol-reasoning-effort",
+                "--tester-reasoning-effort",
                 "medium",
                 "--completion-model",
                 "gpt-5.6-sol",
@@ -385,7 +385,7 @@ class ReviewProducts(unittest.TestCase):
             ["PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE", "PAUSED_REPORT_REPAIR_LIMIT"],
             state.get("stop_reason"),
         )
-        self.assertTrue(self.events("live_reviewer", "sol"))
+        self.assertTrue(self.events("live_reviewer", "tester"))
         return state
 
     def assert_defect(self, state, fragment=None):
@@ -484,7 +484,7 @@ class ReviewProducts(unittest.TestCase):
         self.assert_defect(state)
         self.assertEqual(identity, probe.candidate_identity(self.project, files=("index.html",)))
         reports = [
-            r for r in state["stages"] if r.get("stage") in ("sol", "sol_report_repair") and not r.get("rejected")
+            r for r in state["stages"] if r.get("stage") in ("tester", "tester_report_repair") and not r.get("rejected")
         ]
         self.assertTrue(
             any(
@@ -575,7 +575,7 @@ class ReviewProducts(unittest.TestCase):
         self.assert_defect(state)
         self.assertEqual(identity, probe.candidate_identity(self.project))
         self.assertTrue(go_finding(state["validation"]), "Reviewer did not identify de: expected 7, observed 30")
-        reports = [r for r in state["stages"] if r.get("stage") == "sol" and not r.get("rejected")]
+        reports = [r for r in state["stages"] if r.get("stage") == "tester" and not r.get("rejected")]
         executed = [
             e["item"]
             for r in reports
@@ -648,7 +648,7 @@ class ReviewProducts(unittest.TestCase):
         self.prepare(spec)
         first = self.review()
         self.assert_defect(first)
-        self.assertEqual("astra_resolve", first["next_stage"], "Review did not hand off for repair")
+        self.assertEqual("resolve", first["next_stage"], "Review did not hand off for repair")
         self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat"])
         # New known candidate: persistence fixed, invalid input now destroys data.
         spec["payloads"]["M1"]["notes.py"] = NOTES.replace(

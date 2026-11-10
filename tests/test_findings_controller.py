@@ -85,8 +85,8 @@ class ControllerFindingsTests(unittest.TestCase):
             "source_revision": support.snapshot(self.root)["revision"],
         }
         with patch.object(runner, "run_role", side_effect=AssertionError("no agent may launch")):
-            runner.apply_result(self.state, "astra_review", decision, record, self.root, self.run)
-        self.assertEqual("astra_resolve", self.state["next_stage"])
+            runner.apply_result(self.state, "review_completion", decision, record, self.root, self.run)
+        self.assertEqual("resolve", self.state["next_stage"])
         self.assertIn("resolution_request", self.state)
         self.assertEqual(
             {"Empty names are accepted", "No blank-input test"},
@@ -104,7 +104,7 @@ class ControllerFindingsTests(unittest.TestCase):
             "source_revision": support.snapshot(self.root)["revision"],
         }
         with patch.object(runner, "run_role", side_effect=AssertionError("no agent may launch")):
-            runner.apply_result(self.state, "astra_review", decision, record, self.root, self.run)
+            runner.apply_result(self.state, "review_completion", decision, record, self.root, self.run)
         fid = findings.open_entries(self.state, "task_planner")[0]["id"]
         diagnosis = {
             **self.astra_decision("REWORK", output="resolve-01.json"),
@@ -124,7 +124,7 @@ class ControllerFindingsTests(unittest.TestCase):
         with patch.object(runner, "run_role", side_effect=AssertionError("no agent may launch")):
             runner.apply_result(
                 self.state,
-                "astra_resolve",
+                "resolve",
                 diagnosis,
                 {"output": str(self.run / "resolve-01.json"), "source_revision": record["source_revision"]},
                 self.root,
@@ -150,7 +150,7 @@ class ControllerFindingsTests(unittest.TestCase):
         runner.lifecycle.assign_task(self.state, first, support.snapshot(self.root))
         review = self.astra_decision("REWORK", "Empty names are accepted", output="review.json")
         record = {"output": str(self.run / "review.json"), "source_revision": support.snapshot(self.root)["revision"]}
-        runner.apply_result(self.state, "astra_review", review, record, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", review, record, self.root, self.run)
         diagnosis = {**self.astra_decision("REWORK", output="resolve.json"), "diagnosis": "Missing empty-input guard"}
         diagnosis["acceptance_criteria"] = diagnosis["acceptance_criteria"][:1]
         return diagnosis, {**record, "output": str(self.run / "resolve.json")}
@@ -168,14 +168,14 @@ class ControllerFindingsTests(unittest.TestCase):
             evidence="resolver claim",
         )
         original = copy.deepcopy(diagnosis)
-        runner.apply_result(self.state, "astra_resolve", diagnosis, record, self.root, self.run)
+        runner.apply_result(self.state, "resolve", diagnosis, record, self.root, self.run)
         self.assertEqual(saved, self.state["acceptance_criteria"])
         self.assertEqual(saved, self.state["last_decision"]["report"]["acceptance_criteria"])
         self.assertEqual(original, diagnosis)
         self.assertEqual(saved_contract, self.state["goal_contract"])
         self.assertEqual(saved_contract["hash"], self.state["goal_contract"]["hash"])
         self.assertEqual(saved_contract["revision"], self.state["goal_contract"]["revision"])
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual(["C1"], self.state["current_task"]["acceptance_criteria"])
         self.assertTrue(findings.blocking_entries(self.state))
         self.assertIn("repair_plan", self.state)
@@ -204,7 +204,7 @@ class ControllerFindingsTests(unittest.TestCase):
                 value["acceptance_criteria"] *= 2
             before = copy.deepcopy(self.state)
             with self.subTest(change=change), self.assertRaises(support.Paused) as paused:
-                runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
+                runner.apply_result(self.state, "resolve", value, record, self.root, self.run)
             self.assertEqual(status, paused.exception.status)
             self.assertEqual(before, self.state)
         # A restated criterion no longer rejects the report (#624), but it cannot
@@ -213,8 +213,8 @@ class ControllerFindingsTests(unittest.TestCase):
         contract = copy.deepcopy(self.state["goal_contract"])
         value = copy.deepcopy(diagnosis)
         value["acceptance_criteria"][0]["criterion"] = "Weaker requirement"
-        runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
-        self.assertEqual("terra", self.state["next_stage"])
+        runner.apply_result(self.state, "resolve", value, record, self.root, self.run)
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual(approved, self.state["acceptance_criteria"])
         self.assertEqual(contract, self.state["goal_contract"])
         self.assertNotIn("Weaker requirement", json.dumps(self.state))
@@ -224,7 +224,7 @@ class ControllerFindingsTests(unittest.TestCase):
         diagnosis, record = self.resolver_fixture()
         approved = copy.deepcopy(self.state["acceptance_criteria"])
         diagnosis["acceptance_criteria"][0]["criterion"] = "Weaker requirement"
-        runner.apply_result(self.state, "astra_resolve", diagnosis, record, self.root, self.run)
+        runner.apply_result(self.state, "resolve", diagnosis, record, self.root, self.run)
         self.assertEqual(approved, self.state["acceptance_criteria"])
         self.assertEqual(approved, self.state["last_decision"]["report"]["acceptance_criteria"])
 
@@ -235,7 +235,7 @@ class ControllerFindingsTests(unittest.TestCase):
             value["next_task"][field] = invalid
             before = copy.deepcopy(self.state)
             with self.subTest(field=field), self.assertRaises((ValueError, support.Paused)):
-                runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
+                runner.apply_result(self.state, "resolve", value, record, self.root, self.run)
             self.assertEqual(before, self.state)
 
     def test_invalid_findings_are_not_concealed_by_a_milestone_gate(self):
@@ -245,7 +245,7 @@ class ControllerFindingsTests(unittest.TestCase):
         gate_error = support.Paused("PAUSED_MILESTONE_REPLAN_REQUIRED", "Changed approach required")
         with patch.object(runner.lifecycle.checkpoints, "before_assignment", side_effect=gate_error) as gate:
             with self.assertRaises((ValueError, support.Paused)):
-                runner.apply_result(self.state, "astra_resolve", diagnosis, record, self.root, self.run)
+                runner.apply_result(self.state, "resolve", diagnosis, record, self.root, self.run)
         gate.assert_not_called()
         self.assertEqual(before, self.state)
 
@@ -260,7 +260,7 @@ class ControllerFindingsTests(unittest.TestCase):
             "proposed_delta": "",
         }
         record = {"output": str(self.run / "blocked.json"), "source_revision": support.snapshot(self.root)["revision"]}
-        runner.apply_result(self.state, "astra_review", decision, record, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", decision, record, self.root, self.run)
         runner.lifecycle.human.evaluate(self.state)  # the runner's writer boundary publishes the request
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         self.assertEqual(
@@ -320,7 +320,7 @@ class ControllerFindingsTests(unittest.TestCase):
         }
         runner.apply_result(
             self.state,
-            "sol",
+            "tester",
             validation,
             {"events": str(evidence), "source_revision": current["revision"], "output": str(evidence)},
             self.root,
@@ -343,22 +343,22 @@ class ControllerFindingsTests(unittest.TestCase):
             {"output": "sol-01.json"},
         )
         current = self.validated("task-recheck")
-        self.assertEqual(["sol"], [row["source"] for row in findings.blocking_entries(self.state)])
+        self.assertEqual(["tester"], [row["source"] for row in findings.blocking_entries(self.state)])
         with patch.object(runner, "run_role", side_effect=AssertionError("no agent may launch")):
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 self.astra_decision("COMPLETE"),
                 {"output": "complete-01.json", "source_revision": current["revision"]},
                 self.root,
                 self.run,
             )
-        self.assertEqual(("RUNNING", "sol"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(("RUNNING", "tester"), (self.state["status"], self.state["next_stage"]))
         # If the Validator leaves them open again, the gate refuses completion as before.
         with self.assertRaises(support.Paused) as caught:
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 self.astra_decision("COMPLETE"),
                 {"output": "complete-02.json", "source_revision": current["revision"]},
                 self.root,
@@ -374,7 +374,7 @@ class ControllerFindingsTests(unittest.TestCase):
         with self.assertRaises(support.Paused) as caught:
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 self.astra_decision("COMPLETE"),
                 {"output": "complete-01.json", "source_revision": current["revision"]},
                 self.root,
@@ -434,7 +434,7 @@ class ControllerFindingsTests(unittest.TestCase):
         }
         runner.apply_result(
             self.state,
-            "sol",
+            "tester",
             validation,
             {"events": str(evidence), "source_revision": current["revision"], "output": str(evidence)},
             self.root,
@@ -444,7 +444,7 @@ class ControllerFindingsTests(unittest.TestCase):
         contradictory = self.astra_decision("COMPLETE", "Missing authorization check")
         with self.assertRaises(support.Paused) as caught:
             runner.apply_result(
-                self.state, "astra_review", contradictory, {"output": "complete-01.json"}, self.root, self.run
+                self.state, "review_completion", contradictory, {"output": "complete-01.json"}, self.root, self.run
             )
         self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
@@ -454,7 +454,9 @@ class ControllerFindingsTests(unittest.TestCase):
         )
         clean = self.astra_decision("COMPLETE")
         with self.assertRaises(support.Paused) as caught:
-            runner.apply_result(self.state, "astra_review", clean, {"output": "complete-02.json"}, self.root, self.run)
+            runner.apply_result(
+                self.state, "review_completion", clean, {"output": "complete-02.json"}, self.root, self.run
+            )
         self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
         # Explicitly resolving it unblocks completion.
@@ -463,7 +465,9 @@ class ControllerFindingsTests(unittest.TestCase):
             "COMPLETE", dispositions=[dict(id=fid, disposition="resolved", evidence="event:check")]
         )
         with patch.object(runner, "run_role", side_effect=AssertionError("no agent may launch")):
-            runner.apply_result(self.state, "astra_review", clean, {"output": "complete-03.json"}, self.root, self.run)
+            runner.apply_result(
+                self.state, "review_completion", clean, {"output": "complete-03.json"}, self.root, self.run
+            )
         self.assertEqual("TASK_COMPLETE", self.state["status"])
 
 

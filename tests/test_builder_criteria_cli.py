@@ -20,7 +20,7 @@ class BuilderCriteriaCliTests(unittest.TestCase):
         trace = provider.parent / "builder-criteria-trace.jsonl"
         env["BUILDER_CRITERIA_TRACE"] = str(trace)
         amendment = textwrap.dedent(f"""
-            if stage == "terra" and {stale_hash!r}:
+            if stage == "builder" and {stale_hash!r}:
                 report["contract_hash"] = "0" * 64
             with Path(os.environ["BUILDER_CRITERIA_TRACE"]).open("a") as witness:
                 witness.write(json.dumps({{
@@ -58,9 +58,9 @@ class BuilderCriteriaCliTests(unittest.TestCase):
         self.assertEqual(token, view["approved_contract"]["token"])
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
         self.assertFalse(any(row["repair"] for row in attempts), attempts)
-        for stage in ("terra", "sol", "astra_review"):
+        for stage in ("builder", "tester", "review_completion"):
             self.assertEqual(1, sum(row["stage"] == stage for row in attempts), stage)
-        builder = next(row for row in attempts if row["stage"] == "terra")
+        builder = next(row for row in attempts if row["stage"] == "builder")
         self.assertNotIn("acceptance_criteria", builder["schema_properties"])
         self.assertNotIn("acceptance_criteria", builder["report"])
         self.assertEqual(["6 tests passed"], builder["report"]["results"])
@@ -74,10 +74,10 @@ class BuilderCriteriaCliTests(unittest.TestCase):
         self.assertEqual("PAUSED_INVALID_OUTPUT", view["status"], view.get("stop_reason"))
         self.assertIn("another goal revision", view["stop_reason"])
         self.assertEqual(token, view["approved_contract"]["token"])
-        builder = next(row for row in attempts if row["stage"] == "terra")
+        builder = next(row for row in attempts if row["stage"] == "builder")
         self.assertNotIn("acceptance_criteria", builder["report"])
         self.assertNotEqual(builder["expected_hash"], builder["report"]["contract_hash"])
-        self.assertFalse(any(row["stage"] in ("sol", "astra_review") for row in attempts), attempts)
+        self.assertFalse(any(row["stage"] in ("tester", "review_completion") for row in attempts), attempts)
 
 
 if __name__ == "__main__":

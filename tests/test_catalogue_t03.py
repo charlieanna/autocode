@@ -116,7 +116,7 @@ class SessionCase(kit.CatalogueCase):
         return rows
 
     def durable_sol_stage(
-        self, *, output_value, events_rows, iteration=5, name="sol-01", expected_session=None, role="sol"
+        self, *, output_value, events_rows, iteration=5, name="sol-01", expected_session=None, role="tester"
     ):
         report = self.run / f"iterations/{iteration:03d}/{name}"
         report.parent.mkdir(parents=True, exist_ok=True)
@@ -126,7 +126,7 @@ class SessionCase(kit.CatalogueCase):
         schema_path = self.run / f"schemas/{name}.json"
         schema_path.parent.mkdir(parents=True, exist_ok=True)
         legacy = support.read(runner.SCHEMA_DIR / "v2/sol-report.schema.json")
-        support.atomic_json(schema_path, goals.role_schema(legacy, "sol"))
+        support.atomic_json(schema_path, goals.role_schema(legacy, "tester"))
         record = {
             "role": role,
             "stage": role,
@@ -176,7 +176,7 @@ class SessionScenarios(SessionCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "terra",
+                "builder",
                 terra_report,
                 {
                     "output": "terra.json",
@@ -188,21 +188,21 @@ class SessionScenarios(SessionCase):
                 self.root,
                 self.run,
             )
-        self.check("review_stage_selected", "sol", self.state["next_stage"])
+        self.check("review_stage_selected", "tester", self.state["next_stage"])
         self.check(
             "distinct_sessions_per_role",
             True,
-            self.state["sessions"].get("terra") != self.state["sessions"].get("sol")
-            and None not in (self.state["sessions"].get("terra"), self.state["sessions"].get("sol")),
+            self.state["sessions"].get("builder") != self.state["sessions"].get("tester")
+            and None not in (self.state["sessions"].get("builder"), self.state["sessions"].get("tester")),
         )
-        prompt, _ = stage_context.context_packet(self.state, "sol", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "tester", self.run / "state.json")
         self.check_true("reviewer_prompt_has_requirements", "acceptance" in prompt or "criterion" in prompt.lower())
         self.check_true("reviewer_prompt_has_candidate", "greet.py" in prompt or "changed" in prompt)
         self.check(
             "no_implementation_session_reuse_as_reviewer",
             True,
-            stage_context.context_packet(self.state, "sol", self.run / "state.json")[0]
-            != stage_context.context_packet(self.state, "terra", self.run / "state.json")[0],
+            stage_context.context_packet(self.state, "tester", self.run / "state.json")[0]
+            != stage_context.context_packet(self.state, "builder", self.run / "state.json")[0],
         )
         self.finish(summary="READY_REVIEW: validation runs in its own session with contract and candidate")
 
@@ -215,7 +215,7 @@ class SessionScenarios(SessionCase):
             "source_revision": support.snapshot(self.root)["revision"],
         }
         with self.forbid_real_launches(runner):
-            runner.apply_result(self.state, "astra_review", review, record, self.root, self.run)
+            runner.apply_result(self.state, "review_completion", review, record, self.root, self.run)
         diagnosis = self.decision("REWORK")
         diagnosis.update(
             findings=[], finding_dispositions=[], diagnosis="Missing empty-input guard", evidence=["event:check"]
@@ -227,7 +227,7 @@ class SessionScenarios(SessionCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "astra_resolve",
+                "resolve",
                 diagnosis,
                 {"output": str(self.run / "resolve-01.json"), "source_revision": record["source_revision"]},
                 self.root,
@@ -238,7 +238,7 @@ class SessionScenarios(SessionCase):
         self.check("bounded_correction_assignment", 1, len(plan["tasks"]))
         self.check("task_carries_finding_set", True, set(plan["tasks"][0].get("findings", [])) >= set(fid))
         self.check("provenance_bound_to_candidate", record["source_revision"], plan["source_revision"])
-        self.check("creator_stage_dispatched_next", "terra", self.state["next_stage"])
+        self.check("creator_stage_dispatched_next", "builder", self.state["next_stage"])
         self.finish(summary="READY_BUILD: correction assignment carries task, candidate and F1 provenance")
 
     def test_ses03_stale_binding_rejected(self):
@@ -251,7 +251,7 @@ class SessionScenarios(SessionCase):
             support.Paused,
             runner.apply_result,
             self.state,
-            "astra_review",
+            "review_completion",
             stale_contract,
             {"output": "r.json"},
             self.root,
@@ -263,7 +263,7 @@ class SessionScenarios(SessionCase):
             support.Paused,
             runner.apply_result,
             self.state,
-            "astra_review",
+            "review_completion",
             stale_task,
             {"output": "r.json"},
             self.root,
@@ -275,7 +275,7 @@ class SessionScenarios(SessionCase):
             support.Paused,
             runner.apply_result,
             self.state,
-            "astra_review",
+            "review_completion",
             stale_hash,
             {"output": "r.json"},
             self.root,
@@ -285,9 +285,14 @@ class SessionScenarios(SessionCase):
         # Recovery: the correctly bound result still applies.
         with self.forbid_real_launches(runner):
             runner.apply_result(
-                self.state, "astra_review", decision, {"output": str(self.run / "review-ok.json")}, self.root, self.run
+                self.state,
+                "review_completion",
+                decision,
+                {"output": str(self.run / "review-ok.json")},
+                self.root,
+                self.run,
             )
-        self.check("bound_result_progresses", "terra", self.state["next_stage"])
+        self.check("bound_result_progresses", "builder", self.state["next_stage"])
         self.finish(summary="PAUSED_SAFE: wrong contract/task/hash bindings all rejected transactionally")
 
     def test_ses04_prose_completion_cannot_override_rework(self):
@@ -299,7 +304,7 @@ class SessionScenarios(SessionCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 review,
                 {
                     "output": str(self.run / "review-01.json"),
@@ -308,7 +313,7 @@ class SessionScenarios(SessionCase):
                 self.root,
                 self.run,
             )
-        self.check("structured_rework_wins", "astra_resolve", self.state["next_stage"])
+        self.check("structured_rework_wins", "resolve", self.state["next_stage"])
         self.check("not_complete", False, self.state["status"] == "TASK_COMPLETE")
         self.check("repair_work_open", True, bool(findings.open_entries(self.state, "task_planner")))
         self.finish(summary="REWORK: validated structured status controls the transition, not prose")
@@ -426,7 +431,7 @@ class SessionScenarios(SessionCase):
         with self.forbid_real_launches(runner):
             runner.reconcile_active(self.state, self.run, self.root)
             runner.reconcile_active(self.state, self.run, self.root)  # restart replays nothing
-        self.check("single_stage_record", 1, sum(1 for rec in self.state["stages"] if rec.get("stage") == "sol"))
+        self.check("single_stage_record", 1, sum(1 for rec in self.state["stages"] if rec.get("stage") == "tester"))
         self.check("single_validation", 1, len(self.state.get("validation_archive", [])) + 1)
         self.check("usage_accounted_once", True, all(rec.get("accounted") for rec in self.state["stages"]))
         self.check(
@@ -479,8 +484,8 @@ class SessionScenarios(SessionCase):
             "remaining_risks": [],
         }  # missing evidence_refs entirely
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 6,
             "exit_code": 0,
             "output": str(self.run / "terra-exit0.json"),
@@ -494,7 +499,7 @@ class SessionScenarios(SessionCase):
             (ValueError, KeyError, support.Paused),
             runner.apply_result,
             self.state,
-            "terra",
+            "builder",
             report,
             record,
             self.root,
@@ -565,7 +570,7 @@ class SessionScenarios(SessionCase):
         self.state["active_stage"] = correct
         with self.forbid_real_launches(runner):
             runner.reconcile_active(self.state, self.run, self.root)
-        self.check("correct_session_progresses", "astra_review", self.state["next_stage"])
+        self.check("correct_session_progresses", "review_completion", self.state["next_stage"])
         self.check("validation_applied_after_recovery", True, "validation" in self.state)
         self.finish(summary="PAUSED_THEN_PROGRESS: session mismatch refused; correct context resumed")
 

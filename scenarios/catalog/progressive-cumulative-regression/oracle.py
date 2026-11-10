@@ -55,7 +55,9 @@ def check(project, scenario, run=None):
         )
         checks.append(Check("planted_regression_rejected_before_repair", bool(rejected), str(stages)))
         checks.append(
-            Check("fresh_repair_and_validation", stages.count("terra") >= 3 and stages.count("sol") >= 3, str(stages))
+            Check(
+                "fresh_repair_and_validation", stages.count("builder") >= 3 and stages.count("tester") >= 3, str(stages)
+            )
         )
         checks.append(Check("no_manual_paused_recovery", "resume-paused" not in run.get("cli_calls", [])))
     return checks

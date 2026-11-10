@@ -10,24 +10,24 @@ import autocode_regression as regression
 
 def inspecting():
     recovery = {
-        "stage": "terra",
-        "role": "terra",
-        "next_stage": "astra_review",
+        "stage": "builder",
+        "role": "builder",
+        "next_stage": "review_completion",
         "source_revision": "partial",
         "task_id": "T1",
         "attempt_id": "001/builder-01",
     }
     return {
         "status": "RUNNING",
-        "next_stage": "astra_review",
+        "next_stage": "review_completion",
         "goal_contract": {"hash": "approved", "revision": 1},
         "current_task": {"id": "T1", "kind": "implement", "contract_hash": "approved", "contract_revision": 1},
         "recovery_context": recovery,
         "automatic_timeout_recoveries": [copy.deepcopy(recovery)],
         "stages": [
             {
-                "stage": "terra",
-                "role": "terra",
+                "stage": "builder",
+                "role": "builder",
                 "iteration": 1,
                 "output": "/run/archived-builder-01/builder-01.json",
                 "source_revision": "partial",
@@ -45,7 +45,7 @@ def inspecting():
 
 
 class RecoveryReviewTests(unittest.TestCase):
-    def review(self, state, *, stage="astra_review", revision="partial"):
+    def review(self, state, *, stage="review_completion", revision="partial"):
         with (
             mock.patch.object(regression.schedule, "guard"),
             mock.patch.object(regression.runner_check, "clear"),
@@ -71,7 +71,7 @@ class RecoveryReviewTests(unittest.TestCase):
                 self.assertEqual(before, state, "Deferral must grant no proof or report credit")
 
     def test_tester_and_checkpoint_still_execute_proof(self):
-        for stage in ("sol", "astra_checkpoint"):
+        for stage in ("tester", "review_checkpoint"):
             with self.subTest(stage=stage):
                 self.assertEqual(1, self.review(inspecting(), stage=stage))
 
@@ -79,8 +79,8 @@ class RecoveryReviewTests(unittest.TestCase):
         self.assertEqual(1, self.review(inspecting(), revision="changed-again"))
         changes = (
             ("status", "PAUSED_PROVIDER_TIMEOUT"),
-            ("next_stage", "sol"),
-            ("active_stage", {"stage": "terra"}),
+            ("next_stage", "tester"),
+            ("active_stage", {"stage": "builder"}),
             ("uncertain_artifacts", ["attempt"]),
             ("pending_report_repair", {"original": "attempt"}),
             ("recovery_context", {}),
@@ -93,9 +93,9 @@ class RecoveryReviewTests(unittest.TestCase):
             with self.subTest(field=key):
                 self.assertEqual(1, self.review(state))
         for field, value in (
-            ("stage", "sol"),
+            ("stage", "tester"),
             ("role", "task_planner"),
-            ("next_stage", "sol"),
+            ("next_stage", "tester"),
             ("source_revision", "stale"),
             ("task_id", "another-task"),
             ("attempt_id", "002/builder-02"),
@@ -118,8 +118,8 @@ class RecoveryReviewTests(unittest.TestCase):
             with self.subTest(task=field):
                 self.assertEqual(1, self.review(state))
         for field, value in (
-            ("stage", "terra_report_repair"),
-            ("role", "sol"),
+            ("stage", "builder_report_repair"),
+            ("role", "tester"),
             ("timed_out", False),
             ("abandoned", False),
             ("automatic_recovery", False),
@@ -137,7 +137,7 @@ class RecoveryReviewTests(unittest.TestCase):
             with self.subTest(record=field):
                 self.assertEqual(1, self.review(state))
         state = inspecting()
-        state["stages"].append({"stage": "terra", "exit_code": 0, "source_revision": "partial"})
+        state["stages"].append({"stage": "builder", "exit_code": 0, "source_revision": "partial"})
         self.assertEqual(1, self.review(state), "A later attempt cannot inherit the old timeout deferral")
         state = inspecting()
         state["automatic_timeout_recoveries"][-1]["attempt_id"] = "another-attempt"

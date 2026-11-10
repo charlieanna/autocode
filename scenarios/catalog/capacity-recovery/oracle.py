@@ -55,7 +55,7 @@ def recovery_checks(project, run):
         attempts = [
             row
             for row in ((view.get("usage") or {}).get("accounting") or {}).get("attempts", [])
-            if row.get("stage") == "astra_discovery" and not row.get("runner_owned") and not row.get("report_only")
+            if row.get("stage") == "draft_plan" and not row.get("runner_owned") and not row.get("report_only")
         ]
         fresh_request = False
         hybrid_trace = project.parent / "hybrid" / "trace.jsonl"
@@ -63,7 +63,7 @@ def recovery_checks(project, run):
         if is_hybrid:
             failed, succeeded, *later_attempts = attempts
             served = [json.loads(line) for line in hybrid_trace.read_text().splitlines()]
-            discovery = [row for row in served if row.get("stage") == "astra_discovery" and not row.get("repair")]
+            discovery = [row for row in served if row.get("stage") == "draft_plan" and not row.get("repair")]
             injected, retry, *later_calls = discovery
             if len(discovery) != len(attempts) or any(
                 call.get("side") != "live"
@@ -113,13 +113,13 @@ def recovery_checks(project, run):
         Check(
             "one_capacity_failure_then_fresh_request",
             [row.get("outcome") for row in rows] == ["capacity", "continue"]
-            and all(row.get("stage") == "astra_discovery" for row in rows)
+            and all(row.get("stage") == "draft_plan" for row in rows)
             and fresh_request,
             str([{key: row.get(key) for key in ("stage", "outcome", "session")} for row in rows]),
         ),
         Check(
             "one_bounded_recovery_of_the_same_stage",
-            context.get("stage") == context.get("next_stage") == "astra_discovery"
+            context.get("stage") == context.get("next_stage") == "draft_plan"
             and context.get("retry_number") == 1
             and context.get("changed_files") == []
             and bool(context.get("source_revision"))

@@ -34,17 +34,17 @@ class ReviewerRequestedRevisionCliTests(unittest.TestCase):
         marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
         changed = "Python standard library only" if quote_brief else PARTITION
         amendment = textwrap.dedent(f"""
-            if stage == "astra_discovery":
+            if stage == "draft_plan":
                 if {PARTITION!r} not in report["contract"]["constraints"]:
                     report["contract"]["constraints"].append({PARTITION!r})
                 report["contract"]["permission_boundaries"] = [{BOUNDARY!r}]
-            elif stage == "astra_challenge":
+            elif stage == "review_plan":
                 report["concerns"] = [{{
                     "id": "R1", "concern": "README.md is a deliverable no milestone writes",
                     "evidence_refs": ["goal_contract.body.constraints"],
                     "requested_change": "Rebalance the milestone so M1 writes every deliverable",
                     "acceptance_test": "M1's constraint names README.md", "blocking": True}}]
-            elif stage == "glm_revise":
+            elif stage == "revise_plan":
                 report["contract"]["constraints"] = [
                     line for line in report["contract"]["constraints"] if line != {changed!r}] + [{REBALANCED!r}]
                 report["contract_changes"] = [
@@ -57,7 +57,7 @@ class ReviewerRequestedRevisionCliTests(unittest.TestCase):
                     "evidence_refs": ["goal_contract.body.milestones"],
                     "change": "Reworded the milestone constraint and its boundary",
                     "acceptance_test": "M1's constraint names README.md"}}]
-            elif stage == "astra_finalize":
+            elif stage == "finalize_plan":
                 report["decisions"] = [{{
                     "concern_id": "R1", "decision": "M1 writes every deliverable, as the revision states",
                     "rationale": "The reworded constraint and boundary cover README.md",
@@ -103,7 +103,7 @@ class ReviewerRequestedRevisionCliTests(unittest.TestCase):
             any(
                 "repeats the person's own words" in json.dumps(row)
                 for row in state["stages"]
-                if row.get("stage") == "glm_revise"
+                if row.get("stage") == "revise_plan"
             ),
             "the refusal says why the allowance did not apply",
         )
@@ -121,16 +121,16 @@ class ReviewerRequestedRevisionCliTests(unittest.TestCase):
         )
         revised = prefix + f"it writes exactly `{after}` to stdout."
         amendment = textwrap.dedent(f"""
-            if stage == "astra_discovery":
+            if stage == "draft_plan":
                 report["contract"]["acceptance_criteria"][0]["criterion"] = {old!r}
-            elif stage == "astra_challenge":
+            elif stage == "review_plan":
                 cid = data["goal_contract"]["body"]["acceptance_criteria"][0]["id"]
                 report["concerns"] = [{{
                     "id": "C_PAD", "concern": f"{{cid}} should print " + {after!r} + " instead of " + {before!r},
                     "evidence_refs": ["goal_contract.body.acceptance_criteria"],
                     "requested_change": "Correct the W11 padding only",
                     "acceptance_test": "Compare the corrected example to the expected stdout", "blocking": True}}]
-            elif stage == "glm_revise":
+            elif stage == "revise_plan":
                 report["contract"] = data["goal_contract"]["body"]
                 criterion = report["contract"]["acceptance_criteria"][0]
                 criterion["criterion"] = {revised!r}
@@ -142,7 +142,7 @@ class ReviewerRequestedRevisionCliTests(unittest.TestCase):
                     "concern_id": "C_PAD", "response": "Corrected one padding space",
                     "evidence_refs": ["goal_contract.body.acceptance_criteria"],
                     "change": "Corrected the W11 padding", "acceptance_test": "Compare exact stdout"}}]
-            elif stage == "astra_finalize":
+            elif stage == "finalize_plan":
                 report["decisions"] = [{{
                     "concern_id": "C_PAD", "decision": "The padding example is correct",
                     "rationale": "The expected row uses five spaces", "resolved": True,
@@ -164,10 +164,10 @@ class ReviewerRequestedRevisionCliTests(unittest.TestCase):
         malformed = "The CLI prints exactly 'week  3.00h\\ntotal  3.00h\\' with the existing format."
         corrected = malformed.replace("3.00h\\'", "3.00h\\n'")
         amendment = textwrap.dedent(f"""
-            if stage in ("astra_discovery", "astra_challenge"):
+            if stage in ("draft_plan", "review_plan"):
                 with Path({str(trace)!r}).open("a") as log:
                     log.write(json.dumps([stage, repairing]) + "\\n")
-            if stage == "astra_discovery":
+            if stage == "draft_plan":
                 if repairing and "unterminated exact-output literal" not in repair_error:
                     raise ValueError(repair_error)
                 report["contract"]["acceptance_criteria"][0]["criterion"] = {corrected!r} if repairing else {malformed!r}
@@ -180,7 +180,7 @@ class ReviewerRequestedRevisionCliTests(unittest.TestCase):
         self.assertEqual("approve_plan", view["needs"]["kind"], (view["status"], view["stop_reason"]))
         self.assertEqual(corrected, view["displayed_plan"]["acceptance_criteria"][0]["criterion"])
         self.assertEqual(
-            [["astra_discovery", False], ["astra_discovery", True], ["astra_challenge", False]],
+            [["draft_plan", False], ["draft_plan", True], ["review_plan", False]],
             [json.loads(row) for row in trace.read_text().splitlines()],
         )
 

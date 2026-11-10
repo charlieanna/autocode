@@ -23,7 +23,7 @@ class DiscoveryReportEditsCLI(unittest.TestCase):
         repairs = [row for row in trace if row["repair"]]
         self.assertEqual(1, len(repairs), repairs)
         repair = repairs[0]
-        self.assertEqual("astra_discovery", repair["stage"])
+        self.assertEqual("draft_plan", repair["stage"])
         self.assertTrue(repair["offered"])
         self.assertTrue(repair["rule"])
         output = Path(repair["output"])
@@ -67,7 +67,7 @@ class DiscoveryReportEditsCLI(unittest.TestCase):
                 _, _, view, trace = self.plan(fixture)
                 self.assertNotEqual("AWAITING_GOAL_APPROVAL", view["status"])
                 self.assertFalse(view["done"])
-                self.assertFalse(any(row["stage"] == "terra" for row in trace))
+                self.assertFalse(any(row["stage"] == "builder" for row in trace))
                 repairs = [row for row in trace if row["repair"]]
                 self.assertTrue(repairs)
                 self.assertTrue(repairs[0]["offered"])

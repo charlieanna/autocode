@@ -334,7 +334,7 @@ class ArenaTests(unittest.TestCase):
             "task_planner",
             "--pin-model-role=terra",
             "--pin-model-role",
-            "sol",
+            "tester",
             "--pin-model-role=completion",
         )
         calls = []
@@ -402,8 +402,8 @@ class ArenaTests(unittest.TestCase):
             (("--requirements-model",), "expected one argument"),
             (("--resolver-model",), "expected one argument"),
             (("--pin-model-role",), "expected one argument"),
-            (("--pin-model-role=builder",), "invalid choice"),
-            (("--pin-model-role=astra", "--pin-model-role=builder"), "invalid choice"),
+            (("--pin-model-role=planner",), "invalid choice"),
+            (("--pin-model-role=astra", "--pin-model-role=planner"), "invalid choice"),
             (("--reasoning-effort=unsupported", "--reasoning-effort=high"), "invalid choice"),
             (("--run-dir=/tmp/another-run",), "unsupported runner option"),
             (("--approve-plan=another-token",), "unsupported runner option"),
@@ -707,14 +707,14 @@ class RunnerOptionTests(unittest.TestCase):
     def test_route_reasoning_and_pin_controls_are_accepted_and_checked(self):
         selected = arena.runner_options(
             ("--resolver-model", "m1", "--requirements-model", "m2", "--terra-reasoning-effort", "xhigh")
-            + ("--pin-model-role", "task_planner", "--pin-model-role", "terra")
+            + ("--pin-model-role", "task_planner", "--pin-model-role", "builder")
         )
         self.assertEqual(
-            ("m1", "m2", "xhigh", ["task_planner", "terra"]),
+            ("m1", "m2", "xhigh", ["task_planner", "builder"]),
             (
                 selected.resolver_model,
                 selected.requirements_model,
-                selected.terra_reasoning_effort,
+                selected.builder_reasoning_effort,
                 selected.pin_model_role,
             ),
         )
@@ -724,7 +724,7 @@ class RunnerOptionTests(unittest.TestCase):
         )
         self.assertEqual(
             ("xhigh", "m3", ["task_planner"]),
-            (renamed.terra_reasoning_effort, renamed.glm_model, renamed.pin_model_role),
+            (renamed.builder_reasoning_effort, renamed.planner_model, renamed.pin_model_role),
         )
         for refused in (
             ("--sol-reasoning-effort", "extreme"),

@@ -301,7 +301,7 @@ class OmittedBox(unittest.TestCase):
             schema.write_text(
                 json.dumps({"type": "object", "properties": {"contract": {"type": "object", "properties": properties}}})
             )
-            record = {"stage": "astra_discovery", "schema": str(schema)}
+            record = {"stage": "draft_plan", "schema": str(schema)}
             rows = [{"id": "C1", "criterion": "a"}, {"id": "C2", "criterion": "b", "supersedes": [ENTRY]}]
             value = run_records.default_missing_provenance({"contract": {"acceptance_criteria": rows}}, record)
         self.assertEqual(

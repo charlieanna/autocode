@@ -75,7 +75,7 @@ class VerificationViewTests(unittest.TestCase):
             lambda s: s["validation"].update(contract_revision=1),
             lambda s: s["validation"].update(task_id="other"),
             lambda s: s.update(criteria_revision=4),
-            lambda s: s.update(active_stage={"stage": "terra"}),
+            lambda s: s.update(active_stage={"stage": "builder"}),
             lambda s: s.update(active_runner_check={"stage": "regression_proof"}),
         ]
         for change in changes:

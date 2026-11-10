@@ -221,14 +221,18 @@ PLANS = role_route.PLANS
 # selects its model, the tier it wants. Labels are not a second name table.
 ROLES = {
     "requirements": (roles.SCREEN["requirements"], "--requirements-model", "worker"),
-    "planner": (roles.SCREEN["planner"], "--glm-model", "worker"),
-    "terra": (roles.SCREEN["builder"], "--terra-model", "worker"),
+    "planner": (roles.SCREEN["planner"], "--planner-model", "worker"),
+    "builder": (roles.SCREEN["builder"], "--builder-model", "worker"),
     "plan_reviewer": (roles.SCREEN["plan_reviewer"], "--plan-reviewer-model", "judge"),
-    "sol": (roles.SCREEN["tester"], "--sol-model", "judge"),
+    "tester": (roles.SCREEN["tester"], "--tester-model", "judge"),
     "completion": (roles.SCREEN["completion"], "--completion-model", "judge"),
-    # The per-task Planner runs on the astra route, and the Resolver starts as a copy of it unless
+    # The per-task Planner runs on the task_planner route, and the Resolver starts as a copy of it unless
     # --resolver-model sets the Resolver's own route (docs/models.md).
-    "task_planner": (f"{roles.SCREEN['resolver']} and per-task {roles.SCREEN['planner']}", "--astra-model", "resolver"),
+    "task_planner": (
+        f"{roles.SCREEN['resolver']} and per-task {roles.SCREEN['planner']}",
+        "--task-planner-model",
+        "resolver",
+    ),
 }
 # Producer and checker roles that must not share a model (autocode_verifier_independence.PAIRS).
 CHECKS = tuple((producer, verifier) for producer, verifier, _label in verifier_independence.PAIRS)

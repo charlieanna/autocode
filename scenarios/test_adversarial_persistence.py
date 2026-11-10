@@ -54,7 +54,7 @@ class PersistenceAttacks(AdversarialCase):
         self.assertTrue(final["done"], final)
         self.assertTrue(final["delivery"]["verified_complete"], final)
         self.assertEqual(token, final["delivery"]["contract"]["approval_event"]["token"])
-        self.assertEqual(1, len(self.trace("stage_enter", "terra")), "Recovery duplicated the Builder")
+        self.assertEqual(1, len(self.trace("stage_enter", "builder")), "Recovery duplicated the Builder")
 
     def test_disk_full_cannot_acknowledge_or_lose_plan_approval(self):
         self.exercise("disk_full", False)

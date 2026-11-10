@@ -26,7 +26,7 @@ stage = (data.get("original") or {}).get("stage") if data.get("report_repair") e
 output = Path(sys.argv[sys.argv.index("-o") + 1])
 report = json.loads(output.read_text())
 corrected = "The CLI greets a nonempty name and refuses empty names."
-if stage == "astra_resolve":
+if stage == "resolve":
     report.update(
         status="BLOCKED",
         diagnosis="The criterion's generic wording does not state the required invalid-input behavior.",

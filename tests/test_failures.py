@@ -21,7 +21,7 @@ class LedgerTests(unittest.TestCase):
         self.state = {"stages": []}
         self.iteration = 0
 
-    def attempt(self, error, *, revision="r1", stage="glm_revise"):
+    def attempt(self, error, *, revision="r1", stage="revise_plan"):
         self.iteration += 1
         row = {
             "stage": stage,
@@ -34,7 +34,7 @@ class LedgerTests(unittest.TestCase):
         self.state["stages"].append(row)
         return row, entry
 
-    def succeed(self, stage="glm_revise"):
+    def succeed(self, stage="revise_plan"):
         self.iteration += 1
         self.state["stages"].append(
             {
@@ -48,7 +48,7 @@ class LedgerTests(unittest.TestCase):
         for text in DISTINCT:
             row, entry = self.attempt(text)
         self.assertIsNone(failures.repeated(self.state, row))
-        self.assertIsNone(failures.repeated(self.state, {"stage": "glm_revise", "source_revision": "r1"}))
+        self.assertIsNone(failures.repeated(self.state, {"stage": "revise_plan", "source_revision": "r1"}))
         # Nothing is forgotten: every attempt stays in the history for inspection.
         self.assertEqual(3, entry["count"])
         self.assertEqual(3, len(entry["attempts"]))
@@ -59,7 +59,7 @@ class LedgerTests(unittest.TestCase):
         for _ in range(3):
             row, entry = self.attempt(DISTINCT[0])
         self.assertIs(entry, failures.repeated(self.state, row))
-        self.assertIs(entry, failures.repeated(self.state, {"stage": "glm_revise", "source_revision": "r1"}))
+        self.assertIs(entry, failures.repeated(self.state, {"stage": "revise_plan", "source_revision": "r1"}))
         self.assertEqual(3, entry["streak"])
         self.assertIn("output_probe", entry)
 
@@ -76,7 +76,7 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(1, entry["streak"])
         self.assertIsNone(failures.repeated(self.state, row))
         # Another stage's rows in between do not interrupt this stage's attempts.
-        self.succeed(stage="astra_challenge")
+        self.succeed(stage="review_plan")
         self.attempt(DISTINCT[0])
         row, entry = self.attempt(DISTINCT[0])
         self.assertIsNotNone(failures.repeated(self.state, row))
@@ -86,7 +86,7 @@ class LedgerTests(unittest.TestCase):
             self.attempt(DISTINCT[0])
         row, _ = self.attempt(DISTINCT[1])
         self.assertIsNone(failures.repeated(self.state, row))
-        self.assertIsNone(failures.repeated(self.state, {"stage": "glm_revise", "source_revision": "r1"}))
+        self.assertIsNone(failures.repeated(self.state, {"stage": "revise_plan", "source_revision": "r1"}))
 
     def test_a_changed_source_starts_a_new_run(self):
         self.attempt(DISTINCT[0])
@@ -96,21 +96,21 @@ class LedgerTests(unittest.TestCase):
 
     def test_the_ledger_carries_the_run_when_rows_are_not_appended(self):
         for n in range(3):
-            row = {"stage": "sol", "iteration": n, "source_revision": "r1", "output": f"/run/sol-{n}.json"}
+            row = {"stage": "tester", "iteration": n, "source_revision": "r1", "output": f"/run/sol-{n}.json"}
             entry = failures.record(self.state, row, ValueError("invalid validation"), "t")
         self.assertEqual(3, entry["streak"])
-        self.assertIsNotNone(failures.repeated(self.state, {"stage": "sol", "source_revision": "r1"}))
+        self.assertIsNotNone(failures.repeated(self.state, {"stage": "tester", "source_revision": "r1"}))
 
     def test_ledgers_saved_before_streaks_existed_keep_their_count(self):
         self.state["failure_history"] = {
             "k": {
-                "identity": {"stage": "terra", "artifact_hash": "r1", "error_class": "ValueError"},
+                "identity": {"stage": "builder", "artifact_hash": "r1", "error_class": "ValueError"},
                 "count": 3,
                 "attempts": ["a", "b", "c"],
             }
         }
         self.assertIsNotNone(failures.repeated(self.state, {"failure_key": "k"}))
-        self.assertIsNotNone(failures.repeated(self.state, {"stage": "terra", "source_revision": "r1"}))
+        self.assertIsNotNone(failures.repeated(self.state, {"stage": "builder", "source_revision": "r1"}))
 
 
 class RecentRejectionTests(unittest.TestCase):
@@ -120,7 +120,7 @@ class RecentRejectionTests(unittest.TestCase):
         self.state = {"stages": []}
         self.iteration = 0
 
-    def reject(self, text, at, revision="r1", stage="glm_revise"):
+    def reject(self, text, at, revision="r1", stage="revise_plan"):
         self.iteration += 1
         row = {
             "stage": stage,
@@ -132,7 +132,7 @@ class RecentRejectionTests(unittest.TestCase):
         self.state["stages"].append(row)
         return entry
 
-    def succeed(self, stage="glm_revise"):
+    def succeed(self, stage="revise_plan"):
         self.iteration += 1
         self.state["stages"].append(
             {"stage": stage, "iteration": self.iteration, "output": f"/run/{self.iteration}.json"}
@@ -140,54 +140,54 @@ class RecentRejectionTests(unittest.TestCase):
 
     def test_the_rejection_is_reported_until_a_later_outcome_of_that_stage(self):
         entry = self.reject("AC9 keeps every request quote", "t1")
-        self.assertIs(entry, failures.recent_rejection(self.state, "glm_revise"))
-        self.assertIsNone(failures.recent_rejection(self.state, "astra_plan"))
-        self.succeed("astra_challenge")  # another stage's later row does not end it
-        self.assertIs(entry, failures.recent_rejection(self.state, "glm_revise"))
+        self.assertIs(entry, failures.recent_rejection(self.state, "revise_plan"))
+        self.assertIsNone(failures.recent_rejection(self.state, "plan_task"))
+        self.succeed("review_plan")  # another stage's later row does not end it
+        self.assertIs(entry, failures.recent_rejection(self.state, "revise_plan"))
         self.succeed()
-        self.assertIsNone(failures.recent_rejection(self.state, "glm_revise"))
+        self.assertIsNone(failures.recent_rejection(self.state, "revise_plan"))
 
     def test_the_newest_rejection_is_the_one_reported(self):
         self.reject("first refusal", "t1")
         later = self.reject("second refusal", "t2", revision="r2")
-        self.assertIs(later, failures.recent_rejection(self.state, "glm_revise"))
+        self.assertIs(later, failures.recent_rejection(self.state, "revise_plan"))
         self.assertIn("second refusal", later["last_error"])
 
     def test_the_status_view_learns_how_many_tries_are_left_from_the_ledger(self):
         # progress.retry: the streak of same-kind failures and the number that stops the stage, so a
         # client can say "last try" instead of a bare attempt number; None once the stage moves on.
-        self.assertIsNone(failures.episode(self.state, "glm_revise"))
+        self.assertIsNone(failures.episode(self.state, "revise_plan"))
         self.reject("same refusal", "t1")
         self.assertEqual(
-            {"failures": 1, "limit": failures.REPEAT_THRESHOLD}, failures.episode(self.state, "glm_revise")
+            {"failures": 1, "limit": failures.REPEAT_THRESHOLD}, failures.episode(self.state, "revise_plan")
         )
         self.reject("same refusal", "t2")
-        self.assertEqual({"failures": 2, "limit": 3}, failures.episode(self.state, "glm_revise"))
-        self.assertIsNone(failures.episode(self.state, "astra_plan"), "another stage has no episode")
+        self.assertEqual({"failures": 2, "limit": 3}, failures.episode(self.state, "revise_plan"))
+        self.assertIsNone(failures.episode(self.state, "plan_task"), "another stage has no episode")
         self.reject("a different refusal", "t3")
         self.assertEqual(
-            {"failures": 1, "limit": 3}, failures.episode(self.state, "glm_revise"), "a new error starts over"
+            {"failures": 1, "limit": 3}, failures.episode(self.state, "revise_plan"), "a new error starts over"
         )
         self.succeed()
-        self.assertIsNone(failures.episode(self.state, "glm_revise"), "a later outcome ends the run of failures")
+        self.assertIsNone(failures.episode(self.state, "revise_plan"), "a later outcome ends the run of failures")
 
     def test_reading_the_rejection_writes_nothing(self):
         self.reject("first refusal", "t1")
         before = copy.deepcopy(self.state)
-        self.assertIsNotNone(failures.recent_rejection(self.state, "glm_revise"))
+        self.assertIsNotNone(failures.recent_rejection(self.state, "revise_plan"))
         self.assertEqual(before, self.state)
 
     def test_replanned_contract_does_not_inherit_an_obsolete_rejection(self):
         self.reject("Old r2 concerns need eight decisions", "t1")
         self.state["goal_contract"] = {"revision": 5, "hash": "r5", "body": {}}
         before = copy.deepcopy(self.state)
-        self.assertIsNone(failures.recent_rejection(self.state, "glm_revise"))
+        self.assertIsNone(failures.recent_rejection(self.state, "revise_plan"))
         self.assertEqual(before, self.state, "Stale context must not clear the failure ledger")
 
     def test_legacy_rejection_without_a_planning_binding_is_history_only(self):
         entry = self.reject("Old unbound error", "t1")
         entry.pop("planning_context")
-        self.assertIsNone(failures.recent_rejection(self.state, "glm_revise"))
+        self.assertIsNone(failures.recent_rejection(self.state, "revise_plan"))
 
 
 class PauseTests(unittest.TestCase):

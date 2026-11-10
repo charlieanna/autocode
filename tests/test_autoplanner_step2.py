@@ -117,7 +117,7 @@ class InvestigationPassTests(EpisodeCase):
         prompt, _ = planner.context(self.state, "requirements_gather", Path("/tmp/state.json"))
         self.assertIn("INVESTIGATION PASS", prompt)
         self.assertIn(request["handoff_hash"], prompt)
-        other, _ = planner.context(self.state, "astra_challenge", Path("/tmp/state.json"))
+        other, _ = planner.context(self.state, "review_plan", Path("/tmp/state.json"))
         self.assertNotIn("INVESTIGATION PASS", other)
 
     def test_code_evidenced_resolution_retires_the_question_without_a_user_event(self):
@@ -130,7 +130,7 @@ class InvestigationPassTests(EpisodeCase):
                 machine_resolutions=[self.resolution("Q1", handoff_hash, ["config.py:1-2"])],
             ),
         )
-        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
         self.assertEqual(["Q2"], [q["id"] for q in self.state["requirements_handoff"]["report"]["open_questions"]])
         self.assertEqual("Q1", self.state["machine_resolutions"][0]["question_id"])
         self.assertNotIn("investigation_request", self.state)
@@ -138,12 +138,12 @@ class InvestigationPassTests(EpisodeCase):
 
     def test_discovery_accepts_a_handoff_question_retired_by_its_own_investigation(self):
         self.apply("requirements_gather", requirements([question("Q3", "decision")]))
-        self.apply("astra_discovery", discovery(clarification_only([question("Q3")])))
-        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.apply("draft_plan", discovery(clarification_only([question("Q3")])))
+        self.assertEqual("draft_plan", self.state["next_stage"])
         self.assertNotIn("goal_contract", self.state)
         handoff_hash = self.state["investigation_request"]["handoff_hash"]
-        self.apply("astra_discovery", discovery(body(), machine_resolutions=[self.resolution("Q3", handoff_hash)]))
-        self.assertEqual("astra_challenge", self.state["next_stage"])
+        self.apply("draft_plan", discovery(body(), machine_resolutions=[self.resolution("Q3", handoff_hash)]))
+        self.assertEqual("review_plan", self.state["next_stage"])
         self.assertEqual([], self.state["goal_contract"]["body"]["open_blocking_questions"])
 
     def test_policy_choice_cannot_be_resolved_from_the_workspace(self):
@@ -189,7 +189,7 @@ class InvestigationPassTests(EpisodeCase):
                 [blocked], access_blockers=[{"question_id": "Q1", "reason": "No provider config is checked in"}]
             ),
         )
-        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
         self.assertEqual("decision", self.state["requirements_handoff"]["report"]["open_questions"][0]["kind"])
 
     def test_pass_cannot_silently_drop_a_question(self):
@@ -218,7 +218,7 @@ class InvestigationPassTests(EpisodeCase):
                 "blocking": True,
             }
         ]
-        self.state["planning"]["reports"]["astra_challenge"] = {"report": {"concerns": concerns}}
+        self.state["planning"]["reports"]["review_plan"] = {"report": {"concerns": concerns}}
         revision = self.state["goal_contract"]["revision"]
         response = [
             {"concern_id": "P1", "response": "ok", "evidence_refs": ["x"], "change": "c", "acceptance_test": "t"}
@@ -232,16 +232,16 @@ class InvestigationPassTests(EpisodeCase):
             "machine_resolutions": [],
             "access_blockers": [],
         }
-        self.apply("glm_revise", {**revise, "contract": {**body(), "open_blocking_questions": [question("Q1")]}})
-        self.assertEqual("glm_revise", self.state["next_stage"])
+        self.apply("revise_plan", {**revise, "contract": {**body(), "open_blocking_questions": [question("Q1")]}})
+        self.assertEqual("revise_plan", self.state["next_stage"])
         self.assertEqual(revision, self.state["goal_contract"]["revision"])
-        self.assertEqual(concerns, self.state["planning"]["reports"]["astra_challenge"]["report"]["concerns"])
-        self.assertEqual("glm_revise", self.state["investigation_request"]["stage"])
+        self.assertEqual(concerns, self.state["planning"]["reports"]["review_plan"]["report"]["concerns"])
+        self.assertEqual("revise_plan", self.state["investigation_request"]["stage"])
 
     def test_final_reviewer_question_labelled_discoverable_reaches_the_user_as_a_decision(self):
         self.state["workspace"] = "/absent-workspace"
         lifecycle.install_draft(self.state, body(), origin="glm_draft")
-        self.state["planning"]["reports"]["astra_challenge"] = {"report": {"concerns": []}}
+        self.state["planning"]["reports"]["review_plan"] = {"report": {"concerns": []}}
         final = {
             **body(),
             "open_blocking_questions": [question("Q1")],
@@ -256,7 +256,7 @@ class InvestigationPassTests(EpisodeCase):
             },
         }
         self.apply(
-            "astra_finalize",
+            "finalize_plan",
             {
                 "contract": final,
                 "summary": "Needs a decision",
@@ -347,7 +347,7 @@ class ContractListTests(EpisodeCase):
     """Live discovery reports were sent back for repair for an empty deliverables, required_behaviors or
     permission_boundaries list (two Claude-model trials, 2026-09-29): the model is told what each list is for."""
 
-    STAGES = ("astra_discovery", "glm_revise", "astra_finalize")
+    STAGES = ("draft_plan", "revise_plan", "finalize_plan")
 
     def test_the_schema_the_model_gets_says_what_each_list_is_for(self):
         for stage in (*self.STAGES, "plan", "plan_revise", "plan_finalize"):
@@ -369,11 +369,11 @@ class ContractListTests(EpisodeCase):
             prompt, _ = planner.context(self.state, stage, Path("/tmp/state.json"))
             self.assertIn(planner.CONTRACT_FIELDS_RULE, prompt, stage)
             self.assertIn("HUMAN REVIEW: an acceptance criterion's human_review is true only when", prompt, stage)
-        review, _ = planner.context(self.state, "astra_challenge", Path("/tmp/state.json"))
+        review, _ = planner.context(self.state, "review_plan", Path("/tmp/state.json"))
         self.assertNotIn(planner.CONTRACT_FIELDS_RULE, review)
 
     def test_validation_is_unchanged(self):
-        schema = planner.SCHEMAS["astra_discovery"]
+        schema = planner.SCHEMAS["draft_plan"]
         from autocode_support import validate_schema
 
         validate_schema(discovery(body(), conflict_resolutions=[]), schema)
@@ -428,15 +428,15 @@ class RequirementTraceRowsTests(EpisodeCase):
                 self.assertIn(planner.REQUIREMENT_TRACE_RULE, prompt)
 
     def test_plan_review_gets_the_sources_without_a_trace_output_requirement(self):
-        prompt, packet = self.packet("astra_challenge")
+        prompt, packet = self.packet("review_plan")
         self.assertEqual(
             [row["source_quote"] for row in self.REQUIREMENTS],
             [row["source_quote"] for row in packet["requirement_trace_rows"]],
         )
         self.assertNotIn(planner.REQUIREMENT_TRACE_RULE, prompt)
-        self.assertNotIn("requirement_trace", planner.SCHEMAS["astra_challenge"]["properties"])
+        self.assertNotIn("requirement_trace", planner.SCHEMAS["review_plan"]["properties"])
         self.state["requirements_handoff"] = {"report": {"requirements": []}, "output": "req.json"}
-        prompt, packet = self.packet("astra_discovery")
+        prompt, packet = self.packet("draft_plan")
         self.assertNotIn("requirement_trace_rows", packet)
         self.assertNotIn(planner.REQUIREMENT_TRACE_RULE, prompt)
 
@@ -506,7 +506,7 @@ class NewBehaviorCriterionRuleTests(EpisodeCase):
     (a namespace package), so the milestone could never be proven (parallel-diamond, 2026-09-29)."""
 
     def test_build_planning_says_a_test_criterion_is_new_behavior(self):
-        prompt, _ = planner.context(self.state, "astra_discovery", Path("/tmp/state.json"))
+        prompt, _ = planner.context(self.state, "draft_plan", Path("/tmp/state.json"))
         rule = 'A "test:" criterion describes behavior that does not exist before the run'
         self.assertIn(rule, planner.EXAMPLE_CRITERIA_RULE)
         self.assertIn(rule, prompt)
@@ -527,7 +527,7 @@ class CriterionSelfCheckRuleTests(EpisodeCase):
         return " ".join(prompt.split())
 
     def test_every_stage_that_writes_criteria_checks_each_one_against_itself(self):
-        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 prompt = self.prompt(stage)
                 self.assertIn(self.SELF_CHECK, prompt)
@@ -548,7 +548,7 @@ class CriterionSelfCheckRuleTests(EpisodeCase):
 
     def test_the_design_rule_lets_the_planner_correct_its_own_draft_criterion(self):
         self.state["design_constraint"] = {"design_document": "docs/design/cache.md", "summary": "s", "constraints": []}
-        prompt = self.prompt("astra_discovery")
+        prompt = self.prompt("draft_plan")
         self.assertIn("APPROVED DESIGN: approved_design in the handoff data", prompt)
         self.assertIn("with approved_design when there is one", prompt)
         self.assertNotIn("once the plan is approved, changing such a criterion needs the user", prompt)

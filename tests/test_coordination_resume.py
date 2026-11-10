@@ -37,7 +37,7 @@ class CoordinationResumeTests(unittest.TestCase):
             "status": "PAUSED_INTERVENTION",
             "needs": {"kind": "resume"},
             "recovery": {"cause": "PAUSED_INTERVENTION", "token": "child-token"},
-            "next_stage": "glm_revise",
+            "next_stage": "revise_plan",
             "turn": 1,
             "iteration": 1,
             "cost": {"spent_usd": 4, "complete": True},
@@ -301,7 +301,7 @@ class CoordinationResumeTests(unittest.TestCase):
             ("finished_at", None),
             ("attempt_id", "other"),
             ("run_id", "/other"),
-            ("stage", "terra"),
+            ("stage", "builder"),
             ("events", "/outside/tester.jsonl"),
         ):
             with self.subTest(field=field):

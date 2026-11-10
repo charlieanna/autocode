@@ -24,7 +24,7 @@ class DependencyFlowTests(unittest.TestCase):
         bindir.mkdir()
         provider = (HERE / "live_fixture_provider.py").read_text()
         # A valid reviewed implementation that needs an external delivery before continuing.
-        inject = """    if stage == "astra_review" and __import__('os').environ.get('DEPENDENT') and not (data.get('recovery_context') or {}).get('manifest'):
+        inject = """    if stage == "review_completion" and __import__('os').environ.get('DEPENDENT') and not (data.get('recovery_context') or {}).get('manifest'):
         report.update(status="BLOCKED", blocker="Waiting for accepted producer delivery")
         report['user_request'] = {"kind": "permission", "discovered": "Prerequisite delivery absent",
             "impact": "Cannot integrate without accepted source", "decision_needed": "Supply accepted producer delivery",

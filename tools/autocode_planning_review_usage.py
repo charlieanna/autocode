@@ -65,7 +65,7 @@ def _evidence(state: RunState):
             return None
         attempt = attempts[0]
         if (
-            attempt.get("stage") not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
+            attempt.get("stage") not in ("review_plan", "finalize_plan", "plan_review", "plan_finalize")
             or type(attempt.get("exit_code")) is not int
             or attempt["exit_code"] != 0
             or any(
@@ -115,7 +115,7 @@ def can_resume(state: RunState):
     return bool(
         adjusted
         and state.get("status") == "PAUSED_PLANNING_BUDGET"
-        and state.get("next_stage") in ("astra_challenge", "astra_finalize")
+        and state.get("next_stage") in ("review_plan", "finalize_plan")
         and type(limit) is int
         and (limit == 0 or limit >= 2 and adjusted["used"] < limit)
         and not any(

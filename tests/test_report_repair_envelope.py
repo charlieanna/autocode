@@ -75,7 +75,7 @@ class RepairEnvelopeMarkerTests(unittest.TestCase):
         response = self._write_report(malformed, "initial.response.txt")
         record = {
             "engine": "codex",
-            "stage": "terra",
+            "stage": "builder",
             "output": str(self.root / "report.json"),
             "response_text": str(response),
         }
@@ -100,8 +100,8 @@ class RepairEnvelopeMarkerTests(unittest.TestCase):
         response = self._write_report(valid)
         record = {
             "engine": "codex",
-            "stage": "astra_discovery_report_repair",
-            "original_stage": "astra_discovery",
+            "stage": "draft_plan_report_repair",
+            "original_stage": "draft_plan",
             "report_only": True,
             "output": str(self.root / "repair.json"),
             "response_text": str(response),
@@ -121,10 +121,10 @@ class RepairEnvelopeMarkerTests(unittest.TestCase):
                 }
             )
         )
-        self.assertTrue(edits.eligible("astra_discovery", source))
-        instruction = edits.instruction("astra_discovery", source)
+        self.assertTrue(edits.eligible("draft_plan", source))
+        instruction = edits.instruction("draft_plan", source)
         self.assertIn("BOUNDED REPORT EDITS", instruction)
-        offered = edits.prepare(schema, source, "astra_discovery")
+        offered = edits.prepare(schema, source, "draft_plan")
         self.assertNotEqual(schema, offered)
 
     def test_existing_envelope_ineligibility_remains_covered_by_existing_tests(self):

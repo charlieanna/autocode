@@ -61,8 +61,8 @@ LADDER = {
     "requirements": {"model": "zai-coding-plan/glm-5.3", "effort": "medium"},
     "planner": {"model": "zai-coding-plan/glm-5.3", "effort": "high"},
     "plan_reviewer": {"model": "openai/gpt-6-sol", "effort": "high"},
-    "terra": {"model": "zai-coding-plan/glm-5.3", "effort": "medium"},
-    "sol": {"model": "openai/gpt-6-sol", "effort": "high"},
+    "builder": {"model": "zai-coding-plan/glm-5.3", "effort": "medium"},
+    "tester": {"model": "openai/gpt-6-sol", "effort": "high"},
     "completion": {"model": "openai/gpt-6-sol", "effort": "medium"},
     "task_planner": {"model": "openai/gpt-6-astra", "effort": "high"},
     "resolver": {"model": "openai/gpt-6-astra", "effort": "high"},
@@ -71,8 +71,8 @@ LADDER = {
 # producer role -> verifier role(s) that must use a different model family
 INDEPENDENCE_PAIRS = (
     ("planner", "plan_reviewer", "Planner/Plan Reviewer"),
-    ("terra", "sol", "Builder/Validator"),
-    ("terra", "completion", "Builder/Completion Owner"),
+    ("builder", "tester", "Builder/Validator"),
+    ("builder", "completion", "Builder/Completion Owner"),
 )
 
 
@@ -85,7 +85,7 @@ def stage_token_rows(state: RunState) -> list[dict]:
     # (autocode_workflows.RETIRED_STAGES) stay, so a saved run that reached one still scores.
     stage_role = {
         "recognize_workflow": "requirements",
-        "review_change": "sol",
+        "review_change": "tester",
         "investigate_bug": "investigator",
         "review_design": "architect",
         "answer_question": "analyst",
@@ -93,16 +93,16 @@ def stage_token_rows(state: RunState) -> list[dict]:
         "investigate_stuck": "stuck_investigator",
         "requirements_gather": "requirements",
         "requirements_gather_report_repair": "requirements",
-        "astra_discovery": "task_planner",
-        "astra_challenge": "plan_reviewer",
-        "glm_revise": "planner",
-        "astra_finalize": "plan_reviewer",
-        "terra": "terra",
-        "sol": "sol",
-        "astra_review": "task_planner",
-        "astra_checkpoint": "task_planner",
-        "astra_resolve": "resolver",
-        "astra_plan": "task_planner",
+        "draft_plan": "task_planner",
+        "review_plan": "plan_reviewer",
+        "revise_plan": "planner",
+        "finalize_plan": "plan_reviewer",
+        "builder": "builder",
+        "tester": "tester",
+        "review_completion": "task_planner",
+        "review_checkpoint": "task_planner",
+        "resolve": "resolver",
+        "plan_task": "task_planner",
     }
     rows = []
     records = [(st, False) for st in state.get("stages") or []]
@@ -278,7 +278,7 @@ def score_run(run_dir: Path) -> dict:
     if state.get("displayed_goal"):
         gate_notes.append("displayed_goal token present; approval must use the current token")
     # if COMPLETE without acceptance evidence -> FAIL
-    if status in ("TASK_COMPLETE", "COMPLETE") and not (stages and any(s.get("stage") == "sol" for s in stages)):
+    if status in ("TASK_COMPLETE", "COMPLETE") and not (stages and any(s.get("stage") == "tester" for s in stages)):
         gate_score = "FAIL"
         gate_notes.append("COMPLETE without an independent validator stage")
 

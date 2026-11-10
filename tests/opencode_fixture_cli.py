@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 TIMEOUT_ONCE = """
-if data["stage"] == "astra_challenge":
+if data["stage"] == "review_plan":
     marker = Path(os.environ["AUTOCODE_FIXTURE_TIMEOUT_ONCE"])
     if not marker.exists():
         marker.write_text("first challenge attempt")
@@ -29,7 +29,7 @@ if data["stage"] == "astra_challenge":
         time.sleep(60)
 with tempfile.TemporaryDirectory(dir=fixture_root) as temp:"""
 TRANSIENT_VALIDATOR_WRITE = """
-    if data.get("stage") == "sol":
+    if data.get("stage") == "tester":
         probe = Path("validator-probe.tmp")
         emit("step_start", {"id": "probe-start", "type": "step-start", "snapshot": "a" * 40})
         probe.write_text("a forbidden reviewer probe")

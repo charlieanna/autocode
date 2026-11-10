@@ -412,6 +412,6 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         "review": review,
         "notice": notice(public),
         "phase": "requirements"
-        if requirements_chat.enabled(state) and state.get("next_stage") in ("requirements_gather", "astra_discovery")
+        if requirements_chat.enabled(state) and state.get("next_stage") in ("requirements_gather", "draft_plan")
         else None,
     }

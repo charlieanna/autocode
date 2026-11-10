@@ -110,7 +110,7 @@ class Notes(unittest.TestCase):
         # A further move, and the same move of another tool, are each their own decision.
         third = identity("/three/kilocode.toml")
         self.assertTrue(relocation.note(state, "opencode", third, identity(), at="t3"))
-        self.assertTrue(relocation.note(state, "role:sol", MOVED, identity(), at="t4"))
+        self.assertTrue(relocation.note(state, "role:tester", MOVED, identity(), at="t4"))
         self.assertEqual(3, len(state["configuration_changes"]))
 
     def test_no_note_without_a_move(self):
@@ -121,7 +121,7 @@ class Notes(unittest.TestCase):
 
     def test_the_settings_history_walk_skips_the_note(self):
         """A note is metadata: an earlier explicit move stays provable after it."""
-        roles = {"terra": {"model": "plan/glm"}}
+        roles = {"builder": {"model": "plan/glm"}}
 
         def settings(transport):
             return {
@@ -152,14 +152,14 @@ class Notes(unittest.TestCase):
                 "transport_identity": identity(),
                 "transport_identities": {
                     "opencode": identity(),
-                    "role:sol": {"provider": "kilocode", "identity": identity()},
+                    "role:tester": {"provider": "kilocode", "identity": identity()},
                     "role:task_planner": {"provider": "native", "identity": identity()},
                 },
             }
         }
         facades = {"kilocode": Facade(MOVED), "native": type("Native", (), {"CONFIGURED": False})()}
         relocation.follow(state, "/workspace", MOVED, at="t", resolve=facades.__getitem__)
-        self.assertEqual(["opencode", "role:sol"], [row["transport"] for row in state["configuration_changes"]])
+        self.assertEqual(["opencode", "role:tester"], [row["transport"] for row in state["configuration_changes"]])
         relocation.follow(state, "/workspace", MOVED, at="t2", resolve=facades.__getitem__)
         self.assertEqual(2, len(state["configuration_changes"]))
 
@@ -236,22 +236,22 @@ class CommandTool(unittest.TestCase):
         _provider, saved = self.identity_at(self.root / "one")
         settings = {
             "engine": "opencode",
-            "roles": {"sol": {"engine": "opencode", "provider": "reloc", "model": "demo"}},
-            "transport_identities": {"role:sol": {"provider": "reloc", "identity": saved}},
+            "roles": {"tester": {"engine": "opencode", "provider": "reloc", "model": "demo"}},
+            "transport_identities": {"role:tester": {"provider": "reloc", "identity": saved}},
         }
         shutil.copytree(self.root / "one", self.root / "two")
         self.identity_at(self.root / "two")
         fallback = object()
-        facade = role_transport.adapter(settings, "sol", fallback, self.root)
+        facade = role_transport.adapter(settings, "tester", fallback, self.root)
         self.assertIsNot(fallback, facade)
-        self.assertEqual(saved, settings["transport_identities"]["role:sol"]["identity"])
+        self.assertEqual(saved, settings["transport_identities"]["role:tester"]["identity"])
         state = {"settings": settings}
         relocation.follow(state, self.root, None, at="t")
-        self.assertEqual(["role:sol"], [row["transport"] for row in state["configuration_changes"]])
+        self.assertEqual(["role:tester"], [row["transport"] for row in state["configuration_changes"]])
         self.write(self.root / "three", self.BODY + "\n# different bytes\n")
         self.identity_at(self.root / "three")
         with self.assertRaises(util.Paused) as stopped:
-            role_transport.adapter(settings, "sol", fallback, self.root)
+            role_transport.adapter(settings, "tester", fallback, self.root)
         self.assertEqual("PAUSED_TRANSPORT_CHANGED", stopped.exception.status)
 
 
@@ -278,7 +278,7 @@ class HeldRepair(unittest.TestCase):
     """A repair bound before a move still holds after it, however the move was made."""
 
     def setUp(self):
-        self.roles = {"terra": {"engine": "opencode", "model": "plan/glm", "reasoning_effort": "low"}}
+        self.roles = {"builder": {"engine": "opencode", "model": "plan/glm", "reasoning_effort": "low"}}
         self.state = {
             "goal_contract": {"hash": "h", "revision": 4},
             "current_task": {"id": "task-1"},

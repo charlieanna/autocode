@@ -17,14 +17,14 @@ class OneListOfNames(unittest.TestCase):
                 self.assertEqual(name, roles.screen_name(stage + "_report_repair"))
 
     def test_no_unit_or_model_code_names_on_screen(self):
-        banned = ("autoplanner", "autocode", "autoreview", "autoresolver", "astra", "terra", "glm")
+        banned = ("autoplanner", "autocode", "autoreview", "autoresolver", "astra", "builder", "glm")
         for stage, job in roles.STAGE_JOB.items():
             name = roles.SCREEN[job]
             tokens = name.lower().replace("-", " ").split()
             for word in banned:
                 self.assertNotIn(word, tokens, f"{stage} screen name {name!r} leaks {word!r}")
-            # 'sol' as a whole token only — 'Resolver' is not a leak.
-            self.assertNotIn("sol", tokens, name)
+            # 'tester' as a whole token only — 'Resolver' is not a leak.
+            self.assertNotIn("tester", tokens, name)
             self.assertNotIn("validator", tokens, name)
 
     def test_unknown_stages_title_case_but_are_not_in_the_table(self):
@@ -34,7 +34,7 @@ class OneListOfNames(unittest.TestCase):
     def test_stages_the_runner_queues_have_job_names(self):
         # Written as next_stage by AutoResolver diagnosis and the --planning-v2 flow (#29 shows them).
         for stage, name in {
-            "astra_diagnose": "Resolver",
+            "diagnose": "Resolver",
             "requirements": "Requirements",
             "plan": "Planner",
             "plan_revise": "Planner",
@@ -56,8 +56,8 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
             "planner": "Planner",
             "requirements": "Requirements",
             "plan_reviewer": "Plan Reviewer",
-            "terra": "Builder",
-            "sol": "Tester",
+            "builder": "Builder",
+            "tester": "Tester",
             "completion": "Completion Reviewer",
             "resolver": "Resolver",
             "architect": "Design Reviewer",
@@ -69,7 +69,7 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
         self.assertEqual("Future Role", roles.route_name("future_role", {}))
 
     def test_the_glm_slot_label_follows_the_planner_work_it_runs(self):
-        # role_for sends the Planner's draft (astra_discovery) and revision (glm_revise)
+        # role_for sends the Planner's draft (draft_plan) and revision (revise_plan)
         # to the glm slot in the legacy flow, and plan/plan_revise in v2: its primary job
         # is the Planner's in both (#2592).
         from autocode_role_route import record as route_record
@@ -91,28 +91,28 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
 
     def test_testing_is_tester_even_when_the_plan_reviewer_runs_it(self):
         # sol is the Tester job on the Validator AI.
-        self.assertEqual("Tester", status.role_name("sol"))
+        self.assertEqual("Tester", status.role_name("tester"))
         # Reviewer routing hands the same testing job to the Plan Reviewer
-        # (autocode_workflow.MODE → astra_checkpoint). The screen name is the job.
+        # (autocode_workflow.MODE → review_checkpoint). The screen name is the job.
         state = {"settings": {"workflow": {"mode": workflow.MODE}}}
-        self.assertEqual("Tester", status.role_name("astra_checkpoint", state))
-        self.assertEqual("Tester", status.role_name("astra_checkpoint_report_repair", state))
-        # Without that routing, astra_checkpoint is the completion job.
-        self.assertEqual("Completion Reviewer", status.role_name("astra_checkpoint"))
-        self.assertEqual("Completion Reviewer", status.role_name("astra_checkpoint", {"settings": {}}))
+        self.assertEqual("Tester", status.role_name("review_checkpoint", state))
+        self.assertEqual("Tester", status.role_name("review_checkpoint_report_repair", state))
+        # Without that routing, review_checkpoint is the completion job.
+        self.assertEqual("Completion Reviewer", status.role_name("review_checkpoint"))
+        self.assertEqual("Completion Reviewer", status.role_name("review_checkpoint", {"settings": {}}))
         # Final-audit routing is the completion job again, not Tester.
         final = {"settings": {"workflow": {"mode": workflow.FINAL_MODE}}}
-        self.assertEqual("Completion Reviewer", status.role_name("astra_checkpoint", final))
+        self.assertEqual("Completion Reviewer", status.role_name("review_checkpoint", final))
 
     def test_validation_routing_modes_match_the_workflow_module(self):
         self.assertEqual((workflow.MODE,), roles.VALIDATION_ROUTING_MODES)
 
     def test_plan_jobs_stay_plan_reviewer(self):
-        for stage in ("astra_challenge", "astra_finalize", "plan_reviewer", "plan_finalizer"):
+        for stage in ("review_plan", "finalize_plan", "plan_reviewer", "plan_finalizer"):
             self.assertEqual("Plan Reviewer", status.role_name(stage))
 
     def test_completion_is_completion_reviewer_not_bare_reviewer(self):
-        for stage in ("astra_review", "decision_owner"):
+        for stage in ("review_completion", "decision_owner"):
             self.assertEqual("Completion Reviewer", status.role_name(stage))
         # A run an earlier runtime saved at a retired stage still shows that stage by its job.
         self.assertEqual("Code Reviewer", status.role_name("review_change"))
@@ -120,8 +120,8 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
 
     def test_planner_draft_and_revision_job_names(self):
         # prompts/discovery.md and prompts/requirements-revise.md both open "You are the
-        # Planner": astra_discovery drafts the plan and glm_revise revises it (#2592).
-        for stage in ("astra_discovery", "glm_revise"):
+        # Planner": draft_plan drafts the plan and revise_plan revises it (#2592).
+        for stage in ("draft_plan", "revise_plan"):
             self.assertEqual("Planner", status.role_name(stage))
             self.assertEqual("Planner", status.role_name(stage + "_report_repair"))
 
@@ -130,7 +130,7 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
         # revision (autocode_ui prompts: "Act as the Requirements Planner").
         for stage in ("requirements_planner", "requirements_revision"):
             self.assertEqual("Requirements", status.role_name(stage))
-        self.assertEqual("Resolver", status.role_name("astra_resolve"))
+        self.assertEqual("Resolver", status.role_name("resolve"))
 
 
 if __name__ == "__main__":
@@ -140,7 +140,7 @@ if __name__ == "__main__":
 class EachPipelineJobNamesTheSlotItRunsOn(unittest.TestCase):
     """route_for_job, which clients read, agrees with the slot the runner launches each stage on (#3087)."""
 
-    JOINT = ("requirements", "planner", "plan_reviewer", "task_planner", "terra", "sol", "completion")
+    JOINT = ("requirements", "planner", "plan_reviewer", "task_planner", "builder", "tester", "completion")
 
     def check(self, configured, joint, stages):
         state = {"settings": {"joint_planning": joint, "roles": {slot: {"model": slot} for slot in configured}}}
@@ -151,12 +151,12 @@ class EachPipelineJobNamesTheSlotItRunsOn(unittest.TestCase):
                 self.assertEqual(autoplanner._resolve_route(state, stage), roles.route_for_job(job, configured))
 
     def test_a_joint_run_shows_the_plan_reviewers_own_slot_not_the_resolvers(self):
-        planning = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
-        self.check(self.JOINT, True, (*planning, "astra_review", "astra_checkpoint"))
+        planning = ("requirements_gather", "draft_plan", "review_plan", "revise_plan", "finalize_plan")
+        self.check(self.JOINT, True, (*planning, "review_completion", "review_checkpoint"))
         self.assertEqual("plan_reviewer", roles.route_for_job("plan_reviewer", dict.fromkeys(self.JOINT)))
 
     def test_a_run_without_their_own_slots_reviews_on_astra(self):
-        self.check(("task_planner", "terra", "sol"), False, ("astra_plan", "astra_challenge", "astra_review"))
+        self.check(("task_planner", "builder", "tester"), False, ("plan_task", "review_plan", "review_completion"))
 
     def test_an_unconfigured_job_has_no_slot(self):
         self.assertIsNone(roles.route_for_job("requirements", {"task_planner": {}}))

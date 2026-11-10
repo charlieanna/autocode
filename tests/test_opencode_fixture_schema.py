@@ -84,8 +84,8 @@ class OpenCodeFixtureSchemaTests(unittest.TestCase):
     def test_repair_relay_preserves_current_schema(self):
         packet = {
             "execution_engine": "opencode",
-            "stage": "astra_review_report_repair",
-            "original": {"stage": "astra_review"},
+            "stage": "review_completion_report_repair",
+            "original": {"stage": "review_completion"},
         }
         prompt = self.rendered(packet, SOURCE_VERDICT_SCHEMA)
         report = self.report(self.invoke(prompt))
@@ -93,7 +93,7 @@ class OpenCodeFixtureSchemaTests(unittest.TestCase):
         self.assertEqual(prompt, report["prompt"])
 
     def test_planning_relay_preserves_current_schema_without_execution_instructions(self):
-        packet = {"execution_engine": "opencode", "stage": "astra_challenge", "joint_planning": True}
+        packet = {"execution_engine": "opencode", "stage": "review_plan", "joint_planning": True}
         prompt = self.rendered(packet, SOURCE_VERDICT_SCHEMA)
         report = self.report(self.invoke(prompt))
         self.assertEqual(SOURCE_VERDICT_SCHEMA, report["schema"])
@@ -114,9 +114,9 @@ class OpenCodeFixtureSchemaTests(unittest.TestCase):
                 original.write_text(json.dumps(value))
                 packet = {
                     "execution_engine": "opencode",
-                    "stage": "astra_review_report_repair",
+                    "stage": "review_completion_report_repair",
                     "report_repair": True,
-                    "original": {"stage": "astra_review", "output": str(original)},
+                    "original": {"stage": "review_completion", "output": str(original)},
                 }
                 report = self.report(self.invoke(self.rendered(packet, SOURCE_VERDICT_SCHEMA)))
                 self.assertEqual(value["checks"], report["checks"])
@@ -147,7 +147,7 @@ class OpenCodeFixtureSchemaTests(unittest.TestCase):
                         "\nOPENCODE OUTPUT CONTRACT\nReturn JSON:\n"
                         + schema
                         + "\nCURRENT HANDOFF DATA\n"
-                        + json.dumps({"execution_engine": "opencode", "stage": "astra_review"})
+                        + json.dumps({"execution_engine": "opencode", "stage": "review_completion"})
                     )
                     self.assertNotEqual(0, result.returncode)
                     self.assertIn("fake_opencode: invalid current output schema", result.stderr)
@@ -166,7 +166,7 @@ class OpenCodeFixtureSchemaTests(unittest.TestCase):
             "Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps("
             "{'evidence_refs': ['event:check', 'event:check-python3-unit', 'event:check-never-run']}))\n"
         )
-        result = self.invoke(self.rendered({"execution_engine": "opencode", "stage": "terra"}, {"type": "object"}))
+        result = self.invoke(self.rendered({"execution_engine": "opencode", "stage": "builder"}, {"type": "object"}))
         parts = [row["part"]["id"] for row in map(json.loads, result.stdout.splitlines()) if row["type"] == "tool_use"]
         self.assertEqual(["prt_check", "prt_check-python3-unit"], parts)
         # A reference to a command that never ran stays as written, for the runner to refuse.
@@ -178,9 +178,9 @@ class OpenCodeFixtureSchemaTests(unittest.TestCase):
     def test_a_contained_launch_relays_its_contract_only_from_the_qualified_fixture(self):
         # A contained launch follows the contract with the boundary instructions (#709).
         prompt = provider_launch.containment_prompt(
-            self.rendered({"execution_engine": "opencode", "stage": "astra_review"}, SOURCE_VERDICT_SCHEMA),
+            self.rendered({"execution_engine": "opencode", "stage": "review_completion"}, SOURCE_VERDICT_SCHEMA),
             {"tool_containment": {"scratch": str(self.root / "scratch")}},
-            stage="astra_review",
+            stage="review_completion",
         )
         self.assertIn("\nNATIVE TOOL BOUNDARY:", prompt.rsplit("\nOPENCODE OUTPUT CONTRACT\n", 1)[1])
         self.assertNotIn("\n", prompt.rsplit("\nCURRENT HANDOFF DATA\n", 1)[1])

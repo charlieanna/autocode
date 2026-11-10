@@ -73,7 +73,7 @@ class GateReplayTests(unittest.TestCase):
                 "id": message,
                 "gate_token": token,
                 "gate_kind": "plan",
-                "stage": "astra_finalize",
+                "stage": "finalize_plan",
             }
         }
 

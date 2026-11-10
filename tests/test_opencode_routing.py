@@ -41,14 +41,19 @@ class OpenCodeRoutingTests(unittest.TestCase):
         self.identity = {"engine": "opencode", "identity_version": 2, "version": "1.18.31"}
         self.state = {
             "status": "PAUSED_REQUESTED",
-            "next_stage": "sol",
+            "next_stage": "tester",
             "iteration": 12,
             "goal_contract": {"hash": "approved-contract", "approval_status": "approved"},
             "implementation": {"evidence_refs": ["saved-report.json"], "source_revision": "unchanged"},
             "planning": {"astra_calls": 2},
             "milestone_progress": {"M1": {"accepted": True}},
             "stages": [{"engine": "codex", "role": "task_planner", "session_id": "old-astra"}],
-            "sessions": {"task_planner": "old-astra", "sol": "old-sol", "terra": "ses_terra", "planner": "ses_glm"},
+            "sessions": {
+                "task_planner": "old-astra",
+                "tester": "old-sol",
+                "builder": "ses_terra",
+                "planner": "ses_glm",
+            },
             "settings": {
                 "engine": "opencode",
                 "joint_planning": True,
@@ -62,13 +67,13 @@ class OpenCodeRoutingTests(unittest.TestCase):
                         "model": "gpt-6-astra",
                         "reasoning_effort": "high",
                     },
-                    "sol": {
+                    "tester": {
                         "engine": "codex",
                         "provider": "openai",
                         "model": "gpt-5.6-sol",
                         "reasoning_effort": "high",
                     },
-                    "terra": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
+                    "builder": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
                     "planner": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
                 },
             },
@@ -85,7 +90,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
     def test_new_defaults_and_bare_aliases_never_read_codex_login(self):
         for overrides, expected_sol in (
             ({}, "openai/gpt-6-sol"),
-            ({"task_planner_model": "openai/gpt-6-astra", "sol_model": "openai/gpt-6-astra"}, "openai/gpt-6-astra"),
+            ({"task_planner_model": "openai/gpt-6-astra", "tester_model": "openai/gpt-6-astra"}, "openai/gpt-6-astra"),
         ):
             args = test_planning.PlanningTests.configure_args(self, **overrides)
             with patch.object(support, "local_settings", side_effect=AssertionError("Codex must not be used")):
@@ -99,7 +104,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
                 )
             self.assertEqual({"opencode"}, {c["engine"] for c in settings["roles"].values()})
             self.assertEqual("openai/gpt-6-astra", settings["roles"]["task_planner"]["model"])
-            self.assertEqual(expected_sol, settings["roles"]["sol"]["model"])
+            self.assertEqual(expected_sol, settings["roles"]["tester"]["model"])
             self.assertEqual({"opencode"}, set(settings["transport_identities"]))
 
     def test_migration_preserves_approved_work_and_archives_only_codex_sessions(self):
@@ -127,9 +132,9 @@ class OpenCodeRoutingTests(unittest.TestCase):
         ):
             self.assertEqual(before[key], self.state[key], key)
         self.assertEqual(before["settings"]["limits"], self.state["settings"]["limits"])
-        self.assertEqual({"terra": "ses_terra", "planner": "ses_glm"}, self.state["sessions"])
+        self.assertEqual({"builder": "ses_terra", "planner": "ses_glm"}, self.state["sessions"])
         self.assertEqual({"old-astra", "old-sol"}, {r["old_session"] for r in self.state["session_rotations"]})
-        self.assertEqual("openai/gpt-5.6-sol", self.state["settings"]["roles"]["sol"]["model"])
+        self.assertEqual("openai/gpt-5.6-sol", self.state["settings"]["roles"]["tester"]["model"])
         self.assertEqual({"opencode"}, set(self.state["settings"]["transport_identities"]))
         backup = Path(self.state["configuration_changes"][-1]["backup"])
         self.assertEqual(before, json.loads(backup.read_text()))
@@ -254,7 +259,7 @@ class OpenCodeMigrationFlow(unittest.TestCase):
         args = ["--run-dir", str(run), "--no-chat"]
         self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
         state = self.saved()[1]
-        for role in ("task_planner", "sol"):
+        for role in ("task_planner", "tester"):
             cfg = state["settings"]["roles"][role]
             cfg.update(engine="codex", provider="openai", model="gpt-5.6-sol")
             state["sessions"][role] = "legacy-codex-" + role
@@ -266,22 +271,22 @@ class OpenCodeMigrationFlow(unittest.TestCase):
         self.assertEqual(state["goal_contract"], migrated["goal_contract"])
         self.assertEqual(state["stages"], migrated["stages"][:-1])
         self.assertNotIn("task_planner", migrated["sessions"])
-        self.assertNotIn("sol", migrated["sessions"])
+        self.assertNotIn("tester", migrated["sessions"])
         self.assertIn(migrated["stages"][-1]["engine"], ("runner", "opencode"))
         if migrated["stages"][-1]["engine"] == "runner":
             self.assertTrue(migrated["stages"][-1]["runner_owned"])
         self.assertTrue(Path(migrated["configuration_changes"][-1]["backup"]).is_file())
         for _ in range(3):
             checked = self.saved()[1]
-            if any(row["stage"] == "sol" for row in checked["stages"][len(state["stages"]) :]):
+            if any(row["stage"] == "tester" for row in checked["stages"][len(state["stages"]) :]):
                 break
             self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         checked = self.saved()[1]
-        validation = next(row for row in reversed(checked["stages"]) if row["stage"] == "sol")
-        self.assertEqual("sol", validation["role"])
+        validation = next(row for row in reversed(checked["stages"]) if row["stage"] == "tester")
+        self.assertEqual("tester", validation["role"])
         self.assertEqual("opencode", validation["command"][0])
         self.assertNotIn("--session", validation["command"])
-        self.assertNotEqual(checked["sessions"]["terra"], checked["sessions"]["sol"])
+        self.assertNotEqual(checked["sessions"]["builder"], checked["sessions"]["tester"])
 
 
 if __name__ == "__main__":

@@ -35,12 +35,12 @@ class HarnessSmokeTests(kit.CatalogueCase):
         provider.queue(sol("Defect one"))
         with kit.offline():
             report = provider.launch()
-            oracle.apply("sol", report)
+            oracle.apply("tester", report)
             state = {}
             findings.record_validation(state, report, {"output": report["_output"]})
-        rows = findings.open_entries(state, "sol")
+        rows = findings.open_entries(state, "tester")
         self.check("one_open_row", 1, len(rows))
-        self.check("oracle_open_count", len(oracle.open("sol")), len(rows))
+        self.check("oracle_open_count", len(oracle.open("tester")), len(rows))
         self.check("provider_launch_ledgered", 2, len(bundle.operations))  # launch + result
         self.check("offline_confirmed", True, True)
         self.bundle.finish(summary="harness smoke: fake provider, offline guard, ledger parity")
@@ -59,13 +59,13 @@ class HarnessSmokeTests(kit.CatalogueCase):
                 "blocking": True,
             }
         )
-        oracle.apply("sol", report)
+        oracle.apply("tester", report)
         state = {}
         findings.record_validation(state, report, {"output": "sol-01.json"})
-        actual = len(findings.open_entries(state, "sol"))
-        self.check_true("oracle_expects_two_distinct_rows", len(oracle.open("sol")) == 2)
+        actual = len(findings.open_entries(state, "tester"))
+        self.check_true("oracle_expects_two_distinct_rows", len(oracle.open("tester")) == 2)
         self.check("wrong_expectation_detected", False, actual == 1)  # would collapse under wording identity
-        self.check("oracle_agrees_with_fixture", len(oracle.open("sol")), actual)
+        self.check("oracle_agrees_with_fixture", len(oracle.open("tester")), actual)
         self.bundle.finish(summary="deliberately wrong fixture detected by the independent oracle")
 
     def test_command_oracle_is_independent_and_strict(self):

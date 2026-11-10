@@ -14,7 +14,7 @@ class PolicyTests(unittest.TestCase):
         args = Namespace(tool_output_mode="conservative", resume_paused=True)
         for state in (
             {"status": "RUNNING"},
-            {"status": "PAUSED_X", "active_stage": {"stage": "sol"}},
+            {"status": "PAUSED_X", "active_stage": {"stage": "tester"}},
             {"status": "PAUSED_X", "pending_report_repair": {"x": 1}},
         ):
             with self.subTest(state=state), self.assertRaises(ValueError):

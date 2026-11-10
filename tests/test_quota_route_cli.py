@@ -33,7 +33,7 @@ class QuotaRouteCliTests(unittest.TestCase):
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ("--engine", "codex")
 
-    def quota_stop(self, *flags, model="gpt-5.6-sol", stage="sol"):
+    def quota_stop(self, *flags, model="gpt-5.6-sol", stage="tester"):
         self.env.update(
             AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_QUOTA_STAGE=stage, AUTOCODE_FIXTURE_QUOTA_MODEL=model
         )
@@ -57,12 +57,12 @@ class QuotaRouteCliTests(unittest.TestCase):
         paused = self.quota_stop()
         published = human.current(paused)
         self.assertEqual("operational_exhaustion", published["scope"])
-        self.assertEqual(["route-sol"], [question["id"] for question in published["questions"]])
+        self.assertEqual(["route-tester"], [question["id"] for question in published["questions"]])
         need = self.view()["needs"]
         self.assertEqual(
             {
-                "question_id": "route-sol",
-                "role": "sol",
+                "question_id": "route-tester",
+                "role": "tester",
                 "job": "Tester",
                 "current_model": "gpt-5.6-sol",
                 "engine": "codex",
@@ -74,7 +74,9 @@ class QuotaRouteCliTests(unittest.TestCase):
         self.assertTrue(need["questions"][0]["question"].startswith("Tester's quota is exhausted"))
         surfaces = [paused["stop_reason"], published["request"]["decision_needed"], *published["request"]["options"]]
         flags = {flag for text in surfaces for flag in ADVERTISED_FLAGS.findall(text)}
-        self.assertTrue({"--answer", "--resolver-token", "--resume-paused", "--abandon-stage", "--sol-model"} <= flags)
+        self.assertTrue(
+            {"--answer", "--resolver-token", "--resume-paused", "--abandon-stage", "--tester-model"} <= flags
+        )
         known = set(ADVERTISED_FLAGS.findall(self.launch(["--help-all"], 0).stdout))
         self.assertEqual(set(), flags - known, "a stop must never advertise a flag the CLI does not have")
         state_file = self.run_dir / "state.json"
@@ -83,16 +85,16 @@ class QuotaRouteCliTests(unittest.TestCase):
         # Rejected answers leave the run paused and the request open.
         no_default = "A model question has no default to delegate"
         for args, message in (
-            (["--answer", "route-sol=gpt-5.6-terra"], "Cross-model verification violated"),
-            (["--answer", "route-sol=openai/gpt-6-luna"], "Tester uses a bare Codex model name"),
-            (["--answer", "route-sol=gpt-5.6-sol"], "The Tester already uses gpt-5.6-sol"),
-            (["--answer", "route-terra=" + OTHER_MODEL], "not the model question"),
+            (["--answer", "route-tester=gpt-5.6-terra"], "Cross-model verification violated"),
+            (["--answer", "route-tester=openai/gpt-6-luna"], "Tester uses a bare Codex model name"),
+            (["--answer", "route-tester=gpt-5.6-sol"], "The Tester already uses gpt-5.6-sol"),
+            (["--answer", "route-builder=" + OTHER_MODEL], "not the model question"),
             (
-                ["--answer", "route-sol=" + OTHER_MODEL, "--resolver-token", "stale"],
+                ["--answer", "route-tester=" + OTHER_MODEL, "--resolver-token", "stale"],
                 "requires the exact current AutoResolver request and token",
             ),
-            (["--delegate", "route-sol"], no_default),
-            (["--answer", "route-sol=" + OTHER_MODEL, "--delegate", "route-sol"], no_default),
+            (["--delegate", "route-tester"], no_default),
+            (["--answer", "route-tester=" + OTHER_MODEL, "--delegate", "route-tester"], no_default),
         ):
             with self.subTest(args=args):
                 result = self.launch([*self.args, *args], 2)
@@ -101,10 +103,10 @@ class QuotaRouteCliTests(unittest.TestCase):
         result = self.launch([*self.args, "--delegate-all", "--review-token", "any"], 2)
         self.assertIn("AutoResolver retained the operational request", result.stdout)
         _, still = self.saved()
-        self.assertEqual("gpt-5.6-sol", still["settings"]["roles"]["sol"]["model"])
-        self.assertEqual(["route-sol"], [q["id"] for q in human.current(still)["questions"]])
+        self.assertEqual("gpt-5.6-sol", still["settings"]["roles"]["tester"]["model"])
+        self.assertEqual(["route-tester"], [q["id"] for q in human.current(still)["questions"]])
 
-        result = self.launch([*self.args, "--answer", "route-sol=" + OTHER_MODEL], 0)
+        result = self.launch([*self.args, "--answer", "route-tester=" + OTHER_MODEL], 0)
         self.assertIn("Saved; no agent launched", result.stdout)
         _, answered = self.saved()
         self.assertEqual(
@@ -114,12 +116,12 @@ class QuotaRouteCliTests(unittest.TestCase):
         )
         self.assertTrue(self.model_stages(answered)[-1]["abandoned"])
         self.assertEqual("PAUSED_STAGE_ABANDONED", answered["status"])
-        self.assertEqual("sol", answered["next_stage"])
-        self.assertNotIn("sol", answered["sessions"])
+        self.assertEqual("tester", answered["next_stage"])
+        self.assertNotIn("tester", answered["sessions"])
         self.assertIsNone(human.current(answered))
         self.assertEqual("consumed", answered["resolver"]["human_escalations"][published["request_id"]]["status"])
         view = self.view()
-        route = view["routes"]["sol"]
+        route = view["routes"]["tester"]
         self.assertEqual(
             (OTHER_MODEL, "codex", "quota_assigned"),
             (route["model"], route["engine"], route["origin"]),
@@ -127,7 +129,7 @@ class QuotaRouteCliTests(unittest.TestCase):
         )
         [assignment] = view["route_assignments"]
         self.assertEqual(
-            ("sol", "gpt-5.6-sol", OTHER_MODEL, "sol", "answer", "user_cli", "PAUSED_BUDGET"),
+            ("tester", "gpt-5.6-sol", OTHER_MODEL, "tester", "answer", "user_cli", "PAUSED_BUDGET"),
             tuple(assignment[key] for key in ("role", "from", "to", "stage", "via", "actor", "pause_status")),
         )
         self.assertTrue(assignment["at"])
@@ -137,7 +139,7 @@ class QuotaRouteCliTests(unittest.TestCase):
         self.launch([*self.args, "--resume-paused", "--no-chat"], 0)
         _, done = self.saved()
         self.assertEqual("TASK_COMPLETE", done["status"])
-        testers = [row for row in self.model_stages(done) if row["stage"] == "sol"]
+        testers = [row for row in self.model_stages(done) if row["stage"] == "tester"]
         self.assertEqual(["gpt-5.6-sol", OTHER_MODEL], [self.model_of(row) for row in testers])
 
     def test_resume_with_the_role_model_flag_records_the_assignment(self):
@@ -145,15 +147,15 @@ class QuotaRouteCliTests(unittest.TestCase):
         attempt = runner.attempt_id(paused["active_stage"])
         self.launch([*self.args, "--abandon-stage", attempt], 0)
         # A model the launch refuses never runs, so it is not recorded as the route.
-        result = self.launch([*self.args, "--resume-paused", "--sol-model", "gpt-5.6-terra", "--no-chat"], 2)
+        result = self.launch([*self.args, "--resume-paused", "--tester-model", "gpt-5.6-terra", "--no-chat"], 2)
         self.assertIn("Cross-model verification violated", result.stdout + result.stderr)
         self.assertEqual([], self.view()["route_assignments"])
-        self.launch([*self.args, "--resume-paused", "--sol-model", OTHER_MODEL, "--no-chat"], 0)
+        self.launch([*self.args, "--resume-paused", "--tester-model", OTHER_MODEL, "--no-chat"], 0)
         _, done = self.saved()
         self.assertEqual("TASK_COMPLETE", done["status"])
         [assignment] = self.view()["route_assignments"]
         self.assertEqual(
-            ("sol", "gpt-5.6-sol", OTHER_MODEL, "resume_flag", attempt),
+            ("tester", "gpt-5.6-sol", OTHER_MODEL, "resume_flag", attempt),
             tuple(assignment[key] for key in ("role", "from", "to", "via", "attempt_id")),
         )
 
@@ -162,16 +164,16 @@ class QuotaRouteCliTests(unittest.TestCase):
         attempt = runner.attempt_id(paused["active_stage"])
         state_file = self.run_dir / "state.json"
         before = state_file.read_bytes()
-        result = self.launch([*self.args, "--resume-paused", "--sol-model", OTHER_MODEL, "--no-chat"], 2)
+        result = self.launch([*self.args, "--resume-paused", "--tester-model", OTHER_MODEL, "--no-chat"], 2)
         self.assertIn("stopped on quota is still uncertain", result.stderr)
         self.assertIn(f"--abandon-stage {attempt}", result.stderr)
-        # The pending request asks route-sol, so the answer the CLI takes there is offered too.
-        self.assertIn("--answer route-sol=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", result.stderr)
+        # The pending request asks route-tester, so the answer the CLI takes there is offered too.
+        self.assertIn("--answer route-tester=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", result.stderr)
         self.assertEqual(before, state_file.read_bytes())
         # Naming the model and setting the attempt aside in one invocation is the advertised order.
-        self.launch([*self.args, "--abandon-stage", attempt, "--sol-model", OTHER_MODEL], 0)
+        self.launch([*self.args, "--abandon-stage", attempt, "--tester-model", OTHER_MODEL], 0)
         _, saved = self.saved()
-        self.assertEqual(OTHER_MODEL, saved["settings"]["roles"]["sol"]["model"])
+        self.assertEqual(OTHER_MODEL, saved["settings"]["roles"]["tester"]["model"])
         [assignment] = self.view()["route_assignments"]
         self.assertEqual(
             ("gpt-5.6-sol", OTHER_MODEL, "resume_flag", attempt),
@@ -182,10 +184,10 @@ class QuotaRouteCliTests(unittest.TestCase):
         paused = self.quota_stop()
         shown = paused["resolver_human_request"]["request_token"]
         (self.project / "notes.txt").write_text("edited while paused\n")
-        result = self.launch([*self.args, "--answer", "route-sol=" + OTHER_MODEL, "--resolver-token", shown], 0)
+        result = self.launch([*self.args, "--answer", "route-tester=" + OTHER_MODEL, "--resolver-token", shown], 0)
         self.assertIn("Saved; no agent launched", result.stdout)
         _, answered = self.saved()
-        self.assertEqual(OTHER_MODEL, answered["settings"]["roles"]["sol"]["model"])
+        self.assertEqual(OTHER_MODEL, answered["settings"]["roles"]["tester"]["model"])
         [assignment] = self.view()["route_assignments"]
         self.assertNotEqual(
             paused["resolver_human_request"]["request_id"],
@@ -195,18 +197,20 @@ class QuotaRouteCliTests(unittest.TestCase):
 
     def test_setting_the_attempt_aside_keeps_the_reasoning_effort(self):
         # gpt-6-sol at high is a rung of the Tester's escalation ladder; a quota stop must not climb it.
-        paused = self.quota_stop("--sol-model", "gpt-6-sol", "--sol-reasoning-effort", "high", model="gpt-6-sol")
+        paused = self.quota_stop("--tester-model", "gpt-6-sol", "--tester-reasoning-effort", "high", model="gpt-6-sol")
         self.assertEqual(
             {"model": "gpt-6-sol", "reasoning_effort": "high"},
-            {key: paused["settings"]["roles"]["sol"][key] for key in ("model", "reasoning_effort")},
+            {key: paused["settings"]["roles"]["tester"][key] for key in ("model", "reasoning_effort")},
         )
-        self.launch([*self.args, "--answer", "route-sol=" + OTHER_MODEL], 0)
+        self.launch([*self.args, "--answer", "route-tester=" + OTHER_MODEL], 0)
         _, answered = self.saved()
         self.assertEqual(
             {"model": OTHER_MODEL, "reasoning_effort": "high"},
-            {key: answered["settings"]["roles"]["sol"][key] for key in ("model", "reasoning_effort")},
+            {key: answered["settings"]["roles"]["tester"][key] for key in ("model", "reasoning_effort")},
         )
-        self.assertEqual([], [event for event in answered.get("reasoning_escalations", []) if event["role"] == "sol"])
+        self.assertEqual(
+            [], [event for event in answered.get("reasoning_escalations", []) if event["role"] == "tester"]
+        )
 
     def taskrun_assignment(self, options):
         self.quota_stop()
@@ -218,25 +222,25 @@ class QuotaRouteCliTests(unittest.TestCase):
             env=self.env,
             timeout=60,
         )
-        self.assertEqual("sol", run.status()["needs"]["route"]["role"])
+        self.assertEqual("tester", run.status()["needs"]["route"]["role"])
         with self.assertRaisesRegex(TaskRunError, "Cross-model verification violated"):
-            run.assign_model("sol", "gpt-5.6-terra")
+            run.assign_model("tester", "gpt-5.6-terra")
         self.assertEqual(options, run.options, "a rejected answer preserves the client options")
-        view = run.assign_model("sol", OTHER_MODEL)
-        self.assertEqual(OTHER_MODEL, view["routes"]["sol"]["model"])
+        view = run.assign_model("tester", OTHER_MODEL)
+        self.assertEqual(OTHER_MODEL, view["routes"]["tester"]["model"])
         view = run.resume_paused()
         self.assertTrue(view["done"], view["needs"])
         self.assertEqual([OTHER_MODEL], [row["to"] for row in view["route_assignments"]])
-        self.assertEqual(OTHER_MODEL, view["routes"]["sol"]["model"])
+        self.assertEqual(OTHER_MODEL, view["routes"]["tester"]["model"])
         return run
 
     def test_taskrun_assigns_the_model_and_does_not_pass_the_old_one_back(self):
-        run = self.taskrun_assignment(("--sol-model", "gpt-5.6-sol"))
-        self.assertEqual(("--sol-model", OTHER_MODEL), run.options)
+        run = self.taskrun_assignment(("--tester-model", "gpt-5.6-sol"))
+        self.assertEqual(("--tester-model", OTHER_MODEL), run.options)
 
     def test_taskrun_equals_model_flag_resumes_only_on_the_assigned_model(self):
-        run = self.taskrun_assignment(("--sol-model=gpt-5.6-sol",))
-        self.assertEqual(("--sol-model=" + OTHER_MODEL,), run.options)
+        run = self.taskrun_assignment(("--tester-model=gpt-5.6-sol",))
+        self.assertEqual(("--tester-model=" + OTHER_MODEL,), run.options)
 
     def test_a_run_nobody_answers_stays_paused_on_the_same_question(self):
         paused = self.quota_stop()
@@ -246,7 +250,7 @@ class QuotaRouteCliTests(unittest.TestCase):
                 _, held = self.saved()
                 self.assertEqual(self.model_stages(paused), self.model_stages(held))
                 self.assertEqual(paused["active_stage"], held["active_stage"])
-                self.assertEqual(["route-sol"], [q["id"] for q in human.current(held)["questions"]])
+                self.assertEqual(["route-tester"], [q["id"] for q in human.current(held)["questions"]])
                 self.assertEqual([], self.view()["route_assignments"])
 
     def test_other_stops_ask_no_model_and_still_refuse_answers(self):
@@ -256,15 +260,15 @@ class QuotaRouteCliTests(unittest.TestCase):
         view = self.view()
         self.assertNotIn("route", view["needs"])
         questions = [q["id"] for q in view["needs"]["questions"]]
-        self.assertNotIn("route-sol", questions)
-        result = self.launch([*self.args, "--answer", "route-sol=" + OTHER_MODEL], 2)
+        self.assertNotIn("route-tester", questions)
+        result = self.launch([*self.args, "--answer", "route-tester=" + OTHER_MODEL], 2)
         self.assertIn(
             "Only a quota, content-filter, output-limit, context-window, failed-job authentication, stopped-job timeout or cross-model stop is answered with a model",
             result.stderr,
         )
         result = self.launch([*self.args, "--answer", questions[0] + "=retry please"], 2)
         self.assertIn("Use --resolver-response for this operational request", result.stderr)
-        self.assertEqual("gpt-5.6-sol", self.saved()[1]["settings"]["roles"]["sol"]["model"])
+        self.assertEqual("gpt-5.6-sol", self.saved()[1]["settings"]["roles"]["tester"]["model"])
 
     def test_a_used_up_plan_sent_as_a_429_asks_for_a_model(self):
         # Z.AI's used-up plan as OpenCode reported it live (2026-10-05): an HTTP 429 that never says
@@ -279,7 +283,7 @@ class QuotaRouteCliTests(unittest.TestCase):
                 },
             }
         )
-        paused = self.quota_stop(stage="astra_review")
+        paused = self.quota_stop(stage="review_completion")
         self.assertIn("--answer route-completion=MODEL", paused["stop_reason"])
         need = self.view()["needs"]
         self.assertEqual(
@@ -301,16 +305,16 @@ class QuotaRouteCliTests(unittest.TestCase):
         self.assertIn(
             "Tester: the provider's content filter refused the response on gpt-5.6-sol", paused["stop_reason"]
         )
-        self.assertIn("--answer route-sol=MODEL", paused["stop_reason"])
+        self.assertIn("--answer route-tester=MODEL", paused["stop_reason"])
         need = self.view()["needs"]
         self.assertEqual(
-            ("route-sol", "content_filter", "gpt-5.6-sol"),
+            ("route-tester", "content_filter", "gpt-5.6-sol"),
             tuple(need["route"][key] for key in ("question_id", "cause", "stopped_model")),
         )
         self.assertTrue(
             need["questions"][0]["question"].startswith("Tester's model was refused by its provider's content filter")
         )
-        self.launch([*self.args, "--answer", "route-sol=" + OTHER_MODEL], 0)
+        self.launch([*self.args, "--answer", "route-tester=" + OTHER_MODEL], 0)
         [assignment] = self.view()["route_assignments"]
         self.assertEqual(
             ("gpt-5.6-sol", OTHER_MODEL, "PAUSED_CONTENT_FILTER"),
@@ -319,7 +323,7 @@ class QuotaRouteCliTests(unittest.TestCase):
         self.launch([*self.args, "--resume-paused", "--no-chat"], 0)
         _, done = self.saved()
         self.assertEqual("TASK_COMPLETE", done["status"])
-        testers = [row for row in self.model_stages(done) if row["stage"] == "sol"]
+        testers = [row for row in self.model_stages(done) if row["stage"] == "tester"]
         self.assertEqual(
             ["gpt-5.6-sol", OTHER_MODEL], [self.model_of(row) for row in testers], "the refused model is never replayed"
         )
@@ -335,7 +339,7 @@ class QuotaRouteCliTests(unittest.TestCase):
         host = Runner()
         host.opencode = opencode or runner.opencode
         args = argparse.Namespace(
-            answer=["route-sol=" + model],
+            answer=["route-tester=" + model],
             delegate=[],
             delegate_all=False,
             resolver_token=state["resolver_human_request"]["request_token"],
@@ -361,13 +365,13 @@ class QuotaRouteCliTests(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn("Input rejected: Models unavailable: openai/gpt-6-luna", stderr)
         self.assertEqual(before, (self.run_dir / "state.json").read_bytes())
-        self.assertEqual(["route-sol"], [q["id"] for q in human.current(self.saved()[1])["questions"]])
+        self.assertEqual(["route-tester"], [q["id"] for q in human.current(self.saved()[1])["questions"]])
 
     def test_an_attempt_that_is_no_longer_the_stopped_one_is_not_answered(self):
         paused = self.quota_stop()
         before = (self.run_dir / "state.json").read_bytes()
         stopped = quota_route.stopped_attempt(paused, failure_status=runner.support.failure_status)
-        for attempt in (None, {**stopped, "active": False}, {**stopped, "role": "terra"}):
+        for attempt in (None, {**stopped, "active": False}, {**stopped, "role": "builder"}):
             with self.subTest(attempt=attempt), mock.patch.object(quota_route, "stopped_attempt", return_value=attempt):
                 code, stderr = self.answer_in_process(OTHER_MODEL)
                 self.assertEqual(2, code)
@@ -395,7 +399,7 @@ class ContentFilterFinishCliTests(unittest.TestCase):
         self.entry = entrypoint(self.entry)
         self.env.update(
             AUTOCODE_FIXTURE_MODE="no-human",
-            AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE="terra",
+            AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE="builder",
             AUTOCODE_FIXTURE_CONTENT_FILTER_MODEL=self.refused,
         )
 
@@ -404,12 +408,12 @@ class ContentFilterFinishCliTests(unittest.TestCase):
     model_of = staticmethod(QuotaRouteCliTests.model_of)
 
     def test_the_refused_builder_is_asked_for_another_model_and_continues_on_it(self):
-        self.launch(["Build a greeting tool", "--chat", "--terra-model", self.refused], 2, answers="CLI\nyes\n")
+        self.launch(["Build a greeting tool", "--chat", "--builder-model", self.refused], 2, answers="CLI\nyes\n")
         run_dir, paused = self.saved()
         args = ["--run-dir", str(run_dir)]
         published = human.current(paused)
         self.assertEqual(
-            ("operational_exhaustion", ["route-terra"]),
+            ("operational_exhaustion", ["route-builder"]),
             (published["scope"], [question["id"] for question in published["questions"]]),
             paused["stop_reason"],
         )
@@ -419,22 +423,22 @@ class ContentFilterFinishCliTests(unittest.TestCase):
             "(content_filter: OpenCode's last step finished with reason content-filter)",
             paused["stop_reason"],
         )
-        self.assertIn("--answer route-terra=MODEL", paused["stop_reason"])
+        self.assertIn("--answer route-builder=MODEL", paused["stop_reason"])
         view = json.loads(self.launch([*args, "--status"], 0).stdout)["view"]
         self.assertEqual(
-            ("route-terra", "content_filter", self.refused),
+            ("route-builder", "content_filter", self.refused),
             tuple(view["needs"]["route"][key] for key in ("question_id", "cause", "stopped_model")),
         )
-        self.launch([*args, "--answer", f"route-terra={self.other}"], 0)
+        self.launch([*args, "--answer", f"route-builder={self.other}"], 0)
         [assignment] = json.loads(self.launch([*args, "--status"], 0).stdout)["view"]["route_assignments"]
         self.assertEqual(
-            ("terra", self.refused, self.other, "PAUSED_CONTENT_FILTER"),
+            ("builder", self.refused, self.other, "PAUSED_CONTENT_FILTER"),
             tuple(assignment[key] for key in ("role", "from", "to", "pause_status")),
         )
         self.launch([*args, "--resume-paused", "--no-chat"], 0)
         _, done = self.saved()
         self.assertEqual("TASK_COMPLETE", done["status"])
-        builders = [row for row in done["stages"] if row["stage"] == "terra" and not row.get("runner_owned")]
+        builders = [row for row in done["stages"] if row["stage"] == "builder" and not row.get("runner_owned")]
         self.assertEqual(
             [self.refused, self.other], [self.model_of(row) for row in builders], "the refused model is never replayed"
         )

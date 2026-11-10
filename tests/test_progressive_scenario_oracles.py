@@ -50,7 +50,16 @@ class CumulativeRegressionOracleTests(unittest.TestCase):
                 },
                 "verification": {"source_revision": "repaired-source", "changed_code_repairs": [self.repair]},
             },
-            "stages": ["astra_challenge", "terra", "sol", "terra", "sol", "terra", "sol", "astra_review"],
+            "stages": [
+                "review_plan",
+                "builder",
+                "tester",
+                "builder",
+                "tester",
+                "builder",
+                "tester",
+                "review_completion",
+            ],
             "cli_calls": ["approve-plan", "resume"],
             "steps": [{"kind": "approve-plan", "exit": 0}],
         }
@@ -62,7 +71,7 @@ class CumulativeRegressionOracleTests(unittest.TestCase):
 
     def test_rejected_planted_line_and_fresh_repair_complete_without_a_resolver(self):
         self.assertEqual(verdict.PASS, self.score(self.record)[0])
-        self.assertNotIn("astra_resolve", self.scenario.requires_stages)
+        self.assertNotIn("resolve", self.scenario.requires_stages)
 
     def test_extra_attempts_cannot_substitute_for_the_actual_rejected_defect(self):
         variants = [
@@ -95,5 +104,5 @@ class CumulativeRegressionOracleTests(unittest.TestCase):
                 if field == "proof":
                     record["view"]["progressive"]["current_whole_product_proof"] = {"verified": False}
                 else:
-                    record["stages"] = ["astra_challenge", "terra", "sol"]
+                    record["stages"] = ["review_plan", "builder", "tester"]
                 self.assertEqual(verdict.FALSE_COMPLETE, self.score(record)[0])

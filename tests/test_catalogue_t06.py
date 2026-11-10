@@ -455,10 +455,10 @@ class SolControllerCase(kit.CatalogueCase):
             "events": str(events),
             "source_revision": support.snapshot(self.root)["revision"],
             "output": str(events),
-            "role": "sol",
-            "stage": "sol",
+            "role": "tester",
+            "stage": "tester",
         }
-        runner.apply_result(self.state, "sol", report, record, self.root, self.run)
+        runner.apply_result(self.state, "tester", report, record, self.root, self.run)
         return record
 
     def pinned_validation(self, name="shot.png", content="fixture capture bytes"):
@@ -554,7 +554,7 @@ class CompletionEvidenceCase(SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
@@ -581,7 +581,7 @@ class CompletionEvidenceCase(SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
@@ -627,7 +627,7 @@ class CompletionEvidenceCase(SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
@@ -665,7 +665,7 @@ class CompletionEvidenceCase(SolControllerCase):
                 ValueError,
                 runner.apply_result,
                 self.state,
-                "sol",
+                "tester",
                 report,
                 {
                     "events": str(events),
@@ -703,7 +703,7 @@ class CompletionEvidenceCase(SolControllerCase):
                 ValueError,
                 runner.apply_result,
                 self.state,
-                "sol",
+                "tester",
                 failing,
                 {
                     "events": str(failing_events),
@@ -732,7 +732,7 @@ class CompletionEvidenceCase(SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
@@ -741,7 +741,7 @@ class CompletionEvidenceCase(SolControllerCase):
         self.check(
             "limitation_recorded", True, "forced-colors" in json.dumps(self.state["validation"]["unverified_criteria"])
         )
-        self.check("no_implementation_batch_started", "astra_review", self.state["next_stage"])
+        self.check("no_implementation_batch_started", "review_completion", self.state["next_stage"])
         self.finish(summary="VERIFICATION_BLOCKED: environment limits stay explicit and unverified")
 
     def test_evd16_source_drift_during_verdict_application_is_caught(self):
@@ -770,7 +770,7 @@ class CompletionEvidenceCase(SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
@@ -792,7 +792,7 @@ class CompletionEvidenceCase(SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 stale_complete,
                 {"output": str(self.run / "complete-stale.json")},
                 self.root,
@@ -807,7 +807,7 @@ class CompletionEvidenceCase(SolControllerCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 fresh_complete,
                 {"output": str(self.run / "complete-fresh.json")},
                 self.root,

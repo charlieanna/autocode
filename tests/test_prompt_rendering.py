@@ -72,11 +72,19 @@ def fixed_state():
             "context_soft_tokens": 10000,
             "roles": {
                 name: {"model": "fixed-model", "engine": "codex"}
-                for name in ("task_planner", "planner", "terra", "sol", "requirements", "plan_reviewer", "resolver")
+                for name in (
+                    "task_planner",
+                    "planner",
+                    "builder",
+                    "tester",
+                    "requirements",
+                    "plan_reviewer",
+                    "resolver",
+                )
             },
         },
         "stuck_investigation": {
-            "stage": "terra",
+            "stage": "builder",
             "status": "PAUSED_TEST",
             "reason": "a fixed failure",
             "identity": "incident-1",
@@ -117,7 +125,7 @@ def rendered_cases():
                 state = fixed_state()
                 state["version"] = version
                 add(f"execution/{stage}/v{version}", stage_context.context_packet(state, stage, STATE_PATH))
-        add("execution/astra_discovery/v3", stage_context.context_packet(fixed_state(), "astra_discovery", STATE_PATH))
+        add("execution/draft_plan/v3", stage_context.context_packet(fixed_state(), "draft_plan", STATE_PATH))
         for stage in planner.PROMPTS:
             for variant in ("ordinary", "figma", "investigation", "design", "adaptive"):
                 state = fixed_state()
@@ -148,11 +156,11 @@ def rendered_cases():
                 add(
                     f"job/{job.__name__}/{engine}", job.prompt(fixed_state(), {"files": ["greeting.py"]}, engine=engine)
                 )
-        for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+        for stage in ("builder", "tester", "review_completion", "review_checkpoint"):
             add(f"unit/{stage}", common.execution_request(fixed_state(), stage, STATE_PATH, schema_dir).prompt)
-        for stage in ("sol", "astra_review", "astra_checkpoint"):
+        for stage in ("tester", "review_completion", "review_checkpoint"):
             add(f"review/{stage}", autoreview.prepare(fixed_state(), stage, STATE_PATH, schema_dir).prompt)
-        for stage in ("astra_resolve", "astra_diagnose"):
+        for stage in ("resolve", "diagnose"):
             add(f"resolver/{stage}", autoresolver.prepare(fixed_state(), stage, STATE_PATH, schema_dir).prompt)
         schema = {"type": "object", "properties": {"summary": {"type": "string"}}}
         prompt = "Instruction\nCURRENT HANDOFF DATA\n" + json.dumps({"workspace": WORKSPACE})
@@ -190,7 +198,7 @@ def rendered_cases():
         # A package run's Builder is told its write scope (#711).
         state = fixed_state()
         state["settings"]["package"] = "packages/greeting"
-        add("package/terra", stage_context.context_packet(state, "terra", STATE_PATH))
+        add("package/terra", stage_context.context_packet(state, "builder", STATE_PATH))
         add("repair/command-only-correction", correction.prompt(command_only.ERROR))
         add("repair/command-only-source", report_source.repair_report_instruction({"error": command_only.ERROR}))
         add("stuck/ordinary", stuck.prompt(fixed_state(), STATE_PATH))
@@ -201,12 +209,12 @@ def rendered_cases():
         add("stuck/builder-failure", stuck.prompt(state, STATE_PATH))
         for stage in (
             "requirements_gather",
-            "astra_discovery",
-            "glm_revise",
-            "astra_challenge",
-            "astra_finalize",
-            "terra",
-            "sol",
+            "draft_plan",
+            "revise_plan",
+            "review_plan",
+            "finalize_plan",
+            "builder",
+            "tester",
             "investigate_stuck",
         ):
             add(f"repair/clarification/{stage}", repair.instruction(stage))
@@ -220,7 +228,7 @@ def rendered_cases():
             add(f"repair/source/{variant}", report_source.repair_report_instruction(pending))
         add("repair/correction", correction.prompt("$: missing summary"))
         proof = {"verdict": "PASS", "source_revision": "fixed-revision"}
-        for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+        for stage in ("builder", "tester", "review_completion", "review_checkpoint"):
             for current in (False, True):
                 prompt = "Instruction\nCURRENT HANDOFF DATA\n" + json.dumps({"regression_proof": proof})
                 add(
@@ -233,7 +241,7 @@ def rendered_cases():
                         regression_handoff=proof,
                     ),
                 )
-        for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+        for stage in ("builder", "tester", "review_completion", "review_checkpoint"):
             state = fixed_state()
             with patch.object(
                 progressive,
@@ -260,7 +268,7 @@ def rendered_cases():
                     patch.object(milestones, "evidence_ready", return_value=False),
                 ):
                     add(f"milestones/{stage}/{batch}", stage_context.context_packet(state, stage, STATE_PATH))
-        for stage in ("sol", "astra_checkpoint"):
+        for stage in ("tester", "review_checkpoint"):
             for final in (False, True):
                 with (
                     patch.object(workflow, "enabled", return_value=True),
@@ -272,13 +280,13 @@ def rendered_cases():
                     add(f"workflow/{stage}/{final}", stage_context.context_packet(state, stage, STATE_PATH))
         for stage in (
             "requirements_gather",
-            "astra_discovery",
-            "astra_challenge",
-            "glm_revise",
-            "astra_finalize",
-            "terra",
-            "sol",
-            "astra_review",
+            "draft_plan",
+            "review_plan",
+            "revise_plan",
+            "finalize_plan",
+            "builder",
+            "tester",
+            "review_completion",
             "investigate_stuck",
         ):
 
@@ -327,7 +335,7 @@ def rendered_cases():
         for stage in artifacts.FILE_SLUGS:
             add(f"scratch/{stage}", access.scratch_rule(stage))
         for review in ("automatic", "human"):
-            for stage in (None, "terra", "sol"):
+            for stage in (None, "builder", "tester"):
                 add(
                     f"figma/{review}/{stage}",
                     figma.instructions(
@@ -352,7 +360,7 @@ def rendered_cases():
 class RenderedPromptTests(unittest.TestCase):
     def test_tool_activity_diagnostics_do_not_change_stage_prompt_bytes(self):
         state = fixed_state()
-        record = {"stage": "terra", "iteration": 1, "metrics": {"request_context": {"accounting": {}}}}
+        record = {"stage": "builder", "iteration": 1, "metrics": {"request_context": {"accounting": {}}}}
         state["stages"] = [record]
         observed = copy.deepcopy(state)
         observed["stages"][0]["metrics"]["request_context"]["accounting"]["tool_activity"] = {
@@ -377,7 +385,7 @@ class RenderedPromptTests(unittest.TestCase):
             patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
             patch.object(planner.artifacts, "verify_predecessor", return_value=None),
         ):
-            for stage in (*support.STABLE, "astra_discovery"):
+            for stage in (*support.STABLE, "draft_plan"):
                 with self.subTest(stage=stage):
                     before = stage_context.context_packet(state, stage, STATE_PATH)
                     after = stage_context.context_packet(observed, stage, STATE_PATH)
@@ -390,7 +398,7 @@ class RenderedPromptTests(unittest.TestCase):
                     )
 
     def test_reviewers_receive_plain_english_progress_guidance(self):
-        reviewers = {"astra_challenge", "astra_finalize", "plan_review", "plan_finalize"}
+        reviewers = {"review_plan", "finalize_plan", "plan_review", "plan_finalize"}
         cases = {name: text for name, text in rendered_cases().items() if name.startswith("planning/")}
         self.assertTrue(reviewers.issubset({name.split("/")[1] for name in cases}))
         for name, prompt in cases.items():
@@ -418,7 +426,7 @@ class RenderedPromptTests(unittest.TestCase):
             patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
             patch.object(planner.artifacts, "verify_predecessor", return_value=None),
         ):
-            prompt, _ = planner.context(state, "astra_finalize", STATE_PATH)
+            prompt, _ = planner.context(state, "finalize_plan", STATE_PATH)
         self.assertTrue(prompt.startswith(planner.retention.FINAL_PROMPT))
         self.assertIn("PLAIN-ENGLISH REVIEW PROGRESS", prompt)
         self.assertIn("brief public progress message", prompt)
@@ -431,7 +439,7 @@ class RenderedPromptTests(unittest.TestCase):
             name: text
             for name, text in rendered_cases().items()
             if (name.startswith("planning/") and not name.startswith("planning/requirements_gather/"))
-            or name == "execution/astra_discovery/v3"
+            or name == "execution/draft_plan/v3"
         }
         self.assertTrue(cases)
         task = fixed_state()["task"]
@@ -472,7 +480,7 @@ class RenderedPromptTests(unittest.TestCase):
                 self.assertIn("[task:0] kind=task", text)
                 self.assertLess(text.index("REGRESSION REFERENCE:"), text.index("[task:0] kind=task"), name)
                 self.assertLess(text.index("[task:0] kind=task"), text.index(transport), name)
-        discovery = rendered_cases()["execution/astra_discovery/v3"]
+        discovery = rendered_cases()["execution/draft_plan/v3"]
         self.assertIn("[task:0] kind=task", discovery)
         self.assertLess(discovery.index("MILESTONE HANDOFF POLICY v1"), discovery.index("[task:0] kind=task"))
         self.assertLess(discovery.index("[task:0] kind=task"), discovery.index(transport))
@@ -491,7 +499,7 @@ class RenderedPromptTests(unittest.TestCase):
         state["goal_contract"] = {"revision": 1, "hash": "saved-hash", "body": contract}
         state["planning"] = {
             "reports": {
-                "glm_revise": {
+                "revise_plan": {
                     "report": {
                         "contract": contract,
                         "requirement_trace": [{"requirement_id": "R1", "disposition": "covered", "evidence": "AC1"}],
@@ -506,7 +514,7 @@ class RenderedPromptTests(unittest.TestCase):
             patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
             patch.object(planner.artifacts, "verify_predecessor", return_value=None),
         ):
-            prompt, _ = planner.context(state, "astra_finalize", STATE_PATH)
+            prompt, _ = planner.context(state, "finalize_plan", STATE_PATH)
         instruction, raw = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
         self.assertEqual("R1", json.loads(raw)["requirement_trace_rows"][0]["requirement_id"])
         self.assertIn("use requirement_trace=[] to inherit that trace", instruction)
@@ -519,7 +527,7 @@ class RenderedPromptTests(unittest.TestCase):
         error = "Changing a protected contract item 'AC9' needs a saved user answer or feedback event"
         for attempt in (1, 2):
             record = {
-                "stage": "glm_revise",
+                "stage": "revise_plan",
                 "source_revision": "fixed-revision",
                 "iteration": 1,
                 "output": f"/run/revise-{attempt}.json",
@@ -530,12 +538,12 @@ class RenderedPromptTests(unittest.TestCase):
             patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
             patch.object(planner.artifacts, "verify_predecessor", return_value=None),
         ):
-            prompt, _ = planner.context(state, "glm_revise", STATE_PATH)
+            prompt, _ = planner.context(state, "revise_plan", STATE_PATH)
             instruction, raw = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
             self.assertEqual({"attempts": 2, "last_error": error}, json.loads(raw)["prior_rejection"])
             self.assertIn("PRIOR REJECTION", instruction)
-            state["stages"].append({"stage": "glm_revise", "iteration": 1, "output": "/run/revise.json"})
-            later, _ = planner.context(state, "glm_revise", STATE_PATH)
+            state["stages"].append({"stage": "revise_plan", "iteration": 1, "output": "/run/revise.json"})
+            later, _ = planner.context(state, "revise_plan", STATE_PATH)
             self.assertNotIn("PRIOR REJECTION", later)
             self.assertNotIn("prior_rejection", json.loads(later.split("\nCURRENT HANDOFF DATA\n", 1)[1]))
 
@@ -550,9 +558,9 @@ class RenderedPromptTests(unittest.TestCase):
         before = copy.deepcopy(state)
         for stage in (
             "requirements_gather",
-            "astra_discovery",
-            "astra_challenge",
-            "astra_finalize",
+            "draft_plan",
+            "review_plan",
+            "finalize_plan",
             "plan",
             "plan_review",
         ):

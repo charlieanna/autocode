@@ -15,7 +15,7 @@ class LazyValidatorEvidenceTests(unittest.TestCase):
         self.scenario = catalog.load("hybrid-lazy-validator")
         self.record = {
             "status": "PAUSED_INVALID_OUTPUT",
-            "model_stages": ["sol"],
+            "model_stages": ["tester"],
             "scripted_outputs": [],
             "view": {
                 "stop_reason": "Criterion C1 cites evidence the runner did not verify ('validator inspected the builder output directly'): cite check:<n>"

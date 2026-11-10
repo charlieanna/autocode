@@ -18,7 +18,7 @@ from . import test_subprocess
 
 QUOTA, REFUSAL, GLM, MIMO = quota_worker.QUOTA, quota_worker.REFUSAL, quota_worker.GLM, quota_worker.MIMO
 LUNA = "openai/gpt-6-luna"
-ADVICE = "--answer route-terra=MODEL"
+ADVICE = "--answer route-builder=MODEL"
 RESOLVER_ADVICE = "AutoResolver could not resolve"
 GUARD = "belongs to another implementation task"
 
@@ -62,7 +62,7 @@ class MemberStopSettingsTests(unittest.TestCase):
     def asks_route(self, state, status):
         """The member's own model question, advised once."""
         request = assert_operational_wait(self, state, status)
-        asked = [q for q in request["questions"] if q["id"] == "route-terra"]
+        asked = [q for q in request["questions"] if q["id"] == "route-builder"]
         self.assertEqual(["Builder (milestone M1)"], [q["job"] for q in asked], state["stop_reason"])
         self.assertEqual(1, state["stop_reason"].count(ADVICE), state["stop_reason"])
 
@@ -71,9 +71,9 @@ class MemberStopSettingsTests(unittest.TestCase):
     def settings_flag_asks_the_member_again(self, error, status):
         run, state = self.paused(error=error)
         self.asks_route(state, status)
-        self.resume_with(run, "--sol-model", LUNA)
+        self.resume_with(run, "--tester-model", LUNA)
         state = self.saved()[1]
-        self.assertEqual(LUNA, state["settings"]["roles"]["sol"]["model"])
+        self.assertEqual(LUNA, state["settings"]["roles"]["tester"]["model"])
         self.asks_route(state, status)
         self.answer(run, MIMO)  # the command the run advises is accepted
         state = self.resume(run)
@@ -90,30 +90,30 @@ class MemberStopSettingsTests(unittest.TestCase):
     def test_republished_member_question_survives_verifier_settings_toggled_back_and_again(self):
         run, state = self.paused(error=REFUSAL)
         self.asks_route(state, "PAUSED_CONTENT_FILTER")
-        original_sol = state["settings"]["roles"]["sol"]["model"]
+        original_sol = state["settings"]["roles"]["tester"]["model"]
         original_completion = state["settings"]["roles"]["completion"]["model"]
-        first = next(q for q in state["resolver_human_request"]["questions"] if q["id"] == "route-terra")
+        first = next(q for q in state["resolver_human_request"]["questions"] if q["id"] == "route-builder")
 
         # Moving both checkers makes the still-configured Plan Reviewer's model a valid Builder
         # candidate, changing the refusal's advice. Moving them back can republish the old receipt.
-        self.resume_with(run, "--sol-model", LUNA, "--completion-model", LUNA)
+        self.resume_with(run, "--tester-model", LUNA, "--completion-model", LUNA)
         state = self.saved()[1]
         self.asks_route(state, "PAUSED_CONTENT_FILTER")
-        second = next(q for q in state["resolver_human_request"]["questions"] if q["id"] == "route-terra")
+        second = next(q for q in state["resolver_human_request"]["questions"] if q["id"] == "route-builder")
         self.assertNotEqual(first["recommendation"], second["recommendation"])
 
-        self.resume_with(run, "--sol-model", original_sol, "--completion-model", original_completion)
+        self.resume_with(run, "--tester-model", original_sol, "--completion-model", original_completion)
         state = self.saved()[1]
         self.asks_route(state, "PAUSED_CONTENT_FILTER")
-        restored = next(q for q in state["resolver_human_request"]["questions"] if q["id"] == "route-terra")
+        restored = next(q for q in state["resolver_human_request"]["questions"] if q["id"] == "route-builder")
         self.assertEqual(first["recommendation"], restored["recommendation"])
 
         # The next withdrawal must use the receipt actually shown last, even if its first
         # issuance predates the other settings' receipt. Its stated answer must still work.
-        self.resume_with(run, "--sol-model", LUNA, "--completion-model", LUNA)
+        self.resume_with(run, "--tester-model", LUNA, "--completion-model", LUNA)
         state = self.saved()[1]
         self.asks_route(state, "PAUSED_CONTENT_FILTER")
-        latest = next(q for q in state["resolver_human_request"]["questions"] if q["id"] == "route-terra")
+        latest = next(q for q in state["resolver_human_request"]["questions"] if q["id"] == "route-builder")
         self.assertEqual(second["recommendation"], latest["recommendation"])
         self.assertEqual([[GLM], [GLM]], [self.attempts(self.workers(state)[mid]) for mid in ("M1", "M2")])
         self.answer(run, MIMO)
@@ -128,11 +128,11 @@ class MemberStopSettingsTests(unittest.TestCase):
         run, state = self.paused("AUTOCODE_BUILDER_FAIL")
         assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
         self.assertEqual(1, state["stop_reason"].count(RESOLVER_ADVICE), state["stop_reason"])
-        self.resume_with(run, "--sol-model", LUNA)
+        self.resume_with(run, "--tester-model", LUNA)
         state = self.saved()[1]
-        self.assertEqual(LUNA, state["settings"]["roles"]["sol"]["model"])
+        self.assertEqual(LUNA, state["settings"]["roles"]["tester"]["model"])
         request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
-        self.assertFalse([q for q in request["questions"] if q["id"] == "route-terra"])
+        self.assertFalse([q for q in request["questions"] if q["id"] == "route-builder"])
         self.assertEqual(1, state["stop_reason"].count(RESOLVER_ADVICE), state["stop_reason"])
         del self.env["AUTOCODE_BUILDER_FAIL"]  # the cause was fixed
         self.resume_with(run, "--retry-builder", "M1", expected=0)
@@ -154,13 +154,13 @@ class MemberStopSettingsTests(unittest.TestCase):
         run, _ = self.paused()
         checkpoint = run / "state.json"
         before = checkpoint.read_bytes()
-        for flag, value in (("--terra-model", MIMO), ("--terra-reasoning-effort", "low")):
+        for flag, value in (("--builder-model", MIMO), ("--builder-reasoning-effort", "low")):
             with self.subTest(flag=flag):
                 result = self.resume_with(run, "--retry-builder", "M1", flag, value)
                 self.assertIn(
                     f"Builder M1's retry runs on the Builder route its batch started it with ({GLM})", result.stderr
                 )
-                self.assertIn("--answer route-terra=MODEL", result.stderr)
+                self.assertIn("--answer route-builder=MODEL", result.stderr)
                 self.assertIn("Nothing was saved", result.stderr)
                 self.assertEqual(before, checkpoint.read_bytes())
         self.answer(run, MIMO)  # the accepted form
@@ -173,11 +173,11 @@ class MemberStopSettingsTests(unittest.TestCase):
         assert_operational_wait(self, state, "PAUSED_BUDGET")
         approved_goal = state["goal_contract"]
         attempts = {mid: self.attempts(row) for mid, row in self.workers(state).items()}
-        self.resume_with(run, "--terra-model", MIMO)
+        self.resume_with(run, "--builder-model", MIMO)
         state = self.saved()[1]
-        self.assertEqual(MIMO, state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual(MIMO, state["settings"]["roles"]["builder"]["model"])
         request = assert_operational_wait(self, state, "PAUSED_BUDGET")
-        asked = next(q for q in request["questions"] if q["id"] == "route-terra")
+        asked = next(q for q in request["questions"] if q["id"] == "route-builder")
         self.assertEqual(("Builder (milestone M2)", GLM), (asked["job"], asked["stopped_model"]))
         children = {mid: Path(row["run_dir"]) / "state.json" for mid, row in self.workers(state).items()}
         child_bytes = {mid: path.read_bytes() for mid, path in children.items()}
@@ -190,7 +190,7 @@ class MemberStopSettingsTests(unittest.TestCase):
         self.assertIn(ADVICE, result.stderr)
         state = self.saved()[1]
         self.assertEqual(approved_goal, state["goal_contract"])
-        self.assertEqual(MIMO, state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual(MIMO, state["settings"]["roles"]["builder"]["model"])
         self.assertEqual(child_bytes, {mid: path.read_bytes() for mid, path in children.items()})
         self.assertEqual(attempts, {mid: self.attempts(row) for mid, row in self.workers(state).items()})
         self.assertEqual(
@@ -206,10 +206,10 @@ class MemberStopSettingsTests(unittest.TestCase):
     def test_a_failed_members_saved_route_is_retried_only_after_the_parent_route_is_restored(self):
         run, state = self.paused("AUTOCODE_BUILDER_FAIL", members="M2")
         assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
-        self.resume_with(run, "--terra-model", MIMO)
+        self.resume_with(run, "--builder-model", MIMO)
         state = self.saved()[1]
         request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
-        self.assertFalse([q for q in request["questions"] if q["id"] == "route-terra"])
+        self.assertFalse([q for q in request["questions"] if q["id"] == "route-builder"])
         child = Path(self.workers(state)["M2"]["run_dir"]) / "state.json"
         before = child.read_bytes()
 
@@ -218,7 +218,7 @@ class MemberStopSettingsTests(unittest.TestCase):
         self.assertIn("separate settings command", result.stderr)
         self.assertNotIn(ADVICE, result.stderr)
         self.assertEqual(before, child.read_bytes())
-        self.resume_with(run, "--terra-model", GLM)
+        self.resume_with(run, "--builder-model", GLM)
         del self.env["AUTOCODE_BUILDER_FAIL"]
         self.resume_with(run, "--retry-builder", "M2", expected=0)
         state = self.saved()[1]
@@ -248,9 +248,9 @@ class MemberStopSettingsTests(unittest.TestCase):
         )
         before = self.saved()[1]
         attempts = {mid: self.attempts(row) for mid, row in self.workers(before).items()}
-        self.resume_with(run, "--retry-builder", "M1", "--sol-model", LUNA)
+        self.resume_with(run, "--retry-builder", "M1", "--tester-model", LUNA)
         state = self.saved()[1]
-        self.assertEqual(LUNA, state["settings"]["roles"]["sol"]["model"])
+        self.assertEqual(LUNA, state["settings"]["roles"]["tester"]["model"])
         self.asks_route(state, "PAUSED_CONTENT_FILTER")
         self.assertNotEqual(issued["request_id"], state["resolver_human_request"]["request_id"])
         self.assertEqual(attempts, {mid: self.attempts(row) for mid, row in self.workers(state).items()})
@@ -265,15 +265,15 @@ class MemberStopSettingsTests(unittest.TestCase):
         del self.env["AUTOCODE_BUILDER_FAIL"]  # the cause was fixed
         # A Builder model would not reach the member's retry, and a failed member has no model question.
         before = (run / "state.json").read_bytes()
-        result = self.resume_with(run, "--retry-builder", "M1", "--terra-model", MIMO)
+        result = self.resume_with(run, "--retry-builder", "M1", "--builder-model", MIMO)
         self.assertIn(f"Builder M1's retry runs on the Builder route its batch started it with ({GLM})", result.stderr)
-        self.assertNotIn("route-terra", result.stderr)
+        self.assertNotIn("route-builder", result.stderr)
         self.assertIn("Nothing was saved", result.stderr)
         self.assertEqual(before, (run / "state.json").read_bytes())
-        self.resume_with(run, "--retry-builder", "M1", "--sol-model", LUNA, expected=0)
+        self.resume_with(run, "--retry-builder", "M1", "--tester-model", LUNA, expected=0)
         state = self.saved()[1]
         self.assertEqual("TASK_COMPLETE", state["status"])
-        self.assertEqual(LUNA, state["settings"]["roles"]["sol"]["model"])
+        self.assertEqual(LUNA, state["settings"]["roles"]["tester"]["model"])
         self.assertEqual([GLM, GLM], self.attempts(self.workers(state)["M1"]))
         self.assertEqual(
             ["M1", "M2", "M3"],
@@ -284,17 +284,17 @@ class MemberStopSettingsTests(unittest.TestCase):
         run, _ = self.paused(error=REFUSAL)
         checkpoint = run / "state.json"
         before = checkpoint.read_bytes()
-        result = self.resume_with(run, "--retry-builder", "M1", "--sol-model", LUNA)
+        result = self.resume_with(run, "--retry-builder", "M1", "--tester-model", LUNA)
         self.assertIn(f"Builder M1 was refused by its provider's content filter on {GLM}", result.stderr)
-        self.assertIn("route-terra question", result.stderr)
+        self.assertIn("route-builder question", result.stderr)
         self.assertIn("Nothing was saved", result.stderr)
         self.assertEqual(before, checkpoint.read_bytes())
         # Every member refusal is followed by what was not saved, in a sentence of its own.
-        result = self.resume_with(run, "--retry-builder", "M2", "--sol-model", LUNA)
+        result = self.resume_with(run, "--retry-builder", "M2", "--tester-model", LUNA)
         self.assertIn("Builder M2 already completed; its work will be retained. Nothing was saved", result.stderr)
         self.assertEqual(before, checkpoint.read_bytes())
         # The accepted form: the settings alone, then the member's model answer.
-        self.resume_with(run, "--sol-model", LUNA)
+        self.resume_with(run, "--tester-model", LUNA)
         self.answer(run, MIMO)
         state = self.resume(run)
         self.assertEqual("TASK_COMPLETE", state["status"])

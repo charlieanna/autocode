@@ -212,16 +212,16 @@ SOURCE_REFS_RULE = prompts.get("fragments/autoplanner/source-refs-rule.md")
 # their prompts and repairs state it, including the read-versus-cite distinction a joint
 # task's candidate inputs need, instead of teaching it per rejection.
 CODE_REFS_RULE = prompts.get("fragments/autoplanner/code-refs-rule.md")
-CODE_REFS_STAGES = ("astra_discovery", "glm_revise")
-TRACE_STAGES = ("astra_discovery", "glm_revise", "astra_finalize")
+CODE_REFS_STAGES = ("draft_plan", "revise_plan")
+TRACE_STAGES = ("draft_plan", "revise_plan", "finalize_plan")
 REVIEW_SOURCE_TRACE_STAGES = source_trace.REVIEW_STAGES
 # Stages that draft or review contract criteria cite and check source traces (#595).
 CITATION_STAGES = (
     "requirements",
-    "astra_discovery",
-    "glm_revise",
-    "astra_challenge",
-    "astra_finalize",
+    "draft_plan",
+    "revise_plan",
+    "review_plan",
+    "finalize_plan",
     "plan",
     "plan_review",
     "plan_revise",
@@ -256,7 +256,7 @@ def repair_citation_context(state: RunState, stage, workspace, schema=None):
     if stage in REVIEW_SOURCE_TRACE_STAGES:
         context["review_source_sentences"] = review_source_sentence_rows(state)
     if (
-        stage == "astra_challenge"
+        stage == "review_plan"
         and failure_correction.offered(schema or {})
         and (correction_snapshot := failure_correction.snapshot(state))
     ):
@@ -272,9 +272,7 @@ def repair_citation_context(state: RunState, stage, workspace, schema=None):
 
 # Stages that write criteria, which cite sentences by id; the reviewing stages only check coverage.
 SENTENCE_ID_STAGES = tuple(
-    stage
-    for stage in CITATION_STAGES
-    if stage not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
+    stage for stage in CITATION_STAGES if stage not in ("review_plan", "finalize_plan", "plan_review", "plan_finalize")
 )
 
 
@@ -322,7 +320,7 @@ def check_revision_coverage(state: RunState, contract):
     previous = planning.get("uncited_sentences") or []
     if not previous:
         return
-    review = ((planning.get("reports") or {}).get("astra_challenge") or {}).get("report") or {}
+    review = ((planning.get("reports") or {}).get("review_plan") or {}).get("report") or {}
     left = source_trace.unexcused_repeats(
         state,
         contract,
@@ -352,7 +350,7 @@ def traces_coverage(contract):
 
 def trace_rows(state: RunState, stage):
     """The requirements a stage's requirement_trace must cover, one row each; [] when there are none."""
-    if stage not in (*TRACE_STAGES, "astra_challenge"):
+    if stage not in (*TRACE_STAGES, "review_plan"):
         return []
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
     # Feedback on a shown plan that no Requirements report has read yet is traced like a requirement.
@@ -385,7 +383,7 @@ def previous_review(state: RunState):
     last: dict = next(
         (
             reports[stage]["report"]
-            for stage in ("astra_finalize", "glm_revise")
+            for stage in ("finalize_plan", "revise_plan")
             if (reports.get(stage) or {}).get("report")
         ),
         {},
@@ -401,7 +399,7 @@ def previous_review(state: RunState):
             answers.setdefault(event["question_id"], {"text": event.get("text", ""), "answered_by": "autocode"})
     if not questions or any(question.get("id") not in answers for question in questions):
         return None
-    concerns = ((reports.get("astra_challenge") or {}).get("report") or {}).get("concerns") or []
+    concerns = ((reports.get("review_plan") or {}).get("report") or {}).get("concerns") or []
     return {
         "concerns": [{key: row.get(key) for key in ("id", "concern", "blocking")} for row in concerns],
         "decisions": [
@@ -541,7 +539,7 @@ SCHEMAS = {
             "conflicts": {"type": "array", "items": CONFLICT},
         }
     ),
-    "astra_discovery": obj(
+    "draft_plan": obj(
         {
             "contract": goals.BODY_SCHEMA,
             "summary": S,
@@ -553,8 +551,8 @@ SCHEMAS = {
             "requirement_trace": {"type": "array", "items": TRACE},
         }
     ),
-    "astra_challenge": obj({"summary": S, "concerns": {"type": "array", "items": FIRST_CONCERN}}),
-    "glm_revise": obj(
+    "review_plan": obj({"summary": S, "concerns": {"type": "array", "items": FIRST_CONCERN}}),
+    "revise_plan": obj(
         {
             "contract": goals.BODY_SCHEMA,
             "summary": S,
@@ -565,7 +563,7 @@ SCHEMAS = {
             "requirement_trace": {"type": "array", "items": TRACE},
         }
     ),
-    "astra_finalize": obj(
+    "finalize_plan": obj(
         {
             "contract": goals.PLANNING_BODY_SCHEMA,
             "summary": S,
@@ -591,7 +589,7 @@ SCHEMAS.update(
 )
 # Only independent reviewers may propose executable observations; the runner seals their provenance.
 BRIEF_OBSERVATION_CHANGE = obj({"previous_hash": S, "declaration_id": S, "source_event_id": S})
-for _stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
+for _stage in ("review_plan", "finalize_plan", "plan_finalize"):
     SCHEMAS[_stage]["properties"]["brief_observations"] = brief_obligations.PROPOSALS_SCHEMA
     SCHEMAS[_stage]["properties"]["risk_observations"] = risk_obligations.PROPOSALS_SCHEMA
     SCHEMAS[_stage]["properties"]["risk_observation_changes"] = {"type": "array", "items": BRIEF_OBSERVATION_CHANGE}
@@ -606,7 +604,7 @@ SOURCE_TRACE_SCHEMA = obj(
         "negation_waivers": {"type": "array", "items": SOURCE_TRACE_ENTRY},
     }
 )
-for _stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
+for _stage in ("review_plan", "finalize_plan", "plan_finalize"):
     SCHEMAS[_stage]["properties"]["source_trace"] = SOURCE_TRACE_SCHEMA
 
 # Live planning reports were rejected, each costing a report repair, for a contract whose deliverables,
@@ -637,7 +635,7 @@ def _described(body):
     return body
 
 
-for _stage in ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize"):
+for _stage in ("draft_plan", "revise_plan", "finalize_plan", "plan", "plan_revise", "plan_finalize"):
     SCHEMAS[_stage]["properties"]["contract"] = _described(SCHEMAS[_stage]["properties"]["contract"])
 # Optional for old saved reports; new prompts require this whenever intent must change.
 SCHEMAS["requirements_gather"]["properties"]["proposed_reframes"] = {
@@ -669,7 +667,7 @@ SCHEMAS["requirements_gather"]["properties"]["clarity"] = {"type": "string", "en
 # question must then remain as a kind="decision" question for the user.
 MACHINE_RESOLUTION = obj({"question_id": S, "resolution": S, "source_refs": SS, "handoff_hash": S})
 ACCESS_BLOCKER = obj({"question_id": S, "reason": S})
-INVESTIGATION_STAGES = ("requirements_gather", "astra_discovery", "glm_revise")
+INVESTIGATION_STAGES = ("requirements_gather", "draft_plan", "revise_plan")
 for _stage in INVESTIGATION_STAGES:
     SCHEMAS[_stage]["properties"]["machine_resolutions"] = {"type": "array", "items": MACHINE_RESOLUTION}
     SCHEMAS[_stage]["properties"]["access_blockers"] = {"type": "array", "items": ACCESS_BLOCKER}
@@ -689,9 +687,9 @@ REMEDIATION = obj(
 OBLIGATION_DECISION = obj(
     {"obligation_id": S, "remediation_hash": S, "resolved": {"type": "boolean"}, "rationale": S, "evidence_refs": SS}
 )
-for _stage in ("astra_discovery", "glm_revise"):
+for _stage in ("draft_plan", "revise_plan"):
     SCHEMAS[_stage]["properties"]["remediation_records"] = {"type": "array", "items": REMEDIATION}
-for _stage in ("astra_challenge", "astra_finalize"):
+for _stage in ("review_plan", "finalize_plan"):
     SCHEMAS[_stage]["properties"]["obligation_decisions"] = {"type": "array", "items": OBLIGATION_DECISION}
 # Optional progressive proposal for goals that only succeed as several useful
 # end-to-end slices. The runner validates it, generates the plan-card disclosure
@@ -726,7 +724,7 @@ PROGRESSIVE_PROPOSAL = obj(
         "slices": {"type": "array", "items": PROGRESSIVE_SLICE},
     }
 )
-for _stage in ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize"):
+for _stage in ("draft_plan", "revise_plan", "finalize_plan", "plan", "plan_revise", "plan_finalize"):
     SCHEMAS[_stage]["properties"]["progressive_proposal"] = PROGRESSIVE_PROPOSAL
 
 
@@ -748,10 +746,10 @@ def next_after(state: RunState, stage):
     if role_names.planning_flow(state) == "v2":
         return dict(zip(V2_STAGES, V2_STAGES[1:], strict=False)).get(stage)
     return {
-        "requirements_gather": "astra_discovery",
-        "astra_discovery": "astra_challenge",
-        "astra_challenge": "glm_revise",
-        "glm_revise": "astra_finalize",
+        "requirements_gather": "draft_plan",
+        "draft_plan": "review_plan",
+        "review_plan": "revise_plan",
+        "revise_plan": "finalize_plan",
     }.get(stage)
 
 
@@ -772,7 +770,7 @@ def _resolve_route(state: RunState, stage, role=None):
     its own model, reasoning level, and session so plan review and completion
     ownership can be tuned independently.
     """
-    if stage in ("astra_resolve", "astra_diagnose"):
+    if stage in ("resolve", "diagnose"):
         return "resolver"
     if JOB_ROUTES.get(stage) in state.get("settings", {}).get("roles", {}):
         return JOB_ROUTES[stage]
@@ -785,9 +783,9 @@ def _resolve_route(state: RunState, stage, role=None):
         return route
     role = role or role_for(state, stage)
     roles = state.get("settings", {}).get("roles", {})
-    if stage in ("astra_challenge", "astra_finalize") and "plan_reviewer" in roles:
+    if stage in ("review_plan", "finalize_plan") and "plan_reviewer" in roles:
         return "plan_reviewer"
-    if stage in ("astra_review", "astra_checkpoint") and "completion" in roles:
+    if stage in ("review_completion", "review_checkpoint") and "completion" in roles:
         return "completion"
     return role
 
@@ -921,16 +919,16 @@ def renew_for_revision(state: RunState, stage, limit) -> bool:
     is never raised here."""
     planning = state.get("planning") or {}
     reports = planning.get("reports") or {}
-    concerns = ((reports.get("astra_challenge") or {}).get("report") or {}).get("concerns") or []
+    concerns = ((reports.get("review_plan") or {}).get("report") or {}).get("concerns") or []
     if (
-        stage != "astra_finalize"
+        stage != "finalize_plan"
         or state.get("next_stage") != stage
         or not planning.get("review_depth_reduced")
         or planning.get("revision_review_renewals")
         or planning.get("review_call_limit_origin") == "user_explicit"
         or (state.get("settings") or {}).get("planning_review_call_limit_origin")
         or not adaptive.blocking(concerns)
-        or "glm_revise" not in reports
+        or "revise_plan" not in reports
     ):
         return False
     planning.update(
@@ -939,8 +937,8 @@ def renew_for_revision(state: RunState, stage, limit) -> bool:
         revision_review_renewals=1,
         revision_review_renewal={
             "stage": stage,
-            "challenge_output": reports["astra_challenge"].get("output"),
-            "revision_output": reports["glm_revise"].get("output"),
+            "challenge_output": reports["review_plan"].get("output"),
+            "revision_output": reports["revise_plan"].get("output"),
             "blocking_ids": [str(concern.get("id")) for concern in adaptive.blocking(concerns)],
             "from": limit,
             "to": limit + 1,
@@ -985,7 +983,7 @@ def set_review_call_limit(state: RunState, limit):
                     limit != 0
                     and (state.get("status") != "PAUSED_PLANNING_BUDGET" and issued_pause != "PAUSED_PLANNING_BUDGET")
                 )
-                or state.get("next_stage") not in ("astra_challenge", "astra_finalize")
+                or state.get("next_stage") not in ("review_plan", "finalize_plan")
             )
         )
         or any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))
@@ -1044,7 +1042,7 @@ def charge(state: RunState, stage, record=None, workspace=None):
         return  # conversational interpretation is not another full plan review
     if (message := plan_chat.pending(state)) and (message.get("context") or {}).get("kind") == "coordinated_plan":
         return  # the saved reviewer is interpreting a reply, not reviewing another draft
-    if stage not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
+    if stage not in ("review_plan", "finalize_plan", "plan_review", "plan_finalize"):
         return
     if progressive.charge_review(state, stage, record):
         return
@@ -1121,10 +1119,10 @@ def _coverage(rows, concerns):
 
 PROMPTS = {
     "requirements_gather": prompts.get("requirements-gather.md"),
-    "astra_discovery": prompts.get("discovery.md"),
-    "astra_challenge": prompts.get("plan-challenge.md"),
-    "glm_revise": prompts.get("requirements-revise.md") + RESPONSE_EVIDENCE_RULE,
-    "astra_finalize": prompts.get("plan-finalize.md"),
+    "draft_plan": prompts.get("discovery.md"),
+    "review_plan": prompts.get("plan-challenge.md"),
+    "revise_plan": prompts.get("requirements-revise.md") + RESPONSE_EVIDENCE_RULE,
+    "finalize_plan": prompts.get("plan-finalize.md"),
 }
 PROMPTS.update(
     {
@@ -1161,11 +1159,11 @@ OBLIGATION_POLICY = prompts.get("fragments/autoplanner/obligation-policy.md")
 
 def obligation_policy(stage):
     """Request only obligation fields this planning stage can return."""
-    if stage in ("astra_discovery", "glm_revise"):
+    if stage in ("draft_plan", "revise_plan"):
         return OBLIGATION_POLICY + prompts.get("fragments/autoplanner/obligation-planner-policy.md")
-    if stage == "astra_challenge":
+    if stage == "review_plan":
         return OBLIGATION_POLICY + prompts.get("fragments/autoplanner/obligation-review-policy.md")
-    if stage != "astra_finalize":
+    if stage != "finalize_plan":
         return OBLIGATION_POLICY
     return """
 REJECTED ASSUMPTIONS. deferred_obligations lists assumptions the user rejected; never rely on a
@@ -1186,14 +1184,14 @@ PROGRESSIVE_POLICY = prompts.get("fragments/autoplanner/progressive-policy.md")
 
 def progressive_policy(stage, state: RunState | None = None):
     """A concern-only review checks proposals; it cannot return one."""
-    if stage == "astra_challenge" and state is not None and progressive.ordinary_initial_draft(state):
+    if stage == "review_plan" and state is not None and progressive.ordinary_initial_draft(state):
         return (
             "\nThe saved draft has no progressive proposal. Raise a concern if the proposed milestone is too broad "
             "to deliver and verify as planned.\n"
         )
     instruction = (
         prompts.get("fragments/autoplanner/progressive-review-policy.md")
-        if stage == "astra_challenge"
+        if stage == "review_plan"
         else prompts.get("fragments/autoplanner/progressive-proposal-policy.md")
     )
     return instruction + PROGRESSIVE_POLICY
@@ -1202,7 +1200,7 @@ def progressive_policy(stage, state: RunState | None = None):
 def repair_rules(stage, schema):
     """Repeat planning semantics only for fields allowed by the saved repair schema."""
     fields = schema.get("properties", {})
-    if stage == "astra_challenge":
+    if stage == "review_plan":
         return (
             prompts.get("fragments/autoplanner/draft-failure-correction.md")
             if failure_correction.offered(schema)
@@ -1215,14 +1213,14 @@ def repair_rules(stage, schema):
             "Use clarification_context.retained_contract as the current reference and "
             "clarification_context.retained_criteria for retained criterion identities.\n"
             + retention.final_rule(schema)
-            + (prompts.get("fragments/autoplanner/draft-failure-correction.md") if stage == "astra_finalize" else "")
+            + (prompts.get("fragments/autoplanner/draft-failure-correction.md") if stage == "finalize_plan" else "")
             + report_policy.concern_rule(schema)
         )
     return (
         REVISION_CONFLICT_RULE
         + (
             prompts.get("fragments/autoplanner/draft-failure-correction.md")
-            if stage in ("glm_revise", "astra_finalize")
+            if stage in ("revise_plan", "finalize_plan")
             else ""
         )
         + report_policy.concern_rule(schema)
@@ -1292,7 +1290,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
     if (message := gate_chat.pending(state)) and message["stage"] == stage:
         return gate_chat.context(state)
     if (
-        stage in ("requirements_gather", "astra_finalize")
+        stage in ("requirements_gather", "finalize_plan")
         and plan_chat.pending(state)
         and state.get("next_stage") == stage
     ):
@@ -1369,7 +1367,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
             packet["requirements_correction_sources"] = requirement_retention.correction_sources(
                 state, previous_requirements
             )
-    if stage == "astra_challenge" and (correction_snapshot := failure_correction.snapshot(state)):
+    if stage == "review_plan" and (correction_snapshot := failure_correction.snapshot(state)):
         packet["draft_failure_correction_snapshot"] = correction_snapshot
     coordinated = stage_context.coordination_context.context(state)
     if coordinated:
@@ -1394,11 +1392,11 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
     if turn:
         packet["task"] = turn["say"]
         packet["previous_turn"] = {key: turn["previous"].get(key) for key in ("task", "workflow", "wrote")}
-    if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
+    if stage in ("review_plan", "finalize_plan", "plan_review", "plan_finalize"):
         packet["brief_declaration_inventory"] = brief_obligations.inventory(state)
         packet["risk_declaration_inventory"] = risk_obligations.inventory(state)
     uncited = exchange.pop("uncited_sentences", None)  # carried once, as uncited_source_sentences
-    if uncited and stage in ("astra_challenge", "glm_revise", "astra_finalize"):
+    if uncited and stage in ("review_plan", "revise_plan", "finalize_plan"):
         packet["uncited_source_sentences"] = uncited
     sentences = source_sentences(state, stage)
     if sentences:
@@ -1431,18 +1429,18 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         for grant in exchange.get("recovery_review_grants", [])
         if not grant.get("consumed") and grant.get("binding", {}).get("stage") == stage
     ]
-    if stage in ("astra_challenge", "astra_finalize") and (report_recovery or packet["recovery_context"]):
+    if stage in ("review_plan", "finalize_plan") and (report_recovery or packet["recovery_context"]):
         current_source = stage_context.source_scope.snapshot(Path(state["workspace"]), state)
         retained = recovery_observations.context(state, stage, Path(state_path).parent, current_source["revision"])
         if retained:
             packet["retained_review_observations"] = retained
-    elif stage == "astra_finalize":
+    elif stage == "finalize_plan":
         prior_examples = retention.prior_review_examples(
             state, route, lambda: stage_context.source_scope.snapshot(Path(state["workspace"]), state)["revision"]
         )
         if prior_examples:
             packet["prior_review_examples"] = prior_examples
-            exchange["reports"]["astra_challenge"]["report"].pop("summary", None)
+            exchange["reports"]["review_plan"]["report"].pop("summary", None)
     if report_recovery:
         try:
             from ..autocode_resolver_runtime import OPERATIONAL_INSTRUCTION
@@ -1458,7 +1456,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
             recovery_instruction += (
                 "Resolve contract_ref within this handoff. It points to the identical saved draft.\n"
             )
-    if stage in ("astra_challenge", "astra_finalize") and (grants or packet["recovery_context"]):
+    if stage in ("review_plan", "finalize_plan") and (grants or packet["recovery_context"]):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"], limit=20)
     if stage == "requirements_gather":
         packet["requirement_coverage_checklist"] = [
@@ -1473,7 +1471,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         # verbatim. An installed person-authorized exact rewording contributes its corrected text
         # instead of the superseded one (#2467).
         packet["scope_exclusions_required"] = left_out
-    earlier = previous_review(state) if stage == "astra_challenge" else None
+    earlier = previous_review(state) if stage == "review_plan" else None
     if earlier:
         packet["previous_review"] = earlier
     if state["settings"].get("figma_file"):
@@ -1502,7 +1500,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         earlier_turn = workflows.follow_up(state)
         if earlier_turn:
             packet["follow_up"] = earlier_turn
-    if stage in ("requirements_gather", "astra_discovery"):
+    if stage in ("requirements_gather", "draft_plan"):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"])
     packet["regression_reference"] = regression_reference.context(state)
     try:
@@ -1539,10 +1537,10 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
             + author_rules["milestone_handoff"]
             + EVIDENCE_FACTS
             + author_rules["revision_conflicts"]
-            + ("" if compact_final or stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
+            + ("" if compact_final or stage in ("review_plan", "plan_review") else CONTRACT_FIELDS_RULE)
         )
     )
-    if stage in ("astra_challenge", "glm_revise", "astra_finalize"):
+    if stage in ("review_plan", "revise_plan", "finalize_plan"):
         planning_policy += prompts.get("fragments/autoplanner/draft-failure-correction.md")
     if stage != "requirements_gather":
         planning_policy += prompts.get("fragments/autoplanner/proof-reference-rule.md")
@@ -1550,10 +1548,10 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         progressive_policy(stage, state)
         if stage
         in (
-            "astra_discovery",
-            "glm_revise",
-            "astra_challenge",
-            "astra_finalize",
+            "draft_plan",
+            "revise_plan",
+            "review_plan",
+            "finalize_plan",
             "plan",
             "plan_revise",
             "plan_finalize",
@@ -1562,7 +1560,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
     )
     if stage != "requirements_gather":
         packet["capture_command"] = capture_command()
-    clarification_policy = ("" if stage == "astra_challenge" else QUESTION_POLICY) + (
+    clarification_policy = ("" if stage == "review_plan" else QUESTION_POLICY) + (
         ASSUMPTION_POLICY if stage == "requirements_gather" else ""
     )
     if stage != "requirements_gather":
@@ -1591,12 +1589,12 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         native = native_test_names.requested(state)
         design_rule += native_test_names.rule(native) if native else ""
         design_rule += (
-            EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize") else ""
+            EXAMPLE_CHECK_RULE if stage in ("review_plan", "finalize_plan", "plan_review", "plan_finalize") else ""
         )
         if packet.get("prior_review_examples"):
             design_rule += retention.REVIEWED_EXAMPLES_RULE
-        design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
-        if stage in ("astra_challenge", "astra_finalize"):
+        design_rule += BRIEF_TRACE_RULE if stage in ("review_plan", "finalize_plan") else ""
+        if stage in ("review_plan", "finalize_plan"):
             design_rule += stage_context.coordination_context.proxy_rule(state, OUT_OF_CHECKOUT_PROXY_RULE)
         design_rule += NO_TIMING_RULE
     design_rule += acceptance_policy.COVERAGE
@@ -1618,7 +1616,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
     if packet.get("source_sentences"):
         design_rule += SENTENCE_ID_RULE
     if packet.get("uncited_source_sentences"):
-        design_rule += UNCITED_REVISE_RULE if stage == "glm_revise" else UNCITED_REVIEW_RULE
+        design_rule += UNCITED_REVISE_RULE if stage == "revise_plan" else UNCITED_REVIEW_RULE
     if packet.get("brief_declaration_inventory"):
         design_rule += BRIEF_OBSERVATION_REVIEW_RULE
     if packet.get("risk_declaration_inventory"):
@@ -1639,7 +1637,7 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
         rejection_rule = PRIOR_REJECTION_RULE
     retain_rule = ""
     if stage in retention.AUTHORS and retention.token(state):
-        if stage != "glm_revise":
+        if stage != "revise_plan":
             packet["retained_criteria"] = retention.inventory(state)
         packet["retained_contract"] = retention.token(state)
         if stage in retention.FINAL:
@@ -1647,14 +1645,14 @@ def context(state: RunState, stage, state_path, *, response_schema=None):
             packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
             retention.compact_final_packet(packet)
             retain_rule = retention.final_rule()
-        elif stage == "glm_revise":
+        elif stage == "revise_plan":
             retain_rule = retention.revision_reference.RULE + retention.delta_rule()
             packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
         else:
             retain_rule = retention.RULE + retention.delta_rule()
     progress_rule = (
         prompts.get("fragments/autoplanner/review-progress.md")
-        if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
+        if stage in ("review_plan", "finalize_plan", "plan_review", "plan_finalize")
         else ""
     )
     instruction = PROMPTS[stage]
@@ -1732,7 +1730,7 @@ def _model_report_schema(schema, state: RunState):
         adaptive.feedback_requirements(state),
         state.get("requirements_history", []),
     )
-    review_stage = "plan_review" if role_names.planning_flow(state) == "v2" else "astra_challenge"
+    review_stage = "plan_review" if role_names.planning_flow(state) == "v2" else "review_plan"
     review = (((state.get("planning") or {}).get("reports") or {}).get(review_stage) or {}).get("report")
     return report_policy.concern_schema(result, review)
 
@@ -1850,7 +1848,7 @@ def schema_for(state: RunState, stage):
     if (message := gate_chat.pending(state)) and message["stage"] == stage:
         return gate_chat.schema(state)
     if (
-        stage in ("requirements_gather", "astra_finalize")
+        stage in ("requirements_gather", "finalize_plan")
         and plan_chat.pending(state)
         and state.get("next_stage") == stage
     ):
@@ -1917,7 +1915,7 @@ def after_challenge(state: RunState, value, record):
         if compact:  # the runner's draft has no Planner to revise it: the full path plans afresh (#2021)
             compact_planning.fall_back(state, "the run does not plan adaptively")
             return
-        state["next_stage"] = "glm_revise"
+        state["next_stage"] = "revise_plan"
         return
     planning, contract = state["planning"], cast(dict, state["goal_contract"])
     if "adaptive" not in planning:
@@ -1946,7 +1944,7 @@ def after_challenge(state: RunState, value, record):
             return
         # A progressive delegation is authorized by an accepted revision and final
         # independent review. A challenge cannot supply that approval evidence.
-        state["next_stage"] = "glm_revise"
+        state["next_stage"] = "revise_plan"
         escalate_planner(state, value)
         return
     try:
@@ -1989,12 +1987,12 @@ def after_challenge(state: RunState, value, record):
         if compact:
             compact_planning.fall_back(state, f"the reviewed compact draft was refused: {error}")
             return
-        state["next_stage"] = "glm_revise"
+        state["next_stage"] = "revise_plan"
         return
     planning = state["planning"]
     planning["final_token"] = goals.token(state["goal_contract"])
     planning["adaptive"].update(
-        approved_at=f"astra_challenge#{planning['adaptive']['challenges']}", final_stage="astra_challenge"
+        approved_at=f"review_plan#{planning['adaptive']['challenges']}", final_stage="review_plan"
     )
 
 
@@ -2034,7 +2032,7 @@ def rerun_requirements(state: RunState, value):
 def after_revise(state: RunState):
     """After a revision: the final review, or in an adaptive run another first-style review while budget allows."""
     if not adaptive.enabled(state) or progressive.view(state).get("candidate"):
-        return "astra_finalize"
+        return "finalize_plan"
     planning = state["planning"]
     return adaptive.after_revise(
         review_call_limit(state), planning["astra_calls"], (planning.get("adaptive") or {}).get("challenges", 0)

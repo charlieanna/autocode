@@ -213,7 +213,7 @@ def export(state: RunState, current, completion_current):
         return None
     revision = current["revision"]
     proofs = {}
-    for label, stages in (("validator", ("sol",)), ("reviewer", ("astra_review", "astra_checkpoint"))):
+    for label, stages in (("validator", ("tester",)), ("reviewer", ("review_completion", "review_checkpoint"))):
         record = next(
             (
                 row

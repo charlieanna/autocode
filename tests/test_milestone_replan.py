@@ -192,7 +192,7 @@ class BuilderReassessmentGateTests(unittest.TestCase):
         state, evidence, decision = self.fixture()
         milestones.request_builder_reassessment(state, evidence)
         state["settings"]["milestone_checkpoints"]["enabled"] = False
-        for stage in ("terra", "astra_review", "astra_resolve"):
+        for stage in ("builder", "review_completion", "resolve"):
             with self.assertRaises(util.Paused):
                 milestones.dispatch_guard(state, stage)
         with self.assertRaises(util.Paused):
@@ -207,7 +207,7 @@ class BuilderReassessmentGateTests(unittest.TestCase):
             state = {"settings": {"milestone_checkpoints": {"enabled": False}}, **values}
             original = copy.deepcopy(state)
             milestones.before_assignment(state, {}, {"revision": "source"})
-            milestones.dispatch_guard(state, "astra_plan")
+            milestones.dispatch_guard(state, "plan_task")
             self.assertEqual(original, state)
 
 

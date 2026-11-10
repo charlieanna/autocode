@@ -326,7 +326,7 @@ class NativeWriterAuthority:
         roots = [
             row
             for ident, row in prepared.items()
-            if ident in finished and row["body"]["record_identity"]["stage"] == "terra" and row["body"]["grants"]
+            if ident in finished and row["body"]["record_identity"]["stage"] == "builder" and row["body"]["grants"]
         ]
         protection._require(roots, "historical writer needs the actual original stopped writable launch")
         body = roots[0]["body"]["binding"]
@@ -386,7 +386,7 @@ class NativeWriterAuthority:
             for ident, p in prepared.items()
             if ident in sealed
             and ident in released
-            and p["body"]["record_identity"]["stage"] == p["body"]["record_identity"]["role"] == "terra"
+            and p["body"]["record_identity"]["stage"] == p["body"]["record_identity"]["role"] == "builder"
             and p["body"]["binding"]
             == {
                 key: admission["body"]["binding"][key]
@@ -594,7 +594,7 @@ class NativeWriterAuthority:
                 body["new_task"] == binding["task"]
                 and body["binding"]["source"] == query["source"] == binding["source"]
                 and body["decision"]["status"] == "REWORK"
-                and body["record"]["stage"] == "astra_resolve"
+                and body["record"]["stage"] == "resolve"
                 and query["next_binding"] == binding
                 and query["root_admission"]["body"]["binding"]["task"]["milestone_id"]
                 == binding["task"]["milestone_id"],

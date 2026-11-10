@@ -909,7 +909,7 @@ class InitialIntentAndScopeTests(unittest.TestCase):
         calls.stages = frozenset(("requirements", "plan", "plan_review", "plan_revise", "plan_finalize"))
         calls.context = SimpleNamespace(factory=SimpleNamespace(require_planning_origin=Mock()))
         calls.snapshot = Mock()
-        state = {"task": "Original input", "settings": {"planning_flow": "v2"}, "next_stage": "terra"}
+        state = {"task": "Original input", "settings": {"planning_flow": "v2"}, "next_stage": "builder"}
         with (
             patch.object(runner.artifacts, "reserve") as reserve,
             patch.object(runner.provider_launch, "prepare") as prepare,
@@ -917,7 +917,7 @@ class InitialIntentAndScopeTests(unittest.TestCase):
             with self.assertRaises(util.Paused):
                 runner.run_role(
                     state=state,
-                    role="terra",
+                    role="builder",
                     workspace=Path("/unreachable"),
                     run_dir=Path("/unreachable"),
                     model="model",
@@ -1146,10 +1146,10 @@ class ActualApprovalCallbackTests(unittest.TestCase):
         output.parent.mkdir(exist_ok=True)
         output.write_text('{"unit_fixture":"nonvisual review"}\n')
         revision = runner.source_scope.snapshot(self.root, self.state, base_snapshot=util.snapshot)["revision"]
-        self.state["stages"] = [{"stage": "astra_finalize", "output": str(output), "source_revision": revision}]
+        self.state["stages"] = [{"stage": "finalize_plan", "output": str(output), "source_revision": revision}]
         self.state["planning"] = {
             "astra_calls": 0,
-            "reports": {"astra_finalize": {"output": str(output)}},
+            "reports": {"finalize_plan": {"output": str(output)}},
             "final_token": contracts.token(self.state["goal_contract"]),
         }
         lifecycle.human.queue(
@@ -1157,7 +1157,7 @@ class ActualApprovalCallbackTests(unittest.TestCase):
             "goal_approval",
             {"stage": "controlled nonvisual review"},
             status="AWAITING_GOAL_APPROVAL",
-            next_stage="astra_plan",
+            next_stage="plan_task",
         )
         lifecycle.human.evaluate(self.state)
         lifecycle.present(self.state)

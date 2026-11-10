@@ -97,8 +97,8 @@ except ImportError:
 
 DEFAULT_ROLE_MODELS = {
     "task_planner": "gpt-5.6-sol",
-    "terra": "gpt-5.6-terra",
-    "sol": "gpt-5.6-sol",
+    "builder": "gpt-5.6-terra",
+    "tester": "gpt-5.6-sol",
     "completion": "gpt-5.6-sol",
 }
 # A new native Codex Plan Reviewer that names no model takes the first of these the Planner does not
@@ -394,11 +394,11 @@ def _refuse_new_run_flags(args, state: RunState, *, started, single_model):
         raise ValueError("--single-model is only available when starting a new run")
     if single_model and any(
         getattr(args, f"{role}_model", None)
-        for role in ("requirements", "planner", "plan_reviewer", "task_planner", "terra", "sol", "completion")
+        for role in ("requirements", "planner", "plan_reviewer", "task_planner", "builder", "tester", "completion")
     ):
         raise ValueError("--single-model cannot be combined with per-role model flags")
     if single_model and any(
-        getattr(args, f"{role}_provider", None) for role in ("task_planner", "terra", "sol", "completion")
+        getattr(args, f"{role}_provider", None) for role in ("task_planner", "builder", "tester", "completion")
     ):
         raise ValueError("--single-model cannot be combined with per-role provider flags")
     if single_model and getattr(args, "builder_strong_model", None):
@@ -488,14 +488,14 @@ def _joint_planning(args, state: RunState, *, started, engine, saved_engine, sin
                 raise ValueError("Start a new run to enable joint planning across different session engines")
             if any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts")):
                 raise ValueError("Resolve the saved provider attempt before enabling joint planning")
-            restarting_discovery = engine == "codex" and state.get("next_stage") == "astra_discovery"
+            restarting_discovery = engine == "codex" and state.get("next_stage") == "draft_plan"
             approved_boundary = goals.approved(state) and state.get("next_stage") in (
-                "astra_plan",
+                "plan_task",
                 "orchestrator",
-                "terra",
-                "sol",
-                "astra_review",
-                "astra_checkpoint",
+                "builder",
+                "tester",
+                "review_completion",
+                "review_checkpoint",
             )
             if (
                 state.get("version", 1) < 3
@@ -1106,7 +1106,7 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
                 "model": mod.DEFAULT_MODELS["completion"],
                 "reasoning_effort": mod.DEFAULT_REASONING_EFFORTS["completion"],
             }
-        for role in ("task_planner", "sol", "completion"):
+        for role in ("task_planner", "tester", "completion"):
             settings["roles"][role].update(
                 engine="opencode",
                 provider=None,
@@ -1114,13 +1114,13 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
                 or _selected_model(settings, role)
                 or _provider_model(role, getattr(args, f"{role}_model", None), mod),
             )
-        terra_model = (
+        builder_model = (
             single_model
-            or getattr(args, "terra_model", None)
-            or _selected_model(settings, "terra")
-            or mod.DEFAULT_MODELS["terra"]
+            or getattr(args, "builder_model", None)
+            or _selected_model(settings, "builder")
+            or mod.DEFAULT_MODELS["builder"]
         )
-        settings["roles"]["terra"].update(engine="opencode", provider=None, model=terra_model)
+        settings["roles"]["builder"].update(engine="opencode", provider=None, model=builder_model)
         for role, effort in mod.DEFAULT_REASONING_EFFORTS.items():
             # An auto-selected route may deliberately run at the model's own default.
             route = settings["roles"].get(role)

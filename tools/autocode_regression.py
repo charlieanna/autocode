@@ -1138,7 +1138,11 @@ def before_review(state: RunState, stage, workspace, run_dir):
     record_unmeasured(state, owed=owed)
     if not required(state, owed=owed):
         return
-    if stage in ("sol", "astra_checkpoint") or stage == "astra_review" and _review_needs_proof(state, workspace):
+    if (
+        stage in ("tester", "review_checkpoint")
+        or stage == "review_completion"
+        and _review_needs_proof(state, workspace)
+    ):
         prove(state, workspace, run_dir)
 
 

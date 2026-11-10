@@ -5,8 +5,8 @@ wrote the vacuous refusal tests, so AutoResolver was never tested on them. Such 
 its scenario.toml:
 
     [hybrid]
-    scripted = ["requirements_gather", "astra_discovery", ...]  # every call scripted
-    first_attempt = ["terra"]                                     # only the stage's first call scripted
+    scripted = ["requirements_gather", "draft_plan", ...]  # every call scripted
+    first_attempt = ["builder"]                                     # only the stage's first call scripted
 
 ``run --profile NAME --hybrid`` then runs the scenario live with those calls answered by the scripted provider
 (fake_codex.py with the scenario's [fake] fault) and every other call by the profile's own tool, so the planted
@@ -47,8 +47,8 @@ STANDIN_MODELS = {role: f"standin-{role}" for role in profiles.ROLES}
 # AutoCode's tool roles (tools/providers/command.py REQUIRED_ROLES) and the profile role each one is.
 TOOL_ROLES = {
     "astra": "resolver",
-    "terra": "builder",
-    "sol": "validator",
+    "builder": "builder",
+    "tester": "validator",
     "completion": "completion",
     "glm": "planner",
     "plan_reviewer": "reviewer",

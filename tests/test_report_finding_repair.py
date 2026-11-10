@@ -37,7 +37,7 @@ class ReportFindingRepairCLI(unittest.TestCase):
         self.assertGreaterEqual(offset, 0)
         text = (
             text[:offset]
-            + """if stage == 'sol' and result['verdict'] == 'PASS' and result['finding_dispositions']:
+            + """if stage == 'tester' and result['verdict'] == 'PASS' and result['finding_dispositions']:
     result['end_to_end_result']['evidence_refs'].append('missing-unrelated-artifact.json')
     if os.environ['REPORT_FINDING_ATTACK'] == 'blocked-original':
         result['verdict'] = 'BLOCKED'
@@ -50,7 +50,7 @@ class ReportFindingRepairCLI(unittest.TestCase):
         self.assertIn(session, text)
         text = text.replace(
             session,
-            """    if data['original']['stage'] == 'sol':
+            """    if data['original']['stage'] == 'tester':
         result['end_to_end_result']['evidence_refs'] = [
             'greet.py' if ref == 'missing-unrelated-artifact.json' else ref
             for ref in result['end_to_end_result']['evidence_refs']]
@@ -120,7 +120,7 @@ class ReportFindingRepairCLI(unittest.TestCase):
                 )
                 # The refusal names the row and why it cannot be kept, for the next repair and for people.
                 fid = next(row for row in probes if row["kind"] == "original")["dispositions"][0]["id"]
-                self.assertIn(f"sol finding_dispositions row {fid} ", view["stop_reason"])
+                self.assertIn(f"tester finding_dispositions row {fid} ", view["stop_reason"])
                 self.assertIn(why, view["stop_reason"])
 
     def test_refusal_names_the_edited_closure_row_so_a_repair_that_follows_it_keeps_the_closure(self):
@@ -139,7 +139,7 @@ class ReportFindingRepairCLI(unittest.TestCase):
         fid = originals[0]["dispositions"][0]["id"]
         refusal = repairs[1]["error"]
         self.assertIn("report-only repair cannot close findings", refusal)
-        self.assertIn(f"sol finding_dispositions row {fid} changed its evidence", refusal)
+        self.assertIn(f"tester finding_dispositions row {fid} changed its evidence", refusal)
         # The fresh review's exact row closed the finding; the repair neither created nor changed it.
         self.assertEqual(originals[0]["dispositions"], repairs[1]["dispositions"])
         # Every repair is told to copy closure rows byte-for-byte, evidence included.

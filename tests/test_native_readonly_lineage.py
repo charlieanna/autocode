@@ -106,8 +106,8 @@ class OriginalReadonlyLineageControls(unittest.TestCase):
         decision = self.decision()
         ordinal = len(self.reviews)
         record = {
-            "stage": "astra_review",
-            "role": "astra_review",
+            "stage": "review_completion",
+            "role": "review_completion",
             "output": str(self.run / f"controlled-decision-{ordinal}.json"),
         }
         util.atomic_json(record["output"], decision)
@@ -331,7 +331,7 @@ class PureReadonlyProducerControls(unittest.TestCase):
             "id": "builder",
             "body": {
                 "binding": {**deepcopy(bound), "task": builder_task},
-                "record_identity": {"stage": "terra"},
+                "record_identity": {"stage": "builder"},
                 "grants": ["ui/chat.py", "ui/work.py"],
             },
         }

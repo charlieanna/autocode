@@ -595,7 +595,7 @@ def _next_proof(rows, call, proofs):
         (
             later
             for later in rows[call["end"] + 1 :]
-            if _stage(later) == "terra" and not later.get("rejected") and later.get("source_revision")
+            if _stage(later) == "builder" and not later.get("rejected") and later.get("source_revision")
         ),
         None,
     )
@@ -655,7 +655,7 @@ def _review_text(state, rows, call, run_dir):
         earlier = [
             r
             for r in before
-            if r.get("stage") == "astra_review"
+            if r.get("stage") == "review_completion"
             and not r.get("rejected")
             and resolver_calls.revision(r, run_dir) == call["revision"]
         ]

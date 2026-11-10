@@ -38,8 +38,8 @@ def state_for(workspace="/nowhere", task="Occasionally we renew the same domain 
                 "planner": {"model": "g"},
                 "plan_reviewer": {"model": "p"},
                 "task_planner": {"model": "a", "engine": "codex"},
-                "terra": {"model": "t"},
-                "sol": {"model": "s"},
+                "builder": {"model": "t"},
+                "tester": {"model": "s"},
             },
         },
     }
@@ -126,7 +126,7 @@ def investigated(**overrides) -> dict:
         "history": [],
         "sessions": {},
         "phase": "PLANNING",
-        "next_stage": "astra_discovery",
+        "next_stage": "draft_plan",
     }
     output = root.parent / f"{root.name}-investigation.json"
     output.write_text("{}")
@@ -165,5 +165,5 @@ def approved_fix(*, bound=True, **overrides) -> dict:
     state["user_events"].append(event)
     contract.update(approval_status="approved", approval_event=event)
     lifecycle.assign_task(state, goals.initial_decision(draft), source_scope.snapshot(Path(state["workspace"]), state))
-    state.update({"status": "RUNNING", "phase": "EXECUTING", "next_stage": "terra"})
+    state.update({"status": "RUNNING", "phase": "EXECUTING", "next_stage": "builder"})
     return state

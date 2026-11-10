@@ -27,8 +27,8 @@ class InstalledProviderMatrixTests(unittest.TestCase):
             raise AssertionError("Run the wheel smoke outside the source checkout")
 
     def test_automatic_selection_has_its_shipped_qualification_table(self):
-        self.assertTrue(selector.qualified("terra"))
-        self.assertTrue(selector.qualified("sol"))
+        self.assertTrue(selector.qualified("builder"))
+        self.assertTrue(selector.qualified("tester"))
 
     def test_shipped_known_row_is_available_to_doctor(self):
         row = provider_matrix.status_for("opencode", "1.18.33")

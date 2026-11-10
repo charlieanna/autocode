@@ -32,7 +32,7 @@ class OutputLimitRecoveryTests(unittest.TestCase):
         state = {"active_stage": {}, "stages": [{"stage": "requirements_gather_report_repair", "report_only": True}]}
         self.assertTrue(_is_format_repair(state), "a saved format repair is recognized")
 
-        state = {"active_stage": {}, "stages": [{"stage": "terra", "report_only": False}]}
+        state = {"active_stage": {}, "stages": [{"stage": "builder", "report_only": False}]}
         self.assertFalse(_is_format_repair(state), "a Builder stage is not a format repair")
 
         state = {"active_stage": {}, "stages": []}

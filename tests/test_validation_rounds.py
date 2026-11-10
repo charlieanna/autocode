@@ -20,7 +20,7 @@ class ValidationRounds(unittest.TestCase):
         }
 
     def blocking(self, *ids, **extra):
-        return [{"id": ident, "source": "sol", "status": "open", "blocking": True, **extra} for ident in ids]
+        return [{"id": ident, "source": "tester", "status": "open", "blocking": True, **extra} for ident in ids]
 
     def rounds(self, state, *attempts, blocking=None):
         blocking = blocking or self.blocking("F-1", not_rechecked_in="validator.json")
@@ -34,7 +34,7 @@ class ValidationRounds(unittest.TestCase):
         state = self.state()
         state["stages"] = [
             {
-                "stage": "sol",
+                "stage": "tester",
                 "task_id": "task-2",
                 "rejected": True,
                 "rejection_reason": "No independently executed Validator tool event matches receipt",
@@ -205,7 +205,7 @@ class ValidationRounds(unittest.TestCase):
         state["findings_ledger"] = [
             {
                 "id": "F-0",
-                "source": "sol",
+                "source": "tester",
                 "status": "resolved",
                 "finding": "Stop leaves the worker running",
                 "evidence": "event:check",

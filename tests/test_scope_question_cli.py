@@ -75,7 +75,7 @@ class ScopeQuestionCliTests(unittest.TestCase):
         self.assertIsNone(after["scope"]["decision"])
         stages = [row["stage"] for row in after["usage"]["accounting"]["attempts"]]
         self.assertEqual(2, stages.count("requirements_gather"))
-        self.assertNotIn("astra_discovery", stages)
+        self.assertNotIn("draft_plan", stages)
         self.assertFalse((workspace / "greet.py").exists())
 
     def start(self):
@@ -124,7 +124,7 @@ class ScopeQuestionCliTests(unittest.TestCase):
             [row["repository"] for row in view["scope"]["briefs"]],
             "a person who stops here has a ready brief for each repository",
         )
-        self.assertNotIn("astra_discovery", self.stages(), "no plan before the person decides")
+        self.assertNotIn("draft_plan", self.stages(), "no plan before the person decides")
 
         self.run.answer(question["id"], "This repository only")
         view = self.run.advance_until_input()

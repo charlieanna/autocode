@@ -126,9 +126,9 @@ class PythonRoleMigrationCliTests(unittest.TestCase):
         run.approve_plan(view["needs"]["token"])
         for _ in range(3):
             view = run.resume_paused() if run.status()["status"].startswith("PAUSED_") else run.advance()
-            if view["next_stage"] == "sol":
+            if view["next_stage"] == "tester":
                 break
-        self.assertEqual("sol", view["next_stage"])
+        self.assertEqual("tester", view["next_stage"])
         self.assertTrue(view["status"].startswith("PAUSED_"))
 
         # Assemble a saved pre-upgrade fixture through core producers. Real
@@ -180,7 +180,7 @@ class PythonRoleMigrationCliTests(unittest.TestCase):
         after = run.resume_paused()
         self.assertEqual("WAITING_FOR_USER", after["status"], after["needs"])
         self.assertEqual("answer", after["needs"]["kind"])
-        self.assertEqual("sol", after["next_stage"])
+        self.assertEqual("tester", after["next_stage"])
         cap_questions = json.dumps(after["needs"].get("questions") or []).lower()
         self.assertIn("active time", cap_questions)
         for term in ("classification", "oracle", "baseline", "protected test", "regression proof"):
@@ -197,7 +197,10 @@ class PythonRoleMigrationCliTests(unittest.TestCase):
         )
         new_attempts = after_attempts[len(before_attempts) :]
         self.assertTrue(
-            all(row["stage"] not in ("terra", "sol", "astra_checkpoint", "investigate_stuck") for row in new_attempts)
+            all(
+                row["stage"] not in ("builder", "tester", "review_checkpoint", "investigate_stuck")
+                for row in new_attempts
+            )
         )
         self.assertTrue(all(row.get("runner_owned") is True for row in new_attempts))
         self.assertTrue(any(row["kind"] == "protected_tests_roles_corrected" for row in after["recoveries"]))

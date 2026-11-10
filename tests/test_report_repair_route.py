@@ -81,7 +81,7 @@ class ReportRepairRouteTests(unittest.TestCase):
                 self.assertEqual(before, state)
 
     def test_other_stages_and_records_without_a_temporary_route_are_not_rewritten(self):
-        for field, value in (("stage", "sol"), ("route_role", "task_planner"), ("route_role", None)):
+        for field, value in (("stage", "tester"), ("route_role", "task_planner"), ("route_role", None)):
             with self.subTest(field=field):
                 state, original = self.fixture()
                 original[field] = value

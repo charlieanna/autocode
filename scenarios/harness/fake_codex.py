@@ -330,7 +330,7 @@ def progressive_report(stage, data, common):
     """Respond only to actual progressive revision/verification handoffs."""
     packet = data.get("progressive_revision")
     if packet:
-        if stage == "glm_revise" and packet.get("phase") == "detail":
+        if stage == "revise_plan" and packet.get("phase") == "detail":
             previous = data["previous_plan"]["proposal"]
             done = [*previous["done_slices"], previous["slices"][0]["id"]]
             if data["goal_contract"]["body"].get("intended_outcome") == RENEWED_OUTCOME:
@@ -342,7 +342,7 @@ def progressive_report(stage, data, common):
                 "progressive_proposal": proposal,
                 "initial_task": progressive_task(True, proposal=proposal),
             }
-        if stage == "astra_finalize" and packet.get("phase") == "review":
+        if stage == "finalize_plan" and packet.get("phase") == "review":
             if CONFIG.get("fault") == "progressive_stale_source":
                 path = Path.cwd() / "lessons.py"
                 path.write_text(path.read_text() + "\n# Unauthorized edit during read-only independent review.\n")
@@ -402,11 +402,11 @@ def progressive_report(stage, data, common):
             and (data.get("current_task") or {}).get("objective") == head["intended_result"]
             and (CONFIG.get("fault") == "progressive_fabricated_pass" or not data.get("changed_code_evidence"))
         )
-        if stage == "terra"
+        if stage == "builder"
         else regression_risk in (data.get("implementation") or {}).get("remaining_risks", []),
         "note": scoped and permission_answer == SCOPED_CONDITION,
     }
-    if stage == "terra":
+    if stage == "builder":
         for rel, content in progressive_sources(CONFIG["reference"], head["id"], **variant).items():
             destination = Path.cwd() / rel
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -427,7 +427,7 @@ def progressive_report(stage, data, common):
         if scoped and permission_answer is None:
             result["user_request"] = SCOPED_REQUEST
         return result
-    if stage in ("sol", "astra_checkpoint"):
+    if stage in ("tester", "review_checkpoint"):
         fabricated_mode = CONFIG.get("fault") == "progressive_fabricated_pass" and head["id"] == "S2"
         selected = (
             [cmd for cmd in commands if cmd != "python3 -m unittest test_journey.Skeleton"]
@@ -469,7 +469,7 @@ def progressive_report(stage, data, common):
         )
         report["changed_code_exceptions"] = progressive_judgments(data, CONFIG["reference"], head["id"], **variant)
         return report
-    if stage in ("astra_review", "astra_plan", "astra_resolve"):
+    if stage in ("review_completion", "plan_task", "resolve"):
         failed = (data.get("validation") or {}).get("verdict") == "FAIL"
         # A saved answer still needs work when no task has been validated since it was given, or, as a
         # reviewer reading the repository sees, when it permits the note and the note is not there yet.
@@ -524,7 +524,7 @@ def progressive_report(stage, data, common):
                 "findings": [],
             },
         }
-        if stage == "astra_review" and permission_repair and permission_answer == SCOPED_DENIAL:
+        if stage == "review_completion" and permission_repair and permission_answer == SCOPED_DENIAL:
             report["status"] = "CONTINUE"  # Validate the delivered fallback; no implementation repair is needed.
         if scoped and permission_answer is None:
             request = (data.get("agent_request") or {}).get("request")
@@ -535,7 +535,7 @@ def progressive_report(stage, data, common):
                 row["status"] = "unverified"
         if not repair and not final_slice:
             report["progressive_checkpoint"] = True
-        if stage == "astra_resolve":
+        if stage == "resolve":
             report["diagnosis"] = (
                 "Honor the exact saved permission answer, then independently validate the unchanged task; denial selects the offline fallback"
                 if permission_repair
@@ -1663,7 +1663,7 @@ def runner_rework(stage: str, data: dict, common: dict) -> dict:
             untestable="The scripted lifecycle observation is already the bounded evidence; "
             "no separate probe is available in this fixture.",
         )
-    if stage == "astra_resolve":
+    if stage == "resolve":
         report["diagnosis"] = "The runner's lifecycle observation failed: " + first["finding"][:400]
     if stage.startswith("investigate_stuck"):
         report.update(
@@ -1702,10 +1702,10 @@ def report_for(stage: str, data: dict) -> dict:
         return {"summary": "Scripted requirements before v2 planning", "requirements": requirements_body}
     if stage in ("plan", "plan_review", "plan_revise", "plan_finalize"):
         equivalent = {
-            "plan": "astra_discovery",
-            "plan_review": "astra_challenge",
-            "plan_revise": "glm_revise",
-            "plan_finalize": "astra_finalize",
+            "plan": "draft_plan",
+            "plan_review": "review_plan",
+            "plan_revise": "revise_plan",
+            "plan_finalize": "finalize_plan",
         }[stage]
         value = report_for(equivalent, data)
         if stage in ("plan", "plan_revise"):
@@ -1721,12 +1721,12 @@ def report_for(stage: str, data: dict) -> dict:
             }
         return {key: value for key, value in value.items() if key in allowed}
     execution_repair = data.get("report_repair") and stage in (
-        "terra",
-        "sol",
-        "astra_checkpoint",
-        "astra_review",
-        "astra_plan",
-        "astra_resolve",
+        "builder",
+        "tester",
+        "review_checkpoint",
+        "review_completion",
+        "plan_task",
+        "resolve",
     )
     if data.get("report_repair") and (PROGRESSIVE or execution_repair):
         # A report-only repair may preserve its original proposal/checklist, not
@@ -1805,7 +1805,7 @@ def report_for(stage: str, data: dict) -> dict:
     if stage == "write_acceptance_tests":
         return acceptance_tests(data)
     task = data.get("current_task") or {}
-    if stage in ("sol", "astra_checkpoint", "astra_review") and os.environ.get(
+    if stage in ("tester", "review_checkpoint", "review_completion") and os.environ.get(
         "SCENARIO_FAKE_REQUIRE_DIAGNOSIS_PROVENANCE"
     ):
         artifacts = data.get("runner_artifacts") or []
@@ -1838,17 +1838,17 @@ def report_for(stage: str, data: dict) -> dict:
         "conflict_resolutions": [],
         "requirement_trace": trace(),
     }
-    if CONFIG.get("fault") == "verification_reuse" and stage == "sol":
+    if CONFIG.get("fault") == "verification_reuse" and stage == "tester":
         import runpy
 
         scenario = next(parent for parent in Path(CONFIG["reference"]).parents if (parent / "scenario.toml").is_file())
         provider = runpy.run_path(str(scenario.parents[1] / "harness" / "verification_reuse_provider.py"))
         return provider["report_for"](data, common, emit)
     if CONFIG.get("fault", "").startswith("recovery_novelty_") and stage in (
-        "terra",
-        "sol",
-        "astra_review",
-        "astra_resolve",
+        "builder",
+        "tester",
+        "review_completion",
+        "resolve",
     ):
         import runpy
 
@@ -1857,32 +1857,42 @@ def report_for(stage: str, data: dict) -> dict:
         # The Tester's changed-line reasons (fake_changed_code) are attached like every other report's.
         return lazy_citations(provider["report_for"](stage, data, common, CONFIG, run_check, requirements))
     if CONFIG.get("fault", "").startswith("completion_rework_") and stage in (
-        "terra",
-        "sol",
-        "astra_review",
-        "astra_resolve",
+        "builder",
+        "tester",
+        "review_completion",
+        "resolve",
     ):
         provider = scripted_fault("completion_rework_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
-    if CONFIG.get("fault", "").startswith("escalation_") and stage in ("terra", "sol", "astra_review", "astra_resolve"):
+    if CONFIG.get("fault", "").startswith("escalation_") and stage in (
+        "builder",
+        "tester",
+        "review_completion",
+        "resolve",
+    ):
         # The Builder's work passes only on its stronger route, or never (escalation-converts, escalation-ladder-end).
         provider = scripted_fault("escalation_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
-    if CONFIG.get("fault") in FAULT_PROVIDERS and stage in ("terra", "sol", "astra_review", "astra_resolve"):
+    if CONFIG.get("fault") in FAULT_PROVIDERS and stage in ("builder", "tester", "review_completion", "resolve"):
         provider = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])
         report = provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
         producer = provider["tester_producer"](CONFIG) if CONFIG["fault"] == "refund_store_clock" else None
         return lazy_citations(report, producer=producer)
-    if CONFIG.get("fault") == "refund_planted_window" and stage in ("terra", "sol", "astra_review", "astra_resolve"):
+    if CONFIG.get("fault") == "refund_planted_window" and stage in (
+        "builder",
+        "tester",
+        "review_completion",
+        "resolve",
+    ):
         provider = scripted_fault("refund_window_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
     if PROGRESSIVE:
         report = progressive_report(stage, data, common)
         if report is not None:
             return report
-        if stage in ("terra", "sol", "astra_review", "astra_checkpoint", "astra_resolve"):
+        if stage in ("builder", "tester", "review_completion", "review_checkpoint", "resolve"):
             raise SystemExit("fake_codex: progressive execution missing its authoritative verification packet")
-        if "PROGRESSIVE PLANNING" in PROMPT and stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        if "PROGRESSIVE PLANNING" in PROMPT and stage in ("draft_plan", "revise_plan", "finalize_plan"):
             planning["progressive_proposal"] = progressive_proposal()
     if stage == "requirements_gather":
         # A follow-up's requirements are its own sentences; the earlier request's are another job's.
@@ -1984,7 +1994,7 @@ def report_for(stage: str, data: dict) -> dict:
     adaptive = "ADAPTIVE PLANNING" in PROMPT or "initial_task" in OUTPUT_SCHEMA.get("properties", {}).get(
         "contract", {}
     ).get("required", [])
-    if stage == "astra_discovery":
+    if stage == "draft_plan":
         report = {
             "summary": "Scripted plan",
             "contract": contract(final=adaptive),
@@ -2002,16 +2012,16 @@ def report_for(stage: str, data: dict) -> dict:
         return report
     reviewed = (
         (
-            ((DATA.get("planning") or {}).get("reports") or {}).get("astra_challenge")
+            ((DATA.get("planning") or {}).get("reports") or {}).get("review_plan")
             or ((DATA.get("planning") or {}).get("reports") or {}).get("plan_review")
             or {}
         ).get("report")
         or {}
     ).get("concerns") or []
-    if stage == "astra_challenge":
+    if stage == "review_plan":
         # SCENARIO_FAKE_BLOCKING_REVIEW=1 makes the first review of a plan blocking, so the
         # revise path runs; a review of a revised plan never blocks.
-        revised = "glm_revise" in ((DATA.get("planning") or {}).get("reports") or {})
+        revised = "revise_plan" in ((DATA.get("planning") or {}).get("reports") or {})
         if os.environ.get("SCENARIO_FAKE_BLOCKING_REVIEW") == "1" and not revised:
             return {
                 "summary": "Scripted plan review: one blocking concern",
@@ -2069,7 +2079,7 @@ def report_for(stage: str, data: dict) -> dict:
             "risk_observation_changes": [],
             "source_trace": source_trace(),
         }
-    if stage == "glm_revise":
+    if stage == "revise_plan":
         responses = [
             {
                 "concern_id": row["id"],
@@ -2086,7 +2096,7 @@ def report_for(stage: str, data: dict) -> dict:
             "responses": responses,
             **planning,
         }
-    if stage == "astra_finalize":
+    if stage == "finalize_plan":
         final = {key: value for key, value in planning.items() if key != "code_refs"}
         decisions = [
             {
@@ -2109,7 +2119,7 @@ def report_for(stage: str, data: dict) -> dict:
             "source_trace": source_trace(),
             **final,
         }
-    if stage == "terra" and MILESTONES:
+    if stage == "builder" and MILESTONES:
         row = milestone_row((data.get("current_task") or {}).get("milestone_id"))
         applied = []
         for rel in row["paths"]:
@@ -2130,14 +2140,14 @@ def report_for(stage: str, data: dict) -> dict:
             "untested_behavior": [],
             "recommended_checks": [row["verify"]],
         }
-    if stage == "terra" and CONFIG.get("turn_paths"):
+    if stage == "builder" and CONFIG.get("turn_paths"):
         # Deliver this turn's files only, and only those the runner assigned.
         assigned = tuple((data.get("current_task") or {}).get("affected_paths") or PATHS)
         for rel in (path for path in PATHS if path.startswith(assigned)):
             destination = Path.cwd() / rel
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(Path(CONFIG["reference"]) / rel, destination)
-    elif stage == "terra":
+    elif stage == "builder":
         shutil.copytree(
             builder_copy_source(data),
             Path.cwd(),
@@ -2145,9 +2155,9 @@ def report_for(stage: str, data: dict) -> dict:
             # .fake-turns/ holds this fake's own per-turn reports (turn_report), never a project file.
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".fake-turns"),
         )
-    if stage == "terra" and CONFIG.get("turns") and turn_report("review_design"):
+    if stage == "builder" and CONFIG.get("turns") and turn_report("review_design"):
         write_turn_design_review()
-    if stage == "terra":
+    if stage == "builder":
         edit_acceptance_tests_once()
         code = run_check()
         return {
@@ -2162,7 +2172,7 @@ def report_for(stage: str, data: dict) -> dict:
             "untested_behavior": [],
             "recommended_checks": [CHECK],
         }
-    if stage in ("sol", "astra_checkpoint") and MILESTONES:
+    if stage in ("tester", "review_checkpoint") and MILESTONES:
         task = data.get("current_task") or {}
         members = list(task.get("milestone_ids") or ([task["milestone_id"]] if task.get("milestone_id") else []))
         if not next_milestone(done_milestones(data)):
@@ -2230,14 +2240,14 @@ def report_for(stage: str, data: dict) -> dict:
             # An integrated batch: report every member's milestone result.
             report["milestone_results"] = member_results
         return lazy_citations(report)
-    if stage in ("sol", "astra_checkpoint"):
+    if stage in ("tester", "review_checkpoint"):
         code = run_check()
         status = "PASS" if code == 0 else "FAIL"
         # The Validator sees neither event IDs nor exit codes: it names its check by command and cites it as
         # check:1, and the runner attaches the event and exit code (autocode_check_refs).
         ref, check = (
             ("check:1", {"command": CHECK, "exit_code": None, "evidence_ref": "event:"})
-            if stage == "sol"
+            if stage == "tester"
             else ("event:check", {"command": CHECK, "exit_code": code, "evidence_ref": "event:check"})
         )
         return lazy_citations(
@@ -2264,7 +2274,11 @@ def report_for(stage: str, data: dict) -> dict:
                 },
             }
         )
-    if stage in ("astra_review", "astra_plan") and MILESTONES and not (data.get("goal_contract") or {}).get("revision"):
+    if (
+        stage in ("review_completion", "plan_task")
+        and MILESTONES
+        and not (data.get("goal_contract") or {}).get("revision")
+    ):
         # Report repair: the handoff has no live contract or current task; fix
         # the rejected draft's identity fields and return it as instructed.
         import json as _json
@@ -2274,7 +2288,7 @@ def report_for(stage: str, data: dict) -> dict:
         fixed = _json.loads(draft) if draft else {}
         fixed.update(report_identity(data))
         return fixed
-    if stage in ("astra_review", "astra_plan") and MILESTONES:
+    if stage in ("review_completion", "plan_task") and MILESTONES:
         task = data.get("current_task") or {}
         done = done_milestones(data)
         approved = ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or [
@@ -2328,9 +2342,9 @@ def report_for(stage: str, data: dict) -> dict:
                 "findings": [],
             }
         return report
-    if stage in ("astra_review", "astra_resolve") and runner_findings(data):
+    if stage in ("review_completion", "resolve") and runner_findings(data):
         return runner_rework(stage, data, common)
-    if stage in ("astra_review", "astra_plan", "astra_resolve"):
+    if stage in ("review_completion", "plan_task", "resolve"):
         # Echo the approved contract's criteria: the runner rejects a report that restates them
         # differently. A contract the fake did not plan (a bug-fix correction) has its own C1.
         approved = ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or [
@@ -2628,7 +2642,7 @@ def capacity_once(stage: str, session: str) -> int | None:
     next actual provider call records the recovery handoff it received; neither
     the fault nor its oracle reads or writes AutoCode's private state.
     """
-    if CONFIG.get("fault") != "capacity_once" or stage != "astra_discovery":
+    if CONFIG.get("fault") != "capacity_once" or stage != "draft_plan":
         return None
     trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("capacity-trace.jsonl")
     failed = not trace.exists()
@@ -2706,12 +2720,12 @@ def _main() -> int:
     capacity_exit = capacity_once(stage, session)
     if capacity_exit is not None:
         return capacity_exit
-    if CONFIG.get("fault") == "quota_once" and stage == "sol" and model_argument() == QUOTA_SPENT_MODEL:
+    if CONFIG.get("fault") == "quota_once" and stage == "tester" and model_argument() == QUOTA_SPENT_MODEL:
         # Fault "quota_once" (scenarios/catalog/quota-route-handoff): the Tester's model has no quota left.
         # It fails the first time; once a person names another model the Tester runs normally.
         emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
         return 3
-    if CONFIG.get("fault") == "builder_quota_once" and stage == "terra" and model_argument() == QUOTA_SPENT_BUILDER:
+    if CONFIG.get("fault") == "builder_quota_once" and stage == "builder" and model_argument() == QUOTA_SPENT_BUILDER:
         # Fault "builder_quota_once" (scenarios/catalog/route-builder-handoff): the Builder writes a
         # partial file, then its model has no quota. The person names another model; the retry must
         # keep that work, launch on the new route, and leave verifier routes unchanged.
@@ -2732,25 +2746,19 @@ def _main() -> int:
         return refuse_unique_items_schema(WIRE_SCHEMA)
     OUTPUT_SCHEMA = report_schema(WIRE_SCHEMA)
     # Live #452 run jb1acns9: the Builder's first report after approval cites no evidence.
-    no_evidence = stage == "terra" and os.environ.get("SCENARIO_FAKE_BUILDER_NO_EVIDENCE") == "1"
+    no_evidence = stage == "builder" and os.environ.get("SCENARIO_FAKE_BUILDER_NO_EVIDENCE") == "1"
     if no_evidence and data.get("report_repair"):
         report = builder_evidence_repair(data)
     else:
         report = cite_receipts(report_for(stage, data))
-    if stage == "astra_discovery":
+    if stage == "draft_plan":
         report = drop_brief_literals(corrupt_plan(report))
         report = readonly_report_blocker(report)
-    if (
-        stage in ("astra_challenge", "astra_finalize", "plan_finalize")
-        and os.environ.get("SCENARIO_FAKE_RISK_OMIT") == "1"
-    ):
+    if stage in ("review_plan", "finalize_plan", "plan_finalize") and os.environ.get("SCENARIO_FAKE_RISK_OMIT") == "1":
         report["risk_observations"] = []
-    if (
-        stage in ("astra_challenge", "astra_finalize", "plan_finalize")
-        and os.environ.get("SCENARIO_FAKE_BRIEF_OMIT") == "1"
-    ):
+    if stage in ("review_plan", "finalize_plan", "plan_finalize") and os.environ.get("SCENARIO_FAKE_BRIEF_OMIT") == "1":
         report["brief_observations"] = []
-    if stage == "astra_challenge" and os.environ.get("SCENARIO_FAKE_DUPLICATE_REVIEW_OBSERVATION") in ("1", "always"):
+    if stage == "review_plan" and os.environ.get("SCENARIO_FAKE_DUPLICATE_REVIEW_OBSERVATION") in ("1", "always"):
         marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-duplicate-review-observation")
         if data.get("report_repair"):
             # Repair only the faulty review report; do not author a new plan.
@@ -2778,21 +2786,21 @@ def _main() -> int:
     ):
         if stage == "requirements_gather":
             report["source_refs"] = ["todo.py:1"]
-        if stage in ("astra_discovery", "glm_revise"):
+        if stage in ("draft_plan", "revise_plan"):
             report["code_refs"] = ["todo.py:1"]
     if (
         os.environ.get("SCENARIO_FAKE_RETAIN_PLAN") == "1"
         and not data.get("report_repair")
-        and stage in ("astra_discovery", "glm_revise")
+        and stage in ("draft_plan", "revise_plan")
         and report.get("contract")
     ):
         retained = {row["retain_criterion"]: row for row in data.get("retained_criteria") or []}
         report["contract"]["acceptance_criteria"] = [
             retained.get(row["id"], row) for row in report["contract"]["acceptance_criteria"]
         ]
-    if stage in ("astra_discovery", "glm_revise") and isinstance(report.get("contract"), dict):
+    if stage in ("draft_plan", "revise_plan") and isinstance(report.get("contract"), dict):
         report["contract_changes"] = [*report.get("contract_changes", []), *follow_up_removals(report["contract"])]
-    if stage == "astra_finalize" and "retain_contract" in OUTPUT_SCHEMA.get("properties", {}).get("contract", {}).get(
+    if stage == "finalize_plan" and "retain_contract" in OUTPUT_SCHEMA.get("properties", {}).get("contract", {}).get(
         "properties", {}
     ):
         draft = report["contract"]
@@ -2817,18 +2825,18 @@ def _main() -> int:
     if os.environ.get("SCENARIO_FAKE_FINAL_PROOF_FIX") == "1" and not data.get("report_repair"):
         # The revision binds C1 to a wrong command; the final review corrects that one proof through
         # the criteria delta inside its reference (#1991), as a Plan Reviewer that read the plan would.
-        if stage == "glm_revise" and report.get("contract"):
+        if stage == "revise_plan" and report.get("contract"):
             for row in report["contract"]["acceptance_criteria"]:
                 if row["id"] == "C1":
                     row["verification_method"] = CHECK + " --planted-by-the-revision"
-        if stage == "astra_finalize" and "retain_contract" in report.get("contract", {}):
+        if stage == "finalize_plan" and "retain_contract" in report.get("contract", {}):
             report["contract"]["acceptance_criteria"] = {
                 "retain_from": report["contract"]["retain_contract"],
                 "upsert": [],
                 "remove": [],
                 "proofs": [{"id": "C1", "verification_method": CHECK}],
             }
-    if stage == "astra_finalize" and os.environ.get("SCENARIO_FAKE_RETAIN_REPAIR") == "1":
+    if stage == "finalize_plan" and os.environ.get("SCENARIO_FAKE_RETAIN_REPAIR") == "1":
         if data.get("report_repair"):
             rejected = data["rejected_report"]["content"]
             report = json.loads(rejected) if isinstance(rejected, str) else json.loads(json.dumps(rejected))
@@ -2853,7 +2861,7 @@ def _main() -> int:
                 )
                 + "\n"
             )
-    if stage == "astra_review" and "source_verdict" in OUTPUT_SCHEMA.get("properties", {}):
+    if stage == "review_completion" and "source_verdict" in OUTPUT_SCHEMA.get("properties", {}):
         # The Completion Reviewer records a verdict against the sources on a
         # source-traced contract (#595); report-only repairs omit that contract,
         # so follow this invocation's schema. Preserve any existing verdict.
@@ -2875,7 +2883,7 @@ def _main() -> int:
                 report.pop(field, None)
         complete(report, schema)
     if (
-        stage == "astra_finalize"
+        stage == "finalize_plan"
         and os.environ.get("SCENARIO_FAKE_RETAIN_REPAIR") == "1"
         and not data.get("report_repair")
     ):

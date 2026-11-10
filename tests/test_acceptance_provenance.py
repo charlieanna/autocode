@@ -24,7 +24,7 @@ def seal(body, revision, events):
     contract["hash"] = util.digest(contract)
     event = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(contract)}
     events.append(event)
-    contract.update(approval_status="approved", approval_event=event, origin="astra_finalize")
+    contract.update(approval_status="approved", approval_event=event, origin="finalize_plan")
     return contract
 
 
@@ -77,8 +77,8 @@ class AcceptanceFixture:
                     "previous": {"status": "TASK_COMPLETE"},
                 }
             ],
-            "stages": [{"stage": "astra_review"}],
-            "next_stage": "terra",
+            "stages": [{"stage": "review_completion"}],
+            "next_stage": "builder",
             "acceptance_tests": {
                 "receipts": {
                     "old": {
@@ -234,7 +234,7 @@ class AcceptanceProvenanceTests(AcceptanceFixture, unittest.TestCase):
     def test_old_current_green_case_keeps_approved_test_marker_and_proceeds_to_builder(self):
         approved = copy.deepcopy(self.state["goal_contract"])
         self.assertEqual([], self.apply())
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual(approved, self.state["goal_contract"])
         receipt = next(
             row for row in acceptance.receipts(self.state).values() if row["contract_hash"] == approved["hash"]
@@ -260,7 +260,7 @@ class AcceptanceProvenanceTests(AcceptanceFixture, unittest.TestCase):
         }
         self.state["user_events"].append(event)
         self.state["brief_feedback"].append(event)
-        self.state["stages"].append({"stage": "astra_review"})
+        self.state["stages"].append({"stage": "review_completion"})
         self.state["turns"].append(
             {"event_id": event["id"], "say": event["text"], "stage_index": 2, "previous": {"status": "TASK_COMPLETE"}}
         )
@@ -315,7 +315,7 @@ class AcceptanceReapprovalProvenanceTests(AcceptanceFixture, unittest.TestCase):
         self.assertEqual(before, self.state)
         approved = copy.deepcopy(self.state["goal_contract"])
         self.assertEqual([], self.apply())
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual(approved, self.state["goal_contract"])
 
     def test_citation_only_reapproval_keeps_the_same_behavior_and_test(self):
@@ -496,7 +496,7 @@ class AcceptanceRecoveryFixture(AcceptanceFixture):
         }
         self.state["planning"] = copy.deepcopy(self.old_planning)
         planning_cycle.new_cycle(self.state)
-        self.state.update(status="PAUSED_PLANNING_BUDGET", next_stage="astra_challenge", current_task=None)
+        self.state.update(status="PAUSED_PLANNING_BUDGET", next_stage="review_plan", current_task=None)
         self.enterContext(
             patch.object(recovery.source_scope, "snapshot", return_value={"revision": "after-generation"})
         )
@@ -526,7 +526,7 @@ class AcceptanceRecoveryTests(AcceptanceRecoveryFixture, unittest.TestCase):
         self.assertEqual(before["goal_contract"], self.state["contract_history"][-1])
         for key in ("stages", "user_events", "task_archive"):
             self.assertEqual(before[key], self.state[key])
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertFalse(recovery.can_resume(self.state))
 
     def test_user_edits_new_authority_source_changes_and_new_charges_forbid_recovery(self):
@@ -536,7 +536,7 @@ class AcceptanceRecoveryTests(AcceptanceRecoveryFixture, unittest.TestCase):
             lambda s: s["planning"].update(review_call_limit=2, review_call_limit_origin="user_explicit"),
             lambda s: s["goal_contract"].update(origin="user_cli_edit"),
             lambda s: s["goal_contract"]["body"].update(permission_boundaries=["new permission"]),
-            lambda s: s["stages"].append({"stage": "astra_challenge", "exit_code": 0}),
+            lambda s: s["stages"].append({"stage": "review_plan", "exit_code": 0}),
             lambda s: s["stages"][-1].update(source_revision="another-source"),
             lambda s: s["task_archive"].clear(),
             lambda s: s["task_archive"][0].update(affected_paths=["another-file.py"]),

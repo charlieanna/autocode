@@ -49,7 +49,7 @@ def hold_provider(stage: str) -> None:
 class ProviderBarrier:
     """One captured stage boundary; caller owns the containing test directory."""
 
-    def __init__(self, root: Path, stage: str = "terra"):
+    def __init__(self, root: Path, stage: str = "builder"):
         self.root = root
         self.stage = stage
         self.ready = root / "provider-ready.fifo"

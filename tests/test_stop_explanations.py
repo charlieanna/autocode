@@ -299,7 +299,7 @@ class StopExplanationTests(unittest.TestCase):
             "phase": "PLANNING",
             "settings": {"roles": {}},
             "acceptance_criteria": [],
-            "active_stage": {"stage": "astra_discovery", "supervision": supervision},
+            "active_stage": {"stage": "draft_plan", "supervision": supervision},
         }
         view = run_view.view(state, liveness=inspection, controller={"kind": "running"})
         self.assertEqual("RUNNING", view["status"])

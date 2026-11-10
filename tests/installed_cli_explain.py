@@ -104,7 +104,7 @@ class InstalledExplainTests(unittest.TestCase):
             "sessions": {},
             "stages": [],
             "history": [],
-            "next_stage": "astra_plan",
+            "next_stage": "plan_task",
             "created_at": created,
             "settings": {"provider": UNAVAILABLE_PROVIDER, "engine": "codex"},
         }

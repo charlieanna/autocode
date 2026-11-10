@@ -16,7 +16,7 @@ sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI
 with ChatTUI() as ui:
     ui.say('You: Keep `literal` **input** _exact_.')
-    ui.observe({'status': 'WAITING_FOR_USER', 'next_stage': 'astra_discovery',
+    ui.observe({'status': 'WAITING_FOR_USER', 'next_stage': 'draft_plan',
         'needs': {'kind': 'answer'}, 'chat': {'log': [
             {'id': 'agent-update', 'agent': 'Planner', 'kind': 'message',
              'text': 'Use _Both_ for **new entries**; inspect `result_code`.'}
@@ -53,7 +53,7 @@ with ChatTUI() as ui:
     ui.say('You: *typed* input')
     ui.say('AutoCode: Apply *only* *new* entries.')
     ui.say('AutoCode: Keep `*literal*` unchanged.')
-    ui.observe({'status': 'WAITING_FOR_USER', 'next_stage': 'astra_discovery',
+    ui.observe({'status': 'WAITING_FOR_USER', 'next_stage': 'draft_plan',
         'needs': {'kind': 'answer'}, 'chat': {'log': [
             {'id': 'agent-update', 'agent': 'Planner', 'kind': 'message', 'text': 'Checking *only* *new* entries.'}
         ]}})

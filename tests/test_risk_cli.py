@@ -143,7 +143,7 @@ class RiskCliTests(unittest.TestCase):
             attempts = view["usage"]["accounting"]["attempts"]
             self.assertFalse(
                 any(
-                    (row.get("original_stage") or row.get("stage")) == "sol"
+                    (row.get("original_stage") or row.get("stage")) == "tester"
                     and (row.get("report_only") or row.get("rejected"))
                     for row in attempts
                 ),
@@ -155,8 +155,8 @@ class RiskCliTests(unittest.TestCase):
             )
             if testers is None and view["done"]:
                 return view
-            if testers is not None and sum(row.get("stage") == "sol" for row in attempts) >= testers:
-                builders = [row for row in attempts if row.get("stage") == "terra" and not row.get("rejected")]
+            if testers is not None and sum(row.get("stage") == "tester" for row in attempts) >= testers:
+                builders = [row for row in attempts if row.get("stage") == "builder" and not row.get("rejected")]
                 self.assertGreaterEqual(len(builders), testers)
                 return view
             need = view.get("needs") or {}
@@ -249,7 +249,7 @@ class RiskCliTests(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", view["status"], self.details(view))
         self.assertTrue(verdict.evaluate(scenario, run.workspace).passed)
         attempts = view["usage"]["accounting"]["attempts"]
-        builders = [row for row in attempts if row.get("stage") == "terra" and not row.get("rejected")]
+        builders = [row for row in attempts if row.get("stage") == "builder" and not row.get("rejected")]
         self.assertGreaterEqual(len(builders), 2, [row.get("stage") for row in attempts])
         runner = [row for row in view["evidence"]["findings"] if row["source"] == "runner"]
         self.assertEqual(1, len(runner), view["evidence"]["findings"])
@@ -268,7 +268,7 @@ class RiskCliTests(unittest.TestCase):
         self.assertEqual(1, len(correction), handoffs[-1]["actionable_findings"])
         self.assertEqual(runner[0]["finding"], correction[0]["finding"])
         self.assertTrue(correction[0]["blocking"])
-        self.assertFalse(any(row.get("stage") == "sol" and row.get("report_only") for row in attempts))
+        self.assertFalse(any(row.get("stage") == "tester" and row.get("report_only") for row in attempts))
         receipt = view["evidence"]["check_replay"]["risk_acceptance"]
         self.assertEqual("PASS", receipt["verdict"])
         self.assertEqual(1, view["efficiency"]["delivery"]["verified_deliveries"])
@@ -368,13 +368,13 @@ raise SystemExit(runner.cli())
             attempts = view["usage"]["accounting"]["attempts"]
             self.assertFalse(
                 any(
-                    (row.get("original_stage") or row.get("stage")) == "sol"
+                    (row.get("original_stage") or row.get("stage")) == "tester"
                     and (row.get("report_only") or row.get("rejected"))
                     for row in attempts
                 ),
                 "The race finding must drive rework, not an unrelated Tester evidence repair",
             )
-            testers = [row for row in attempts if row.get("stage") == "sol"]
+            testers = [row for row in attempts if row.get("stage") == "tester"]
             if testers and first_revision is None:
                 first_revision = view["evidence"]["validator_source_revision"]
             if len(testers) >= 2:
@@ -390,7 +390,7 @@ raise SystemExit(runner.cli())
                 view = run.advance()
         else:
             self.fail("Two scripted Builder/Tester rounds did not reach their public boundaries")
-        builders = [row for row in attempts if row.get("stage") == "terra" and not row.get("rejected")]
+        builders = [row for row in attempts if row.get("stage") == "builder" and not row.get("rejected")]
         self.assertGreaterEqual(len(builders), 2)
         self.assertTrue(first_revision)
         self.assertEqual(first_revision, view["evidence"]["validator_source_revision"])

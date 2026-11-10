@@ -281,7 +281,7 @@ def boundary_effects(
     # A completion proposal is retained in its report, but cannot commit while
     # an earlier accepted pause is still awaiting explicit continuation.
     if state.get("next_stage") is None and (pauses or stops or feedback):
-        state["next_stage"] = "astra_review"
+        state["next_stage"] = "review_completion"
     if state.get("status") != "TASK_COMPLETE":
         state.pop("completed_at", None)
         state.pop("completion_actor", None)

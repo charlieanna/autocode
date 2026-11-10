@@ -71,8 +71,8 @@ def report(body=None, with_proposal=True):
 
 class SchemaTests(unittest.TestCase):
     def test_reports_accept_an_optional_progressive_proposal(self):
-        support.validate_schema(report(with_proposal=False), autoplanner.SCHEMAS["astra_discovery"])
-        support.validate_schema(report(), autoplanner.SCHEMAS["astra_discovery"])
+        support.validate_schema(report(with_proposal=False), autoplanner.SCHEMAS["draft_plan"])
+        support.validate_schema(report(), autoplanner.SCHEMAS["draft_plan"])
         final_body = goal_fixtures.body()
         final_body["initial_task"] = {
             "objective": "Deliver S1",
@@ -92,10 +92,10 @@ class SchemaTests(unittest.TestCase):
             "requirement_trace": [],
             "progressive_proposal": proposal(),
         }
-        support.validate_schema(final, autoplanner.SCHEMAS["astra_finalize"])
+        support.validate_schema(final, autoplanner.SCHEMAS["finalize_plan"])
         with self.assertRaises(ValueError):
             support.validate_schema(
-                {**report(), "progressive_proposal": {"version": 1}}, autoplanner.SCHEMAS["astra_discovery"]
+                {**report(), "progressive_proposal": {"version": 1}}, autoplanner.SCHEMAS["draft_plan"]
             )
 
 
@@ -165,7 +165,7 @@ class AcceptProposalTests(unittest.TestCase):
         value["contract"]["milestones"].append(
             {**copy.deepcopy(value["contract"]["milestones"][0]), "id": "M2", "depends_on": ["M1"]}
         )
-        support.validate_schema(value, autoplanner.SCHEMAS["astra_discovery"])
+        support.validate_schema(value, autoplanner.SCHEMAS["draft_plan"])
         with self.assertRaisesRegex(ValueError, "slice S3 is future work"):
             progressive_state.accept_proposal(self.state, copy.deepcopy(value), origin="glm_draft")
         value["progressive_proposal"]["slices"][2]["tentative"] = True
@@ -203,7 +203,7 @@ class AcceptProposalTests(unittest.TestCase):
     def test_rebind_without_a_proposal_clears_the_candidate(self):
         progressive_state.accept_proposal(self.state, report(), origin="glm_draft")
         self.assertIn("candidate", self.state["progressive"])
-        progressive_state.accept_proposal(self.state, report(with_proposal=False), origin="glm_revise")
+        progressive_state.accept_proposal(self.state, report(with_proposal=False), origin="revise_plan")
         self.assertNotIn("candidate", self.state["progressive"])
         self.assertNotIn("delegation", self.state["progressive"])
 
@@ -278,7 +278,7 @@ class ApprovalIntegrationTests(unittest.TestCase):
             "user_events": [],
             "acceptance_criteria": [],
             "status": "RUNNING",
-            "next_stage": "astra_discovery",
+            "next_stage": "draft_plan",
             "settings": {},
         }
 
@@ -321,14 +321,14 @@ class ApprovalIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "planning report lacks an accepted read-only witness"):
             self.approve(report())
         with self.assertRaises(support.Paused):
-            progressive_state.guard_dispatch(self.state, "terra")
+            progressive_state.guard_dispatch(self.state, "builder")
 
     def test_missing_progressive_ledger_does_not_downgrade_execution(self):
         self.approve(report(with_proposal=False))
         self.state["goal_contract"]["body"]["constraints"] += rules.disclosure(proposal(), ["C1"])["constraints"]
         self.assertTrue(progressive_state.enabled(self.state))
         with self.assertRaises(support.Paused):
-            progressive_state.guard_dispatch(self.state, "terra")
+            progressive_state.guard_dispatch(self.state, "builder")
 
     def test_a_stale_token_never_seals(self):
         lifecycle.migrate(self.state)

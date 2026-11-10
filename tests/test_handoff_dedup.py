@@ -13,7 +13,7 @@ import autocode_context as context
 import autocode_stage_context as stage_context
 
 
-def packet(stage="astra_review"):
+def packet(stage="review_completion"):
     criteria = [
         {
             "id": f"C{i}",
@@ -99,7 +99,7 @@ class ReviewHandoffTests(unittest.TestCase):
                         )
 
     def test_scripted_builder_preserves_requirements_and_builds_from_compact_handoff(self):
-        original = packet("terra")
+        original = packet("builder")
         requirements = [row["criterion"] for row in original["acceptance_criteria"]]
         original["current_task"] = {"id": "task", "milestone_id": "M1", "requirements": requirements}
         original["actionable_findings"] = []
@@ -127,7 +127,7 @@ class ReviewHandoffTests(unittest.TestCase):
                     self.assertEqual((code, stdout), (result.returncode, result.stdout))
 
     def test_duplicates_shrink_without_losing_rejection_evidence(self):
-        for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+        for stage in ("builder", "tester", "review_completion", "review_checkpoint"):
             with self.subTest(stage=stage):
                 original = packet(stage)
                 before = copy.deepcopy(original)
@@ -154,7 +154,7 @@ class ReviewHandoffTests(unittest.TestCase):
         other = "changed-code:" + "b" * 64
         reason = "Go mutation tooling is unavailable; line 48 is executed by the Build tests " * 3
         receipt = [{"command": "go test ./...", "supervision": {"receipt": "r" * 120}}]
-        original = packet("astra_review")
+        original = packet("review_completion")
         original["regression_proof"] = {
             "diff_coverage": {"command_receipts": copy.deepcopy(receipt)},
             "changed_code_receipts": copy.deepcopy(receipt),
@@ -215,7 +215,7 @@ class ReviewHandoffTests(unittest.TestCase):
         coverage = [{"command": f"coverage run {n}", "supervision": {"receipt": "r" * 400}} for n in range(2)]
         mutant = {"command": "unittest mutant-01", "supervision": {"receipt": "m" * 400}}
         tiny = {"command": "x"}
-        for stage in ("sol", "astra_review"):
+        for stage in ("tester", "review_completion"):
             with self.subTest(stage=stage):
                 original = packet(stage)
                 original["regression_proof"] = {
@@ -253,7 +253,7 @@ class ReviewHandoffTests(unittest.TestCase):
                 self.assertEqual([tiny, mutant], kept["changed_code_receipts"])
 
     def test_different_criteria_or_commands_are_never_conflated(self):
-        for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+        for stage in ("builder", "tester", "review_completion", "review_checkpoint"):
             with self.subTest(stage=stage):
                 original = packet(stage)
                 original["acceptance_criteria"][0]["criterion"] = "Different approved wording"
@@ -261,15 +261,15 @@ class ReviewHandoffTests(unittest.TestCase):
                 self.assertEqual((original, []), context.compact(original, "/nonexistent/state.json"))
 
     def test_planning_and_legacy_packets_keep_their_shape(self):
-        for stage in ("astra_discovery", "astra_plan"):
+        for stage in ("draft_plan", "plan_task"):
             original = packet(stage)
             self.assertEqual((original, []), context.compact(original, "/nonexistent/state.json"))
-        original = {"stage": "sol", "acceptance_criteria": [{"id": "C1", "criterion": "Legacy"}]}
+        original = {"stage": "tester", "acceptance_criteria": [{"id": "C1", "criterion": "Legacy"}]}
         self.assertEqual((original, []), context.compact(original, "/nonexistent/state.json"))
 
     def test_small_packets_are_not_made_larger(self):
         original = {
-            "stage": "sol",
+            "stage": "tester",
             "acceptance_criteria": [{"id": "C1", "criterion": "Works"}],
             "goal_contract": {"body": {"acceptance_criteria": [{"id": "C1", "criterion": "Works"}]}},
         }
@@ -282,12 +282,14 @@ class ReviewHandoffTests(unittest.TestCase):
                 version=3,
                 task="Implement all 18 requirements",
                 workspace=tmp,
-                settings={"roles": {r: {"engine": "codex", "model": "fake"} for r in ("task_planner", "terra", "sol")}},
+                settings={
+                    "roles": {r: {"engine": "codex", "model": "fake"} for r in ("task_planner", "builder", "tester")}
+                },
                 answers=state["saved_answers"],
             )
             before = copy.deepcopy(state)
             with patch.object(stage_context.support, "snapshot", return_value={"revision": "r", "head": "h"}):
-                for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+                for stage in ("builder", "tester", "review_completion", "review_checkpoint"):
                     prompt, metrics = stage_context.context_packet(state, stage, Path(tmp) / "state.json")
                     data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
                     self.assertIn("acceptance_criteria_ref", data)

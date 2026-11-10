@@ -14,7 +14,7 @@ def check(project, scenario, run=None):
         view = run.get("view") or {}
         trace = project.parent / "rework-trace.jsonl"
         rows = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
-        validators = [row for row in rows if row["stage"] == "sol"]
+        validators = [row for row in rows if row["stage"] == "tester"]
         checks.append(
             Check(
                 "repeat_incident_was_exercised",
@@ -25,7 +25,7 @@ def check(project, scenario, run=None):
         checks.append(
             Check(
                 "known_correction_without_paid_diagnosis",
-                not any(row["stage"] == "astra_resolve" for row in rows),
+                not any(row["stage"] == "resolve" for row in rows),
                 repr(rows),
             )
         )

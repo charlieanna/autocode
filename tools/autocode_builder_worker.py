@@ -61,7 +61,7 @@ def execute(state: RunState, directory, workspace, mode):
 
     runner.stop_policy.refuse_admission(state)
     runner.goals.execution_guard(state)
-    runner.autopilot.builder_failure.dispatch_guard(state, "terra", workspace)
+    runner.autopilot.builder_failure.dispatch_guard(state, "builder", workspace)
     runner.autopilot.builder_policy.guard(state)
     runner.autopilot.regression.before_review(state, None, workspace, directory)
     runner.opencode = runner.autocode_providers.resolve(state["settings"].get("provider", "opencode"))
@@ -114,10 +114,10 @@ def execute(state: RunState, directory, workspace, mode):
         except runner.support.Paused as error:
             runner.result_application.raise_if_not_rejected(error)
             active = state.get("active_stage") or {}
-            if mode != "retry" or not active or active.get("stage") != "terra" or active.get("report_only"):
+            if mode != "retry" or not active or active.get("stage") != "builder" or active.get("report_only"):
                 raise
             runner.abandon_stage(state, directory, workspace, runner.attempt_id(state["active_stage"]))
-            state["next_stage"] = "terra"
+            state["next_stage"] = "builder"
             state["status"] = "RUNNING"
         require_running()
     if mode == "retry":
@@ -133,7 +133,7 @@ def execute(state: RunState, directory, workspace, mode):
         # report repair; it alone decides whether another Builder is admitted.
         runner.autopilot.dispatch_unit(runner, state, "investigate_stuck", workspace, directory)
         repair_reports()
-        if state.get("status") != "RUNNING" or state.get("next_stage") != "terra":
+        if state.get("status") != "RUNNING" or state.get("next_stage") != "builder":
             status = state["status"] if state["status"] != "RUNNING" else "PAUSED_ORCHESTRATOR_WORKER"
             raise runner.support.Paused(
                 status, state.get("stop_reason") or "Builder classification did not admit an execution retry"
@@ -144,14 +144,14 @@ def execute(state: RunState, directory, workspace, mode):
                 "PAUSED_ORCHESTRATOR_WORKER",
                 "No completed Builder result; explicitly retry this member after inspection",
             )
-        if state.get("next_stage") not in (None, "terra"):
+        if state.get("next_stage") not in (None, "builder"):
             raise runner.support.Paused(
                 "PAUSED_ORCHESTRATOR_WORKER",
                 "This Builder requires its queued controller stage before another execution",
             )
-        runner.autopilot.builder_failure.dispatch_guard(state, "terra", workspace)
-        state.update({"status": "RUNNING", "next_stage": "terra"})
-        prompt, metrics = stage_context.context_packet(state, "terra", directory / "state.json")
+        runner.autopilot.builder_failure.dispatch_guard(state, "builder", workspace)
+        state.update({"status": "RUNNING", "next_stage": "builder"})
+        prompt, metrics = stage_context.context_packet(state, "builder", directory / "state.json")
         prompt = test_examples.builder_prompt(
             prompt,
             workspace,
@@ -174,24 +174,26 @@ def execute(state: RunState, directory, workspace, mode):
             "structured user_request. Keep all evidence under this run directory.\n"
         ) + prompt
         state["pending_context_metrics"] = metrics
-        schema = runner.goals.role_schema(runner.read_json(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "terra")
+        schema = runner.goals.role_schema(
+            runner.read_json(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "builder"
+        )
         schema_path = directory / "schema.json"
         runner.write_json(schema_path, schema)
         try:
             value, record = runner.run_role(
-                role="terra",
+                role="builder",
                 prompt=prompt,
                 sandbox="workspace-write",
                 workspace=workspace,
                 run_dir=directory,
                 state=state,
                 schema=schema_path,
-                model=state["settings"]["roles"]["terra"]["model"],
+                model=state["settings"]["roles"]["builder"]["model"],
                 allow_write=True,
                 dry_run=False,
             )
             try:
-                runner.commit_stage_result(state, "terra", value, record, workspace, directory)
+                runner.commit_stage_result(state, "builder", value, record, workspace, directory)
             except (ValueError, KeyError, runner.support.Paused) as error:
                 runner.reject_completed_stage(state, directory, record, error)
         except runner.ReportRepairQueued:
@@ -204,7 +206,7 @@ def execute(state: RunState, directory, workspace, mode):
         ):
             runner.autopilot.dispatch_unit(runner, state, "investigate_stuck", workspace, directory)
             repair_reports()
-        if state.get("next_stage") != "terra":
+        if state.get("next_stage") != "builder":
             raise runner.support.Paused(
                 "PAUSED_BUILDER_CLASSIFICATION",
                 "Isolated Builder returned without source changes and requires its bound Resolver handoff "

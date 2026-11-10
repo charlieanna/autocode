@@ -47,17 +47,17 @@ except ImportError:
 
 # The planning stages this rule may raise, by the route that launches them.
 STAGES = {
-    "astra_discovery": "planner",
-    "glm_revise": "planner",
-    "astra_challenge": "plan_reviewer",
-    "astra_finalize": "plan_reviewer",
+    "draft_plan": "planner",
+    "revise_plan": "planner",
+    "review_plan": "plan_reviewer",
+    "finalize_plan": "plan_reviewer",
 }
 # Which difficulty signals each stage reads (see the module docstring).
 SIGNALS = {
-    "astra_discovery": ("vague_request",),
-    "glm_revise": ("large_plan", "sensitive_paths", "blocked_again", "vague_request"),
-    "astra_challenge": ("large_plan", "sensitive_paths", "vague_request"),
-    "astra_finalize": ("large_plan", "sensitive_paths", "vague_request"),
+    "draft_plan": ("vague_request",),
+    "revise_plan": ("large_plan", "sensitive_paths", "blocked_again", "vague_request"),
+    "review_plan": ("large_plan", "sensitive_paths", "vague_request"),
+    "finalize_plan": ("large_plan", "sensitive_paths", "vague_request"),
 }
 # Only a level the person saved as a stage choice, or the runner's own default, is raised.
 RAISABLE = (role_route.STAGE_CHOICE, role_route.RUNNER_DEFAULT, role_route.AUTO_SELECTED)
@@ -68,7 +68,7 @@ def signals(state: RunState, stage) -> list[str]:
     """The difficulty signals that hold for ``stage`` now, in a fixed order."""
     wanted = SIGNALS.get(stage, ())
     workflow = state.get("workflow") or {}
-    body = ((state.get("goal_contract") or {}).get("body") or {}) if stage != "astra_discovery" else {}
+    body = ((state.get("goal_contract") or {}).get("body") or {}) if stage != "draft_plan" else {}
     found = []
     if "large_plan" in wanted and body and adaptive.plan_size(body)["size"] == "large":
         found.append("large_plan")

@@ -84,11 +84,11 @@ def role_schema(legacy, role, *, progressive=False):
         }
         schema["properties"]["agreed_limitations"] = STRINGS
         schema["required"] += ["next_task", "agreed_limitations"]
-    if role == "terra":
+    if role == "builder":
         for key in ("addressed_requirements", "untested_behavior", "recommended_checks"):
             schema["properties"][key] = STRINGS
             schema["required"].append(key)
-    if role == "sol":
+    if role == "tester":
         schema["properties"][changed_code_review.FIELD] = copy.deepcopy(changed_code_review.SCHEMA)
         findings = schema["properties"]["findings"]["items"]
         findings["properties"]["id"] = STRING

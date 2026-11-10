@@ -155,20 +155,20 @@ def cli_overrides(profile: dict) -> list[str]:
     # Stage/role flags kept under their legacy names (see docs/models.md).
     role_flags = {
         "requirements": "--requirements-model",
-        "planner": "--glm-model",
+        "planner": "--planner-model",
         "reviewer": "--plan-reviewer-model",
-        "builder": "--terra-model",
-        "validator": "--sol-model",
-        "resolver": "--astra-model",
+        "builder": "--builder-model",
+        "validator": "--tester-model",
+        "resolver": "--task-planner-model",
         "completion": "--completion-model",
     }
     effort_flags = {
         "requirements": "--requirements-reasoning-effort",
-        "planner": "--glm-reasoning-effort",
+        "planner": "--planner-reasoning-effort",
         "reviewer": "--plan-reviewer-reasoning-effort",
         "builder": "--reasoning-effort",
-        "validator": "--sol-reasoning-effort",
-        "resolver": "--astra-reasoning-effort",
+        "validator": "--tester-reasoning-effort",
+        "resolver": "--task-planner-reasoning-effort",
         "completion": "--completion-reasoning-effort",
     }
     for role, flag in role_flags.items():

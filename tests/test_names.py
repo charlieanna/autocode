@@ -29,17 +29,43 @@ class OneTableOfNames(unittest.TestCase):
             self.assertFalse(set(table) & set(table.values()), "a new name must not be an old one")
         self.assertEqual("builder", names.route("terra"))
         self.assertEqual("plan_reviewer", names.route("plan_reviewer"), "a name that is already clear stays")
-        self.assertEqual("build", names.stage("terra"))
+        self.assertEqual("builder", names.stage("terra"), "the Builder's stage and route share its name")
 
-    def test_a_retired_route_becomes_its_job_name_and_a_route_not_yet_renamed_stays(self):
+    def test_every_retired_route_becomes_its_job_name_and_its_schema_files_keep_their_stems(self):
         self.assertEqual("task_planner", names.current_route("astra"))
-        self.assertEqual("sol", names.current_route("sol"), "the Tester's route is renamed with the stages")
+        self.assertEqual("tester", names.current_route("sol"))
+        self.assertEqual("completion", names.current_route("completion"), "a name that is already clear stays")
         self.assertEqual("astra", names.file_stem("task_planner"), "its schema files keep the old stem")
-        self.assertEqual("terra", names.file_stem("terra"))
+        self.assertEqual("terra", names.file_stem("builder"))
+        self.assertEqual("completion", names.file_stem("completion"))
         kept = {"astra": {"model": "a"}, "terra": {"model": "b"}}
-        self.assertEqual({"task_planner": {"model": "a"}, "terra": {"model": "b"}}, names.renamed_routes(kept, "x"))
+        self.assertEqual({"task_planner": {"model": "a"}, "builder": {"model": "b"}}, names.renamed_routes(kept, "x"))
         with self.assertRaisesRegex(ValueError, "names the planner route twice"):
             names.renamed_routes({"glm": {}, "planner": {}}, "provider config [roles]")
+
+    def test_a_stage_record_without_a_route_names_the_route_its_stage_ran_on(self):
+        for stage, route in (
+            ("draft_plan", "task_planner"),
+            ("review_completion_report_repair", "task_planner"),
+            ("revise_plan", "planner"),
+            ("builder_report_repair", "builder"),
+            ("tester", "tester"),
+        ):
+            with self.subTest(stage=stage):
+                self.assertEqual(route, names.stage_route(stage))
+        self.assertTrue(names.task_planner_stage("resolve"))
+        self.assertFalse(names.task_planner_stage("revise_plan"), "the Planner's revision runs on its own route")
+
+    def test_the_fake_provider_names_the_per_task_planners_stages_as_the_table_does(self):
+        import ast
+
+        fake = ast.parse((Path(names.__file__).parent / "fake_codex.py").read_text())
+        [table] = [
+            node.value
+            for node in fake.body
+            if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "TASK_PLANNER_STAGES"
+        ]
+        self.assertEqual(names.TASK_PLANNER_STAGES, ast.literal_eval(table))
 
     def test_the_legacy_planning_stages_do_not_reuse_the_v2_flows_names(self):
         v2 = {"requirements", "plan", "plan_review", "plan_revise", "plan_finalize"}
@@ -84,7 +110,7 @@ class TheNewSpellingsWork(unittest.TestCase):
             self.assertEqual("vendor/b", settings["builder-model"][0])
             with contextlib.redirect_stderr(io.StringIO()):
                 args, _ = autocode_args.parse(None, ["Build it", "--workspace", folder], opencode.DEFAULT_MODELS)
-            self.assertEqual(("vendor/b", "low"), (args.terra_model, args.sol_reasoning_effort))
+            self.assertEqual(("vendor/b", "low"), (args.builder_model, args.tester_reasoning_effort))
             config.write_text('builder-model = "vendor/b"\nterra-model = "vendor/c"\n')
             with self.assertRaisesRegex(ValueError, "terra-model set the same thing"):
                 project_config.read(folder)
@@ -97,14 +123,14 @@ class TheNewSpellingsWork(unittest.TestCase):
             file = Path(folder) / "stages.toml"
             file.write_text('[claude]\nbuilder = { model = "m-b" }\nplanner = { model = "m-p", effort = "high" }\n')
             self.assertEqual(
-                {"terra": {"model": "m-b", "effort": None}, "planner": {"model": "m-p", "effort": "high"}},
+                {"builder": {"model": "m-b", "effort": None}, "planner": {"model": "m-p", "effort": "high"}},
                 choices.load(file)["claude"],
             )
             # A file saved before the routes were renamed keeps its choices under the new names.
             file.write_text('[claude]\nglm = { model = "m-p" }\nastra = { model = "m-a" }\n')
             self.assertEqual({"planner", "task_planner"}, set(choices.load(file)["claude"]))
             file.write_text('[claude]\nbuilder = { model = "m-b" }\nterra = { model = "m-t" }\n')
-            with self.assertRaisesRegex(ValueError, "names terra twice"):
+            with self.assertRaisesRegex(ValueError, "names builder twice"):
                 choices.load(file)
         self.assertEqual("task_planner", stages_cli.ALIASES["task-planner"])
         self.assertIn("task-planner", stages_cli.STAGE_NAMES)

@@ -175,7 +175,7 @@ class MessageBoundaryTests(unittest.TestCase):
         self.assertFalse(self.consume(), "reopen cannot reapply or relaunch the same message")
 
     def test_cli_explains_queued_discussion_handoff_without_releasing_pause(self):
-        self.state.update(next_stage="astra_discovery", iteration=1, sessions={})
+        self.state.update(next_stage="draft_plan", iteration=1, sessions={})
         self.save()
         self.submit("fix-request")
         self.submit("pause-request", "pause")
@@ -196,7 +196,7 @@ class MessageBoundaryTests(unittest.TestCase):
         self.assertFalse((self.run / "iterations").exists(), "Reading the handoff must not launch a provider")
 
     def controller_boundary(self, *, hold=None):
-        self.state.update(next_stage="astra_discovery", iteration=1, sessions={})
+        self.state.update(next_stage="draft_plan", iteration=1, sessions={})
         stop.run_messages.receive(self.state, receipt(text="Please fix it."))
         self.save()
         if hold:
@@ -255,7 +255,7 @@ class MessageBoundaryTests(unittest.TestCase):
                 self.submit("hold-" + kind, kind)
                 self.consume()
                 self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
-                self.assertEqual("astra_finalize", self.state["next_stage"])
+                self.assertEqual("finalize_plan", self.state["next_stage"])
                 self.assertEqual("run_message", self.state["user_events"][-1]["kind"])
                 if kind == "stop":
                     self.assertIsNotNone(stop.applied_stop(self.state))
@@ -267,7 +267,7 @@ class MessageBoundaryTests(unittest.TestCase):
         self.consume()
         self.assertEqual("PAUSED_COST_LIMIT", self.state["status"])
         self.assertEqual("cost exhausted", self.state["stop_reason"])
-        self.assertEqual("astra_finalize", self.state["next_stage"])
+        self.assertEqual("finalize_plan", self.state["next_stage"])
         self.assertEqual("run_message", self.state["user_events"][-1]["kind"])
 
     def test_message_submitted_before_final_result_keeps_the_exact_completion_checkpoint(self):

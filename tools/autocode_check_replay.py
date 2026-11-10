@@ -239,7 +239,7 @@ def replay(
         }
         if (
             execution_identity
-            and record.get("stage") in ("sol", "astra_checkpoint")
+            and record.get("stage") in ("tester", "review_checkpoint")
             and events.is_file()
             and not events.is_symlink()
         )

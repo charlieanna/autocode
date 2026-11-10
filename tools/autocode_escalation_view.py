@@ -228,9 +228,9 @@ def _builder_failure(decision, attempts, milestones) -> tuple[dict | None, str |
         return None, None
     found = named["record"]
     task = _text(found.get("task_id"))
-    if _role(found) == "terra":
+    if _role(found) == "builder":
         return found, task
-    builders = [row for row in attempts if _role(row["record"]) == "terra"]
+    builders = [row for row in attempts if _role(row["record"]) == "builder"]
     latest = (
         _latest([row for row in builders if row["record"].get("task_id") == task], _when(decision.get("at")))
         if task
@@ -278,7 +278,7 @@ def _recorded(state: RunState, attempts, milestones) -> list[dict]:
         found.append(
             {
                 "kind": "stronger_attempt",
-                "role": "terra",
+                "role": "builder",
                 # One stronger attempt per milestone; the next milestone's moves the Builder again.
                 "lane": ("stronger", decision.get("milestone_key")),
                 "at": decision.get("at"),
@@ -324,7 +324,7 @@ def _sent_back(state: RunState, attempts, milestones) -> list[tuple[dt.datetime,
     back is the Builder's last attempt of that task's milestone before it was assigned. The retry policy charges such a
     review when it is on (_charges); with it off (settings.workflow set, or builder_retry disabled), this is the only
     record that work a validation passed was sent back."""
-    builders = [row for row in attempts if _role(row["record"]) == "terra"]
+    builders = [row for row in attempts if _role(row["record"]) == "builder"]
     found = []
     for task in [*_list(state.get("task_archive")), _dict(state.get("current_task"))]:
         when = _when(task.get("assigned_at"))
@@ -382,7 +382,7 @@ def _judged(escalation, validations, index, milestones) -> list[tuple[dt.datetim
     for when, verdict, validator in validations:
         attempt = validator
         if _role(validator["record"]) != escalation["role"]:
-            attempt = _before(index, "terra", when) if escalation["role"] == "terra" else None
+            attempt = _before(index, "builder", when) if escalation["role"] == "builder" else None
         if (
             attempt is not None
             and id(attempt) in mine
@@ -443,7 +443,7 @@ def _outcome(state: RunState, escalation, later, judged, charged) -> tuple[str, 
     # before #612's stamp fix may hold a `passed` stamp on its stronger attempt written in the handler that made it
     # (autopilot's astra_resolve, at the PASS the review just sent back), before that attempt ran: the Builder's stamp
     # is never its outcome.
-    if escalation["stamp"] == "passed" and escalation["only_mine"] and escalation["role"] != "terra":
+    if escalation["stamp"] == "passed" and escalation["only_mine"] and escalation["role"] != "builder":
         return "passed", "recorded", None, False
     status = state.get("status") or ""
     return ("passed" if status in FINISHED else "running" if status in WORKING else "paused"), "run_status", None, False

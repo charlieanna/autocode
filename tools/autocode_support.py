@@ -523,10 +523,10 @@ def transport_arguments(settings):
 
 
 STABLE = {
-    "astra_plan": prompts.get("task-plan.md"),
-    "astra_review": prompts.get("completion-review.md"),
-    "terra": prompts.get("builder.md"),
-    "sol": prompts.get("validator.md"),
+    "plan_task": prompts.get("task-plan.md"),
+    "review_completion": prompts.get("completion-review.md"),
+    "builder": prompts.get("builder.md"),
+    "tester": prompts.get("validator.md"),
 }
 ASTRA_DECISIONS = prompts.get("fragments/support/astra-decisions.md")
 MILESTONE_POLICY = prompts.get("fragments/support/milestone-policy.md")
@@ -544,7 +544,7 @@ def migrate_v1(state, run_dir, workspace, settings, schemas):
         version=2,
         settings=settings,
         stages=state.get("stages", []),
-        next_stage="astra_plan",
+        next_stage="plan_task",
         acceptance_criteria=[],
         criteria_revision=None,
         unresolved_findings=[],
@@ -564,7 +564,7 @@ def migrate_v1(state, run_dir, workspace, settings, schemas):
         if not complete or not final.exists():
             if iteration == state["iteration"]:
                 state.update(status="PAUSED_UNCERTAIN_STAGE", stop_reason=f"Reconcile unfinished legacy {role}: {path}")
-                state["next_stage"] = "astra_review" if role == "task_planner" else role
+                state["next_stage"] = "review_completion" if role == "task_planner" else role
                 state["uncertain_artifacts"] = str(path)
             continue
         value = read(final)
@@ -575,9 +575,9 @@ def migrate_v1(state, run_dir, workspace, settings, schemas):
         if thread:
             state.setdefault("sessions", {})[role] = thread
         stage = (
-            "astra_plan"
+            "plan_task"
             if role == "task_planner" and not state["acceptance_criteria"]
-            else "astra_review"
+            else "review_completion"
             if role == "task_planner"
             else role
         )
@@ -598,16 +598,16 @@ def migrate_v1(state, run_dir, workspace, settings, schemas):
             state["criteria_revision"] = digest(criteria_definition(value["acceptance_criteria"]))
             state["next_action"] = value["next_objective"]
             state["plan"] = [value["next_objective"]]
-            state["next_stage"] = "terra" if value["status"] == "CONTINUE" else "sol"
-        elif role == "terra":
+            state["next_stage"] = "builder" if value["status"] == "CONTINUE" else "tester"
+        elif role == "builder":
             state["implementation"] = value
             state["changed_files"] = value["changed_files"]
-            state["next_stage"] = "sol"
+            state["next_stage"] = "tester"
         else:
             state["validation"] = {**value, "source_revision": None, "criteria_revision": None}
             state["unresolved_findings"] = value["findings"]
-            state["next_stage"] = "astra_review"
+            state["next_stage"] = "review_completion"
     state["migration"] = {"from": 1, "at": now(), "legacy_validation_requires_freshness_review": True}
     if state.get("status") == "TASK_COMPLETE":
-        state.update(status="PAUSED_LEGACY_COMPLETION_UNVERIFIED", next_stage="sol")
+        state.update(status="PAUSED_LEGACY_COMPLETION_UNVERIFIED", next_stage="tester")
     return state

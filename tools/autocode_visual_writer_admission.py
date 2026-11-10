@@ -743,7 +743,7 @@ class WriterAdmissions:
         decision = self._proof("bounded-rework", query, decision_selector, operation=operation)
         identity = decision["identity"]
         _require(
-            (identity.get("stage"), identity.get("status")) in (("astra_review", "REWORK"), ("astra_resolve", "REWORK"))
+            (identity.get("stage"), identity.get("status")) in (("review_completion", "REWORK"), ("resolve", "REWORK"))
             and identity.get("next_task_sha256") == util.digest(new)
             and _sha(identity.get("decision_sha256")),
             "not an accepted Completion/Resolver bounded repair",

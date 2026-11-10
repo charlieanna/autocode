@@ -100,10 +100,10 @@ class GoalTests(unittest.TestCase):
             "sessions": {},
             "stages": [],
             "history": [],
-            "next_stage": "terra",
+            "next_stage": "builder",
             "acceptance_criteria": [],
             "settings": {
-                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "terra", "sol")},
+                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "builder", "tester")},
                 "transport_identity": self.local,
                 "headroom": {"enabled": False},
                 "context_soft_tokens": 10000,
@@ -192,7 +192,7 @@ class GoalTests(unittest.TestCase):
             "evidence_refs": ["event:check"],
         }
         record = {"events": str(evidence), "source_revision": current["revision"], "output": str(evidence)}
-        runner.apply_result(self.state, "sol", value, record, self.root, self.run)
+        runner.apply_result(self.state, "tester", value, record, self.root, self.run)
         return current
 
     def invoke(self, *args, role=None, acknowledge_legacy=True):
@@ -247,7 +247,7 @@ class GoalTests(unittest.TestCase):
 
         self.assertEqual(2, self.invoke(role=interview))
         self.assertEqual(1, len(calls))
-        self.assertEqual("astra_discovery", calls[0]["state"]["stages"][-1].get("stage", "astra_discovery"))
+        self.assertEqual("draft_plan", calls[0]["state"]["stages"][-1].get("stage", "draft_plan"))
         self.assertFalse(calls[0]["allow_write"])
         self.assertEqual("read-only", calls[0]["sandbox"])
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
@@ -269,7 +269,7 @@ class GoalTests(unittest.TestCase):
         def planner(**kwargs):
             calls.append(kwargs["allow_write"])
             return {"contract": body(), "summary": "Ownership is covered; enthusiastically approved"}, {
-                "stage": "astra_discovery",
+                "stage": "draft_plan",
                 "iteration": 1,
                 "role": "task_planner",
                 "output": str(self.run / "draft.json"),
@@ -381,10 +381,10 @@ class GoalTests(unittest.TestCase):
 
     def test_invalid_planning_report_accepts_named_feedback_without_dispatch(self):
         self.approve()
-        self.state["settings"]["roles"]["completion"] = {"model": "sol", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["completion"] = {"model": "tester", "reasoning_effort": "high"}
         self.state["settings"]["limits"].update(idle_timeout_seconds=300, tool_timeout_seconds=600, max_seconds=3600)
         old_token = g.token(self.state["goal_contract"])
-        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="astra_finalize")
+        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="finalize_plan")
         message = "Retain the original source quotes while correcting the report."
         self.assertEqual(0, self.invoke("--status", "--json"))
         before = json.loads(self.stdout)
@@ -401,7 +401,7 @@ class GoalTests(unittest.TestCase):
 
     def test_invalid_execution_reports_cannot_take_planning_feedback(self):
         self.approve()
-        for stage in ("terra", "sol", "astra_review", None, "unknown"):
+        for stage in ("builder", "tester", "review_completion", None, "unknown"):
             with self.subTest(stage=stage):
                 self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage=stage)
                 self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
@@ -409,7 +409,7 @@ class GoalTests(unittest.TestCase):
 
     def test_stopped_acceptance_writer_can_take_named_selector_feedback_without_dispatch(self):
         self.approve()
-        self.state["settings"]["roles"]["completion"] = {"model": "sol", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["completion"] = {"model": "tester", "reasoning_effort": "high"}
         self.state["settings"]["limits"].update(idle_timeout_seconds=300, tool_timeout_seconds=600, max_seconds=3600)
         token = g.token(self.state["goal_contract"])
         self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="write_acceptance_tests")
@@ -429,12 +429,12 @@ class GoalTests(unittest.TestCase):
         for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
             with self.subTest(status=status):
                 self.approve()
-                self.state["settings"]["roles"]["completion"] = {"model": "sol", "reasoning_effort": "high"}
+                self.state["settings"]["roles"]["completion"] = {"model": "tester", "reasoning_effort": "high"}
                 self.state["settings"]["limits"].update(
                     idle_timeout_seconds=300, tool_timeout_seconds=600, max_seconds=3600
                 )
                 old_token = g.token(self.state["goal_contract"])
-                self.state.update(status=status, next_stage="astra_review")
+                self.state.update(status=status, next_stage="review_completion")
                 message = "Keep the local flow executable here; retain the mandatory actual-code joint proof."
                 self.assertEqual(0, self.invoke("--status", "--json"))
                 before = json.loads(self.stdout)
@@ -459,8 +459,8 @@ class GoalTests(unittest.TestCase):
                     self.state = copy.deepcopy(initial)
                     self.approve()
                     self.state["settings"]["spec_first"] = spec_first
-                    self.state["settings"]["roles"]["completion"] = {"model": "sol", "reasoning_effort": "high"}
-                    self.state["next_stage"] = "sol"
+                    self.state["settings"]["roles"]["completion"] = {"model": "tester", "reasoning_effort": "high"}
+                    self.state["next_stage"] = "tester"
                     # Historical recovery remains evidence after an accepted review;
                     # it is not a currently held operational pause.
                     self.state["resolver"] = {"human_response_frontier": {"pause_status": "PAUSED_TIMEOUT_RECOVERY"}}
@@ -486,7 +486,7 @@ class GoalTests(unittest.TestCase):
                     message = "Correct the candidate before Tester; retain every existing acceptance criterion."
                     self.assertEqual(0, self.invoke("--feedback", message), self.stdout + self.stderr)
                     self.assertEqual(status, self.state["status"])
-                    self.assertEqual("astra_discovery", self.state["next_stage"])
+                    self.assertEqual("draft_plan", self.state["next_stage"])
                     self.assertFalse(g.approved(self.state))
                     self.assertEqual(message, self.state["brief_feedback"][-1]["text"])
                     self.assertEqual(product, (self.root / "greet.py").read_bytes())
@@ -502,7 +502,7 @@ class GoalTests(unittest.TestCase):
 
     def test_requested_pause_correction_refuses_questions_independent_holds_and_stop(self):
         self.approve()
-        self.state.update(status="PAUSED_INTERVENTION", next_stage="sol")
+        self.state.update(status="PAUSED_INTERVENTION", next_stage="tester")
         initial = copy.deepcopy(self.state)
         for change in (
             {"pending_questions": [{"id": "Q1", "question": "Choose the scope"}]},
@@ -533,7 +533,7 @@ class GoalTests(unittest.TestCase):
         for status in ("PAUSED_INVALID_OUTPUT", "RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
             with self.subTest(status=status):
                 self.state = copy.deepcopy(held)
-                self.state.update(status=status, next_stage="astra_finalize")
+                self.state.update(status=status, next_stage="finalize_plan")
                 self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
                 self.assertIn("does not acknowledge PAUSED_TIME_LIMIT", self.stderr + self.stdout)
 
@@ -581,7 +581,7 @@ class GoalTests(unittest.TestCase):
         self.draft(questions=True)
         self.assertEqual(0, self.invoke("--answer", "Q1=CLI"))
         self.assertEqual("CLI", self.state["answers"]["Q1"]["text"])
-        prompt, _ = stage_context.context_packet(self.state, "astra_discovery", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "draft_plan", self.run / "state.json")
         self.assertIn('"Q1"', prompt)
         self.assertIn('"text": "CLI"', prompt)
         with self.assertRaisesRegex(ValueError, "already answered"):
@@ -594,7 +594,7 @@ class GoalTests(unittest.TestCase):
         self.state.update(
             status="WAITING_FOR_USER",
             phase="WAITING_FOR_USER",
-            next_stage="astra_review",
+            next_stage="review_completion",
             user_request={
                 "kind": "permission",
                 "decision_needed": "Authorize bounded repair",
@@ -616,7 +616,7 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(contract, self.state["goal_contract"])
         self.assertEqual({"verdict": "FAIL", "source_revision": "pinned"}, self.state["validation"])
         self.assertEqual("RUNNING", self.state["status"])
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertNotIn("user_request", self.state)
         self.assertEqual("permission_answer", self.state["answers"]["decision-limit"]["kind"])
 
@@ -740,7 +740,7 @@ class GoalTests(unittest.TestCase):
         self.state.update(
             status="WAITING_FOR_USER",
             phase="WAITING_FOR_USER",
-            next_stage="astra_review",
+            next_stage="review_completion",
             user_request=request,
             pending_questions=[
                 {
@@ -758,7 +758,7 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(contract, self.state["goal_contract"])
         self.assertEqual(validation, self.state["validation"])
         self.assertEqual("RUNNING", self.state["status"])
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertNotIn("user_request", self.state)
         self.assertEqual("permission_answer", self.state["answers"]["decision-limit"]["kind"])
 
@@ -771,7 +771,7 @@ class GoalTests(unittest.TestCase):
         self.state.update(
             status="WAITING_FOR_USER",
             phase="WAITING_FOR_USER",
-            next_stage="astra_review",
+            next_stage="review_completion",
             user_request=request,
             pending_questions=[
                 {
@@ -789,7 +789,7 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(contract, self.state["goal_contract"])
         self.assertEqual(validation, self.state["validation"])
         self.assertEqual("RUNNING", self.state["status"])
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertNotIn("user_request", self.state)
         self.assertEqual("permission_answer", self.state["answers"]["decision-limit"]["kind"])
 
@@ -832,15 +832,15 @@ class GoalTests(unittest.TestCase):
                     diagnosis = self.run / "resolver-diagnosis.json"
                     s.atomic_json(diagnosis, {"diagnosis": "Relaxing C1 needs the user"})
                     self.state["stages"].append(
-                        {"stage": "astra_resolve", "output": str(diagnosis), "exit_code": 0, "changed_files": []}
+                        {"stage": "resolve", "output": str(diagnosis), "exit_code": 0, "changed_files": []}
                     )
                     lifecycle.human.queue(
                         self.state,
                         "blocker",
-                        {"stage": "astra_resolve", "output": str(diagnosis)},
+                        {"stage": "resolve", "output": str(diagnosis)},
                         request=request,
                         questions=[question],
-                        next_stage="astra_review",
+                        next_stage="review_completion",
                         evidence={"diagnosis": "Relaxing C1 needs the user", "output": str(diagnosis)},
                     )
                     self.assertEqual("escalate", lifecycle.human.evaluate(self.state))
@@ -863,14 +863,14 @@ class GoalTests(unittest.TestCase):
                 self.state.update(
                     status="WAITING_FOR_USER",
                     phase="WAITING_FOR_USER",
-                    next_stage="astra_review",
+                    next_stage="review_completion",
                     user_request=request,
                     pending_questions=[question],
                 )
                 with patch("builtins.input", side_effect=[request["options"][0]]):
                     runner.chat_checkpoint(self.state, None)
                 self.assertEqual("draft", self.state["goal_contract"]["approval_status"])
-                self.assertEqual("astra_discovery", self.state["next_stage"])
+                self.assertEqual("draft_plan", self.state["next_stage"])
 
     def timeout_request(self):
         choice = "Set suite/tool timeout to 5400 seconds and stage timeout to 6000 seconds"
@@ -963,7 +963,7 @@ class GoalTests(unittest.TestCase):
                 lifecycle.wait_for_user(self.state, copy.deepcopy(request))
                 lifecycle.human.evaluate(self.state)
                 self.assertEqual("RUNNING", self.state["status"])
-                self.assertEqual("astra_review", self.state["next_stage"])
+                self.assertEqual("review_completion", self.state["next_stage"])
                 self.assertEqual([], self.state["pending_questions"])
                 self.assertEqual(answer, self.state["permission_reuse_context"]["answer"])
                 self.assertEqual(qid, self.state["permission_reuse_context"]["answer_id"])
@@ -1081,7 +1081,7 @@ class GoalTests(unittest.TestCase):
         self.assertFalse(completion_gate.completion_ready(self.state, decision, current))
         self.assertFalse(milestones.evidence_ready(self.state, current))
         self.assertTrue(completion_gate.completion_ready(self.state, decision, current, require_human_reviews=False))
-        runner.apply_result(self.state, "astra_review", decision, {"output": "review"}, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", decision, {"output": "review"}, self.root, self.run)
         lifecycle.human.evaluate(self.state)
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         self.assertEqual("human_review", lifecycle.human.current(self.state)["scope"])
@@ -1095,7 +1095,7 @@ class GoalTests(unittest.TestCase):
         self.assertFalse(milestones.evidence_ready(self.state, current))
         val["criterion_results"][1]["status"] = "PASS"
         self.assertEqual("BLOCKED", val["verdict"], "Do not rewrite the independent report")
-        runner.apply_result(self.state, "astra_review", decision, {"output": "complete"}, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", decision, {"output": "complete"}, self.root, self.run)
         self.assertEqual("TASK_COMPLETE", self.state["status"])
 
     def test_multiple_human_criteria_can_each_be_reviewed_and_completed(self):
@@ -1143,7 +1143,7 @@ class GoalTests(unittest.TestCase):
             completion_gate.completion_ready(self.state, decision, current, require_human_reviews=False),
             "a two-human contract reaches the artifact review like a one-human contract",
         )
-        runner.apply_result(self.state, "astra_review", decision, {"output": "review"}, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", decision, {"output": "review"}, self.root, self.run)
         lifecycle.human.evaluate(self.state)
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         self.assertEqual("human_review", lifecycle.human.current(self.state)["scope"])
@@ -1155,7 +1155,7 @@ class GoalTests(unittest.TestCase):
         )
         g.approve_review(self.state, "C2", g.review_token(self.state), current)
         self.assertTrue(completion_gate.completion_ready(self.state, decision, current))
-        runner.apply_result(self.state, "astra_review", decision, {"output": "complete"}, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", decision, {"output": "complete"}, self.root, self.run)
         self.assertEqual("TASK_COMPLETE", self.state["status"])
 
     def test_task_ownership_uses_only_the_named_milestone_paths(self):
@@ -1208,7 +1208,7 @@ class GoalTests(unittest.TestCase):
                 self.assertEqual("M2", task["milestone_id"])
                 self.assertEqual(stray["next_task"]["requirements"], task["requirements"])
                 self.assertEqual(stray["next_task"]["validation_plan"], task["validation_plan"])
-                prompt, _ = stage_context.context_packet(state, "terra", self.run / "state.json")
+                prompt, _ = stage_context.context_packet(state, "builder", self.run / "state.json")
                 packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
                 self.assertEqual(["server/"], packet["affected_paths"])
                 # Read-only revalidation can still check already accepted M1 criteria.
@@ -1232,7 +1232,7 @@ class GoalTests(unittest.TestCase):
         repair["affected_paths"] = ["greet.py", "test_greeting.py", "formatting.py"]
         repair["next_task"]["requirements"] = ["Correct formatting.py to meet the approved greeting criterion"]
         lifecycle.assign_task(self.state, repair, s.snapshot(self.root))
-        prompt, _ = stage_context.context_packet(self.state, "terra", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "builder", self.run / "state.json")
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(repair["affected_paths"], packet["current_task"]["affected_paths"])
         self.assertEqual(repair["affected_paths"], packet["affected_paths"])
@@ -1242,7 +1242,7 @@ class GoalTests(unittest.TestCase):
         # repair scope, even when it repeats the same objective and recipe.
         repair["affected_paths"] = ["test_greeting.py"]
         lifecycle.assign_task(self.state, repair, s.snapshot(self.root))
-        prompt, _ = stage_context.context_packet(self.state, "terra", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "builder", self.run / "state.json")
         repeated = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(packet["affected_paths"], repeated["affected_paths"])
 
@@ -1259,7 +1259,7 @@ class GoalTests(unittest.TestCase):
         repair["affected_paths"] = owned[:1]
         repair["next_task"]["requirements"] = ["Correct the greeting behavior for the approved criterion"]
         lifecycle.assign_task(self.state, repair, s.snapshot(self.root))
-        prompt, _ = stage_context.context_packet(self.state, "terra", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "builder", self.run / "state.json")
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(owned, packet["current_task"]["affected_paths"])
         self.assertEqual(owned, packet["affected_paths"])
@@ -1272,7 +1272,7 @@ class GoalTests(unittest.TestCase):
         repair = self.decision("REWORK")
         repair["affected_paths"] = [*owned, "another_worker.py"]
         lifecycle.assign_task(self.state, repair, s.snapshot(self.root))
-        prompt, _ = stage_context.context_packet(self.state, "terra", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "builder", self.run / "state.json")
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(owned, packet["current_task"]["affected_paths"])
 
@@ -1300,7 +1300,7 @@ class GoalTests(unittest.TestCase):
         lifecycle.wait_for_user(self.state, request)
         lifecycle.human.evaluate(self.state)
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
-        prompt, _ = stage_context.context_packet(self.state, "terra", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "builder", self.run / "state.json")
         self.assertIn("bounded test, parser, or harness repair", prompt)
         self.assertNotIn("before planning, implementation or validation", prompt)
         self.assertIn('"permission_reuse_context"', prompt)
@@ -1453,13 +1453,13 @@ class GoalTests(unittest.TestCase):
                 }
                 runner.apply_result(
                     self.state,
-                    "terra",
+                    "builder",
                     value,
-                    {"stage": "terra", "output": "saved", "changed_files": ["greet.py"]},
+                    {"stage": "builder", "output": "saved", "changed_files": ["greet.py"]},
                     self.root,
                     self.run,
                 )
-                self.assertEqual("astra_review", self.state["next_stage"])
+                self.assertEqual("review_completion", self.state["next_stage"])
                 self.assertEqual("RUNNING", self.state["status"])
                 self.assertEqual("Useful partial work", self.state["implementation"]["summary"])
                 decision = {**self.decision("BLOCKED"), "user_request": value["user_request"]}
@@ -1467,10 +1467,10 @@ class GoalTests(unittest.TestCase):
                 s.atomic_json(output, decision)
                 runner.apply_result(
                     self.state,
-                    "astra_review",
+                    "review_completion",
                     decision,
                     {
-                        "stage": "astra_review",
+                        "stage": "review_completion",
                         "output": str(output),
                         "source_revision": s.snapshot(self.root)["revision"],
                     },
@@ -1494,7 +1494,7 @@ class GoalTests(unittest.TestCase):
                     # source snapshot, not the sandbox, keeps source unchanged.
                     runner.normalize_human_boundary(self.state, self.run)
                     self.assertEqual("RESOLVING", self.state["phase"])
-                    self.assertEqual("astra_resolve", self.state["next_stage"])
+                    self.assertEqual("resolve", self.state["next_stage"])
                     self.assertIsNone(lifecycle.human.current(self.state))
                     launched = []
 
@@ -1503,7 +1503,7 @@ class GoalTests(unittest.TestCase):
                         raise s.Paused("PAUSED_TEST_LAUNCH", "Mock diagnosis admitted; no provider called")
 
                     self.assertEqual(2, self.invoke("--resume-paused", role=diagnose))
-                    self.assertEqual(["astra_resolve"], [call["state"]["next_stage"] for call in launched])
+                    self.assertEqual(["resolve"], [call["state"]["next_stage"] for call in launched])
                     self.assertFalse(launched[0]["allow_write"])
                     self.assertEqual("workspace-write", launched[0]["sandbox"])
                 self.assertEqual("Useful partial work", self.state["implementation"]["summary"])
@@ -1527,7 +1527,7 @@ class GoalTests(unittest.TestCase):
         self.assertFalse(g.approved(self.state))
         revised = body()
         revised["required_behaviors"].append("Accept Unicode")
-        lifecycle.install_draft(self.state, revised, origin="astra_discovery")
+        lifecycle.install_draft(self.state, revised, origin="draft_plan")
         self.assertNotEqual(before, g.token(self.state["goal_contract"]))
         with self.assertRaises(ValueError):
             lifecycle.approve(self.state, before)
@@ -1537,7 +1537,7 @@ class GoalTests(unittest.TestCase):
         self.validation()
         decision = self.decision("TASK_COMPLETE")
         decision["deferred_backlog"] = ["Optional web UI", "Optional colours"]
-        runner.apply_result(self.state, "astra_review", decision, {"output": "final"}, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", decision, {"output": "final"}, self.root, self.run)
         self.assertEqual("COMPLETE", self.state["phase"])
         self.assertEqual(2, len(self.state["deferred_backlog"]))
 
@@ -1545,25 +1545,25 @@ class GoalTests(unittest.TestCase):
         self.approve()
         self.validation()
         # First CONTINUE for this artifact: the Completion Owner is sent back once, told why.
-        runner.apply_result(self.state, "astra_review", self.decision(), {"output": "extra"}, self.root, self.run)
-        self.assertEqual(("RUNNING", "astra_review"), (self.state["status"], self.state["next_stage"]))
+        runner.apply_result(self.state, "review_completion", self.decision(), {"output": "extra"}, self.root, self.run)
+        self.assertEqual(("RUNNING", "review_completion"), (self.state["status"], self.state["next_stage"]))
         self.assertIn("Return TASK_COMPLETE", self.state["stop_reason"])
-        prompt, _ = stage_context.context_packet(self.state, "astra_review", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "review_completion", self.run / "state.json")
         self.assertIn(json.dumps(self.state["stop_reason"]), prompt)
         # CONTINUE again for the same artifact: the user decides.
-        runner.apply_result(self.state, "astra_review", self.decision(), {"output": "extra"}, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", self.decision(), {"output": "extra"}, self.root, self.run)
         self.assertEqual("PAUSED_COMPLETION_REVIEW", self.state["status"])
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertNotIn("active_stage", self.state)
 
     def test_repeated_validation_consumes_iteration_budget(self):
         self.approve()
         initial = self.state["iteration"]
         runner.apply_result(
-            self.state, "astra_review", self.decision("VALIDATE"), {"output": "review"}, self.root, self.run
+            self.state, "review_completion", self.decision("VALIDATE"), {"output": "review"}, self.root, self.run
         )
         self.assertEqual(initial + 1, self.state["iteration"])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
 
     def test_completion_requires_current_artifact_all_evidence_and_actual_human_approval(self):
         self.approve(human=True)
@@ -1606,7 +1606,7 @@ class GoalTests(unittest.TestCase):
         self.approve()
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
         self.validation()
-        self.state["reasoning_escalations"] = [{"role": "sol", "trigger": "validation_rework"}]
+        self.state["reasoning_escalations"] = [{"role": "tester", "trigger": "validation_rework"}]
         self.state["builder_retry_decisions"] = [
             {"action": "retry"},
             {"action": "escalate"},
@@ -1783,7 +1783,9 @@ class GoalTests(unittest.TestCase):
         before = copy.deepcopy(self.state)
         # #1070 refuses the citation itself; the fabricated-event scan never runs.
         with self.assertRaisesRegex(ValueError, "cites evidence the runner did not verify"):
-            runner.apply_result(self.state, "sol", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run)
+            runner.apply_result(
+                self.state, "tester", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run
+            )
         self.assertEqual(before, self.state)
 
     def test_changed_evidence_blocks_human_review(self):
@@ -1818,7 +1820,7 @@ class GoalTests(unittest.TestCase):
         )
         self.assertTrue(runner.consume_interventions(self.state, self.run, self.root))
         self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
-        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
         self.assertFalse(g.approved(self.state))
         self.assertEqual("intervention-change-1", self.state["brief_feedback"][-1]["id"])
         self.assertEqual(["change-1"], [item["id"] for item in self.state["applied_interventions"]])
@@ -1847,12 +1849,12 @@ class GoalTests(unittest.TestCase):
         result = self.decision()
         result["contract_revision"] -= 1
         with self.assertRaises(s.Paused):
-            runner.apply_result(self.state, "astra_plan", result, {}, self.root, self.run)
+            runner.apply_result(self.state, "plan_task", result, {}, self.root, self.run)
         self.assertEqual(saved, self.state)
         result = self.decision()
         result["acceptance_criteria"][0]["criterion"] = "Easier goal"
         with self.assertRaises(s.Paused):
-            runner.apply_result(self.state, "astra_plan", result, {}, self.root, self.run)
+            runner.apply_result(self.state, "plan_task", result, {}, self.root, self.run)
         self.assertEqual(saved, self.state)
 
     def test_user_decisions_cannot_be_invented(self):
@@ -1882,8 +1884,8 @@ class GoalTests(unittest.TestCase):
         legacy = copy.deepcopy(self.state)
         legacy.update(
             version=2,
-            next_stage="sol",
-            sessions={"terra": "existing-session"},
+            next_stage="tester",
+            sessions={"builder": "existing-session"},
             implementation={"summary": "completed batch"},
             changed_files=["greet.py"],
             iteration=4,
@@ -1892,11 +1894,11 @@ class GoalTests(unittest.TestCase):
         legacy["stages"] = [{"output": "saved-terra.json"}]
         legacy["answers"] = {"saved-question": {"text": "Known answer", "kind": "answer"}}
         lifecycle.migrate(legacy)
-        self.assertEqual("existing-session", legacy["sessions"]["terra"])
+        self.assertEqual("existing-session", legacy["sessions"]["builder"])
         self.assertEqual("completed batch", legacy["implementation"]["summary"])
         self.assertEqual(4, legacy["iteration"])
-        self.assertEqual("sol", legacy["pre_goal_checkpoint"]["next_stage"])
-        self.assertEqual("astra_discovery", legacy["next_stage"])
+        self.assertEqual("tester", legacy["pre_goal_checkpoint"]["next_stage"])
+        self.assertEqual("draft_plan", legacy["next_stage"])
         self.assertFalse(g.approved(legacy))
         self.assertEqual("saved-terra.json", legacy["stages"][0]["output"])
         self.assertTrue(legacy["validation_archive"])
@@ -1945,10 +1947,10 @@ class GoalTests(unittest.TestCase):
         self.state.update(
             status="PAUSED_INTERRUPTED",
             phase="PAUSED_OR_BLOCKED",
-            next_stage="terra",
+            next_stage="builder",
             active_stage={
-                "role": "terra",
-                "stage": "terra",
+                "role": "builder",
+                "stage": "builder",
                 "iteration": 1,
                 "duration_seconds": 8,
                 "output": str(base.with_suffix(".json")),
@@ -1957,14 +1959,14 @@ class GoalTests(unittest.TestCase):
                 "exit_code": -15,
             },
         )
-        self.state["sessions"]["terra"] = "interrupted-session"
+        self.state["sessions"]["builder"] = "interrupted-session"
         self.assertEqual(2, self.invoke("--resume-paused"))
         assert_operational_wait(self, self.state, "PAUSED_PROVIDER_UNCERTAIN")
         self.assertIn("--abandon-stage 001/terra-01", self.stderr)
         self.assertEqual(0, self.invoke("--abandon-stage", "001/terra-01"))
         self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
         self.assertNotIn("active_stage", self.state)
-        self.assertNotIn("terra", self.state["sessions"])
+        self.assertNotIn("builder", self.state["sessions"])
         archived = copy.deepcopy(self.state["stages"])
         # The saved stages also hold AutoResolver's runner-owned diagnostic receipt.
         abandoned = [row for row in archived if not row.get("runner_owned")]
@@ -2007,7 +2009,7 @@ class GoalTests(unittest.TestCase):
                 human.queue(
                     self.state,
                     "operational_exhaustion",
-                    {"stage": "terra", "pause_status": status, "budget": {"kind": "max_reported_tokens"}},
+                    {"stage": "builder", "pause_status": status, "budget": {"kind": "max_reported_tokens"}},
                     request=proposal["request"],
                     evidence=proposal["evidence"],
                 )
@@ -2309,7 +2311,7 @@ class GoalTests(unittest.TestCase):
     def test_runner_guard_rejects_unapproved_stage_before_subprocess(self):
         self.draft()
         lifecycle.human.evaluate(self.state)
-        self.state.update(next_stage="terra", status="RUNNING", phase="EXECUTING")
+        self.state.update(next_stage="builder", status="RUNNING", phase="EXECUTING")
         self.assertEqual(2, self.invoke("--resume-paused"))
         # The guard's PAUSED_GOAL_UNAPPROVED pause is reconciled at the writer boundary
         # into a published request to approve the exact draft; nothing was launched.
@@ -2317,7 +2319,7 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
         self.assertEqual("goal_approval", lifecycle.human.current(self.state)["scope"])
         self.assertFalse(g.approved(self.state))
-        self.assertFalse([row for row in self.state["stages"] if row.get("stage") == "terra"])
+        self.assertFalse([row for row in self.state["stages"] if row.get("stage") == "builder"])
 
     def test_user_cannot_combine_answer_and_approval(self):
         self.draft(questions=True)
@@ -2334,7 +2336,7 @@ class GoalTests(unittest.TestCase):
                 plan["acceptance_criteria"][0]["verification_method"] = method
                 before = copy.deepcopy(self.state)
                 with self.assertRaisesRegex(ValueError, "Unsupported qualified Python proof selector: C1"):
-                    lifecycle.install_draft(self.state, plan, origin="astra_finalize")
+                    lifecycle.install_draft(self.state, plan, origin="finalize_plan")
                 self.assertEqual(before, self.state)
 
     def test_cli_approval_refuses_a_saved_qualified_proof_without_rewriting_or_approving_it(self):
@@ -2349,7 +2351,7 @@ class GoalTests(unittest.TestCase):
                 plan["acceptance_criteria"][0]["verification_method"] = method
                 # A saved draft from before the new lint, as in the live failure.
                 with patch.object(proof_declarations, "validate", return_value=None):
-                    lifecycle.install_draft(self.state, plan, origin="astra_finalize")
+                    lifecycle.install_draft(self.state, plan, origin="finalize_plan")
                 self.assertEqual(0, self.invoke("--show-goal"))
                 original = copy.deepcopy(self.state["goal_contract"])
                 selected = g.token(self.state["goal_contract"])
@@ -2424,7 +2426,7 @@ class GoalTests(unittest.TestCase):
         result = {"contract": draft, "summary": "Previously completed interview"}
         runner.apply_result(
             self.state,
-            "astra_discovery",
+            "draft_plan",
             result,
             {"schema": str(schema), "output": "saved-discovery"},
             self.root,
@@ -2443,18 +2445,18 @@ class GoalTests(unittest.TestCase):
         lifecycle.present(self.state)
         old = g.token(self.state["goal_contract"])
         self.assertEqual(0, self.invoke("--feedback", "Keep Unicode names in the first milestone"))
-        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
         self.assertFalse(g.approved(self.state))
         with self.assertRaises(ValueError):
             lifecycle.approve(self.state, old)
-        prompt, _ = stage_context.context_packet(self.state, "astra_discovery", self.run / "state.json")
+        prompt, _ = stage_context.context_packet(self.state, "draft_plan", self.run / "state.json")
         self.assertIn("Keep Unicode names", prompt)
         event = self.state["brief_feedback"][0]
         draft = body()
         draft["accepted_assumptions"].append(
             {"text": event["text"], "basis": "user_feedback", "answer_id": event["id"]}
         )
-        lifecycle.install_draft(self.state, draft, origin="astra_discovery")
+        lifecycle.install_draft(self.state, draft, origin="draft_plan")
         lifecycle.human.evaluate(self.state)
         self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
         self.assertNotEqual(old, g.token(self.state["goal_contract"]))
@@ -2472,7 +2474,7 @@ class GoalTests(unittest.TestCase):
         with patch("builtins.input", return_value="Keep Unicode Support"), contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(runner.chat_checkpoint(self.state))
         self.assertEqual("Keep Unicode Support", self.state["brief_feedback"][0]["text"])
-        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
         self.assertFalse(g.approved(self.state))
 
     def test_chat_approval_shows_the_decision_first_and_the_full_brief_on_details(self):
@@ -2514,7 +2516,7 @@ class GoalTests(unittest.TestCase):
 
         with patch("builtins.input", return_value="CLI"):
             self.assertEqual(2, self.invoke("--chat", "--pause-after-stage", role=interview))
-        self.assertEqual(["astra_discovery"], calls)
+        self.assertEqual(["draft_plan"], calls)
         self.assertEqual("PAUSED_REQUESTED", self.state["status"])
         self.assertEqual("CLI", self.state["answers"]["Q1"]["text"])
         self.assertFalse(g.approved(self.state))
@@ -2523,11 +2525,11 @@ class GoalTests(unittest.TestCase):
         self.approve(human=True)
         self.validation()
         runner.apply_result(
-            self.state, "astra_review", self.decision("COMPLETE"), {"output": "review"}, self.root, self.run
+            self.state, "review_completion", self.decision("COMPLETE"), {"output": "review"}, self.root, self.run
         )
         with patch("builtins.input", return_value="yes"), contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(runner.chat_checkpoint(self.state))
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertEqual([], g.missing_human_reviews(self.state))
         self.assertNotEqual("COMPLETE", self.state["phase"])
 
@@ -2604,17 +2606,15 @@ class GoalTests(unittest.TestCase):
         # read-only diagnosis could not resolve it internally; it then publishes it.
         diagnosis = self.run / "resolver-diagnosis.json"
         s.atomic_json(diagnosis, {"diagnosis": "Only the user's saved acceptance can be reconciled"})
-        self.state["stages"].append(
-            {"stage": "astra_resolve", "output": str(diagnosis), "exit_code": 0, "changed_files": []}
-        )
+        self.state["stages"].append({"stage": "resolve", "output": str(diagnosis), "exit_code": 0, "changed_files": []})
         lifecycle.human.queue(
             self.state,
             "blocker",
-            {"stage": "astra_resolve", "output": str(diagnosis)},
+            {"stage": "resolve", "output": str(diagnosis)},
             request=request,
             questions=[{"id": "runner-reconcile", "question": request["decision_needed"]}],
             evidence={"diagnosis": "Only the user's saved acceptance can be reconciled", "output": str(diagnosis)},
-            next_stage="astra_review",
+            next_stage="review_completion",
         )
         self.assertEqual("escalate", lifecycle.human.evaluate(self.state))
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
@@ -2812,7 +2812,7 @@ class GoalTests(unittest.TestCase):
         self.assertFalse(self.state.get("user_request"))
         self.assertFalse(self.state.get("pending_questions"))
         self.assertEqual("DISCOVERING", self.state["phase"])
-        self.assertIn(self.state["next_stage"], ("requirements", "requirements_gather", "astra_discovery"))
+        self.assertIn(self.state["next_stage"], ("requirements", "requirements_gather", "draft_plan"))
         # An approval against the rejected artifact cannot turn this correction
         # into permission to build, even after loading the saved run again.
         self.assertEqual(2, self.invoke("--approve-review", "C1", "--review-token", selected))
@@ -2890,12 +2890,12 @@ class GoalTests(unittest.TestCase):
         self.approve(human=True)
         before = copy.deepcopy(self.state)
         with self.assertRaises(s.Paused):
-            runner.apply_result(self.state, "astra_review", self.decision("COMPLETE"), {}, self.root, self.run)
+            runner.apply_result(self.state, "review_completion", self.decision("COMPLETE"), {}, self.root, self.run)
         self.assertEqual(before, self.state)
 
     def test_bounded_task_and_reports_reach_each_role_with_identical_brief(self):
         self.approve()
-        runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
+        runner.apply_result(self.state, "plan_task", self.decision(), {"output": "plan"}, self.root, self.run)
         assigned = self.state["current_task"]
         self.state["implementation"] = {
             "commands_run": ["python greet.py Ada"],
@@ -2904,15 +2904,15 @@ class GoalTests(unittest.TestCase):
             "recommended_checks": ["Invalid input"],
         }
         self.validation()
-        for stage in ("terra", "sol", "astra_review"):
+        for stage in ("builder", "tester", "review_completion"):
             prompt, _ = stage_context.context_packet(self.state, stage, self.run / "state.json")
             data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
             self.assertEqual(self.state["goal_contract"], data["goal_contract"])
             self.assertEqual(assigned, data["current_task"])
             self.assertEqual(s.snapshot(self.root)["revision"], data["source_revision"])
-            if stage != "terra":
+            if stage != "builder":
                 self.assertEqual(self.state["implementation"], data["implementation"])
-            if stage == "astra_review":
+            if stage == "review_completion":
                 self.assertEqual(self.state["validation"], data["validation"])
 
     def test_unknown_task_milestone_or_criterion_is_rejected_transactionally(self):
@@ -2922,12 +2922,12 @@ class GoalTests(unittest.TestCase):
             decision["next_task"][field] = value
             before = copy.deepcopy(self.state)
             with self.subTest(field=field), self.assertRaises(ValueError):
-                runner.apply_result(self.state, "astra_plan", decision, {}, self.root, self.run)
+                runner.apply_result(self.state, "plan_task", decision, {}, self.root, self.run)
             self.assertEqual(before, self.state)
 
     def test_rework_dispatches_correction_and_records_the_decision(self):
         self.approve()
-        runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
+        runner.apply_result(self.state, "plan_task", self.decision(), {"output": "plan"}, self.root, self.run)
         previous = self.state["current_task"]["id"]
         self.validation()
         self.state["validation"]["verdict"] = "FAIL"
@@ -2937,12 +2937,12 @@ class GoalTests(unittest.TestCase):
         report = self.run / "correction.json"
         report.write_text(json.dumps(correction))
         record = {"output": str(report), "source_revision": s.snapshot(self.root)["revision"]}
-        runner.apply_result(self.state, "astra_review", correction, record, self.root, self.run)
-        self.assertEqual("astra_resolve", self.state["next_stage"])
+        runner.apply_result(self.state, "review_completion", correction, record, self.root, self.run)
+        self.assertEqual("resolve", self.state["next_stage"])
         self.assertEqual(previous, self.state["current_task"]["id"])
         correction["diagnosis"] = "The empty-name path does not reject invalid input"
-        runner.apply_result(self.state, "astra_resolve", correction, record, self.root, self.run)
-        self.assertEqual("terra", self.state["next_stage"])
+        runner.apply_result(self.state, "resolve", correction, record, self.root, self.run)
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertNotEqual(previous, self.state["current_task"]["id"])
         self.assertEqual("Reject empty names", self.state["current_task"]["objective"])
         self.assertEqual("REWORK", self.state["last_decision"]["report"]["status"])
@@ -2952,7 +2952,7 @@ class GoalTests(unittest.TestCase):
 
     def test_astra_rework_survives_passing_sol_evidence(self):
         self.approve()
-        runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
+        runner.apply_result(self.state, "plan_task", self.decision(), {"output": "plan"}, self.root, self.run)
         self.validation()
         correction = self.decision("REWORK")
         correction["acceptance_criteria"][0]["status"] = "unverified"
@@ -2960,27 +2960,27 @@ class GoalTests(unittest.TestCase):
         report = self.run / "visual-gap-review.json"
         report.write_text(json.dumps(correction))
         record = {"output": str(report), "source_revision": s.snapshot(self.root)["revision"]}
-        runner.apply_result(self.state, "astra_review", correction, record, self.root, self.run)
-        self.assertEqual("astra_resolve", self.state["next_stage"])
+        runner.apply_result(self.state, "review_completion", correction, record, self.root, self.run)
+        self.assertEqual("resolve", self.state["next_stage"])
         self.assertEqual("RUNNING", self.state["status"])
         self.assertEqual("unverified", self.state["acceptance_criteria"][0]["status"])
 
     def test_continue_does_not_invent_verified_astra_criteria(self):
         self.approve()
-        runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
+        runner.apply_result(self.state, "plan_task", self.decision(), {"output": "plan"}, self.root, self.run)
         self.validation()
         decision = self.decision()
         decision["acceptance_criteria"][0]["status"] = "unverified"
-        runner.apply_result(self.state, "astra_review", decision, {"output": "review"}, self.root, self.run)
-        self.assertEqual("terra", self.state["next_stage"])
+        runner.apply_result(self.state, "review_completion", decision, {"output": "review"}, self.root, self.run)
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual("unverified", self.state["acceptance_criteria"][0]["status"])
 
     def test_continue_can_dispatch_revalidation_without_an_implementation(self):
         self.approve()
         decision = self.decision()
         decision["next_task"]["kind"] = "validate"
-        runner.apply_result(self.state, "astra_review", decision, {"output": "validate"}, self.root, self.run)
-        self.assertEqual("sol", self.state["next_stage"])
+        runner.apply_result(self.state, "review_completion", decision, {"output": "validate"}, self.root, self.run)
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual("validate", self.state["current_task"]["kind"])
 
     def test_completion_requires_final_end_to_end_evidence(self):
@@ -3017,7 +3017,9 @@ class GoalTests(unittest.TestCase):
         value["end_to_end_result"]["evidence_refs"] = ["event:invented"]
         before = copy.deepcopy(self.state)
         with self.assertRaisesRegex(ValueError, "missing executed event"):
-            runner.apply_result(self.state, "sol", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run)
+            runner.apply_result(
+                self.state, "tester", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run
+            )
         self.assertEqual(before, self.state)
 
     def test_technical_flow_proof_cannot_cite_fabricated_events(self):
@@ -3031,7 +3033,9 @@ class GoalTests(unittest.TestCase):
         }
         before = copy.deepcopy(self.state)
         with self.assertRaisesRegex(ValueError, "missing executed event"):
-            runner.apply_result(self.state, "sol", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run)
+            runner.apply_result(
+                self.state, "tester", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run
+            )
         self.assertEqual(before, self.state)
 
     def test_passing_flow_cannot_hide_an_explicit_technical_gap(self):
@@ -3048,7 +3052,7 @@ class GoalTests(unittest.TestCase):
                 }
                 with self.assertRaisesRegex(ValueError, "End-to-end result conflicts"):
                     runner.apply_result(
-                        self.state, "sol", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run
+                        self.state, "tester", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run
                     )
 
     def test_technical_flow_evidence_is_pinned_and_changes_block_completion(self):
@@ -3067,7 +3071,7 @@ class GoalTests(unittest.TestCase):
             "source_revision": current["revision"],
             "output": str(self.run / "sol.jsonl"),
         }
-        runner.apply_result(self.state, "sol", value, record, self.root, self.run)
+        runner.apply_result(self.state, "tester", value, record, self.root, self.run)
         self.assertTrue(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
         artifact.write_text("Changed technical-flow evidence")
         self.assertFalse(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
@@ -3081,7 +3085,7 @@ class GoalTests(unittest.TestCase):
 
     def test_completion_rejects_sol_report_from_another_task(self):
         self.approve()
-        runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
+        runner.apply_result(self.state, "plan_task", self.decision(), {"output": "plan"}, self.root, self.run)
         current = self.validation()
         self.assertTrue(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
         self.state["validation"]["task_id"] = "previous-task"

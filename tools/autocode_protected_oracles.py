@@ -122,7 +122,7 @@ def reconcile(
         and not getattr(args, "revise_protected_tests", None)
         and not any(getattr(args, name, False) for name in ("status", "explain", "dry_run"))
         and str(state.get("status", "")).startswith("PAUSED_")
-        and state.get("next_stage") in ("sol", "astra_checkpoint")
+        and state.get("next_stage") in ("tester", "review_checkpoint")
         and stop.applied_stop(state) is None
     ):
         role_correction.reconcile(
@@ -143,7 +143,7 @@ def reconcile(
             raise ValueError("--revise-protected-tests requires a saved pause and --resume-paused")
         if (
             not str(state.get("status", "")).startswith("PAUSED_")
-            or state.get("next_stage") not in ("sol", "astra_checkpoint")
+            or state.get("next_stage") not in ("tester", "review_checkpoint")
             or any(
                 state.get(key)
                 for key in (

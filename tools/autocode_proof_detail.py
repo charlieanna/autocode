@@ -22,7 +22,7 @@ import json
 from collections import Counter
 
 LIMIT = 65536
-STAGES = ("sol", "astra_review", "astra_checkpoint")
+STAGES = ("tester", "review_completion", "review_checkpoint")
 FILES = "regression_proof_mutation_files"
 SURVIVORS = "regression_proof_mutation_survivors"
 INPUTS = "regression_proof_changed_code_inputs"

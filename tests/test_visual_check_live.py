@@ -139,7 +139,7 @@ class LiveQualificationTests(unittest.TestCase):
         self.assertEqual(profile["models"]["resolver"], flags[flags.index("--resolver-model") + 1])
         self.assertEqual("high", flags[flags.index("--resolver-reasoning-effort") + 1])
         pins = {flags[i + 1] for i, flag in enumerate(flags) if flag == "--pin-model-role"}
-        self.assertEqual({"astra", "terra", "sol", "completion"}, pins)
+        self.assertEqual({"astra", "builder", "tester", "completion"}, pins)
         args = argparse.Namespace(out=self.out, profile="native20-ui-repair", timeout_minutes=15, max_steps=24)
         selected = live.Attempt(args)
         self.assertEqual([*flags, *live.CAPS], selected.flags)
@@ -551,7 +551,7 @@ class LiveQualificationTests(unittest.TestCase):
         run.mkdir(parents=True)
         activity = {
             "event": "stage_finished",
-            "stage": "astra_discovery",
+            "stage": "draft_plan",
             "model": "openai/gpt-5.6-terra",
             "tokens": {"input_tokens": 101, "output_tokens": 17},
             "cost_usd": None,
@@ -656,7 +656,7 @@ class LiveQualificationTests(unittest.TestCase):
         folder = attempt.run_dir / "iterations/001"
         folder.mkdir(parents=True)
         rows = []
-        for stage, role in (("terra", "builder"), ("sol", "validator")):
+        for stage, role in (("builder", "builder"), ("tester", "validator")):
             rows.append(
                 {
                     "event": "stage_finished",

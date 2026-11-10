@@ -35,19 +35,19 @@ class PlanningReportPolicyTests(unittest.TestCase):
             return self.render(
                 stage,
                 contract,
-                planning={"reports": {"astra_discovery": {"report": {"progressive_proposal": proposal}}}},
+                planning={"reports": {"draft_plan": {"report": {"progressive_proposal": proposal}}}},
                 **state_fields,
             )[0]
 
-        ordinary = render("astra_challenge", empty)
+        ordinary = render("review_plan", empty)
         self.assertNotIn("exactly one whole-product milestone", ordinary)
         self.assertIn("Raise a concern if the proposed milestone is too broad", ordinary)
         self.assertIn("A protected behavior change without a saved user basis", ordinary)
         for prompt in (
-            render("astra_challenge", {"version": 1, "slices": [{"id": "S1"}]}),
-            render("astra_challenge", empty, progressive={"version": 1}),
-            self.render("astra_challenge", contract)[0],
-            render("glm_revise", empty),
+            render("review_plan", {"version": 1, "slices": [{"id": "S1"}]}),
+            render("review_plan", empty, progressive={"version": 1}),
+            self.render("review_plan", contract)[0],
+            render("revise_plan", empty),
         ):
             self.assertIn("exactly one whole-product milestone", prompt)
 
@@ -61,7 +61,7 @@ class PlanningReportPolicyTests(unittest.TestCase):
             },
         }
         contract.update(hash=util.digest(contract), approval_status="draft")
-        for stage in ("astra_challenge", "plan_review"):
+        for stage in ("review_plan", "plan_review"):
             with self.subTest(stage=stage):
                 instruction, packet = self.render(stage, contract)
                 self.assertEqual(
@@ -89,7 +89,7 @@ class PlanningReportPolicyTests(unittest.TestCase):
         invalid.update(hash=util.digest(invalid), approval_status="draft")
         for draft in (stale, invalid, {**contract, "approval_status": "approved"}):
             with self.subTest(draft=draft):
-                instruction, packet = self.render("astra_challenge", draft)
+                instruction, packet = self.render("review_plan", draft)
                 self.assertNotIn("runner_milestone_graph", packet)
                 self.assertIn("Audit every rule in contract_author_rules", instruction)
 
@@ -101,7 +101,7 @@ class PlanningReportPolicyTests(unittest.TestCase):
             "example_criteria": planner.EXAMPLE_CRITERIA_RULE,
             "milestone_handoff": planner.s.MILESTONE_POLICY,
         }
-        for stage in ("astra_challenge", "plan_review"):
+        for stage in ("review_plan", "plan_review"):
             with self.subTest(stage=stage):
                 instruction, packet = self.render(stage)
                 for command in (
@@ -120,7 +120,7 @@ class PlanningReportPolicyTests(unittest.TestCase):
                 )
 
     def test_contract_authors_keep_their_existing_commands(self):
-        for stage in ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize"):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan", "plan", "plan_revise", "plan_finalize"):
             with self.subTest(stage=stage):
                 instruction, packet = self.render(stage)
                 self.assertIn(planner.goals.DECISION_PROVENANCE, instruction)
@@ -131,7 +131,7 @@ class PlanningReportPolicyTests(unittest.TestCase):
 
     def test_forbidden_contract_fields_still_fail_the_closed_review_schema(self):
         report = {"summary": "Reviewed the proposed contract", "concerns": []}
-        for stage in ("astra_challenge", "plan_review"):
+        for stage in ("review_plan", "plan_review"):
             schema = planner.SCHEMAS[stage]
             util.validate_schema(report, schema)
             for field, value in (("contract", {}), ("contract_changes", []), ("delegated_decisions", [])):
@@ -148,7 +148,7 @@ class ConcernGenerationTests(unittest.TestCase):
         if v2:
             state["settings"]["planning_flow"] = "v2"
             state["settings"]["roles"]["planner"] = {"model": "fixed-model", "engine": "codex"}
-        review_stage = "plan_review" if v2 else "astra_challenge"
+        review_stage = "plan_review" if v2 else "review_plan"
         if concerns is not None:
             state.setdefault("planning", {}).setdefault("reports", {})[review_stage] = {
                 "report": {"concerns": concerns}
@@ -175,8 +175,8 @@ class ConcernGenerationTests(unittest.TestCase):
 
     def test_prepared_requests_bind_answer_rows_to_the_current_review(self):
         for stage, field in (
-            ("glm_revise", "responses"),
-            ("astra_finalize", "decisions"),
+            ("revise_plan", "responses"),
+            ("finalize_plan", "decisions"),
             ("plan_revise", "responses"),
             ("plan_finalize", "decisions"),
         ):
@@ -208,14 +208,14 @@ class ConcernGenerationTests(unittest.TestCase):
 
     def test_retained_revision_and_final_review_keep_their_distinct_blocker_forms(self):
         review = [{"id": "C1"}]
-        revision = self.request("glm_revise", review, retained=True)
+        revision = self.request("revise_plan", review, retained=True)
         forms = revision.schema["properties"]["contract"]["anyOf"]
         reference = next(form for form in forms if "revise_contract" in form["properties"])
         full = next(form for form in forms if "open_blocking_questions" in form["properties"])
         self.assertNotIn("open_blocking_questions", reference["properties"])
         self.assertNotIn("open_blocking_questions", reference["properties"]["changes"]["properties"])
         self.assertIn("open_blocking_questions", full["required"])
-        final = self.request("astra_finalize", review, retained=True)
+        final = self.request("finalize_plan", review, retained=True)
         self.assertIn("open_blocking_questions", final.schema["properties"]["contract"]["properties"])
         for request, field in ((revision, "responses"), (final, "decisions")):
             self.assertEqual(["C1"], request.schema["properties"][field]["items"]["properties"]["concern_id"]["enum"])
@@ -225,9 +225,9 @@ class ConcernGenerationTests(unittest.TestCase):
         self.assertIn("Audit every rule in contract_author_rules", final.prompt)
 
     def test_loader_projection_changes_only_bound_planning_answer_constraints(self):
-        generated = self.request("astra_finalize", [{"id": "C1"}], retained=True).schema
+        generated = self.request("finalize_plan", [{"id": "C1"}], retained=True).schema
         original = copy.deepcopy(generated)
-        accepted = policy.concern_validation_schema(generated, {"stage": "astra_finalize"})
+        accepted = policy.concern_validation_schema(generated, {"stage": "finalize_plan"})
         expected = copy.deepcopy(generated)
         rows = expected["properties"]["decisions"]
         rows.pop("minItems")
@@ -235,22 +235,22 @@ class ConcernGenerationTests(unittest.TestCase):
         rows["items"]["properties"]["concern_id"].pop("enum")
         self.assertEqual(expected, accepted)
         self.assertEqual(original, generated)
-        for stage in ("sol", "astra_review", "terra"):
+        for stage in ("tester", "review_completion", "builder"):
             self.assertEqual(generated, policy.concern_validation_schema(generated, {"stage": stage}))
         without_contract = copy.deepcopy(generated)
         without_contract["properties"].pop("contract")
         self.assertEqual(
-            without_contract, policy.concern_validation_schema(without_contract, {"stage": "astra_finalize"})
+            without_contract, policy.concern_validation_schema(without_contract, {"stage": "finalize_plan"})
         )
         self.assertEqual(
             accepted,
             policy.concern_validation_schema(
-                generated, {"stage": "astra_finalize_report_repair", "original_stage": "astra_finalize"}
+                generated, {"stage": "finalize_plan_report_repair", "original_stage": "finalize_plan"}
             ),
         )
 
     def test_empty_review_requests_empty_rows_but_absent_review_does_not(self):
-        for stage, field in (("glm_revise", "responses"), ("astra_finalize", "decisions")):
+        for stage, field in (("revise_plan", "responses"), ("finalize_plan", "decisions")):
             with self.subTest(stage=stage):
                 rows = self.request(stage, []).schema["properties"][field]
                 util.validate_schema([], rows)

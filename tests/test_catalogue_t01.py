@@ -98,10 +98,10 @@ class ApprovalCase(kit.CatalogueCase):
             "sessions": {},
             "stages": [],
             "history": [],
-            "next_stage": "terra",
+            "next_stage": "builder",
             "acceptance_criteria": [],
             "settings": {
-                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "terra", "sol")},
+                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "builder", "tester")},
                 "transport_identity": self.local,
                 "headroom": {"enabled": False},
                 "context_soft_tokens": 10000,
@@ -199,7 +199,7 @@ class ApprovalScenarios(ApprovalCase):
                 "duration_seconds": 0.01,
             }
 
-        self.state.update(next_stage="astra_discovery", phase="PLANNING", status="RUNNING")
+        self.state.update(next_stage="draft_plan", phase="PLANNING", status="RUNNING")
         # This manually seeded legacy checkpoint needs explicit controller recovery.
         code = self.invoke("--resume-paused", role=planner)
         self.check("awaits_user", "WAITING_FOR_USER", self.state["status"])
@@ -240,7 +240,7 @@ class ApprovalScenarios(ApprovalCase):
             support.Paused,
             runner.apply_result,
             self.state,
-            "terra",
+            "builder",
             {**envelope(self.state), "summary": "build", "evidence_refs": []},
             {"output": "x", "changed_files": []},
             self.root,
@@ -400,7 +400,7 @@ class ApprovalScenarios(ApprovalCase):
         revised = body()
         revised["required_behaviors"].append("Accept Unicode")
         prior_revision = self.state["goal_contract"]["revision"]
-        lifecycle.install_draft(self.state, revised, origin="astra_discovery")
+        lifecycle.install_draft(self.state, revised, origin="draft_plan")
         self.check("r2_versioned", prior_revision + 1, self.state["goal_contract"]["revision"])
         self.check("old_approval_does_not_cover_r2", False, goals.approved(self.state))
         self.expect_raises("old_token_cannot_approve_r2", ValueError, lifecycle.approve, self.state, old_token)
@@ -477,7 +477,7 @@ class ApprovalScenarios(ApprovalCase):
                     support.Paused,
                     runner.apply_result,
                     self.state,
-                    "astra_review",
+                    "review_completion",
                     decision,
                     {"output": "review.json"},
                     self.root,

@@ -61,7 +61,7 @@ except ImportError:
     import autocode_worker_quota as worker_quota
 
 
-REVIEW_STAGES = ("astra_challenge", "astra_finalize")
+REVIEW_STAGES = ("review_plan", "finalize_plan")
 CATEGORY_WORDS = {
     "internal_default": "a limit AutoCode set by default",
     "explicit_user_cap": "a limit you set",
@@ -78,24 +78,24 @@ def _operational_stop(message):
 
 def _planning_binding(state: RunState, stage, workspace):
     planning = state["planning"]
-    discovery = planning["reports"]["astra_discovery"]["output"]
+    discovery = planning["reports"]["draft_plan"]["output"]
     contract = cast(dict, state["goal_contract"])
     accepted = next(
         row
         for row in reversed(state["stages"])
         if (
-            row.get("stage") == "astra_discovery"
+            row.get("stage") == "draft_plan"
             or (
                 row.get("report_only")
-                and row.get("original_stage") == "astra_discovery"
-                and row.get("stage") == "astra_discovery_report_repair"
+                and row.get("original_stage") == "draft_plan"
+                and row.get("stage") == "draft_plan_report_repair"
             )
         )
         and not row.get("rejected")
         and not row.get("abandoned")
     )
     if accepted.get("output") != discovery or any(
-        old.get("reports", {}).get("astra_discovery", {}).get("output") == discovery
+        old.get("reports", {}).get("draft_plan", {}).get("output") == discovery
         for old in state.get("planning_history", [])
     ):
         raise ValueError("Discovery does not belong to the current planning cycle")
@@ -275,16 +275,16 @@ def operational_boundary(runner, state: RunState, run_dir, workspace, *, persist
         return True
     try:
         binding = _planning_binding(state, stage, workspace)
-        discovery = planning["reports"]["astra_discovery"]["output"]
+        discovery = planning["reports"]["draft_plan"]["output"]
         start = next(
             i
             for i, row in enumerate(state["stages"])
             if (
-                row.get("stage") == "astra_discovery"
+                row.get("stage") == "draft_plan"
                 or (
                     row.get("report_only")
-                    and row.get("original_stage") == "astra_discovery"
-                    and row.get("stage") == "astra_discovery_report_repair"
+                    and row.get("original_stage") == "draft_plan"
+                    and row.get("stage") == "draft_plan_report_repair"
                 )
             )
             and row.get("output") == discovery
@@ -1212,13 +1212,11 @@ def diagnostic_calls_used(state: RunState):
     _require(type(watermark) is int and watermark >= 0, "invalid legacy diagnostic watermark")
     # The shipped watermark was iteration-local and can undercount. Existing
     # rows establish a lower bound, not an identity for any future dispatch.
-    records = [
-        row for row in state.get("stages", []) if row.get("stage") == "astra_diagnose" and not row.get("dry_run")
-    ]
+    records = [row for row in state.get("stages", []) if row.get("stage") == "diagnose" and not row.get("dry_run")]
     active = state.get("active_stage")
     if (
         active
-        and active.get("stage") == "astra_diagnose"
+        and active.get("stage") == "diagnose"
         and not any(row.get("output") == active.get("output") for row in records)
     ):
         records.append(active)
@@ -1250,7 +1248,7 @@ def charge_diagnostic_dispatch(runner, state: RunState, run_dir, workspace, reco
     Report-only formatting repair is a separate existing bounded allowance,
     not a fresh diagnostic stage. Its calls still consume elapsed time and record token usage.
     """
-    if record.get("stage") != "astra_diagnose" or record.get("report_only") or record.get("dry_run"):
+    if record.get("stage") != "diagnose" or record.get("report_only") or record.get("dry_run"):
         return
     request = state.get("diagnosis_request") or {}
     if (
@@ -1302,7 +1300,7 @@ def admit_operational_diagnosis(runner, state: RunState, run_dir, workspace):
         raise ValueError(
             "Operational diagnosis requires a report-repair-eligible identity; use --retry-failed-stage instead"
         )
-    if record.get("role") != "terra" or record.get("stage") != "terra":
+    if record.get("role") != "builder" or record.get("stage") != "builder":
         raise ValueError("Operational diagnosis is scoped to a repeated Builder (terra) failure in this release")
     repeated = failures.repeated(state, record)
     if not repeated:
@@ -1363,7 +1361,7 @@ def admit_operational_diagnosis(runner, state: RunState, run_dir, workspace):
     recovery.prepare_diagnosis(state, state["diagnosis_request"], record, run_dir)
     # The stopped report-repair pointer is superseded by the diagnosis; leaving
     # it would make the next dispatch's before_code_stage hook try to execute it
-    # against next_stage='astra_diagnose' and pause with PAUSED_STALE_REPORT_ROUTE.
+    # against next_stage='diagnose' and pause with PAUSED_STALE_REPORT_ROUTE.
     state.setdefault("report_repair_archive", []).append(
         {
             "at": support.now(),
@@ -1371,7 +1369,7 @@ def admit_operational_diagnosis(runner, state: RunState, run_dir, workspace):
             "repair": state.pop("pending_report_repair"),
         }
     )
-    state.update({"status": "RUNNING", "phase": "EXECUTING", "next_stage": "astra_diagnose"})
+    state.update({"status": "RUNNING", "phase": "EXECUTING", "next_stage": "diagnose"})
     state.pop("stop_reason", None)
     runner.write_json(Path(run_dir) / "state.json", state)
 

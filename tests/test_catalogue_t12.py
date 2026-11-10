@@ -113,7 +113,7 @@ class DashboardScenarios(DashboardCase):
             findings=[
                 {
                     "id": "F-1",
-                    "source": "sol",
+                    "source": "tester",
                     "severity": "high",
                     "finding": "Blocker one",
                     "status": "open",
@@ -214,7 +214,7 @@ class DashboardScenarios(DashboardCase):
                 "status": "RUNNING",
                 "stages": [],
                 "findings_ledger": [],
-                "active_stage": {"stage": "terra", "pid": 424242, "role": "terra"},
+                "active_stage": {"stage": "builder", "pid": 424242, "role": "builder"},
             }
             with patch.object(monitor, "process_table", return_value={}) as probe:
                 monitor.snapshot(live_state, run, detailed=True)

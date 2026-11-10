@@ -49,14 +49,14 @@ class CodeCheckpoints(unittest.TestCase):
             "created_at": util.now(),
             "status": "PAUSED_REQUESTED",
             "iteration": 3,
-            "next_stage": "sol",
+            "next_stage": "tester",
             "sessions": {},
             "history": [],
             "stages": [],
             "active_seconds": 12,
             "settings": {
                 "engine": "codex",
-                "roles": {"terra": {"model": "gpt-6-sol", "reasoning_effort": "high", "pinned": True}},
+                "roles": {"builder": {"model": "gpt-6-sol", "reasoning_effort": "high", "pinned": True}},
                 "limits": {"max_seconds": 0},
             },
             "user_events": [],
@@ -67,7 +67,7 @@ class CodeCheckpoints(unittest.TestCase):
         contract = {"task_id": self.state["task_id"], "revision": 1, "body": body()}
         contract["hash"] = util.digest(contract)
         approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(contract), "at": util.now()}
-        contract.update(approval_status="approved", approval_event=approval, origin="astra_discovery")
+        contract.update(approval_status="approved", approval_event=approval, origin="draft_plan")
         self.state["goal_contract"] = contract
         self.state["user_events"].append(approval)
         self.state["base_commit"] = self.git("rev-parse", "HEAD")
@@ -84,7 +84,7 @@ class CodeCheckpoints(unittest.TestCase):
         }
         self.state["stages"].append(
             {
-                "stage": "terra",
+                "stage": "builder",
                 "task_id": "bounded-task",
                 "source_revision": snap["revision"],
                 "exit_code": 0,
@@ -151,7 +151,7 @@ class CodeCheckpoints(unittest.TestCase):
         self.state["implementation"]["source_revision"] = snap["revision"]
         self.state["stages"].append(
             {
-                "stage": "terra",
+                "stage": "builder",
                 "task_id": "bounded-task",
                 "source_revision": snap["revision"],
                 "exit_code": 0,
@@ -237,7 +237,7 @@ class CodeCheckpoints(unittest.TestCase):
         with self.assertRaisesRegex(TaskRunError, "source changed"):
             self.client.restore_checkpoint(self.ident, comparison["expected_token"], "stale-source-one")
         for field, value in [
-            ("active_stage", {"stage": "terra"}),
+            ("active_stage", {"stage": "builder"}),
             ("active_runner_check", {"stage": "regression_proof"}),
             ("pending_questions", [{"id": "question"}]),
             ("uncertain_artifacts", True),
@@ -548,13 +548,13 @@ class WorkingDiff(unittest.TestCase):
 
     def test_the_view_names_it_only_while_a_builder_step_runs(self):
         self.assertIsNone(checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["working"])
-        self.state["active_stage"] = {"stage": "terra"}
+        self.state["active_stage"] = {"stage": "builder"}
         named = checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["working"]
         self.assertEqual(
             ["checkpoint", "--workspace", str(self.workspace), "--run-dir", str(self.run), "--working"],
             named["next_command"],
         )
-        self.state["active_stage"] = {"stage": "sol"}
+        self.state["active_stage"] = {"stage": "tester"}
         self.assertIsNone(checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["working"])
 
 
@@ -576,7 +576,7 @@ class IntegratedBatchCheckpoint(unittest.TestCase):
         contract = {"task_id": "run-task", "revision": 1, "body": body()}
         contract["hash"] = util.digest(contract)
         approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(contract), "at": util.now()}
-        contract.update(approval_status="approved", approval_event=approval, origin="astra_discovery")
+        contract.update(approval_status="approved", approval_event=approval, origin="draft_plan")
         (self.workspace / "server.py").write_text("server\n")
         (self.workspace / "client.py").write_text("client\n")
         revision = util.snapshot(self.workspace)["revision"]
@@ -588,8 +588,20 @@ class IntegratedBatchCheckpoint(unittest.TestCase):
             "goal_contract": contract,
             "findings_ledger": [],
             "stages": [
-                {"stage": "terra", "task_id": "task-b", "batch_id": "batch1", "exit_code": 0, "source_revision": "w1"},
-                {"stage": "terra", "task_id": "task-c", "batch_id": "batch1", "exit_code": 0, "source_revision": "w2"},
+                {
+                    "stage": "builder",
+                    "task_id": "task-b",
+                    "batch_id": "batch1",
+                    "exit_code": 0,
+                    "source_revision": "w1",
+                },
+                {
+                    "stage": "builder",
+                    "task_id": "task-c",
+                    "batch_id": "batch1",
+                    "exit_code": 0,
+                    "source_revision": "w2",
+                },
                 {"stage": "orchestrator", "batch_id": "batch1"},
             ],
             "current_task": {
@@ -663,7 +675,7 @@ class RealCheckpointFlow(unittest.TestCase):
         fixture = test_subprocess.SubprocessFlow()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
-        fixture.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE="terra")
+        fixture.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE="builder")
         client = TaskRun.start(
             fixture.project,
             "Build greeting",
@@ -683,8 +695,8 @@ class RealCheckpointFlow(unittest.TestCase):
         view = client.advance_until_input()
         self.assertEqual("TASK_COMPLETE", view["status"], view)
         attempts = view["usage"]["accounting"]["attempts"]
-        builder = next(row for row in attempts if row["stage"] == "terra")
-        repair = next(row for row in attempts if row["stage"] == "terra_report_repair")
+        builder = next(row for row in attempts if row["stage"] == "builder")
+        repair = next(row for row in attempts if row["stage"] == "builder_report_repair")
         self.assertTrue(builder["rejected"])
         self.assertFalse(repair["rejected"])
         self.assertTrue(repair["report_only"])
@@ -748,7 +760,7 @@ class BuilderExecutionProvenance(unittest.TestCase):
         }
         common = {
             **self.binding,
-            "role": "terra",
+            "role": "builder",
             "iteration": 1,
             "schema": "builder-schema",
             "criteria_revision": "approved-criteria",
@@ -756,7 +768,7 @@ class BuilderExecutionProvenance(unittest.TestCase):
         }
         self.original = {
             **common,
-            "stage": "terra",
+            "stage": "builder",
             "output": str(original_output),
             "events": str(events),
             "rejected": True,
@@ -764,8 +776,8 @@ class BuilderExecutionProvenance(unittest.TestCase):
         }
         self.accepted = {
             **common,
-            "stage": "terra_report_repair",
-            "original_stage": "terra",
+            "stage": "builder_report_repair",
+            "original_stage": "builder",
             "report_only": True,
             "output": str(repaired_output),
             "events": "repair-events",
@@ -864,8 +876,8 @@ class BuilderExecutionProvenance(unittest.TestCase):
             {"abandoned": True},
             {"timed_out": True},
             {"exit_code": True},
-            {"original_stage": "sol"},
-            {"stage": "terra"},
+            {"original_stage": "tester"},
+            {"stage": "builder"},
             {"report_only": False},
             {"applied_original_events": ""},
         )

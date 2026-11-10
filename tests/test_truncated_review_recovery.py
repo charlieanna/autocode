@@ -29,7 +29,7 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
         self.schema.parent.mkdir(parents=True)
         self.schema.write_text("{}")
 
-    def attempt(self, stage="sol", ordinal=1, *, report_only=False):
+    def attempt(self, stage="tester", ordinal=1, *, report_only=False):
         actual_stage = f"{stage}_report_repair" if report_only else stage
         base = self.run / "iterations/001" / f"{actual_stage}-{ordinal:02d}"
         base.parent.mkdir(parents=True, exist_ok=True)
@@ -68,7 +68,7 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
             + "\n"
         )
         record = {
-            "role": "sol" if stage == "sol" else "completion",
+            "role": "tester" if stage == "tester" else "completion",
             "stage": actual_stage,
             "iteration": 1,
             "started_at": "2026-10-01T00:00:00+00:00",
@@ -125,7 +125,7 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
         state = self.state(self.attempt())
         self.assertTrue(self.invoke_recovery(state))
         self.assertNotIn("active_stage", state)
-        self.assertEqual(("RUNNING", "REPORT_REPAIR", "sol"), (state["status"], state["phase"], state["next_stage"]))
+        self.assertEqual(("RUNNING", "REPORT_REPAIR", "tester"), (state["status"], state["phase"], state["next_stage"]))
         pending = state["pending_report_repair"]
         original = pending["original"]
         self.assertTrue(original["truncated_output"])
@@ -137,10 +137,10 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
         self.assertEqual('{"verdict":"PASS","checks":[...', source["content"]["partial_text"])
 
     def test_plan_reviewer_truncation_qualifies_for_report_only_repair(self):
-        state = self.state(self.attempt("astra_challenge"))
+        state = self.state(self.attempt("review_plan"))
         self.assertTrue(self.invoke_recovery(state))
         self.assertEqual(
-            ("RUNNING", "REPORT_REPAIR", "astra_challenge"), (state["status"], state["phase"], state["next_stage"])
+            ("RUNNING", "REPORT_REPAIR", "review_plan"), (state["status"], state["phase"], state["next_stage"])
         )
         self.assertTrue(state["pending_report_repair"]["original"]["truncated_output"])
         self.assertTrue(Path(state["pending_report_repair"]["original"]["events"]).is_file())
@@ -149,10 +149,10 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
         first = self.state(self.attempt())
         self.assertTrue(self.invoke_recovery(first))
         first["pending_report_repair"]["attempts"] = 1
-        retry = self.attempt("sol", 1, report_only=True)
+        retry = self.attempt("tester", 1, report_only=True)
         first["active_stage"] = retry
         self.assertTrue(self.invoke_recovery(first))
-        self.assertTrue(first["pending_report_repair"]["original"]["stage"] == "sol")
+        self.assertTrue(first["pending_report_repair"]["original"]["stage"] == "tester")
         self.assertTrue(first["pending_report_repair"]["latest_rejected"]["truncated_output"])
         self.assertEqual(1, first["pending_report_repair"]["attempts"])
         latest = runner.repair_report_source(first["pending_report_repair"]["latest_rejected"])
@@ -163,19 +163,19 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
         self.assertTrue(self.invoke_recovery(state))
         original_path = state["pending_report_repair"]["original"]["events"]
         state["pending_report_repair"]["attempts"] = 2
-        state["active_stage"] = self.attempt("sol", 2, report_only=True)
+        state["active_stage"] = self.attempt("tester", 2, report_only=True)
         with self.assertRaisesRegex(support.Paused, "attempts exhausted"):
             self.invoke_recovery(state)
         self.assertEqual(original_path, state["pending_report_repair"]["original"]["events"])
         self.assertTrue(Path(original_path).is_file())
-        self.assertEqual("sol_report_repair", state["active_stage"]["stage"])
+        self.assertEqual("tester_report_repair", state["active_stage"]["stage"])
 
     def test_changed_source_wrong_stage_and_non_truncation_do_not_recover(self):
-        record = self.attempt("terra")
+        record = self.attempt("builder")
         state = self.state(record)
         self.assertFalse(self.invoke_recovery(state))
         self.assertIn("active_stage", state)
-        record = self.attempt("sol", ordinal=2)
+        record = self.attempt("tester", ordinal=2)
         state = self.state(record)
         changed = {**self.snapshot, "revision": "changed"}
         with patch.object(support, "snapshot", return_value=changed) as source:
@@ -186,13 +186,13 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
                     )
                 )
         source.assert_called_once_with(self.root)
-        record = self.attempt("sol", ordinal=3)
+        record = self.attempt("tester", ordinal=3)
         Path(record["events"]).write_text("{}\n")
         state = self.state(record)
         self.assertFalse(self.invoke_recovery(state))
 
     def timed_out_repair(self):
-        state = self.state(self.attempt("astra_challenge"))
+        state = self.state(self.attempt("review_plan"))
         contract = {"task_id": "fixture", "revision": 1, "body": {}, "approval_status": "draft"}
         contract["hash"] = support.digest({key: contract[key] for key in ("task_id", "revision", "body")})
         state["goal_contract"] = contract
@@ -200,7 +200,7 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
         state["sessions"] = {"task_planner": "retained-session"}
         self.assertTrue(self.invoke_recovery(state))
         state["pending_report_repair"]["attempts"] = 1
-        repair = self.attempt("astra_challenge", report_only=True)
+        repair = self.attempt("review_plan", report_only=True)
         Path(repair["events"]).write_text(json.dumps({"type": "thread.started", "thread_id": "repair"}) + "\n")
         repair.update(
             timed_out=True,
@@ -230,10 +230,10 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
         self.assertEqual(retained, {key: state[key] for key in retained})
         self.assertNotIn("active_stage", state)
         self.assertEqual(
-            ("RUNNING", "REPORT_REPAIR", "astra_challenge"), (state["status"], state["phase"], state["next_stage"])
+            ("RUNNING", "REPORT_REPAIR", "review_plan"), (state["status"], state["phase"], state["next_stage"])
         )
-        self.assertEqual(1, sum(row["stage"] == "astra_challenge" for row in state["stages"]))
-        self.assertEqual(1, sum(row["stage"] == "astra_challenge_report_repair" for row in state["stages"]))
+        self.assertEqual(1, sum(row["stage"] == "review_plan" for row in state["stages"]))
+        self.assertEqual(1, sum(row["stage"] == "review_plan_report_repair" for row in state["stages"]))
         receipt = next(row for row in state["stages"] if row["stage"] == "resolver")["receipt"]
         self.assertEqual(1, receipt["evidence"]["repair_attempts_used"])
         for path, digest in retained["pending_report_repair"]["pins"].items():
@@ -263,7 +263,7 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
                 elif case == "pin":
                     state["pending_report_repair"]["pins"][original["events"]] = "changed"
                 elif case == "stage":
-                    state["active_stage"]["original_stage"] = "sol"
+                    state["active_stage"]["original_stage"] = "tester"
                 elif case == "role":
                     state["active_stage"]["role"] = "other"
                 elif case == "contract":
@@ -284,9 +284,11 @@ class TruncatedReviewRecoveryTests(unittest.TestCase):
                     )
                     state["pending_report_repair"]["pins"][str(path)] = support.file_hash(path)
                 elif case == "builder":
-                    original.update(stage="terra", role="terra")
-                    state["active_stage"].update(stage="terra_report_repair", original_stage="terra", role="terra")
-                    state["next_stage"] = "terra"
+                    original.update(stage="builder", role="builder")
+                    state["active_stage"].update(
+                        stage="builder_report_repair", original_stage="builder", role="builder"
+                    )
+                    state["next_stage"] = "builder"
                 elif case == "marker":
                     original.pop("truncated_output")
                 retained = copy.deepcopy(state)
@@ -314,14 +316,14 @@ class TruncatedReviewCliTests(unittest.TestCase):
     saved = subprocess_test_support.SubprocessFlow.saved
 
     def test_cli_repairs_truncated_validator_report_without_replaying_checks(self):
-        self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = "sol"
+        self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = "tester"
         self.launch(["Build a greeting tool", "--chat"], 0, answers="CLI\nyes\n")
         _, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])
-        self.assertEqual(1, sum(row["stage"] == "sol" for row in state["stages"]))
-        self.assertEqual(1, sum(row["stage"] == "sol_report_repair" for row in state["stages"]))
-        original = next(row for row in state["stages"] if row["stage"] == "sol")
-        repair = next(row for row in state["stages"] if row["stage"] == "sol_report_repair")
+        self.assertEqual(1, sum(row["stage"] == "tester" for row in state["stages"]))
+        self.assertEqual(1, sum(row["stage"] == "tester_report_repair" for row in state["stages"]))
+        original = next(row for row in state["stages"] if row["stage"] == "tester")
+        repair = next(row for row in state["stages"] if row["stage"] == "tester_report_repair")
         self.assertTrue(original["truncated_output"])
         self.assertEqual(0, original["metrics"]["completed_turns"])
         self.assertGreater(original["metrics"]["provider_tokens"]["output_tokens"], 0)
@@ -330,12 +332,12 @@ class TruncatedReviewCliTests(unittest.TestCase):
         self.assertEqual("accepted", state["report_repair_history"][-1]["result"])
 
     def test_cli_repairs_truncated_plan_review_instead_of_asking_for_a_model(self):
-        self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = "astra_challenge"
+        self.env["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] = "review_plan"
         self.launch(["Build a greeting tool", "--chat", "--joint-planning"], 0, answers="CLI\nyes\n")
         _, state = self.saved()
         stages = [row["stage"] for row in state["stages"]]
-        self.assertIn("astra_challenge_report_repair", stages, stages)
-        original = next(row for row in state["stages"] if row["stage"] == "astra_challenge")
+        self.assertIn("review_plan_report_repair", stages, stages)
+        original = next(row for row in state["stages"] if row["stage"] == "review_plan")
         self.assertTrue(original["truncated_output"])
         self.assertEqual("accepted", state["report_repair_history"][-1]["result"])
         self.assertFalse(any(str(q.get("id", "")).startswith("route-") for q in state.get("pending_questions", [])))
@@ -379,13 +381,13 @@ if repairing:
     )
 with probe.open('a') as output:
     output.write(json.dumps(row) + '\n')
-if stage == 'astra_challenge' and repairing and (mode == 'all' or prior_repairs == 0):
+if stage == 'review_plan' and repairing and (mode == 'all' or prior_repairs == 0):
     assert sandbox == 'read-only'
     print(json.dumps({'type': 'thread.started', 'thread_id': 'stopped-repair'}), flush=True)
     print(json.dumps({'type': 'usage.partial', 'usage': {'input_tokens': 7, 'output_tokens': 3}}), flush=True)
     print(json.dumps({'type': 'fixture.stopped_repair_deadline'}), flush=True)
     raise SystemExit(0)  # No report or terminal response; the bootstrap injects the stopped timeout.
-if stage == 'astra_challenge' and repairing:
+if stage == 'review_plan' and repairing:
     report.write_bytes(probe.with_suffix('.original-report.json').read_bytes())
     print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 11, 'output_tokens': 5}}), flush=True)
     raise SystemExit(0)
@@ -393,7 +395,7 @@ result = subprocess.run(
     [sys.executable, delegate, 'exec', '-', '--json', '-o', str(report)],
     input=prompt, capture_output=True, text=True, check=True,
 )
-if stage == 'astra_challenge':
+if stage == 'review_plan':
     probe.with_suffix('.original-report.json').write_bytes(report.read_bytes())
     report.unlink()
     print(json.dumps({'type': 'thread.started', 'thread_id': 'length-limited-review'}), flush=True)
@@ -456,7 +458,7 @@ runpy.run_path(str(runtime), run_name='__main__')
             mode,
             "{sandbox}",
         ]
-        roles = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+        roles = ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
         config.write_text(
             'name = "truncated_timeout_fixture"\noutput = "report_file"\nprompt = "stdin"\ncommand = '
             + json.dumps(command)
@@ -488,8 +490,8 @@ runpy.run_path(str(runtime), run_name='__main__')
     def assert_bound_attempts(self, run):
         view = run.status()
         rows = [json.loads(line) for line in self.probe.read_text().splitlines()]
-        originals = [row for row in rows if row["stage"] == "astra_challenge" and not row["repairing"]]
-        repairs = [row for row in rows if row["stage"] == "astra_challenge" and row["repairing"]]
+        originals = [row for row in rows if row["stage"] == "review_plan" and not row["repairing"]]
+        repairs = [row for row in rows if row["stage"] == "review_plan" and row["repairing"]]
         self.assertEqual(1, len(originals), rows)
         self.assertEqual(2, len(repairs), (rows, view["status"], view["stop_reason"]))
         self.assertEqual(repairs[0]["settings_sha256"], repairs[1]["settings_sha256"])
@@ -497,14 +499,12 @@ runpy.run_path(str(runtime), run_name='__main__')
         self.assertEqual(repairs[0]["original_events_sha256"], repairs[1]["original_events_sha256"])
         self.assertTrue(all(row["sandbox"] == "read-only" and not row["approved"] for row in repairs))
         retained = [
-            row
-            for row in repairs[1]["attempts"]
-            if row["stage"] == "astra_challenge_report_repair" and row["timed_out"]
+            row for row in repairs[1]["attempts"] if row["stage"] == "review_plan_report_repair" and row["timed_out"]
         ]
         self.assertEqual(1, len(retained), repairs[1])
         self.assertEqual((7, 3), (retained[0]["tokens"]["input_tokens"], retained[0]["tokens"]["output_tokens"]))
         self.assertFalse(retained[0]["active"])
-        self.assertFalse(any(row["stage"] == "terra" for row in rows))
+        self.assertFalse(any(row["stage"] == "builder" for row in rows))
         self.assertFalse(view["done"])
         self.assertIsNone(view.get("approved_contract"))
         self.assertEqual([], view["approvals"])
@@ -515,8 +515,8 @@ runpy.run_path(str(runtime), run_name='__main__')
         view = self.assert_bound_attempts(run)
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
         attempts = view["usage"]["accounting"]["attempts"]
-        self.assertEqual(2, sum(row["stage"] == "astra_challenge_report_repair" for row in attempts))
-        self.assertEqual(1, sum(row["stage"] == "astra_challenge" for row in attempts))
+        self.assertEqual(2, sum(row["stage"] == "review_plan_report_repair" for row in attempts))
+        self.assertEqual(1, sum(row["stage"] == "review_plan" for row in attempts))
 
     def test_cli_second_stopped_timeout_exhausts_bound_without_a_third_repair(self):
         run = self.start_fixture("all")
@@ -525,7 +525,7 @@ runpy.run_path(str(runtime), run_name='__main__')
         self.assertIn("allowance exhausted", view["stop_reason"])
         self.assertEqual("answer", view["needs"]["kind"])
         attempts = view["usage"]["accounting"]["attempts"]
-        self.assertEqual(2, sum(row["stage"] == "astra_challenge_report_repair" for row in attempts))
+        self.assertEqual(2, sum(row["stage"] == "review_plan_report_repair" for row in attempts))
 
     def public_call(self, run, *args):
         import subprocess
@@ -585,7 +585,7 @@ runpy.run_path(str(runtime), run_name='__main__')
         for key, quantity in before["view"]["usage"]["accounting"]["tokens"].items():
             self.assertEqual(quantity["known"], view["usage"]["accounting"]["tokens"][key]["known"], key)
         repairs = [
-            row for row in view["usage"]["accounting"]["attempts"] if row["stage"] == "astra_challenge_report_repair"
+            row for row in view["usage"]["accounting"]["attempts"] if row["stage"] == "review_plan_report_repair"
         ]
         self.assertEqual(2, len(repairs), "Both charged report-only attempts must remain retained")
         archived = next(row for row in repairs if row["attempt_id"] == action["attempt_id"])

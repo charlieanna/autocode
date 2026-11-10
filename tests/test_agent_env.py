@@ -171,7 +171,7 @@ class ProviderEnvironmentTests(unittest.TestCase):
             self.assertNotIn("GITHUB_TOKEN", names)
             self.assertNotIn("FIXTURE_DB_PASSWORD", names)
             self.assertIn("FIXTURE_API_KEY", names)
-        stage = next(row for row in state["stages"] if row.get("stage") == "terra")
+        stage = next(row for row in state["stages"] if row.get("stage") == "builder")
         self.assertIn("GITHUB_TOKEN", stage["withheld_env"])
         self.assertNotIn("FIXTURE_API_KEY", stage["withheld_env"])
 

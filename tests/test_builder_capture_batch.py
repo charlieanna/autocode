@@ -46,7 +46,7 @@ class BuilderCaptureContextTests(unittest.TestCase):
         with patch.object(
             context.source_scope, "snapshot", return_value={"revision": "source", "head": "head", "files": {}}
         ):
-            prompt, _ = context.context_packet(self.state, "terra", self.root / ".autocode/runs/run/state.json")
+            prompt, _ = context.context_packet(self.state, "builder", self.root / ".autocode/runs/run/state.json")
         return json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 
     def test_builder_receives_exact_approved_commands_with_fresh_phase_guidance(self):

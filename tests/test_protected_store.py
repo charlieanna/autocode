@@ -108,7 +108,7 @@ class ProtectedStorageTests(unittest.TestCase):
 
     def test_active_runs_foreign_roots_and_unrelated_files_are_not_removed(self):
         record = self.legacy()
-        state = {"settings": {"protected_tests": record}, "active_stage": {"stage": "terra"}}
+        state = {"settings": {"protected_tests": record}, "active_stage": {"stage": "builder"}}
         self.reconcile(state)
         self.assertTrue((Path(record["root"]) / "src/example.test.js").exists())
         self.assertIsNone(store.archive_path(record))

@@ -353,7 +353,7 @@ class AcceptancePrerequisitesTests(unittest.TestCase):
                         evidence_dir=root / "evidence",
                         run_tests=lambda files: {"results": {"failed": ["app::TestAC1"], "passed": []}},
                     )
-                self.assertEqual("terra", state["next_stage"])
+                self.assertEqual("builder", state["next_stage"])
                 receipt = next(iter(acceptance.receipts(state).values()))
                 self.assertEqual({"go.mod", "go.sum", "app_test.go"}, set(receipt["files"]))
                 self.assertEqual(ADDED, (root / "go.mod").read_text())

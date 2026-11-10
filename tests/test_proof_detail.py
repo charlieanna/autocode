@@ -111,7 +111,7 @@ def proof():
     }
 
 
-def packet(stage="sol"):
+def packet(stage="tester"):
     return {
         "stage": stage,
         "goal_contract": {"body": {"constraints": ["No network"]}},
@@ -215,7 +215,9 @@ class ProofDetailTests(unittest.TestCase):
                 version=3,
                 task="Implement the approved requirements",
                 workspace=tmp,
-                settings={"roles": {r: {"engine": "codex", "model": "fake"} for r in ("task_planner", "terra", "sol")}},
+                settings={
+                    "roles": {r: {"engine": "codex", "model": "fake"} for r in ("task_planner", "builder", "tester")}
+                },
                 answers=state["saved_answers"],
             )
             whole = proof()
@@ -223,7 +225,7 @@ class ProofDetailTests(unittest.TestCase):
                 patch.object(stage_context.support, "snapshot", return_value={"revision": "r", "head": "h"}),
                 patch.object(regression, "handoff", return_value=whole),
             ):
-                prompt, metrics = stage_context.context_packet(state, "sol", Path(tmp) / "state.json")
+                prompt, metrics = stage_context.context_packet(state, "tester", Path(tmp) / "state.json")
             data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
             saved = json.loads(Path(data["context_artifact"]["path"]).read_text())
             self.assertEqual(whole["changed_code_evidence"]["obligations"], saved[proof_detail.OBLIGATIONS])
@@ -231,7 +233,7 @@ class ProofDetailTests(unittest.TestCase):
             self.assertLess(len(json.dumps(data["regression_proof"])), len(json.dumps(whole)) // 4)
 
     def test_small_unhandled_pointed_and_nonreview_detail_stays_inline(self):
-        cases = [packet(stage) for stage in ("terra", "astra_plan", "astra_resolve", "investigate_stuck")]
+        cases = [packet(stage) for stage in ("builder", "plan_task", "resolve", "investigate_stuck")]
         small = packet()
         small["regression_proof"] = {
             "verdict": "PASS",
@@ -253,7 +255,7 @@ class ProofDetailTests(unittest.TestCase):
         already = packet()
         already["context_artifact"] = {"path": "/saved/context.json", "sha256": "a" * 64}
         cases.append(already)
-        cases.extend([{"stage": "sol"}, {"stage": "sol", "regression_proof": None}])
+        cases.extend([{"stage": "tester"}, {"stage": "tester", "regression_proof": None}])
         for original in cases:
             with self.subTest(stage=original.get("stage")), tempfile.TemporaryDirectory() as tmp:
                 self.assertEqual((original, []), context.compact(original, Path(tmp) / "state.json"))

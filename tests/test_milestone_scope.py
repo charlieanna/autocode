@@ -48,7 +48,7 @@ class MilestoneScopeTests(unittest.TestCase):
             evidence = Path(directory) / "receipt.json"
             evidence.write_text("{}")
             validation = {
-                "reviewer_role": "sol",
+                "reviewer_role": "tester",
                 "evidence_hashes": {str(evidence): util.file_hash(evidence)},
                 "contract_hash": "h",
                 "contract_revision": 2,

@@ -1,6 +1,6 @@
 
 Return every acceptance criterion in CURRENT HANDOFF DATA order, preserving IDs and criterion text exactly.
-Only astra_review omits criterion text, returning id, status and evidence. Include criteria outside the
+Only review_completion omits criterion text, returning id, status and evidence. Include criteria outside the
 current milestone. Mark unchecked criteria unverified; narrowing the review scope
 does not authorize dropping criteria from the approved contract.
 Choose exactly one status:

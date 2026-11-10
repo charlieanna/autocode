@@ -44,7 +44,7 @@ class ToolActivityTests(unittest.TestCase):
                 "".join(json.dumps(row) + "\n" for row in stream(tool(metadata={"metadata": {"exit": 7}})))
             )
             measured = request_usage.read(events)
-            record = {"stage": "terra", "events": str(events), "metrics": {"request_context": measured}}
+            record = {"stage": "builder", "events": str(events), "metrics": {"request_context": measured}}
             state = {"status": "RUNNING", "stages": [record]}
             original = copy.deepcopy(state)
             original_stat = events.stat()
@@ -93,7 +93,7 @@ class ToolActivityTests(unittest.TestCase):
             legacy.pop("search_arguments")
             legacy["private"] = "SECRET-canary"
             events.unlink()
-            record = {"stage": "terra", "events": str(events), "metrics": {"request_context": measured}}
+            record = {"stage": "builder", "events": str(events), "metrics": {"request_context": measured}}
             state = {"status": "RUNNING", "stages": [record]}
             before = copy.deepcopy(state)
             result = run_view.view(state)["usage"]["accounting"]["attempts"][0]["tool_activity"]
@@ -136,7 +136,7 @@ class ToolActivityTests(unittest.TestCase):
             measured["accounting"]["tool_activity"].pop("search_arguments")
             state = {
                 "status": "RUNNING",
-                "stages": [{"stage": "terra", "events": str(events), "metrics": {"request_context": measured}}],
+                "stages": [{"stage": "builder", "events": str(events), "metrics": {"request_context": measured}}],
             }
             before = copy.deepcopy(state)
             result = run_view.view(state)["usage"]["accounting"]["attempts"][0]["tool_activity"]
@@ -330,7 +330,7 @@ class ToolActivityTests(unittest.TestCase):
         native = {"tool_activity": {**good, "arguments": "PRIVATE_CANARY"}, "legacy_receipt": {"keep": True}}
         state = {
             "status": "RUNNING",
-            "stages": [{"stage": "terra", "metrics": {"request_context": {"accounting": native}}}],
+            "stages": [{"stage": "builder", "metrics": {"request_context": {"accounting": native}}}],
         }
         before = copy.deepcopy(state)
         public = run_view.view(state)
@@ -535,7 +535,7 @@ class ToolActivityTests(unittest.TestCase):
             legacy = request_usage.read(events)
             legacy["accounting"].pop("tool_activity")
             record = {
-                "stage": "terra",
+                "stage": "builder",
                 "engine": "opencode",
                 "events": str(events),
                 "metrics": {"request_context": legacy},

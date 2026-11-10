@@ -31,11 +31,11 @@ class RequestedFeedbackTests(unittest.TestCase):
 
     def test_pending_work_and_independent_holds_refuse(self):
         blocked = (
-            {"active_stage": {"stage": "sol"}},
+            {"active_stage": {"stage": "tester"}},
             {"active_runner_check": {"kind": "regression_proof"}},
             {"uncertain_artifacts": ["attempt"]},
-            {"pending_report_repair": {"stage": "astra_review"}},
-            {"job_failure": {"stage": "sol"}},
+            {"pending_report_repair": {"stage": "review_completion"}},
+            {"job_failure": {"stage": "tester"}},
             {"stop_intent": {"request_ids": ["stop"]}},
             {"applied_interventions": [{"kind": "stop"}]},
             {"pending_questions": [{"id": "Q1"}]},
@@ -215,11 +215,11 @@ class HeldPauseTests(unittest.TestCase):
             ({"status": "PAUSED_INVALID_OUTPUT", "feedback": False}, False),
         ):
             with self.subTest(held=held):
-                state = {"status": stop.STOP_STATUS, "next_stage": "astra_discovery"}
+                state = {"status": stop.STOP_STATUS, "next_stage": "draft_plan"}
                 stop.boundary_effects(state, [{"id": "f", "kind": "feedback"}], lambda: "now", held)
                 self.assertEqual(holds, "held_pause" in (state.get("pause_intent") or {}))
         # A pause in the same batch holds whatever the feedback would acknowledge (docs/interventions.md).
-        state = {"status": stop.STOP_STATUS, "next_stage": "sol"}
+        state = {"status": stop.STOP_STATUS, "next_stage": "tester"}
         stop.boundary_effects(
             state,
             [{"id": "p", "kind": "pause"}, {"id": "f", "kind": "feedback"}],
@@ -236,7 +236,7 @@ class HeldPauseTests(unittest.TestCase):
         # --resume-paused releases an abandoned stage at once (#486 review).
         for held, operational in (("PAUSED_RATE_LIMIT", True), ("PAUSED_STAGE_ABANDONED", False)):
             with self.subTest(held=held):
-                state = {"status": held, "next_stage": "sol"}
+                state = {"status": held, "next_stage": "tester"}
                 stop.boundary_effects(
                     state,
                     [{"id": "p", "kind": "pause"}],
@@ -299,7 +299,7 @@ class PlanningReconsiderationTests(unittest.TestCase):
                 ("--abandon-stage", "001/plan-review-01"),
             ):
                 with self.subTest(pause=pause, flags=flags):
-                    state = {"status": pause, "next_stage": "astra_challenge", "settings": {"joint_planning": True}}
+                    state = {"status": pause, "next_stage": "review_plan", "settings": {"joint_planning": True}}
                     args = parser.parse_args(flags)
                     decided = SimpleNamespace(decision_action=False, information_admitted=False, checked_authority=True)
                     fake_runner = Mock()
@@ -415,7 +415,7 @@ class AnsweredBlockerDecisionTests(unittest.TestCase):
             elif name == "a queued proposal":
                 state["resolver_human_proposal"] = {
                     "scope": "operational_exhaustion",
-                    "origin": {"stage": "astra_resolve", "pause_status": "PAUSED_RESOLVER"},
+                    "origin": {"stage": "resolve", "pause_status": "PAUSED_RESOLVER"},
                 }
             elif name == "the decision was already taken":
                 state["goal_contract"]["approval_status"] = "draft"

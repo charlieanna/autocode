@@ -144,7 +144,7 @@ class ResolverHumanTests(unittest.TestCase):
             "workspace": str(self.root),
             "run_dir": str(self.root / ".autocode/runs/fixture"),
             "status": "RUNNING",
-            "next_stage": "astra_discovery",
+            "next_stage": "draft_plan",
             "settings": {},
             "answers": {},
             "user_events": [],
@@ -172,10 +172,10 @@ class ResolverHumanTests(unittest.TestCase):
         human.queue(
             self.state,
             "clarification",
-            {"stage": "astra_discovery"},
+            {"stage": "draft_plan"},
             questions=[self.question],
             phase="DISCOVERING",
-            next_stage="astra_discovery",
+            next_stage="draft_plan",
         )
 
     def request(self):
@@ -191,7 +191,7 @@ class ResolverHumanTests(unittest.TestCase):
     def publish_operational(self):
         self.state.update(
             status="PAUSED_RESOLVER_OPERATIONAL",
-            next_stage="astra_challenge",
+            next_stage="review_plan",
             automatic_recoveries_since_resume=3,
             planning={"astra_calls": 3},
         )
@@ -208,7 +208,7 @@ class ResolverHumanTests(unittest.TestCase):
         human.queue(
             self.state,
             "operational_exhaustion",
-            {"stage": "astra_challenge"},
+            {"stage": "review_plan"},
             request=self.request(),
             evidence={"resolver_receipt_id": "op-receipt"},
         )
@@ -253,18 +253,18 @@ class ResolverHumanTests(unittest.TestCase):
         human.queue(
             self.state,
             "goal_approval",
-            {"stage": "astra_finalize"},
+            {"stage": "finalize_plan"},
             status="AWAITING_GOAL_APPROVAL",
-            next_stage="astra_plan",
+            next_stage="plan_task",
         )
         self.assertEqual("defer", human.evaluate(self.state))
         contract = self.state["goal_contract"]
         self.state["planning"]["final_token"] = f"r1:{contract['hash']}"
         self.assertEqual("defer", human.evaluate(self.state))
-        self.state["planning"]["reports"] = {"astra_finalize": {"output": "final.json"}}
+        self.state["planning"]["reports"] = {"finalize_plan": {"output": "final.json"}}
         self.state["stages"].append(
             {
-                "stage": "astra_finalize",
+                "stage": "finalize_plan",
                 "output": "final.json",
                 "source_revision": support.snapshot(self.root)["revision"],
             }
@@ -313,7 +313,7 @@ class ResolverHumanTests(unittest.TestCase):
         human.queue(
             self.state,
             "blocker",
-            {"stage": "terra"},
+            {"stage": "builder"},
             request=self.request(),
             evidence={"issuer": "resolver", "recovery_exhausted": True},
         )
@@ -321,13 +321,13 @@ class ResolverHumanTests(unittest.TestCase):
         human.queue(
             self.state,
             "blocker",
-            {"stage": "astra_resolve"},
+            {"stage": "resolve"},
             request=self.request(),
             evidence={"diagnosis": "No safe action is available", "output": "resolver.json"},
         )
         self.assertEqual("defer", human.evaluate(self.state))
         self.state["stages"].append(
-            {"stage": "astra_resolve", "output": "resolver.json", "exit_code": 0, "changed_files": []}
+            {"stage": "resolve", "output": "resolver.json", "exit_code": 0, "changed_files": []}
         )
         self.assertEqual("escalate", human.evaluate(self.state))
 
@@ -335,7 +335,7 @@ class ResolverHumanTests(unittest.TestCase):
         human.queue(
             self.state,
             "blocker",
-            {"stage": "astra_review"},
+            {"stage": "review_completion"},
             request=self.request(),
             evidence={"recovery_available": True},
         )
@@ -423,7 +423,7 @@ class ResolverHumanTests(unittest.TestCase):
 
     def test_operational_answer_cannot_satisfy_material_approval(self):
         self.contract()
-        human.queue(self.state, "goal_approval", {"stage": "astra_discovery"}, status="AWAITING_GOAL_APPROVAL")
+        human.queue(self.state, "goal_approval", {"stage": "draft_plan"}, status="AWAITING_GOAL_APPROVAL")
         human.evaluate(self.state)
         public = human.current(self.state)
         with self.assertRaises(ValueError):
@@ -438,7 +438,7 @@ class ResolverHumanTests(unittest.TestCase):
         human.queue(
             self.state,
             "clarification",
-            {"stage": "astra_discovery"},
+            {"stage": "draft_plan"},
             questions=[self.question],
             evidence={"hashes": {str(report): support.file_hash(report)}},
         )
@@ -497,7 +497,7 @@ class ResolverHumanTests(unittest.TestCase):
         human.queue(
             self.state,
             "blocker",
-            {"stage": "astra_resolve"},
+            {"stage": "resolve"},
             request={
                 "kind": "blocker",
                 "decision_needed": "Approve or decline extending AC8's supersedes",
@@ -526,7 +526,11 @@ class WithdrawnOperationalRequestTests(unittest.TestCase):
             "version": human.VERSION,
             "scope": "operational_exhaustion",
             "origin": origin,
-            "request": {"kind": "blocker", "discovered": cause, "decision_needed": "Answer --answer route-terra=MODEL"},
+            "request": {
+                "kind": "blocker",
+                "discovered": cause,
+                "decision_needed": "Answer --answer route-builder=MODEL",
+            },
             "questions": [],
             "evidence": {},
             "status": "WAITING_FOR_USER",
@@ -593,8 +597,8 @@ class WithdrawnOperationalRequestTests(unittest.TestCase):
     def test_same_pause_status_with_a_new_cause_does_not_restore_the_old_member_question(self):
         original = "Builder M1 stopped on quota"
         for cause, expected_questions in (
-            (original, ["route-terra"]),
-            (original + ". Answer --answer route-terra=MODEL", ["route-terra"]),
+            (original, ["route-builder"]),
+            (original + ". Answer --answer route-builder=MODEL", ["route-builder"]),
             ("A different provider exhausted its quota", []),
         ):
             with self.subTest(cause=cause), tempfile.TemporaryDirectory() as directory:
@@ -602,7 +606,7 @@ class WithdrawnOperationalRequestTests(unittest.TestCase):
                 worker_run = run / "worker"
                 worker_run.mkdir()
                 worker = {
-                    "role": "terra",
+                    "role": "builder",
                     "milestone_id": "M1",
                     "run_dir": str(worker_run),
                     "workspace": str(run / "worker-workspace"),
@@ -619,7 +623,7 @@ class WithdrawnOperationalRequestTests(unittest.TestCase):
                     "status": "PAUSED_BUDGET",
                     "iteration": 1,
                     "next_stage": "orchestrator",
-                    "settings": {"engine": "opencode", "roles": {"terra": {"model": "fixture/first"}}},
+                    "settings": {"engine": "opencode", "roles": {"builder": {"model": "fixture/first"}}},
                     "orchestration_batch": {
                         "status": "BUILDING",
                         "workers": [

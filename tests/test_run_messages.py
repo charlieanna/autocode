@@ -14,13 +14,13 @@ from tests.test_plan_chat import acceptance_hold, reviewed
 
 def working():
     state = reviewed()
-    state.update(status="RUNNING", phase="PLANNING", next_stage="astra_finalize")
+    state.update(status="RUNNING", phase="PLANNING", next_stage="finalize_plan")
     return state
 
 
 def executing():
     state = acceptance_hold()
-    state.update(status="RUNNING", phase="EXECUTING", next_stage="terra")
+    state.update(status="RUNNING", phase="EXECUTING", next_stage="builder")
     state.pop("stop_reason", None)
     return state
 
@@ -40,7 +40,7 @@ def response(event, intent="question"):
 
 class LiveConversationTests(unittest.TestCase):
     def test_resume_projection_matches_activation_but_keeps_discussion_paused(self):
-        for context, stage in ((None, "requirements_gather"), ({"kind": "coordinated_plan"}, "astra_finalize")):
+        for context, stage in ((None, "requirements_gather"), ({"kind": "coordinated_plan"}, "finalize_plan")):
             with self.subTest(context=context):
                 state = working()
                 state.update(status="PAUSED_INTERVENTION", next_stage="answer_question")
@@ -90,7 +90,7 @@ class LiveConversationTests(unittest.TestCase):
             state.update(
                 status="RESOLVER_PENDING",
                 phase="DISCOVERING",
-                next_stage="astra_discovery",
+                next_stage="draft_plan",
                 resolver_human_proposal={"scope": "clarification", "identity": "new-settings"},
                 pending_questions=[{"id": "scope", "question": "Which behavior?"}],
             )
@@ -122,7 +122,7 @@ class LiveConversationTests(unittest.TestCase):
 
     def test_receiving_a_message_is_idempotent_and_does_not_interrupt_or_change_the_plan(self):
         state = working()
-        state["active_stage"] = {"stage": "astra_challenge"}
+        state["active_stage"] = {"stage": "review_plan"}
         before = copy.deepcopy(state)
         first = messages.receive(state, receipt())
         self.assertEqual(first, messages.receive(state, receipt()))
@@ -142,7 +142,7 @@ class LiveConversationTests(unittest.TestCase):
         self.assertEqual("requirements_gather", state["next_stage"])
         self.assertEqual("plan_message", event["kind"])
         self.assertTrue(event["live"])
-        self.assertEqual("astra_finalize", event["return_checkpoint"]["next_stage"])
+        self.assertEqual("finalize_plan", event["return_checkpoint"]["next_stage"])
         for key in ("goal_contract", "planning", "source_log", "brief_feedback", "settings", "stages"):
             self.assertEqual(before[key], state[key], key)
         self.assertFalse(messages.activate(state), "never launch a second conversation over an active one")
@@ -170,7 +170,7 @@ class LiveConversationTests(unittest.TestCase):
             {"status": "PAUSED_COST_LIMIT"},
             {"status": "PAUSED_INTERVENTION"},
             {"uncertain_artifacts": ["attempt"]},
-            {"pending_report_repair": {"stage": "astra_finalize"}},
+            {"pending_report_repair": {"stage": "finalize_plan"}},
         ):
             with self.subTest(change=change):
                 state = {**working(), **change}
@@ -233,12 +233,12 @@ class LiveConversationTests(unittest.TestCase):
     def test_discussion_before_a_plan_exists_preserves_the_requirements_frontier(self):
         state = working()
         state.pop("goal_contract")
-        state["next_stage"] = "astra_discovery"
+        state["next_stage"] = "draft_plan"
         event = messages.receive(state, receipt())
         self.assertTrue(messages.activate(state))
         messages.accept(state, response(event), {})
         self.assertNotIn("goal_contract", state)
-        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual("draft_plan", state["next_stage"])
         self.assertEqual([], state["brief_feedback"])
 
     def test_context_contains_user_message_current_work_and_prior_exchanges(self):
@@ -246,7 +246,7 @@ class LiveConversationTests(unittest.TestCase):
         messages.receive(state, receipt())
         messages.activate(state)
         packet = messages.context(state)
-        self.assertEqual("astra_finalize", packet["message"]["return_checkpoint"]["next_stage"])
+        self.assertEqual("finalize_plan", packet["message"]["return_checkpoint"]["next_stage"])
         self.assertEqual(receipt()["text"], packet["message"]["text"])
         self.assertEqual(state["goal_contract"], packet["goal_contract"])
         self.assertEqual(state["task"], packet["task"])
@@ -332,7 +332,7 @@ class LiveConversationRoutingTests(unittest.TestCase):
         messages.activate(state)
         prompt, metrics = plan_chat.context(state)
         self.assertIn(receipt()["text"], prompt)
-        self.assertIn('"next_stage": "astra_finalize"', prompt)
+        self.assertIn('"next_stage": "finalize_plan"', prompt)
         self.assertIn("read-only", prompt)
         self.assertIn("clear, correctly spelled English", prompt)
         self.assertIn("instead of quoting their typos or shorthand", prompt)

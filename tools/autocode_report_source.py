@@ -40,7 +40,7 @@ except ImportError:
 # the existing hard artifact ceiling for both exact text and parsed content.
 REPAIR_REPORT_BYTES = MAX_REPORT_BYTES
 REPAIR_ARTIFACT_BYTES = MAX_REPORT_BYTES
-TRUNCATED_REVIEW_STAGES = ("sol", "astra_review", "astra_checkpoint", "astra_challenge", "astra_finalize")
+TRUNCATED_REVIEW_STAGES = ("tester", "review_completion", "review_checkpoint", "review_plan", "finalize_plan")
 # Saved repair inputs never shrink, so a repair refused for them cannot launch on a later resume;
 # an explicit resume archives it and starts a fresh attempt of the stage (autocode_stage_recovery).
 REPAIR_INPUT_ROUTE = (
@@ -326,7 +326,7 @@ def load_stage_report(runtime, record, workspace=None, evidence_record=None, sta
     validation = value.get("validation", value)
     checks = validation.get("checks") if isinstance(validation, dict) else None
     if isinstance(checks, list) and (
-        (record.get("stage") == "sol" and workspace is not None)
+        (record.get("stage") == "tester" and workspace is not None)
         or any(isinstance(check, dict) and None in (check.get("exit_code"), check.get("command")) for check in checks)
     ):
         if workspace is None:

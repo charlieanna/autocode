@@ -52,7 +52,7 @@ class AllRoleModelTests(unittest.TestCase):
                 self.configure_args(
                     task_planner_model="openai/gpt-5.6-sol",
                     task_planner_reasoning_effort="high",
-                    pin_model_role=["task_planner", "sol", "completion"],
+                    pin_model_role=["task_planner", "tester", "completion"],
                 ),
                 state,
                 planning=planning,
@@ -62,15 +62,17 @@ class AllRoleModelTests(unittest.TestCase):
             )
         self.assertEqual("openai/gpt-5.6-sol", selected["roles"]["task_planner"]["model"])
         self.assertEqual("high", selected["roles"]["task_planner"]["reasoning_effort"])
-        self.assertTrue(all(selected["roles"][role]["model_pinned"] for role in ("task_planner", "sol", "completion")))
+        self.assertTrue(
+            all(selected["roles"][role]["model_pinned"] for role in ("task_planner", "tester", "completion"))
+        )
         self.assertNotIn("model_pinned", original["roles"]["task_planner"])
 
     def test_all_overrides_use_opencode_without_a_codex_login_dependency(self):
         models = {
             "planner": "openai/gpt-5.6-sol",
             "task_planner": "zai-coding-plan/glm-5.3",
-            "terra": "local/custom:32b",
-            "sol": "openai/gpt-6-astra",
+            "builder": "local/custom:32b",
+            "tester": "openai/gpt-6-astra",
         }
         with (
             patch.object(oc, "local_settings", return_value={"engine": "opencode"}),
@@ -92,7 +94,7 @@ class AllRoleModelTests(unittest.TestCase):
             state = {
                 "settings": settings,
                 "sessions": {role: "saved-" + role for role in models},
-                "next_stage": "sol",
+                "next_stage": "tester",
                 "goal_contract": {"revision": 9, "approval_status": "approved"},
             }
             before = copy.deepcopy(state)
@@ -117,7 +119,7 @@ class AllRoleModelTests(unittest.TestCase):
             patch.object(oc, "local_settings", return_value={"engine": "opencode"}),
             patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
         ):
-            args = self.configure_args(sol_model="openai/gpt-6-luna")
+            args = self.configure_args(tester_model="openai/gpt-6-luna")
             settings = autocode_configure.configure(
                 args,
                 {"workspace": "/fixture", "iteration": 0},
@@ -128,14 +130,14 @@ class AllRoleModelTests(unittest.TestCase):
             )
         self.assertEqual("opencode", settings["roles"]["task_planner"]["engine"])
         self.assertEqual("openai/gpt-6-astra", settings["roles"]["task_planner"]["model"])
-        self.assertEqual("opencode", settings["roles"]["sol"]["engine"])
-        self.assertEqual("openai/gpt-6-luna", settings["roles"]["sol"]["model"])
+        self.assertEqual("opencode", settings["roles"]["tester"]["engine"])
+        self.assertEqual("openai/gpt-6-luna", settings["roles"]["tester"]["model"])
         self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["planner"]["model"])
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["builder"]["model"])
         self.assertEqual("openai/gpt-6-sol", settings["roles"]["completion"]["model"])
-        state = {"settings": settings, "sessions": {"task_planner": "opencode-astra", "sol": "opencode-sol"}}
+        state = {"settings": settings, "sessions": {"task_planner": "opencode-astra", "tester": "opencode-sol"}}
         before = copy.deepcopy(state)
-        for override in ({"task_planner_model": "gpt-6-astra"}, {"sol_model": "gpt-5.6-sol"}):
+        for override in ({"task_planner_model": "gpt-6-astra"}, {"tester_model": "gpt-5.6-sol"}):
             with self.assertRaises(ValueError):
                 autocode_configure.configure(
                     self.configure_args(**override),
@@ -165,8 +167,8 @@ class AllRoleSubprocessTests(unittest.TestCase):
         models = {
             "planner": "zai-coding-plan/glm-5.3",
             "task_planner": "openai/gpt-6-astra",
-            "terra": "openai/gpt-5.6-terra",
-            "sol": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "builder": "openai/gpt-5.6-terra",
+            "tester": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
             "completion": "zai-coding-plan/glm-5.3",
         }
         expected_models = {
@@ -191,14 +193,14 @@ class AllRoleSubprocessTests(unittest.TestCase):
         # and keeps the harness's 30-second bound per stage, not six stages.
         stages = [
             "orchestrator",
-            "terra",
-            "sol",
-            "astra_review",
-            "astra_resolve",
+            "builder",
+            "tester",
+            "review_completion",
+            "resolve",
             "orchestrator",
-            "terra",
-            "sol",
-            "astra_review",
+            "builder",
+            "tester",
+            "review_completion",
         ]
         for index, stage in enumerate(stages):
             before_stage = self.saved()[1]
@@ -228,20 +230,20 @@ class AllRoleSubprocessTests(unittest.TestCase):
             self.assertEqual("opencode", stage["command"][0])
             route = stage.get("route_role", stage["role"])
             self.assertEqual(expected_models[route], stage["command"][stage["command"].index("--model") + 1])
-        builds = [row for row in final["stages"] if row["stage"] == "terra"]
-        audits = [row for row in final["stages"] if row["stage"] == "sol"]
+        builds = [row for row in final["stages"] if row["stage"] == "builder"]
+        audits = [row for row in final["stages"] if row["stage"] == "tester"]
         self.assertEqual(2, len(builds))
         self.assertEqual(2, len(audits))
-        self.assertNotEqual(final["sessions"]["sol"], final["sessions"]["terra"])
+        self.assertNotEqual(final["sessions"]["tester"], final["sessions"]["builder"])
         for stage in final["stages"]:
             if stage.get("runner_owned"):
                 continue
             config = __import__("json").loads(Path(stage["output"]).with_suffix(".opencode.json").read_text())
             agent = stage["command"][stage["command"].index("--agent") + 1]
             policy = config["agent"][agent]["permission"]
-            if stage["role"] != "terra":
+            if stage["role"] != "builder":
                 self.assertEqual("deny", policy["edit"])
-            if stage["stage"] in ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+            if stage["stage"] in ("draft_plan", "review_plan", "revise_plan", "finalize_plan"):
                 self.assertEqual("deny", policy["bash"])
         before = (run / "state.json").read_bytes()
         self.launch([*args, "--status"], 0)

@@ -108,8 +108,8 @@ DEFAULT_MODELS = {
     # judges it. Builder on GLM; Validator and Completion Owner check on GPT-6 Sol, so the
     # verifier never grades its own work (docs/models.md independence). A stuck Builder's
     # stronger attempt runs GPT-6 Sol and GLM checks it (autocode_builder_policy).
-    "terra": "zai-coding-plan/glm-5.3",
-    "sol": "openai/gpt-6-sol",
+    "builder": "zai-coding-plan/glm-5.3",
+    "tester": "openai/gpt-6-sol",
     "completion": "openai/gpt-6-sol",
     # The astra route: the per-task Planner (astra_plan) runs on it, and the Resolver's own
     # route ("resolver") starts as a copy of it. Only the Resolver's route climbs the GPT-6
@@ -123,8 +123,8 @@ DEFAULT_REASONING_EFFORTS = {
     "requirements": "medium",
     "planner": "high",
     "plan_reviewer": "high",
-    "terra": "medium",
-    "sol": "high",
+    "builder": "medium",
+    "tester": "high",
     "completion": "medium",
     "task_planner": "high",
 }
@@ -444,7 +444,7 @@ def launch(
     isolation=None,
     image_preparation=None,
 ):
-    if image_preparation is not None and (isolation is None or role != "sol" or planning or allow_write or session):
+    if image_preparation is not None and (isolation is None or role != "tester" or planning or allow_write or session):
         raise ValueError("Native image staging requires the original fresh readonly Sol isolation")
     if image_preparation is not None:
         try:

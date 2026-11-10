@@ -245,10 +245,10 @@ class RuntimeReportTests(unittest.TestCase):
         }
         invalid = {**value, "evidence_refs": ["event:invented"]}
         with self.assertRaises(ValueError):
-            runner.apply_result(state, "terra", invalid, record, self.workspace, self.run)
+            runner.apply_result(state, "builder", invalid, record, self.workspace, self.run)
         self.assertEqual(before, state)
-        runner.apply_result(state, "terra", value, record, self.workspace, self.run)
-        self.assertEqual("sol", state["next_stage"])
+        runner.apply_result(state, "builder", value, record, self.workspace, self.run)
+        self.assertEqual("tester", state["next_stage"])
         self.assertNotEqual("TASK_COMPLETE", state["status"])
         self.assertEqual(before["goal_contract"], state["goal_contract"])
         self.assertEqual(["event:command-one"], state["implementation"]["evidence_refs"])

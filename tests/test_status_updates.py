@@ -25,7 +25,7 @@ class StatusTests(unittest.TestCase):
             "workspace": "/tmp/task",
             "status": "RUNNING",
             "iteration": 1,
-            "active_stage": {"stage": "terra", "started_at": "now"},
+            "active_stage": {"stage": "builder", "started_at": "now"},
             "current_task": {"id": "t1", "objective": "Fix routing"},
         }
 
@@ -116,7 +116,7 @@ class StatusTests(unittest.TestCase):
         human.queue(
             self.state,
             "permission",
-            {"stage": "terra"},
+            {"stage": "builder"},
             request={
                 "kind": "permission",
                 "decision_needed": "Allow a new dependency?",
@@ -136,25 +136,25 @@ class StatusTests(unittest.TestCase):
         self.assertIn("Task complete", status.record(self.state, timestamp=902)["text"])
 
     def test_report_repair_has_semantic_role(self):
-        self.state["active_stage"]["stage"] = "terra_report_repair"
+        self.state["active_stage"]["stage"] = "builder_report_repair"
         entry = status.record(self.state, timestamp=0)
         self.assertEqual("Builder", entry["speaker"])
         self.assertIn("Repairing", entry["text"])
 
     def test_role_name_translates_stage_codes(self):
-        self.assertEqual("Builder", status.role_name("terra"))
-        self.assertEqual("Builder", status.role_name("terra_report_repair"))
-        self.assertEqual("Tester", status.role_name("sol"))
-        self.assertEqual("Completion Reviewer", status.role_name("astra_review"))
+        self.assertEqual("Builder", status.role_name("builder"))
+        self.assertEqual("Builder", status.role_name("builder_report_repair"))
+        self.assertEqual("Tester", status.role_name("tester"))
+        self.assertEqual("Completion Reviewer", status.role_name("review_completion"))
         self.assertEqual("", status.role_name(None))
-        self.assertEqual("Resolver", status.role_name("astra_diagnose"))
+        self.assertEqual("Resolver", status.role_name("diagnose"))
         self.assertEqual("Unlisted Stage", status.role_name("unlisted_stage"))  # unknown stages title-case
 
     def test_running_stage_shows_the_launched_model(self):
         self.state["active_stage"]["launch_route"] = {"model": "gpt-x"}
         self.assertIn("Builder started: Fix routing [gpt-x]", status.record(self.state, timestamp=100)["text"])
         self.state["active_stage"] = {
-            "stage": "sol",
+            "stage": "tester",
             "started_at": "now",
             "command": ["codex", "exec", "--model", "glm-y"],
         }
@@ -225,7 +225,7 @@ class StatusTests(unittest.TestCase):
             "status": "RUNNING",
             "iteration": 1,
             "sessions": {},
-            "next_stage": "sol",
+            "next_stage": "tester",
             "stages": [],
             "active_runner_check": {"stage": "regression_proof", "summary": "Testing", "supervision": saved},
         }
@@ -345,16 +345,16 @@ class StaleCheckpointTests(unittest.TestCase):
                     "iteration": 1,
                     "sessions": {},
                     "stages": [],
-                    "next_stage": "astra_challenge",
+                    "next_stage": "review_plan",
                     "active_stage": {
-                        "stage": "astra_challenge",
+                        "stage": "review_plan",
                         "iteration": 1,
                         "role": "task_planner",
                         "started_at": "now",
                         "pid": worker.get("pid"),
                         "processes": [worker] if worker.get("pid") else [],
-                        "output": str(self.run / "iterations" / "001" / "astra_challenge-02.json"),
-                        "events": str(self.run / "iterations" / "001" / "astra_challenge-02.jsonl"),
+                        "output": str(self.run / "iterations" / "001" / "review_plan-02.json"),
+                        "events": str(self.run / "iterations" / "001" / "review_plan-02.jsonl"),
                     },
                 },
                 indent=2,

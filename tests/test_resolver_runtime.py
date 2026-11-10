@@ -24,7 +24,7 @@ runner, support = base.runner, base.s
 # tools.units.autoresolver directly here would load a second, package-relative
 # copy whose autocode_support.Paused is a different class than the one raised
 # through runner's own bare (sys.path) import chain.
-diagnosis_unit = runner.autopilot.unit_module("astra_diagnose")
+diagnosis_unit = runner.autopilot.unit_module("diagnose")
 
 
 @contextmanager
@@ -143,21 +143,21 @@ class ResolverRuntimeTests(unittest.TestCase):
         self.assertEqual([2], list(self.state["resolver"]["attempts"].values()))
 
     def test_distinct_validator_originals_have_distinct_budgets(self):
-        self.queue(role="sol", stage="sol", task_id="milestone-task")
+        self.queue(role="tester", stage="tester", task_id="milestone-task")
         self.boundary()
         self.state["pending_report_repair"]["attempts"] = 1
         self.boundary()
         spent = copy.deepcopy(self.state["resolver"]["attempts"])
         # The public CLI regression exercises successful acceptance between these originals.
         self.state.pop("pending_report_repair")
-        self.queue(role="sol", stage="sol", iteration=6, task_id="final-validation-task")
+        self.queue(role="tester", stage="tester", iteration=6, task_id="final-validation-task")
         self.assertTrue(self.boundary())
         self.assertEqual([1, 2], sorted(self.state["resolver"]["attempts"].values()))
         for key, count in spent.items():
             self.assertEqual(count, self.state["resolver"]["attempts"][key])
 
     def test_original_execution_not_current_task_error_or_repair_identifies_budget(self):
-        pending = self.queue(role="sol", stage="sol", task_id="original-task")
+        pending = self.queue(role="tester", stage="tester", task_id="original-task")
         self.boundary()
         pending["attempts"] = 1
         self.boundary()
@@ -173,7 +173,7 @@ class ResolverRuntimeTests(unittest.TestCase):
         self.assertEqual([2], list(self.state["resolver"]["attempts"].values()))
 
     def test_original_identity_is_pure_and_stable_across_archival_and_legacy_fields(self):
-        original = self.queue(role="sol", stage="sol", task_id="original-task")["original"]
+        original = self.queue(role="tester", stage="tester", task_id="original-task")["original"]
         before = copy.deepcopy(original)
         for old, archived in original["archived_paths"].items():
             for field in ("output", "events"):
@@ -194,7 +194,7 @@ class ResolverRuntimeTests(unittest.TestCase):
             self.assertNotEqual(expected, identify({**original, "started_at": "another-execution"}))
 
     def test_identity_purity_guard_catches_injected_canonical_and_alias_reads(self):
-        original = self.queue(role="sol", stage="sol", task_id="original-task")["original"]
+        original = self.queue(role="tester", stage="tester", task_id="original-task")["original"]
         identify = runner.resolver_runtime.report_repair_identity
         for module in (util, support):
             for name in ("file_hash", "snapshot"):
@@ -230,7 +230,7 @@ class ResolverRuntimeTests(unittest.TestCase):
             return self.boundary()
 
     def test_legacy_inflight_incident_preserves_spent_budget_and_cached_receipt(self):
-        self.queue(role="sol", stage="sol", task_id="original-task")
+        self.queue(role="tester", stage="tester", task_id="original-task")
         self.legacy_boundary()
         saved = copy.deepcopy(self.state["resolver"])
         self.state = support.read(self.run / "state.json")
@@ -248,13 +248,13 @@ class ResolverRuntimeTests(unittest.TestCase):
         self.assertEqual([2], list(self.state["resolver"]["attempts"].values()))
 
     def test_legacy_exhausted_collision_is_not_a_charge_against_new_original(self):
-        self.queue(role="sol", stage="sol", task_id="milestone-task")
+        self.queue(role="tester", stage="tester", task_id="milestone-task")
         self.legacy_boundary()
         self.state["pending_report_repair"]["attempts"] = 1
         self.legacy_boundary()
         spent = copy.deepcopy(self.state["resolver"]["attempts"])
         self.state.pop("pending_report_repair")
-        self.queue(role="sol", stage="sol", task_id="final-task", iteration=6)
+        self.queue(role="tester", stage="tester", task_id="final-task", iteration=6)
         with self.assertRaisesRegex(support.Paused, "attempt budget exhausted"):
             self.legacy_boundary()
         self.assertIsNone(self.state["stages"][-1]["receipt"]["attempt"])
@@ -266,7 +266,7 @@ class ResolverRuntimeTests(unittest.TestCase):
             self.assertEqual(count, self.state["resolver"]["attempts"][key])
 
     def test_legacy_charges_without_complete_binding_history_fail_closed(self):
-        self.queue(role="sol", stage="sol", task_id="original-task")
+        self.queue(role="tester", stage="tester", task_id="original-task")
         self.legacy_boundary()
         self.state["pending_report_repair"]["attempts"] = 1
         self.legacy_boundary()
@@ -296,7 +296,7 @@ class ResolverRuntimeTests(unittest.TestCase):
                     self.assertEqual(ledger, self.state["resolver"])
 
     def test_legacy_changed_error_key_cannot_reset_same_execution_budget(self):
-        self.queue(role="sol", stage="sol", task_id="original-task")
+        self.queue(role="tester", stage="tester", task_id="original-task")
         self.legacy_boundary()
         self.state["pending_report_repair"]["attempts"] = 1
         self.legacy_boundary()
@@ -309,12 +309,12 @@ class ResolverRuntimeTests(unittest.TestCase):
         self.assertEqual([2], list(self.state["resolver"]["attempts"].values()))
 
     def test_new_original_cannot_discard_unattributed_legacy_charges(self):
-        self.queue(role="sol", stage="sol", task_id="milestone-task")
+        self.queue(role="tester", stage="tester", task_id="milestone-task")
         self.legacy_boundary()
         self.state["pending_report_repair"]["attempts"] = 1
         self.legacy_boundary()
         self.state.pop("pending_report_repair")
-        self.queue(role="sol", stage="sol", task_id="final-task", iteration=6)
+        self.queue(role="tester", stage="tester", task_id="final-task", iteration=6)
         baseline = copy.deepcopy(self.state)
         for missing in ("original", "one_receipt", "all_receipts", "cache"):
             with self.subTest(missing=missing):
@@ -333,13 +333,13 @@ class ResolverRuntimeTests(unittest.TestCase):
                 self.assertEqual(before, self.state["resolver"])
 
     def test_unrelated_legacy_blocker_does_not_block_new_original_without_history(self):
-        self.queue(role="terra", stage="terra", task_id="builder-task")
+        self.queue(role="builder", stage="builder", task_id="builder-task")
         self.legacy_boundary()
         self.state["pending_report_repair"]["attempts"] = 1
         self.legacy_boundary()
         spent = copy.deepcopy(self.state["resolver"]["attempts"])
         self.state.pop("pending_report_repair")
-        self.queue(role="sol", stage="sol", task_id="validator-task")
+        self.queue(role="tester", stage="tester", task_id="validator-task")
         self.state["stages"] = []
         self.assertTrue(self.boundary())
         self.assertEqual([1, 2], sorted(self.state["resolver"]["attempts"].values()))
@@ -388,7 +388,7 @@ class ResolverRuntimeTests(unittest.TestCase):
 
     def test_no_resolver_during_active_operation_or_unapproved_goal(self):
         self.queue()
-        self.state["active_stage"] = {"stage": "terra"}
+        self.state["active_stage"] = {"stage": "builder"}
         before = copy.deepcopy(self.state)
         self.assertFalse(self.boundary())
         self.assertEqual(before, self.state)
@@ -411,25 +411,25 @@ class ResolverRuntimeTests(unittest.TestCase):
 
     def test_blocked_validation_keeps_original_review_route_and_evidence(self):
         record = {
-            "stage": "sol",
-            "role": "sol",
+            "stage": "tester",
+            "role": "tester",
             "iteration": 5,
             "output": str(self.run / "sol.json"),
             "source_revision": support.snapshot(self.root)["revision"],
         }
         support.atomic_json(self.run / "sol.json", {"verdict": "BLOCKED"})
         self.state["stages"].append(record)
-        self.state.update(validation={"verdict": "BLOCKED", "output": record["output"]}, next_stage="astra_review")
+        self.state.update(validation={"verdict": "BLOCKED", "output": record["output"]}, next_stage="review_completion")
         self.boundary()
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertEqual("BLOCKED", self.state["validation"]["verdict"])
         self.assertEqual("continue", self.state["stages"][-1]["decision"]["action"])
 
     def test_plain_fail_does_not_record_resolver_or_consume_failure_budget(self):
         self.state.update(
-            validation={"verdict": "FAIL", "output": str(self.run / "sol.json")}, next_stage="astra_review"
+            validation={"verdict": "FAIL", "output": str(self.run / "sol.json")}, next_stage="review_completion"
         )
-        self.state["stages"].append({"stage": "sol", "output": str(self.run / "sol.json")})
+        self.state["stages"].append({"stage": "tester", "output": str(self.run / "sol.json")})
         before = copy.deepcopy(self.state)
         for _ in range(4):
             self.assertFalse(self.boundary())
@@ -536,7 +536,7 @@ class ResolverRuntimeTests(unittest.TestCase):
 
 
 class OperationalDiagnosisTests(unittest.TestCase):
-    """The astra_diagnose route: admission, model completion, and their shared budget."""
+    """The diagnose route: admission, model completion, and their shared budget."""
 
     queue = repairs.RepairTests.queue
     repeated_terra_failure = ResolverRuntimeTests.repeated_terra_failure
@@ -559,7 +559,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
             self.admit()
 
     def test_admission_is_scoped_to_a_terra_failure(self):
-        self.queue(role="sol", stage="sol")
+        self.queue(role="tester", stage="tester")
         pending = self.state["pending_report_repair"]
         entry = self.state["failure_history"][pending["original"]["failure_key"]]
         entry["count"] = entry["streak"] = 3
@@ -574,16 +574,16 @@ class OperationalDiagnosisTests(unittest.TestCase):
             self.admit()
 
     def test_admission_dispatches_astra_diagnose_without_yet_charging_the_run_level_cap(self):
-        # Admission alone does not guarantee astra_diagnose ever launches, so
+        # Admission alone does not guarantee diagnose ever launches, so
         # it must not charge the run-level cap; charge_diagnostic_dispatch does
         # that at actual dispatch (see the ChargeDiagnosticDispatch tests).
         record = self.repeated_terra_failure()
         self.admit()
-        self.assertEqual("astra_diagnose", self.state["next_stage"])
+        self.assertEqual("diagnose", self.state["next_stage"])
         self.assertEqual("RUNNING", self.state["status"])
         self.assertNotIn("diagnostic_calls", self.state["resolver"])
         request = self.state["diagnosis_request"]
-        self.assertEqual("terra", request["original_stage"])
+        self.assertEqual("builder", request["original_stage"])
         self.assertEqual(record["failure_key"], request["failure_key"])
         self.assertEqual(3, request["repeated_count"])
         outcome = self.state["stages"][-1]
@@ -591,7 +591,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.assertEqual("retry", outcome["decision"]["action"])
         self.assertEqual(1, outcome["receipt"]["attempt"])
         saved = support.read(self.run / "state.json")
-        self.assertEqual("astra_diagnose", saved["next_stage"])
+        self.assertEqual("diagnose", saved["next_stage"])
         # The superseded report-repair pointer is archived, not left dangling
         # against a next_stage its own stale-route check would now reject.
         self.assertNotIn("pending_report_repair", self.state)
@@ -630,7 +630,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
             },
         )
         self.assertTrue(result)
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual("RUNNING", self.state["status"])
         self.assertNotIn("diagnosis_request", self.state)
         history = self.state["failure_history"][record["failure_key"]]
@@ -673,9 +673,9 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.admit()
         diag_record = {
             "role": "task_planner",
-            "stage": "astra_diagnose",
+            "stage": "diagnose",
             "iteration": self.state["iteration"],
-            "output": str(self.run / "astra_diagnose.json"),
+            "output": str(self.run / "diagnose.json"),
             "source_revision": self.state["diagnosis_request"]["source_revision"],
             "changed_files": [],
             "duration_seconds": 0.1,
@@ -684,7 +684,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
             "diagnosis": "Unclear cause after inspection.",
             "recommendation": {"action": "escalate", "rationale": "Cause is unclear; needs a human decision."},
         }
-        runner.autopilot.apply_result(runner, self.state, "astra_diagnose", value, diag_record, self.root, self.run)
+        runner.autopilot.apply_result(runner, self.state, "diagnose", value, diag_record, self.root, self.run)
         self.assertEqual("PAUSED_REPEATED_FAILURE", self.state["status"])
         self.assertIn("diagnosis_request", self.state)
         self.assertIn(record["failure_key"], self.state["failure_history"])
@@ -692,7 +692,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         # let a later real dispatch spend a third, uncounted evaluation.
         self.assertEqual([2], list(self.state["resolver"]["attempts"].values()))
         # The model's own completion record was saved too, not just the ledger.
-        self.assertEqual("astra_diagnose", self.state["stages"][-1]["stage"])
+        self.assertEqual("diagnose", self.state["stages"][-1]["stage"])
 
     def test_diagnostic_call_limit_rejects_an_out_of_range_setting(self):
         self.state["settings"]["operational_diagnosis"] = {"max_calls_per_run": 9}
@@ -709,11 +709,11 @@ class OperationalDiagnosisTests(unittest.TestCase):
     def archive_timed_out_astra_diagnose_attempt(self):
         """Simulate what automatically_recover_timed_out_stage actually does:
         archive the timed-out attempt into state['stages'] at the same
-        iteration, then route back to astra_diagnose for a fresh launch."""
+        iteration, then route back to diagnose for a fresh launch."""
         self.state.setdefault("stages", []).append(
             {
                 **self.state.pop("active_stage"),
-                "stage": "astra_diagnose",
+                "stage": "diagnose",
                 "role": "task_planner",
                 "iteration": self.state.get("iteration"),
                 "automatic_recovery": True,
@@ -723,7 +723,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
                 "rejected": True,
             }
         )
-        self.state["next_stage"] = "astra_diagnose"
+        self.state["next_stage"] = "diagnose"
 
     def test_charge_dispatch_is_a_no_op_without_an_admitted_diagnosis_request(self):
         before = copy.deepcopy(self.state)
@@ -849,7 +849,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
                 self.state = copy.deepcopy(baseline)
                 self.state["resolver"].update(diagnostic_calls=calls, diagnostic_dispatch_charged_through=watermark)
                 self.state["stages"] += [
-                    {"stage": "astra_diagnose", "iteration": i, "output": f"old-{i}.json"} for i in range(count)
+                    {"stage": "diagnose", "iteration": i, "output": f"old-{i}.json"} for i in range(count)
                 ]
                 with self.assertRaisesRegex(support.Paused, "budget exhausted"):
                     self.charge()
@@ -894,7 +894,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
             with open(record["prompt"]) as prompt:  # What the provider was asked; removed after the stage.
                 record["prompt_text"] = prompt.read()
             launches.append(record)
-            if record["stage"] == "astra_diagnose":
+            if record["stage"] == "diagnose":
                 self.assertIn(record["diagnostic_reservation_id"], checkpoint["resolver"]["diagnostic_reservations"])
                 self.assertEqual(
                     len(checkpoint["resolver"]["diagnostic_reservations"]), checkpoint["resolver"]["diagnostic_calls"]
@@ -928,7 +928,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
             yield launches
 
     def dispatch(self):
-        return runner.autopilot.dispatch_unit(runner, self.state, "astra_diagnose", self.root, self.run)
+        return runner.autopilot.dispatch_unit(runner, self.state, "diagnose", self.root, self.run)
 
     def cli(self, *options):
         local = {"auth_mode": "fixture"}
@@ -953,9 +953,9 @@ class OperationalDiagnosisTests(unittest.TestCase):
         with self.provider() as launches:
             code = self.cli("--diagnose-failed-stage", "--pause-after-stage")
         self.assertEqual(2, code)
-        self.assertEqual(["astra_diagnose"], [row["stage"] for row in launches])
+        self.assertEqual(["diagnose"], [row["stage"] for row in launches])
         saved = support.read(self.run / "state.json")
-        self.assertEqual("terra", saved["next_stage"])
+        self.assertEqual("builder", saved["next_stage"])
         self.assertNotIn("diagnosis_request", saved)
         self.assertEqual(1, saved["resolver"]["diagnostic_calls"])
         self.assertEqual([2], list(saved["resolver"]["attempts"].values()))
@@ -968,8 +968,8 @@ class OperationalDiagnosisTests(unittest.TestCase):
             plan = copy.deepcopy(self.state["repair_plan"])
             self.cli("--pause-after-stage")
         # The fixture's report is not a Builder report; its repair has its own allowance.
-        self.assertEqual(["astra_diagnose", "terra"], [row["stage"] for row in launches][:2])
-        self.assertEqual(1, [row["stage"] for row in launches].count("terra"))
+        self.assertEqual(["diagnose", "builder"], [row["stage"] for row in launches][:2])
+        self.assertEqual(1, [row["stage"] for row in launches].count("builder"))
         receipt = launches[1]["recovery_novelty"]
         self.assertEqual(
             ("repair", "explicit_retry", "diagnosis"), (receipt["action"], receipt["reason"], receipt["grant_kind"])
@@ -1029,7 +1029,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         )
 
         def builder(name, state=None):
-            record = {"stage": "terra", "output": str(self.run / name), "started_at": name}
+            record = {"stage": "builder", "output": str(self.run / name), "started_at": name}
             runner.resolver_recovery.admit_dispatch(state or self.state, record, self.root, self.run)
             return record
 
@@ -1099,7 +1099,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         )
 
         def builder(name):
-            record = {"stage": "terra", "output": str(self.run / name), "started_at": name}
+            record = {"stage": "builder", "output": str(self.run / name), "started_at": name}
             runner.resolver_recovery.admit_dispatch(self.state, record, self.root, self.run)
             return record
 
@@ -1108,11 +1108,11 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.state["stages"].append({**first, "rejected": True, "finished_at": "2026-10-06T02:15:18+00:00"})
         with self.assertRaisesRegex(support.Paused, "No causal progress"):
             builder("unguided.json")
-        identity = "terra:PAUSED_INVALID_OUTPUT"
+        identity = "builder:PAUSED_INVALID_OUTPUT"
         self.state["stuck_investigations"] = [
             {
                 "identity": identity,
-                "stage": "terra",
+                "stage": "builder",
                 "status": "PAUSED_INVALID_OUTPUT",
                 "requested_at": "2026-10-06T02:15:19+00:00",
                 "outcome": "retried",
@@ -1121,7 +1121,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         ]
         self.state["stuck_investigation"] = {
             "identity": identity,
-            "stage": "terra",
+            "stage": "builder",
             "status": "PAUSED_INVALID_OUTPUT",
             "in_force": True,
         }
@@ -1137,7 +1137,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         held = support.Paused("PAUSED_NO_PROGRESS", "No causal progress")
         self.assertTrue(runner.resolver_recovery.recover_no_progress(runner, self.state, self.run, self.root, held))
         (grant,) = [row for row in self.state["failure_retry_authorizations"] if row.get("actor") == "autocode"]
-        self.assertEqual("terra", grant["stage"])
+        self.assertEqual("builder", grant["stage"])
         fourth = builder("fourth.json")
         self.assertEqual(
             ("automatic", "explicit_retry"),
@@ -1203,7 +1203,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
                     self.assertEqual(2, self.cli("--diagnose-failed-stage"))
                 saved = support.read(self.run / "state.json")
                 self.assertEqual(
-                    [("astra_diagnose", "first_incident")] * launched,
+                    [("diagnose", "first_incident")] * launched,
                     [(row["stage"], row["recovery_novelty"]["reason"]) for row in launches],
                 )
                 self.assertEqual(launched, saved["resolver"]["diagnostic_calls"])
@@ -1226,10 +1226,10 @@ class OperationalDiagnosisTests(unittest.TestCase):
                 self.state = support.read(self.run / "state.json")
                 self.assertEqual(min(iteration, 2), self.state["resolver"]["diagnostic_calls"])
                 if iteration < 3:
-                    self.assertEqual("terra", self.state["next_stage"])
+                    self.assertEqual("builder", self.state["next_stage"])
                     # Advance via the actual approved review transition, not a
                     # counter reset fabricated by the test between diagnoses.
-                    self.state.update(status="RUNNING", next_stage="astra_review")
+                    self.state.update(status="RUNNING", next_stage="review_completion")
                     decision = {
                         **base.RetrofitTest.decision(self),
                         **envelope(self.state),
@@ -1245,10 +1245,10 @@ class OperationalDiagnosisTests(unittest.TestCase):
                     support.atomic_json(output, decision)
                     runner.commit_stage_result(
                         self.state,
-                        "astra_review",
+                        "review_completion",
                         decision,
                         {
-                            "stage": "astra_review",
+                            "stage": "review_completion",
                             "role": "task_planner",
                             "iteration": iteration,
                             "output": str(output),
@@ -1300,10 +1300,10 @@ class OperationalDiagnosisTests(unittest.TestCase):
             patch.object(cap, "guard", wraps=cap.guard) as priced,
         ):
             self.assertEqual(2, self.cli("--diagnose-failed-stage"))
-        self.assertEqual([("astra_diagnose", "resolver")], [(row["stage"], row["route_role"]) for row in launches])
+        self.assertEqual([("diagnose", "resolver")], [(row["stage"], row["route_role"]) for row in launches])
         # The launch went through the build loop's dispatch, which prices a climb on the Resolver's
         # route role before every Resolver attempt (autocode_climb_cap, #611).
-        self.assertEqual([("astra_diagnose", "resolver")], [call.args[1:] for call in priced.call_args_list])
+        self.assertEqual([("diagnose", "resolver")], [call.args[1:] for call in priced.call_args_list])
         saved = support.read(self.run / "state.json")
         self.assertEqual("PAUSED_INVALID_OUTPUT", saved["status"])
         [event] = saved["reasoning_escalations"]
@@ -1321,7 +1321,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         with self.provider() as retried:
             self.cli()
         self.assertEqual(
-            [("astra_diagnose", "gpt-6-astra", "xhigh", None)],
+            [("diagnose", "gpt-6-astra", "xhigh", None)],
             [
                 (
                     row["stage"],
@@ -1330,7 +1330,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
                     row.get("expected_session"),
                 )
                 for row in retried
-                if row["stage"] == "astra_diagnose"
+                if row["stage"] == "diagnose"
             ],
         )
         self.assertNotEqual("PAUSED_STALE_HANDOFF", support.read(self.run / "state.json")["status"])
@@ -1399,7 +1399,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
             runner.reconcile_active(self.state, self.run, self.root)
         self.assertEqual([], replays)
         self.assertNotIn("active_stage", self.state)
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertEqual(1, self.state["resolver"]["diagnostic_calls"])
 
     def test_report_only_repair_has_separate_allowance_not_another_diagnosis(self):
@@ -1417,7 +1417,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.assertTrue(repairs_launched[0]["report_only"])
         self.assertNotIn("diagnostic_reservation_id", repairs_launched[0])
         self.assertEqual(1, self.state["resolver"]["diagnostic_calls"])
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
 
     def test_prelaunch_guards_do_not_charge_in_either_dispatch_path(self):
         self.repeated_terra_failure()
@@ -1525,7 +1525,7 @@ class OperationalBudgetResumeTests(unittest.TestCase):
         base.RetrofitTest.setUp(self)
         runner.lifecycle.migrate(self.state)
         runner.lifecycle.install_draft(self.state, body(), origin="fixture", queue_human=False)
-        self.state.update(next_stage="astra_discovery", active_seconds=3870.78)
+        self.state.update(next_stage="draft_plan", active_seconds=3870.78)
         self.state["settings"].update(
             engine="codex",
             transport_identity={"auth_mode": "fixture"},
@@ -1595,14 +1595,14 @@ class OperationalBudgetResumeTests(unittest.TestCase):
         self.assertEqual(self.active_seconds, self.state["active_seconds"])
         self.assertEqual(self.contract, self.state["goal_contract"])
         self.assertFalse(runner.goals.approved(self.state))
-        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
         self.assertEqual(
             {**self.other_limits, "stage_timeout_seconds": stage_seconds},
             {key: value for key, value in self.state["settings"]["limits"].items() if key != "max_seconds"},
         )
         self.assertEqual("user_explicit", self.state["settings"]["budget_origins"]["max_seconds"])
         self.assertNotIn("active_stage", self.state)
-        self.assertFalse(any(row.get("stage") == "terra" for row in self.state["stages"]))
+        self.assertFalse(any(row.get("stage") == "builder" for row in self.state["stages"]))
 
     def assert_planning_admitted(self, code, launch):
         self.assertEqual(2, code)  # The fake provider stops immediately at admission.
@@ -1693,7 +1693,7 @@ class OperationalBudgetResumeTests(unittest.TestCase):
                         "options": ["Leave paused", "Revise the goal"],
                         "proposed_delta": "Change permitted work",
                     },
-                    origin={"stage": "astra_discovery"},
+                    origin={"stage": "draft_plan"},
                 )
                 runner.write_json(self.run / "state.json", self.state)
                 self.state = support.read(self.run / "state.json")
@@ -1706,7 +1706,7 @@ class OperationalBudgetResumeTests(unittest.TestCase):
 
 
 class OperationalDiagnosisUnitTests(unittest.TestCase):
-    """tools/units/autoresolver.py's astra_diagnose prepare/validate, standalone."""
+    """tools/units/autoresolver.py's diagnose prepare/validate, standalone."""
 
     def setUp(self):
         base.RetrofitTest.setUp(self)
@@ -1718,7 +1718,7 @@ class OperationalDiagnosisUnitTests(unittest.TestCase):
         self.state["diagnosis_request"] = {
             "contract_hash": self.state["goal_contract"]["hash"],
             "source_revision": support.snapshot(self.root)["revision"],
-            "original_stage": "terra",
+            "original_stage": "builder",
             "failure_key": record.get("failure_key"),
             "blocker_id": "b1",
             "description": "Repeated Builder report rejection",
@@ -1726,12 +1726,10 @@ class OperationalDiagnosisUnitTests(unittest.TestCase):
             "evidence": [record["output"], record["events"]],
             "evidence_hashes": {},
         }
-        self.state["next_stage"] = "astra_diagnose"
+        self.state["next_stage"] = "diagnose"
 
     def test_prepare_diagnosis_is_read_only_with_a_bounded_schema(self):
-        request = diagnosis_unit.prepare_diagnosis(
-            self.state, "astra_diagnose", self.run / "state.json", runner.SCHEMA_DIR
-        )
+        request = diagnosis_unit.prepare_diagnosis(self.state, "diagnose", self.run / "state.json", runner.SCHEMA_DIR)
         self.assertFalse(request.allow_write)
         self.assertEqual({"diagnosis", "recommendation"}, set(request.schema["required"]))
         self.assertEqual(
@@ -1741,7 +1739,7 @@ class OperationalDiagnosisUnitTests(unittest.TestCase):
 
     def test_prepare_diagnosis_rejects_the_wrong_stage(self):
         with self.assertRaises(ValueError):
-            diagnosis_unit.prepare_diagnosis(self.state, "astra_resolve", self.run / "state.json", runner.SCHEMA_DIR)
+            diagnosis_unit.prepare_diagnosis(self.state, "resolve", self.run / "state.json", runner.SCHEMA_DIR)
 
     def test_validate_diagnosis_rejects_a_missing_diagnosis(self):
         record = {"source_revision": self.state["diagnosis_request"]["source_revision"], "changed_files": []}
@@ -1787,7 +1785,7 @@ class OperationalDiagnosisUnitTests(unittest.TestCase):
 
 
 class ResolverPromptTests(unittest.TestCase):
-    def prepare(self, stage="astra_resolve"):
+    def prepare(self, stage="resolve"):
         """The Resolver's request over a fixed reviewer handoff: (request, upstream reviewer request)."""
         from units import autoresolver
         from units.common import ModelRequest
@@ -1800,7 +1798,7 @@ class ResolverPromptTests(unittest.TestCase):
         }
         upstream = ModelRequest(
             "task_planner",
-            "astra_review",
+            "review_completion",
             "Review it.\nCURRENT HANDOFF DATA\n{}",
             {},
             runner.goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "task_planner"),
@@ -1842,5 +1840,5 @@ class ResolverPromptTests(unittest.TestCase):
         )
         self.assertIn("say that its test is unidentified instead of guessing a name", instruction)
         # The operational diagnosis of a repeated stage failure writes no repair task; it does not get the rule.
-        diagnosis = self.prepare("astra_diagnose")[0].prompt.split("CURRENT HANDOFF DATA\n", 1)[0]
+        diagnosis = self.prepare("diagnose")[0].prompt.split("CURRENT HANDOFF DATA\n", 1)[0]
         self.assertNotIn("implicated test", diagnosis)

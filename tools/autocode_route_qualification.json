@@ -28,7 +28,7 @@
         "evidence": "Today's default Planner route (DEFAULT_MODELS, 'Requirements medium -> Planner high') and the planner route of the live glm53-mimo and glm-mimo-kilo profiles. Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
-    "terra": [
+    "builder": [
       {
         "model": "openai/gpt-6-luna",
         "routes": ["openai/gpt-6-luna", "kilo/openai/gpt-6-luna"],
@@ -105,7 +105,7 @@
         "evidence": "Owner decision 2026-10-20: the second choice for plan review when no GPT-6 Sol login is connected; MiMo is no longer used for review. Provisional until an AutoCode qualification run reviews plans with it."
       }
     ],
-    "sol": [
+    "tester": [
       {
         "model": "openai/gpt-6-sol",
         "routes": ["openai/gpt-6-sol", "kilo/openai/gpt-6-sol"],

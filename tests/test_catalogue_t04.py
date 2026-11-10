@@ -97,7 +97,7 @@ class ReviewCase(t06.SolControllerCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "terra",
+                "builder",
                 report,
                 {
                     "output": "terra.json",
@@ -121,7 +121,12 @@ class ReviewCase(t06.SolControllerCase):
         support.atomic_json(self.run / "complete.json", complete)
         with self.forbid_real_launches(runner):
             runner.apply_result(
-                self.state, "astra_review", complete, {"output": str(self.run / "complete.json")}, self.root, self.run
+                self.state,
+                "review_completion",
+                complete,
+                {"output": str(self.run / "complete.json")},
+                self.root,
+                self.run,
             )
         self.check("completed", "TASK_COMPLETE", self.state["status"])
         self.check(
@@ -133,7 +138,7 @@ class ReviewCase(t06.SolControllerCase):
         self.check(
             "no_further_implementation_dispatched",
             True,
-            all(rec.get("stage") != "terra" for rec in self.state["stages"]),
+            all(rec.get("stage") != "builder" for rec in self.state["stages"]),
         )
         self.check("completed_at_recorded", True, bool(self.state.get("completed_at")))
         self.finish(summary="COMPLETE: valid candidate accepted once with no extra writer")
@@ -150,17 +155,17 @@ class ReviewCase(t06.SolControllerCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 rework,
                 {"output": str(self.run / "rework.json"), "source_revision": support.snapshot(self.root)["revision"]},
                 self.root,
                 self.run,
             )
-        self.check("rework_routing", "astra_resolve", self.state["next_stage"])
+        self.check("rework_routing", "resolve", self.state["next_stage"])
         # The late duplicate PASS cannot erase the required correction.
         late = self.sol_report(event_id="late-pass")
         self.apply_sol(late, event_id="late-pass")
-        self.check("late_pass_does_not_override_rework", "astra_resolve", self.state["next_stage"])
+        self.check("late_pass_does_not_override_rework", "resolve", self.state["next_stage"])
         self.check("f1_still_blocking", True, bool(findings.blocking_entries(self.state)))
         self.check(
             "late_pass_archived_not_applied",
@@ -201,11 +206,11 @@ class ReviewCase(t06.SolControllerCase):
         report["end_to_end_result"] = {"status": "FAIL", "summary": "failure", "evidence_refs": ["event:check"]}
         runner.apply_result(
             self.state,
-            "sol",
+            "tester",
             report,
             {
-                "role": "sol",
-                "stage": "sol",
+                "role": "tester",
+                "stage": "tester",
                 "events": str(events),
                 "output": str(events),
                 "source_revision": support.snapshot(self.root)["revision"],
@@ -224,7 +229,7 @@ class ReviewCase(t06.SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
@@ -236,7 +241,7 @@ class ReviewCase(t06.SolControllerCase):
     def test_rev04_missing_or_crashed_review_stays_incomplete(self):
         """REV-04. Existing: partial (gate branches); variants explicit here."""
         self.apply_terra()  # implementation exists; the review has not run
-        self.check("build_finished_review_not_started", "sol", self.state["next_stage"])
+        self.check("build_finished_review_not_started", "tester", self.state["next_stage"])
         complete = self.complete_decision()
         # Variant 1: review never started (no validation at all).
         self.check_false(
@@ -249,13 +254,13 @@ class ReviewCase(t06.SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
                 self.run,
             )
-        self.check("recovery_requests_review", "sol", self.state["next_stage"])
+        self.check("recovery_requests_review", "tester", self.state["next_stage"])
         # Variant 2: the reviewer crashed mid-flight — a durable but incomplete
         # stage record never counts as a result.
         crashed = self.run / "iterations/005/sol-01.jsonl"
@@ -264,8 +269,8 @@ class ReviewCase(t06.SolControllerCase):
             '{"type":"thread.started","thread_id":"s"}\n{"type":"turn.failed","error":{"message":"crashed"}}\n'
         )
         self.state["active_stage"] = {
-            "role": "sol",
-            "stage": "sol",
+            "role": "tester",
+            "stage": "tester",
             "iteration": 5,
             "output": str(crashed.with_suffix(".json")),
             "events": str(crashed),
@@ -274,7 +279,7 @@ class ReviewCase(t06.SolControllerCase):
             "crashed_review_is_uncertain", support.Paused, runner.reconcile_active, self.state, self.run, self.root
         )
         self.check("no_implicit_pass_on_crash", True, "validation" not in self.state)
-        self.check("next_action_is_review_not_rebuild", "sol", self.state["next_stage"])
+        self.check("next_action_is_review_not_rebuild", "tester", self.state["next_stage"])
         self.finish(summary="REVIEW_PENDING: absent or crashed review never equals PASS")
 
     def test_rev05_one_unverified_criterion_blocks(self):
@@ -299,7 +304,7 @@ class ReviewCase(t06.SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
@@ -321,7 +326,7 @@ class ReviewCase(t06.SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
@@ -354,7 +359,12 @@ class ReviewCase(t06.SolControllerCase):
         support.atomic_json(self.run / "complete.json", complete)
         with self.forbid_real_launches(runner):
             runner.apply_result(
-                self.state, "astra_review", complete, {"output": str(self.run / "complete.json")}, self.root, self.run
+                self.state,
+                "review_completion",
+                complete,
+                {"output": str(self.run / "complete.json")},
+                self.root,
+                self.run,
             )
         self.check("advisory_completion_accepted", "TASK_COMPLETE", self.state["status"])
         self.check(
@@ -362,7 +372,7 @@ class ReviewCase(t06.SolControllerCase):
             True,
             any("renaming" in json.dumps(f) for f in self.state["validation"]["findings"]),
         )
-        self.check("no_extra_coding_batch", True, all(rec.get("stage") != "terra" for rec in self.state["stages"]))
+        self.check("no_extra_coding_batch", True, all(rec.get("stage") != "builder" for rec in self.state["stages"]))
         self.finish(summary="COMPLETE: advisory suggestion retained without inventing work")
 
     def test_rev08_artifact_human_acceptance_required(self):
@@ -374,7 +384,12 @@ class ReviewCase(t06.SolControllerCase):
         support.atomic_json(self.run / "complete.json", complete)
         with self.forbid_real_launches(runner):
             runner.apply_result(
-                self.state, "astra_review", complete, {"output": str(self.run / "complete.json")}, self.root, self.run
+                self.state,
+                "review_completion",
+                complete,
+                {"output": str(self.run / "complete.json")},
+                self.root,
+                self.run,
             )
         # The runner's writer boundary publishes the queued review request.
         lifecycle.human.evaluate(self.state)
@@ -388,7 +403,12 @@ class ReviewCase(t06.SolControllerCase):
         support.atomic_json(self.run / "complete-2.json", complete)
         with self.forbid_real_launches(runner):
             runner.apply_result(
-                self.state, "astra_review", complete, {"output": str(self.run / "complete-2.json")}, self.root, self.run
+                self.state,
+                "review_completion",
+                complete,
+                {"output": str(self.run / "complete-2.json")},
+                self.root,
+                self.run,
             )
         self.check("human_acceptance_completes", "TASK_COMPLETE", self.state["status"])
         self.finish(summary="WAITING_USER_THEN_COMPLETE: artifact acceptance asked then honored")
@@ -403,7 +423,12 @@ class ReviewCase(t06.SolControllerCase):
         support.atomic_json(self.run / "complete.json", complete)
         with self.forbid_real_launches(runner):
             runner.apply_result(
-                self.state, "astra_review", complete, {"output": str(self.run / "complete.json")}, self.root, self.run
+                self.state,
+                "review_completion",
+                complete,
+                {"output": str(self.run / "complete.json")},
+                self.root,
+                self.run,
             )
         current = support.snapshot(self.root)
         lifecycle.human.evaluate(self.state)
@@ -447,14 +472,14 @@ class ReviewCase(t06.SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
                 self.run,
             )
         self.check("c1_audit_trail_retained", True, bool(self.state.get("validation")))
-        self.check("fresh_review_required", "astra_review", self.state["next_stage"])
+        self.check("fresh_review_required", "review_completion", self.state["next_stage"])
         self.finish(summary="REVIEW_PENDING: C2 needs its own review; C1 history retained")
 
     def test_rev11_completion_after_genuine_correction(self):
@@ -467,7 +492,7 @@ class ReviewCase(t06.SolControllerCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 rework,
                 {"output": str(self.run / "rework.json"), "source_revision": support.snapshot(self.root)["revision"]},
                 self.root,
@@ -484,7 +509,7 @@ class ReviewCase(t06.SolControllerCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "astra_resolve",
+                "resolve",
                 diagnosis,
                 {"output": str(self.run / "resolve.json"), "source_revision": support.snapshot(self.root)["revision"]},
                 self.root,
@@ -501,7 +526,12 @@ class ReviewCase(t06.SolControllerCase):
         support.atomic_json(self.run / "complete.json", closing)
         with self.forbid_real_launches(runner):
             runner.apply_result(
-                self.state, "astra_review", closing, {"output": str(self.run / "complete.json")}, self.root, self.run
+                self.state,
+                "review_completion",
+                closing,
+                {"output": str(self.run / "complete.json")},
+                self.root,
+                self.run,
             )
         self.check("corrected_run_completes", "TASK_COMPLETE", self.state["status"])
         self.check("repair_history_retained", True, bool(self.state.get("resolution_history")))
@@ -524,7 +554,12 @@ class ReviewCase(t06.SolControllerCase):
         support.atomic_json(self.run / "complete.json", complete)
         with self.forbid_real_launches(runner):
             runner.apply_result(
-                self.state, "astra_review", complete, {"output": str(self.run / "complete.json")}, self.root, self.run
+                self.state,
+                "review_completion",
+                complete,
+                {"output": str(self.run / "complete.json")},
+                self.root,
+                self.run,
             )
         acceptance = copy.deepcopy(self.state["final_decision"])
         # Resume after completion launches nothing.
@@ -565,7 +600,7 @@ class ReviewCase(t06.SolControllerCase):
         self.check("acceptance_not_replaced_by_stale_work", before_late, self.state["final_decision"])
         self.check("still_terminal_after_stale_report", "TASK_COMPLETE", self.state["status"])
         self.check(
-            "no_new_writer_after_completion", True, all(rec.get("stage") != "terra" for rec in self.state["stages"])
+            "no_new_writer_after_completion", True, all(rec.get("stage") != "builder" for rec in self.state["stages"])
         )
         self.bundle.log(
             "scoped_note",
@@ -591,7 +626,7 @@ class ReviewCase(t06.SolControllerCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 validate,
                 {"output": str(self.run / "validate.json"), "source_revision": support.snapshot(self.root)["revision"]},
                 self.root,
@@ -604,7 +639,12 @@ class ReviewCase(t06.SolControllerCase):
         support.atomic_json(self.run / "complete.json", complete)
         with self.forbid_real_launches(runner):
             runner.apply_result(
-                self.state, "astra_review", complete, {"output": str(self.run / "complete.json")}, self.root, self.run
+                self.state,
+                "review_completion",
+                complete,
+                {"output": str(self.run / "complete.json")},
+                self.root,
+                self.run,
             )
         self.check("no_change_task_completes", "TASK_COMPLETE", self.state["status"])
         self.check("no_forced_edit", True, not any(f.get("finding", "").startswith("no progress") for f in []))
@@ -629,13 +669,13 @@ class ReviewCase(t06.SolControllerCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
                 self.run,
             )
-        self.check("required_current_review_named", "astra_review", self.state["next_stage"])
+        self.check("required_current_review_named", "review_completion", self.state["next_stage"])
         self.finish(summary="REVIEW_PENDING: reports never jointly approve a candidate none covers")
 
 

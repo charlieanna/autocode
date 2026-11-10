@@ -17,12 +17,12 @@ from __future__ import annotations
 # How the record names what covers an omitted stage, in a person's words.
 COVERAGE = {
     "runner:compact_draft": "the runner's draft from the diagnosis",
-    "astra_challenge": "the Plan Reviewer",
+    "review_plan": "the Plan Reviewer",
     "person:approve_goal": "your approval of the plan",
     "runner:regression_proof": "the regression proof",
     "requirements_gather": "Requirements' own answer",
 }
-STAGES = {"astra_discovery": "Planner draft"}
+STAGES = {"draft_plan": "Planner draft"}
 
 
 def _mapping(value) -> dict:

@@ -55,7 +55,7 @@ if slow and stage == slow:
 # artifact under test. Planning/Builder stages fall through to the stock
 # fixture (which writes greet.py and never touches cart.py).
 if (
-    stage in ("sol", "astra_checkpoint")
+    stage in ("tester", "review_checkpoint")
     and not data.get("report_repair")
     and Path("cart.py").is_file()
     and (here / "cart_fixture.py").is_file()

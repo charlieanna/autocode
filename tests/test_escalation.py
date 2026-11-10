@@ -23,8 +23,8 @@ class EscalationTests(unittest.TestCase):
     def test_exact_role_ladders(self):
         expected = {
             "resolver": ["GPT-6 Astra High", "GPT-6 Astra XHigh", "GPT-6 Astra Max"],
-            "terra": ["GPT-6 Sol Medium", "GPT-6 Sol High", "GPT-6 Sol XHigh", "GPT-6 Sol Max"],
-            "sol": ["GPT-6 Sol High", "GPT-6 Sol XHigh", "GPT-6 Sol Max"],
+            "builder": ["GPT-6 Sol Medium", "GPT-6 Sol High", "GPT-6 Sol XHigh", "GPT-6 Sol Max"],
+            "tester": ["GPT-6 Sol High", "GPT-6 Sol XHigh", "GPT-6 Sol Max"],
             "completion": ["GPT-6 Sol Medium", "GPT-6 Sol High", "GPT-6 Sol Max"],
         }
         self.assertEqual(expected, {role: [row[2] for row in ladder] for role, ladder in escalation.LADDERS.items()})
@@ -66,7 +66,7 @@ class EscalationTests(unittest.TestCase):
         self.assertEqual([first, second], state["reasoning_escalations"])
 
     def test_the_astra_route_does_not_climb_gpt_6_astra(self):
-        """The per-task Planner (astra_plan) runs on the astra route: #120 keeps it off the
+        """The per-task Planner (plan_task) runs on the astra route: #120 keeps it off the
         Astra ladder, so a rejected Planner report no longer raises a later Resolver's start."""
         for ladders in (None, route_ladder.configure_ladders(None)):
             with self.subTest(persisted=ladders is not None):
@@ -87,7 +87,10 @@ class EscalationTests(unittest.TestCase):
                     ["openai/gpt-6-astra", "xhigh", "GPT-6 Astra XHigh"],
                     ["openai/gpt-6-astra", "max", "GPT-6 Astra Max"],
                 ],
-                "sol": [["openai/gpt-6-sol", "high", "GPT-6 Sol High"], ["openai/gpt-6-sol", "max", "GPT-6 Sol Max"]],
+                "tester": [
+                    ["openai/gpt-6-sol", "high", "GPT-6 Sol High"],
+                    ["openai/gpt-6-sol", "max", "GPT-6 Sol Max"],
+                ],
             }
         }
         state = self.state("resolver", "openai/gpt-6-astra", "high")
@@ -117,24 +120,24 @@ class EscalationTests(unittest.TestCase):
         self.assertIsNone(escalation.profile("task_planner", resolver))
 
     def test_second_sol_failure_climbs_to_sol_max(self):
-        state = self.state("sol", "openai/gpt-6-sol", "xhigh")
-        event = escalation.advance(state, "sol", trigger="validation_rework")
-        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["sol"]["model"])
-        self.assertEqual("max", state["settings"]["roles"]["sol"]["reasoning_effort"])
+        state = self.state("tester", "openai/gpt-6-sol", "xhigh")
+        event = escalation.advance(state, "tester", trigger="validation_rework")
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["tester"]["model"])
+        self.assertEqual("max", state["settings"]["roles"]["tester"]["reasoning_effort"])
         self.assertEqual("GPT-6 Sol Max", event["selected"]["profile"])
 
     def test_only_the_resolver_climbs_astra_and_glm_roles_never_escalate(self):
         """Astra is only for the Resolver (user 2026-09-28); GLM roles, including the default
         Builder, are on no ladder (its stronger attempt is the Builder retry policy's)."""
         cases = [
-            # The per-task Planner's route (astra_plan) and the old Plan Reviewer/Completion
+            # The per-task Planner's route (plan_task) and the old Plan Reviewer/Completion
             # route of runs saved without their own roles: not the Resolver's route role.
             ("task_planner", "openai/gpt-6-astra", "high"),
-            ("sol", "openai/gpt-6-astra", "high"),
+            ("tester", "openai/gpt-6-astra", "high"),
             ("completion", "openai/gpt-6-astra", "medium"),
-            ("sol", "zai-coding-plan/glm-5.3", "high"),
+            ("tester", "zai-coding-plan/glm-5.3", "high"),
             ("completion", "zai-coding-plan/glm-5.3", "medium"),
-            ("terra", "zai-coding-plan/glm-5.3", "medium"),
+            ("builder", "zai-coding-plan/glm-5.3", "medium"),
             ("plan_reviewer", "openai/gpt-6-sol", "high"),
         ]
         for role, model, effort in cases:
@@ -148,10 +151,10 @@ class EscalationTests(unittest.TestCase):
         )
 
     def test_same_failed_iteration_advances_only_one_rung(self):
-        state = self.state("terra", "openai/gpt-6-sol", "medium")
-        escalation.advance(state, "terra", trigger="no_progress", struggle_id="iteration:7")
-        self.assertIsNone(escalation.advance(state, "terra", trigger="validation_rework", struggle_id="iteration:7"))
-        self.assertEqual("high", state["settings"]["roles"]["terra"]["reasoning_effort"])
+        state = self.state("builder", "openai/gpt-6-sol", "medium")
+        escalation.advance(state, "builder", trigger="no_progress", struggle_id="iteration:7")
+        self.assertIsNone(escalation.advance(state, "builder", trigger="validation_rework", struggle_id="iteration:7"))
+        self.assertEqual("high", state["settings"]["roles"]["builder"]["reasoning_effort"])
         self.assertEqual(1, len(state["reasoning_escalations"]))
 
     def test_codex_routes_keep_bare_model_names(self):
@@ -162,17 +165,17 @@ class EscalationTests(unittest.TestCase):
 
     def test_custom_provider_custom_profile_and_final_rung_are_stable(self):
         cases = [
-            self.state("terra", "other/model", "medium"),
-            self.state("terra", "openai/gpt-6-sol", "medium", provider="custom"),
-            self.state("terra", "openai/gpt-6-sol", "max"),
+            self.state("builder", "other/model", "medium"),
+            self.state("builder", "openai/gpt-6-sol", "medium", provider="custom"),
+            self.state("builder", "openai/gpt-6-sol", "max"),
             # MiMo is no longer on any ladder (user 2026-09-27): a MiMo route never escalates.
-            self.state("terra", "xiaomi-token-plan-sgp/mimo-v2.6-pro", "medium"),
+            self.state("builder", "xiaomi-token-plan-sgp/mimo-v2.6-pro", "medium"),
         ]
         for state in cases:
-            before = state["settings"]["roles"]["terra"].copy()
-            self.assertIsNone(escalation.advance(state, "terra", trigger="no_progress"))
-            self.assertEqual(before, state["settings"]["roles"]["terra"])
-            self.assertEqual("old-session", state["sessions"]["terra"])
+            before = state["settings"]["roles"]["builder"].copy()
+            self.assertIsNone(escalation.advance(state, "builder", trigger="no_progress"))
+            self.assertEqual(before, state["settings"]["roles"]["builder"])
+            self.assertEqual("old-session", state["sessions"]["builder"])
 
     def test_pinned_role_keeps_requested_model_after_a_struggle(self):
         state = self.state("resolver", "openai/gpt-6-astra", "high")
@@ -183,7 +186,10 @@ class EscalationTests(unittest.TestCase):
         self.assertEqual("old-session", state["sessions"]["resolver"])
 
     def test_continuous_profile_suppresses_promotion_without_changing_legacy_routes(self):
-        for role, model, effort in (("terra", "openai/gpt-6-sol", "high"), ("resolver", "openai/gpt-6-astra", "high")):
+        for role, model, effort in (
+            ("builder", "openai/gpt-6-sol", "high"),
+            ("resolver", "openai/gpt-6-astra", "high"),
+        ):
             with self.subTest(role=role):
                 state = self.state(role, model, effort)
                 state["settings"]["conversation_profile"] = "continuous-v1"

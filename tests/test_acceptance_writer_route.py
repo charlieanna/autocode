@@ -33,7 +33,7 @@ class AcceptanceWriterProjectionTests(unittest.TestCase):
         )
         state["stages"][0].update(
             stage="write_acceptance_tests",
-            role="sol",
+            role="tester",
             route_role="acceptance_tester",
             timed_out=True,
             job_configuration=copy.deepcopy(config),
@@ -52,8 +52,8 @@ class AcceptanceWriterProjectionTests(unittest.TestCase):
     def test_saved_timeout_needs_matching_physical_attempt_and_no_active_work(self):
         original = self.state()
         for key, value in (
-            ("stage", "sol"),
-            ("route_role", "sol"),
+            ("stage", "tester"),
+            ("route_role", "tester"),
             ("timed_out", False),
             ("rejected", False),
             ("worker_attempt", "foreign"),
@@ -193,5 +193,5 @@ class AcceptanceWriterRouteCLI(unittest.TestCase):
         rows = [json.loads(line) for line in self.calls.read_text().splitlines()]
         self.assertEqual(4, len(rows))
         self.assertEqual(1, len({row["model"] for row in rows}))
-        for role in ("sol", "completion", "terra"):
+        for role in ("tester", "completion", "builder"):
             self.assertEqual(held["routes"][role]["model"], completed["routes"][role]["model"])

@@ -38,8 +38,8 @@ def state_for(workspace, task=f"Implement the approved design in {DESIGN} exactl
                 "planner": {"model": "g"},
                 "plan_reviewer": {"model": "p", "engine": "codex"},
                 "task_planner": {"model": "a", "engine": "codex"},
-                "terra": {"model": "t"},
-                "sol": {"model": "s"},
+                "builder": {"model": "t"},
+                "tester": {"model": "s"},
             },
         },
     }
@@ -80,7 +80,7 @@ class RecognitionTests(unittest.TestCase):
             state = self.recognize(workspace_with_design(root), {"job": "build", "design_document": DESIGN})
         self.assertEqual(check_job.STAGE, state["next_stage"])
         self.assertEqual(DESIGN, state["workflow"]["design_document"])
-        self.assertEqual("astra_discovery", state["workflow"]["then"])
+        self.assertEqual("draft_plan", state["workflow"]["then"])
         self.assertEqual("autoreview", autopilot.unit_for(check_job.STAGE))
         self.assertIn(check_job.STAGE, jobs.STAGES)
 
@@ -97,13 +97,13 @@ class RecognitionTests(unittest.TestCase):
             ):
                 with self.subTest(value=value):
                     state = self.recognize(root, value)
-                    self.assertEqual("astra_discovery", state["next_stage"])
+                    self.assertEqual("draft_plan", state["next_stage"])
                     self.assertNotIn("design_document", state["workflow"])
 
     def test_a_report_without_the_field_plans_as_usual(self):
         with tempfile.TemporaryDirectory() as root:
             state = self.recognize(root, {"job": "build"})
-        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual("draft_plan", state["next_stage"])
 
 
 class PrepareTests(unittest.TestCase):
@@ -134,9 +134,7 @@ class ApplyTests(unittest.TestCase):
             state = state_for(workspace_with_design(root))
             autoreview.apply_job(check_job.STAGE, state, report(), {}, root)
             self.assertFalse((Path(root) / "docs/design/rate-limiter.blockers.json").exists())
-        self.assertEqual(
-            ("RUNNING", "PLANNING", "astra_discovery"), (state["status"], state["phase"], state["next_stage"])
-        )
+        self.assertEqual(("RUNNING", "PLANNING", "draft_plan"), (state["status"], state["phase"], state["next_stage"]))
         self.assertEqual(
             {
                 "design_document": DESIGN,
@@ -192,7 +190,7 @@ class ApplyTests(unittest.TestCase):
                     "turns": turns,
                     "goal_contract": dict(contract),
                     "requirements_handoff": {"report": {"requirements": [{"id": "R2"}]}},
-                    "planning": {"astra_calls": 2, "reports": {"astra_challenge": {}}},
+                    "planning": {"astra_calls": 2, "reports": {"review_plan": {}}},
                     "current_task": {"id": "T9"},
                     "findings_ledger": [dict(nit), dict(blocker), dict(settled)],
                     "acceptance_criteria": [{"id": "AC1", "status": "verified"}],
@@ -217,11 +215,11 @@ class ApplyTests(unittest.TestCase):
             }
         ]
         state = checked((), follow_up())
-        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual("draft_plan", state["next_stage"])
         for key, history, kept in (
             ("goal_contract", "contract_history", contract),
             ("requirements_handoff", "requirements_history", {"report": {"requirements": [{"id": "R2"}]}}),
-            ("planning", "planning_history", {"astra_calls": 2, "reports": {"astra_challenge": {}}}),
+            ("planning", "planning_history", {"astra_calls": 2, "reports": {"review_plan": {}}}),
             ("current_task", "task_archive", {"id": "T9"}),
         ):
             self.assertNotIn(key, state)
@@ -296,9 +294,9 @@ class PlannerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             state = state_for(workspace_with_design(root))
             state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
-            plain, _ = autoplanner.context(state, "astra_discovery", Path(root) / "state.json")
+            plain, _ = autoplanner.context(state, "draft_plan", Path(root) / "state.json")
             state["design_constraint"] = {"design_document": DESIGN, "summary": "s", "constraints": ["c1"]}
-            constrained, _ = autoplanner.context(state, "astra_discovery", Path(root) / "state.json")
+            constrained, _ = autoplanner.context(state, "draft_plan", Path(root) / "state.json")
         self.assertNotIn(autoplanner.APPROVED_DESIGN_RULE, plain)
         self.assertNotIn('"approved_design"', plain)
         self.assertIn(autoplanner.APPROVED_DESIGN_RULE, constrained)

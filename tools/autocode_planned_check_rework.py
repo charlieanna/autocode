@@ -43,7 +43,7 @@ except ImportError:
 
 KEY = "planned_check_reworks"
 ROUNDS = 2
-REVIEW_STAGES = ("sol", "astra_checkpoint")
+REVIEW_STAGES = ("tester", "review_checkpoint")
 
 
 def _task(state: RunState):
@@ -94,7 +94,7 @@ def send_back(state: RunState, record, error) -> bool:
     run_status.running(
         state,
         "EXECUTING",
-        next_stage="terra",
+        next_stage="builder",
         next_action=(
             f"The approved plan's check `{command}` must exit 0, and on the current source it cannot find "
             f"{', '.join(sorted(missing))}. Define each name exactly where the command names it (a test under "

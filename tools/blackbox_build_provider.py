@@ -253,12 +253,12 @@ def main():
         affected_paths=data.get("affected_paths"),
         inputs={name: Path(name).read_text() for name in spec.get("observe", []) if Path(name).is_file()},
     )
-    if os.environ.get("REVIEW_AUDIT_LIVE_CODEX") and data["stage"].startswith(("sol", "astra_review")):
+    if os.environ.get("REVIEW_AUDIT_LIVE_CODEX") and data["stage"].startswith(("tester", "review_completion")):
         record("live_reviewer")
         result = subprocess.run([os.environ["REVIEW_AUDIT_LIVE_CODEX"], *sys.argv[1:]], input=prompt, text=True)
         record("finish", returncode=result.returncode)
         raise SystemExit(result.returncode)
-    if os.environ.get("BUILD_AUDIT_LIVE_CODEX") and data["stage"].startswith("terra"):
+    if os.environ.get("BUILD_AUDIT_LIVE_CODEX") and data["stage"].startswith("builder"):
         record("live_builder")
         result = subprocess.run([os.environ["BUILD_AUDIT_LIVE_CODEX"], *sys.argv[1:]], input=prompt, text=True)
         record("finish", returncode=result.returncode)
@@ -278,7 +278,7 @@ def main():
     rows = spec["contract"]["milestones"]
     if data.get("report_repair"):
         result = json.loads(Path(data["original"]["output"]).read_text())
-        if data["original"]["stage"] == "sol" and spec.get("changed_code_citation_repair"):
+        if data["original"]["stage"] == "tester" and spec.get("changed_code_citation_repair"):
             context = data.get("changed_code_citation_context") or {}
             record("citation_repair", context=context, error=data["error"], original_error=data.get("original_error"))
             if spec.get("repair_loses_error") and not data.get("original_report"):
@@ -292,7 +292,7 @@ def main():
             rejection = data.get("original_error", "") if spec.get("repair_loses_error") else data["error"]
             if context.get("proof_reference") and "unauthenticated evidence" in rejection:
                 result["changed_code_exceptions"][0]["evidence_refs"] = [context["proof_reference"]]
-        elif data["original"]["stage"] == "sol" and spec.get("batch_report_repair"):
+        elif data["original"]["stage"] == "tester" and spec.get("batch_report_repair"):
             scope = data.get("batch_validation") or {}
             # A report-only provider cannot discover the batch by reading private run state.
             # The original check evidence covers every member; only its result inventory was damaged.
@@ -301,7 +301,7 @@ def main():
                 {**template, "milestone_id": member} for member in scope.get("milestone_ids", [])
             ]
             record("batch_repair", scope=scope)
-        elif data["original"]["stage"] == "sol" and spec.get("validator_repair_incidents"):
+        elif data["original"]["stage"] == "tester" and spec.get("validator_repair_incidents"):
             result.pop("milestone_results", None)
             state = json.loads(Path(data["state_file"]).read_text())
             # M4 needs both bounded repairs; the final validate task needs its own.
@@ -314,7 +314,7 @@ def main():
             result["commands_run"] = ['python3 -c "raise SystemExit(0)"']
         if isinstance(result.get("contract"), dict):
             result["contract"] = cite_sources(copy.deepcopy(result["contract"]), data)
-            if data["original"]["stage"] in ("astra_challenge", "astra_finalize"):
+            if data["original"]["stage"] in ("review_plan", "finalize_plan"):
                 result.setdefault("source_trace", source_trace_for(result["contract"], data))
         record("repair")
     elif data["stage"] == "investigate_stuck" and data.get("builder_failure"):
@@ -333,10 +333,10 @@ def main():
             "counterexample": {"file": "", "find": "", "replace": ""},
             "untestable": "",
         }
-    elif data["stage"] == "astra_discovery":
+    elif data["stage"] == "draft_plan":
         draft = cite_sources(copy.deepcopy(spec["contract"]), data)
         result = dict(contract=draft, summary="Handwritten fixture plan; no model planning")
-    elif data["stage"] == "astra_challenge":
+    elif data["stage"] == "review_plan":
         draft = (contract.get("body") or {}) if isinstance(contract.get("body"), dict) else {}
         result = dict(
             summary="Handwritten plan review; no concerns",
@@ -344,7 +344,7 @@ def main():
             concerns=[],
             source_trace=source_trace_for(draft, data),
         )
-    elif data["stage"] == "astra_finalize":
+    elif data["stage"] == "finalize_plan":
         draft = cite_sources(copy.deepcopy(spec["contract"]), data)
         result = dict(
             contract=draft,
@@ -356,10 +356,10 @@ def main():
             conflict_resolutions=[],
             requirement_trace=[],
         )
-    elif data["stage"] == "terra":
+    elif data["stage"] == "builder":
         if mid in stuck and mode in ("retry_success", "escalate_success", "retry_exhausted"):
             count = sum(
-                r.get("stage") == "terra" and r.get("event") == "start" and r.get("milestone") == mid
+                r.get("stage") == "builder" and r.get("event") == "start" and r.get("milestone") == mid
                 for r in map(json.loads, log.read_text().splitlines())
             )
             required = {"retry_success": 2, "escalate_success": 3, "retry_exhausted": 99}[mode]
@@ -389,7 +389,7 @@ def main():
                         row = json.loads(line)
                     except ValueError:
                         continue  # another Builder is appending this line right now
-                    if row.get("stage") == "terra" and row.get("event") == "start":
+                    if row.get("stage") == "builder" and row.get("event") == "start":
                         started.add(row.get("milestone"))
                 if len(started) >= overlap:
                     break
@@ -401,7 +401,7 @@ def main():
             for name, content in spec["payloads"][mid].items():
                 if mode == "validation_fails":
                     count = sum(
-                        r.get("stage") == "terra" and r.get("event") == "start"
+                        r.get("stage") == "builder" and r.get("event") == "start"
                         for r in map(json.loads, log.read_text().splitlines())
                     )
                     content += "\n" * count  # Different source each attempt, same actual defect.
@@ -486,7 +486,7 @@ def main():
             result.pop("summary")
         if mid == "M1" and mode == "contract_change":
             result["contract_hash"] = "unauthorized-contract"
-    elif data["stage"] == "sol":
+    elif data["stage"] == "tester":
         statuses = {}
         owned = set(task["acceptance_criteria"])
         checked_rows = []
@@ -596,7 +596,7 @@ def main():
             findings=[],
             finding_dispositions=[],
         )
-        if spec.get("review_completed_paths") and data["stage"] == "astra_review":
+        if spec.get("review_completed_paths") and data["stage"] == "review_completion":
             result["affected_paths"] = task["affected_paths"]
         if spec.get("complete_product") and not ready:
             if (data.get("validation") or {}).get("end_to_end_result", {}).get("status") == "PASS":
@@ -621,17 +621,17 @@ def main():
                     validation_plan=list(spec["checks"].values()),
                 )
         record("decision", affected_paths=result["affected_paths"], next_task=result["next_task"])
-        if data["stage"] == "astra_resolve":
+        if data["stage"] == "resolve":
             result["diagnosis"] = (
                 "The current candidate failed its prescribed check; correct the current assignment without changing the contract"
             )
         request = (data.get("agent_request") or {}).get("request") or (data.get("implementation") or {}).get(
             "user_request"
         )
-        if mode == "permission" and data["stage"] == "astra_review" and request and request.get("kind") != "none":
+        if mode == "permission" and data["stage"] == "review_completion" and request and request.get("kind") != "none":
             result.update(status="BLOCKED", user_request=request, blocker=request["decision_needed"])
     owning = data["original"]["stage"] if data.get("report_repair") else data["stage"]
-    if owning == "astra_review" and ((contract.get("body") or {}).get("source_trace") is not None):
+    if owning == "review_completion" and ((contract.get("body") or {}).get("source_trace") is not None):
         result.setdefault("source_verdict", dict(SOURCE_VERDICT))
     if "--output-schema" in sys.argv:
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
@@ -646,12 +646,12 @@ def main():
         )
         nullable = kind == "null" or isinstance(kind, list) and "null" in kind
         request = result.get("user_request")
-        if owning == "astra_resolve" and isinstance(request, dict) and nullable:
+        if owning == "resolve" and isinstance(request, dict) and nullable:
             request.setdefault("recommended_revision", None)
         correction = schema.get("properties", {}).get("user_request", {}).get("properties", {}).get("correction")
-        if owning == "astra_resolve" and isinstance(request, dict) and correction is not None:
+        if owning == "resolve" and isinstance(request, dict) and correction is not None:
             request.setdefault("correction", None)
-    if data["stage"] == "sol":
+    if data["stage"] == "tester":
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "changed_code_exceptions" in schema.get("properties", {}):
             result["changed_code_exceptions"] = scripted_changed_code_reasons(spec, data)

@@ -46,8 +46,8 @@ class OwnershipScenarios(OwnershipCase):
     def test_own02_live_timed_out_worker_blocks_replacement(self):
         """OWN-02. Existing: timeout recovery tests in test_autocode."""
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "processes": [{"pid": 424242, "started": "identity", "group": 424242}],
         }
@@ -64,8 +64,8 @@ class OwnershipScenarios(OwnershipCase):
     def test_own03_descendants_hold_ownership(self):
         """OWN-03. Existing: test_process descendant/watchdog tests."""
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "processes": [
                 {"pid": 1, "started": "parent", "group": 1},
@@ -81,7 +81,7 @@ class OwnershipScenarios(OwnershipCase):
 
     def test_own04_reused_pid_never_signaled(self):
         """OWN-04. Existing: test_process birth-identity tests; kill-scope case new."""
-        record = {"role": "terra", "stage": "terra", "iteration": 5, "pid": 999999, "exit_code": None}
+        record = {"role": "builder", "stage": "builder", "iteration": 5, "pid": 999999, "exit_code": None}
         signals = []
 
         def fake_kill(pid, sig):
@@ -191,8 +191,8 @@ class OwnershipScenarios(OwnershipCase):
         events.write_text('{"type":"thread.started"}\n')  # response lost mid-flight
         support.atomic_json(self.run / "iterations/005/terra-01.before.json", support.snapshot(self.root))
         self.state["active_stage"] = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "output": str(self.run / "iterations/005/terra-01.json"),
             "events": str(events),
@@ -235,7 +235,7 @@ class OwnershipScenarios(OwnershipCase):
         support.atomic_json(self.run / "state.json", self.state)
         interventions.submit(self.root, self.run, request_id="stop-1", kind="pause", text="")
         runner.consume_interventions(self.state, self.run, self.root)
-        record = {"role": "terra", "stage": "terra", "iteration": 5, "processes": []}
+        record = {"role": "builder", "stage": "builder", "iteration": 5, "processes": []}
         with patch.object(processes, "live_processes", return_value=[]):
             runner.assert_stage_stopped(record)  # all owned writers confirmed ended
         (self.run / "pause-requested").write_text("ack")

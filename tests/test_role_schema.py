@@ -134,7 +134,7 @@ class RoleSchemaTests(unittest.TestCase):
         legacy = json.loads(
             (Path(__file__).resolve().parents[1] / "tools/autocode-schemas/v2/sol-report.schema.json").read_text()
         )
-        schema = reports.role_schema(legacy, "sol")["properties"]["end_to_end_result"]
+        schema = reports.role_schema(legacy, "tester")["properties"]["end_to_end_result"]
         old = {"status": "PASS", "summary": "Executed flow", "evidence_refs": ["event:check"]}
         util.validate_schema(old, schema)
         current = {**old, "technical_result": None, "pending_human_criteria": []}

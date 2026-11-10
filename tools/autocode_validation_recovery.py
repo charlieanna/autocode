@@ -39,8 +39,8 @@ def current(state: RunState, record):
         return False
 
 
-def permission_retry(state: RunState, record, *, review_stage="sol"):
-    completion = record["stage"] in ("astra_review", "astra_checkpoint")
+def permission_retry(state: RunState, record, *, review_stage="tester"):
+    completion = record["stage"] in ("review_completion", "review_checkpoint")
     if completion and current(state, record):
         return record["stage"]
     if state.get("validation"):

@@ -23,7 +23,7 @@ def queue_owned_saved_tester_rejection(run, workspace):
     record = repair_fixtures.RepairTests.stage_record(
         fixture,
         stage="validator",
-        role="sol",
+        role="tester",
         iteration=state["iteration"],
         contract_hash=contract["hash"],
         contract_revision=contract["revision"],
@@ -31,7 +31,7 @@ def queue_owned_saved_tester_rejection(run, workspace):
         finished_at=runner.now(),
         schema=str(runner.SCHEMA_DIR / "v2/sol-report.schema.json"),
     )
-    record["stage"] = "sol"
+    record["stage"] = "tester"
     for key in ("before_ref", "after_ref"):
         runner.write_json(Path(record[key]), runner.support.snapshot(workspace))
     try:
@@ -61,11 +61,11 @@ class VerificationRepairRetirementTests(unittest.TestCase):
     def rejected_tester(self):
         self.state["goal_contract"] = {"hash": "approved", "revision": 6, "approval_status": "approved"}
         self.state["current_task"] = {"id": "T1"}
-        self.state["next_stage"] = "sol"
+        self.state["next_stage"] = "tester"
         self.state["settings"]["regression"] = {"test_command": "old suite"}
         self.queue(
-            stage="sol",
-            role="sol",
+            stage="tester",
+            role="tester",
             contract_hash="approved",
             contract_revision=6,
             task_id="T1",
@@ -123,9 +123,9 @@ class VerificationRepairRetirementTests(unittest.TestCase):
 
     def test_active_uncertain_wrong_stage_and_unbound_repairs_keep_their_records(self):
         initial = self.rejected_tester()
-        mutations = [lambda state, key=key: state.update({key: {"stage": "sol"}}) for key in retirement.BLOCKED]
+        mutations = [lambda state, key=key: state.update({key: {"stage": "tester"}}) for key in retirement.BLOCKED]
         mutations += [
-            lambda state: state.update(next_stage="astra_review"),
+            lambda state: state.update(next_stage="review_completion"),
             lambda state: state.update(pending_questions=[{"id": "Q1"}]),
             lambda state: state["goal_contract"].update(hash="another"),
             lambda state: state["current_task"].update(id="another"),

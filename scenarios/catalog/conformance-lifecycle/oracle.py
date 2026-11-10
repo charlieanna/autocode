@@ -51,7 +51,7 @@ def check(project, scenario, run=None):
         )
     )
     review, revise, build = (
-        _index(first, lambda s, n=name: s == n) for name in ("astra_challenge", "glm_revise", "terra")
+        _index(first, lambda s, n=name: s == n) for name in ("review_plan", "revise_plan", "builder")
     )
     checks.append(
         Check(
@@ -67,7 +67,7 @@ def check(project, scenario, run=None):
     checks.append(
         Check(
             "tester_failed_then_rework_passed",
-            bool(seen_failed) and requirements.get("failed") == 0 and first.count("terra") >= 2,
+            bool(seen_failed) and requirements.get("failed") == 0 and first.count("builder") >= 2,
             f"views with a failed requirement: {len(seen_failed)}; final {requirements.get('label')!r}",
         )
     )
@@ -103,7 +103,7 @@ def check(project, scenario, run=None):
             and (second.get("view") or {}).get("workflow") == "discuss"
             # A question with nothing to write is answered by Requirements itself: nothing is planned or built.
             and "requirements_gather" in (second.get("stages") or [])
-            and not {"answer_question", "astra_discovery", "terra"} & set(second.get("stages") or [])
+            and not {"answer_question", "draft_plan", "builder"} & set(second.get("stages") or [])
             and not second.get("changed_files"),
             repr({key: second.get(key) for key in ("stages", "changed_files")}),
         )

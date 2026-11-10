@@ -314,7 +314,7 @@ class ProfileTests(unittest.TestCase):
     def test_only_handoff_selects_profile_and_builder_remains_sol_high(self):
         ordinary = self.fresh()
         attached = self.fresh("/fixture/handoff.json")
-        self.assertEqual(opencode.DEFAULT_MODELS["terra"], ordinary["roles"]["terra"]["model"])
+        self.assertEqual(opencode.DEFAULT_MODELS["builder"], ordinary["roles"]["builder"]["model"])
         self.assertNotIn("conversation_profile", ordinary)
         self.assertEqual("continuous-v1", attached["conversation_profile"])
         for role, policy in routes.RUNNER_POLICY_ROLES.items():
@@ -338,17 +338,20 @@ class ProfileTests(unittest.TestCase):
                 routes.configure_runner_profile(
                     settings,
                     SimpleNamespace(
-                        terra_model=model, terra_reasoning_effort="medium", builder_strong_model=model, max_seconds=45
+                        builder_model=model,
+                        builder_reasoning_effort="medium",
+                        builder_strong_model=model,
+                        max_seconds=45,
                     ),
                 )
-                self.assertEqual(model, settings["roles"]["terra"]["model"])
-                self.assertEqual("medium", settings["roles"]["terra"]["reasoning_effort"])
+                self.assertEqual(model, settings["roles"]["builder"]["model"])
+                self.assertEqual("medium", settings["roles"]["builder"]["reasoning_effort"])
                 self.assertEqual(model, settings["builder_retry"]["strong_model"])
                 self.assertEqual("user_explicit", settings["builder_retry"]["strong_origin"])
                 self.assertEqual(45, settings["limits"]["max_seconds"])
                 # Without the flag the stronger route is AutoCode's own choice.
                 unnamed = {"engine": "opencode", "provider": "opencode", "roles": {}}
-                routes.configure_runner_profile(unnamed, SimpleNamespace(terra_model=model))
+                routes.configure_runner_profile(unnamed, SimpleNamespace(builder_model=model))
                 self.assertEqual("runner", unnamed["builder_retry"]["strong_origin"])
 
     def test_conversation_and_visual_routes_preserve_any_explicit_model(self):
@@ -368,7 +371,7 @@ class ProfileTests(unittest.TestCase):
             "status": "RUNNING",
             "current_task": {"id": "task-1", "milestone_id": "M1"},
             "goal_contract": {"hash": "approved-contract"},
-            "sessions": {"terra": "original"},
+            "sessions": {"builder": "original"},
         }
         original = deepcopy(state["settings"]["roles"])
         for role in original:
@@ -459,7 +462,7 @@ class ExpectedGoalCliTests(unittest.TestCase):
         self.assertEqual(payload["messages"], protocol.read_journal(runs[0])["conversation"]["messages"])
         self.assertFalse(goals.approved(state))
         self.assertEqual([], state["stages"])
-        self.assertEqual("high", state["settings"]["roles"]["terra"]["reasoning_effort"])
+        self.assertEqual("high", state["settings"]["roles"]["builder"]["reasoning_effort"])
 
     def test_stale_build_token_is_rejected_by_cli_before_provider_dispatch(self):
         lifecycle.install_draft(self.state, body(), origin="test")

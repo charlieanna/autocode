@@ -58,7 +58,7 @@ ADVANCEMENT_POLICY = prompts.get("fragments/milestones/advancement.md")
 
 def route_review_only_request(state: RunState, request, origin, *, visual_proof=None):
     """Turn a model's review permission into a runner gate or technical retry."""
-    if not enabled(state) or not isinstance(origin, dict) or origin.get("stage") != "astra_review":
+    if not enabled(state) or not isinstance(origin, dict) or origin.get("stage") != "review_completion":
         return copy.deepcopy(request)
     output = origin.get("output")
     if not output or not Path(output).is_file():
@@ -91,7 +91,7 @@ def route_review_only_request(state: RunState, request, origin, *, visual_proof=
             {
                 "status": "RUNNING",
                 "phase": "READY_TO_EXECUTE",
-                "next_stage": "sol" if not fresh else "astra_review",
+                "next_stage": "tester" if not fresh else "review_completion",
                 "pending_questions": [],
             }
         )
@@ -133,7 +133,7 @@ def recover_review_only_request(state: RunState, public, *, ask_user):
     state.pop(human.PUBLIC, None)
     state.pop("user_request", None)
     state["pending_questions"] = []
-    ask_user(state, request, origin=origin, next_stage="astra_review")
+    ask_user(state, request, origin=origin, next_stage="review_completion")
     state.setdefault("user_events", []).append(
         {
             "kind": "review_request_rerouted",
@@ -149,7 +149,7 @@ def recover_review_only_request(state: RunState, public, *, ask_user):
 def route_review_only_request_preview(state: RunState, request, origin):
     """Check report identity before retiring a published request."""
     output = origin.get("output")
-    if origin.get("stage") != "astra_review" or not output or not Path(output).is_file():
+    if origin.get("stage") != "review_completion" or not output or not Path(output).is_file():
         return False
     try:
         report = s.read(output)
@@ -315,7 +315,7 @@ def release_obsolete_gate_request(state: RunState, published, *, visual_proof=No
         not isinstance(published, dict)
         or published.get("scope") != "permission"
         or state.get("status") != "WAITING_FOR_USER"
-        or state.get("next_stage") != "astra_review"
+        or state.get("next_stage") != "review_completion"
         or state.get("active_stage")
         or len(state.get("pending_questions") or []) != 1
         or not str(state.get("milestone_blocker", "")).startswith(
@@ -349,7 +349,7 @@ def release_obsolete_gate_request(state: RunState, published, *, visual_proof=No
     if (
         not entry
         or entry.get("status") != "pending"
-        or origin.get("stage") != "astra_review"
+        or origin.get("stage") != "review_completion"
         or origin.get("task_id") != task.get("id")
         or origin.get("source_revision") != validation.get("source_revision")
     ):
@@ -663,7 +663,7 @@ def check_budget(state: RunState):
 
 
 def dispatch_guard(state: RunState, stage, *, current=None, visual_proof=None):
-    if visual_checkpoint.enabled(state) and stage in ("terra", "orchestrator"):
+    if visual_checkpoint.enabled(state) and stage in ("builder", "orchestrator"):
         if stage == "orchestrator":
             raise s.Paused(
                 "PAUSED_VISUAL_EVIDENCE", "Serial visual policy requires one supported writer launch identity"
@@ -684,7 +684,7 @@ def dispatch_guard(state: RunState, stage, *, current=None, visual_proof=None):
         raise s.Paused(
             "PAUSED_WORKFLOW_CONFLICT", "Milestone checkpoints require Builder → Validator → Plan Reviewer routing"
         )
-    if stage in ("terra", "orchestrator"):
+    if stage in ("builder", "orchestrator"):
         row = progress(state)
         if row is None:
             raise s.Paused(
@@ -710,7 +710,7 @@ def request_builder_reassessment(state: RunState, evidence):
             state,
             "PAUSED_MILESTONE_REPLAN",
             "Approach failure requires an existing bounded milestone assignment",
-            next_stage="astra_review",
+            next_stage="review_completion",
         )
         return
     row["builder_reassessment"] = {key: copy.deepcopy(evidence[key]) for key in ("failure_id", "evidence_refs")}
@@ -725,10 +725,10 @@ def request_builder_reassessment(state: RunState, evidence):
             state,
             "PAUSED_MILESTONE_STALLED",
             "Builder approach reassessment exhausted the existing replan limit",
-            next_stage="astra_review",
+            next_stage="review_completion",
         )
         return
-    state.update({"status": "RUNNING", "phase": "REVIEWING", "next_stage": "astra_review"})
+    state.update({"status": "RUNNING", "phase": "REVIEWING", "next_stage": "review_completion"})
 
 
 def handle_gate(state: RunState, error, current, *, ask_user, origin=None):
@@ -736,7 +736,7 @@ def handle_gate(state: RunState, error, current, *, ask_user, origin=None):
 
     ask_user is autocode_goal_lifecycle.wait_for_user, passed in because that module imports this one."""
     if error.status in ("PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_BUDGET"):
-        run_status.pause(state, error.status, str(error), next_stage="astra_review")
+        run_status.pause(state, error.status, str(error), next_stage="review_completion")
         return
     if error.status not in ("PAUSED_MILESTONE_EVIDENCE", "PAUSED_MILESTONE_HUMAN_REVIEW", "PAUSED_MILESTONE_REPLAN"):
         raise error
@@ -759,7 +759,7 @@ def handle_gate(state: RunState, error, current, *, ask_user, origin=None):
                 "proposed_delta": "",
             },
             origin=origin or {"stage": "milestone_gate", "source_revision": current["revision"]},
-            next_stage="astra_review",
+            next_stage="review_completion",
         )
         return
     row = progress(state)
@@ -774,7 +774,7 @@ def handle_gate(state: RunState, error, current, *, ask_user, origin=None):
     results = {row["id"]: row for row in validation.get("criterion_results") or []}
     criteria_passed = bool(required) and all(results.get(cid, {}).get("status") == "PASS" for cid in required)
     proof_disagrees = validation.get("verdict") != "PASS" and criteria_passed
-    state["next_stage"] = "astra_review" if fresh and not proof_disagrees else "sol"
+    state["next_stage"] = "review_completion" if fresh and not proof_disagrees else "tester"
 
 
 def activate(state: RunState):
@@ -796,7 +796,7 @@ def activate(state: RunState):
         cast(dict, state.get("goal_contract", {})).get("approval_status") == "approved"
         and state["status"] != "TASK_COMPLETE"
     ):
-        state["next_stage"] = "sol" if state.get("current_task") else "astra_plan"
+        state["next_stage"] = "tester" if state.get("current_task") else "plan_task"
 
 
 @contextmanager

@@ -25,12 +25,12 @@ class OperatorControlTests(unittest.TestCase):
         self.assertEqual("--resume-paused --no-progress-limit N", self.flags("PAUSED_NO_PROGRESS"))
         self.assertEqual("--resume-paused --max-milestone-replans N", self.flags("PAUSED_MILESTONE_STALLED"))
         self.assertEqual("--resume-paused --retry-failed-stage", self.flags("PAUSED_REPEATED_FAILURE"))
-        lane = {"terra": {"action": "pause", "failures": ["out.json"]}}
+        lane = {"builder": {"action": "pause", "failures": ["out.json"]}}
         self.assertEqual(
             "--resume-paused --retry-builder M2",
             self.flags(
                 "PAUSED_BUILDER_RETRY_LIMIT",
-                next_stage="terra",
+                next_stage="builder",
                 builder_retries=lane,
                 current_task={"milestone_id": "M2"},
             ),
@@ -50,11 +50,11 @@ class OperatorControlTests(unittest.TestCase):
 
     def test_a_control_the_cli_would_refuse_is_not_named(self):
         self.assertIsNone(self.flags("PAUSED_REPEATED_FAILURE", pending_report_repair={"attempts": 2}))
-        self.assertIsNone(self.flags("PAUSED_BUILDER_RETRY_LIMIT", next_stage="terra"))
+        self.assertIsNone(self.flags("PAUSED_BUILDER_RETRY_LIMIT", next_stage="builder"))
         self.assertIsNone(
             self.flags(
                 "PAUSED_ORCHESTRATOR_WORKER",
-                next_stage="terra",
+                next_stage="builder",
                 orchestration_batch={"status": "BUILDING", "workers": []},
             )
         )

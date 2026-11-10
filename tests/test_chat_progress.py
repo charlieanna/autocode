@@ -10,12 +10,12 @@ class ChatProgressTests(unittest.TestCase):
     def setUp(self):
         self.state = {
             "status": "RUNNING",
-            "active_stage": {"stage": "terra"},
+            "active_stage": {"stage": "builder"},
             "current_task": {"milestone_id": "M1"},
             "stages": [
-                {"stage": "astra_plan", "finished_at": "2026-10-19T08:00:00Z", "exit_code": 0},
-                {"stage": "sol", "finished_at": "2026-10-19T08:01:00Z", "exit_code": 0, "rejected": True},
-                {"stage": "terra", "finished_at": "2026-10-19T08:02:00Z", "exit_code": 1},
+                {"stage": "plan_task", "finished_at": "2026-10-19T08:00:00Z", "exit_code": 0},
+                {"stage": "tester", "finished_at": "2026-10-19T08:01:00Z", "exit_code": 0, "rejected": True},
+                {"stage": "builder", "finished_at": "2026-10-19T08:02:00Z", "exit_code": 1},
             ],
         }
         self.public = {
@@ -45,15 +45,15 @@ class ChatProgressTests(unittest.TestCase):
     def test_queued_finished_stopped_and_unknown_activity_are_distinct(self):
         for active, headline, kind, flags, expected in (
             (None, "Next: Tester", "unknown", {}, "Next: Tester"),
-            ({"stage": "terra"}, "Builder finished", "stopped", {"finished": True}, "Builder finished"),
+            ({"stage": "builder"}, "Builder finished", "stopped", {"finished": True}, "Builder finished"),
             (
-                {"stage": "terra"},
+                {"stage": "builder"},
                 "Builder stopped without saving a report",
                 "interrupted",
                 {"stopped": True},
                 "Builder stopped without saving a report",
             ),
-            ({"stage": "terra"}, "Builder working", "unknown", {}, "Builder: activity could not be confirmed."),
+            ({"stage": "builder"}, "Builder working", "unknown", {}, "Builder: activity could not be confirmed."),
         ):
             with self.subTest(headline=headline, kind=kind):
                 self.state["active_stage"] = active
@@ -66,12 +66,12 @@ class ChatProgressTests(unittest.TestCase):
         self.state["settings"] = {"workflow": {"mode": "glm_first_v1"}}
         self.state["stages"] += [
             {
-                "stage": "astra_checkpoint",
+                "stage": "review_checkpoint",
                 "started_at": "2026-10-19T09:01:00Z",
                 "finished_at": "2026-10-19T09:02:00Z",
                 "exit_code": 0,
             },
-            {"stage": "terra", "started_at": "2026-10-19T09:03:00Z"},
+            {"stage": "builder", "started_at": "2026-10-19T09:03:00Z"},
             {
                 "stage": "internal_unknown",
                 "started_at": "2026-10-19T09:03:00Z",
@@ -84,7 +84,7 @@ class ChatProgressTests(unittest.TestCase):
     def test_a_runner_owned_dispatch_with_no_exit_code_finished(self):
         # #1643: the Orchestrator's record carries no exit_code, and read as "attempt stopped" on a clean run.
         dispatch = {"stage": "orchestrator", "finished_at": "2026-10-19T08:03:00Z", "runner_owned": True}
-        self.state["stages"] = [dispatch, {"stage": "terra", "finished_at": "2026-10-19T08:04:00Z"}]
+        self.state["stages"] = [dispatch, {"stage": "builder", "finished_at": "2026-10-19T08:04:00Z"}]
         self.assertEqual(
             "Recent steps: Orchestrator attempt finished · Builder attempt stopped",
             progress.project(self.state, self.public)[-1],

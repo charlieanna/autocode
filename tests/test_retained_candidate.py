@@ -75,19 +75,19 @@ class RetainedCandidateTests(unittest.TestCase):
 
     def test_saved_no_progress_report_routes_to_fresh_validator_without_builder(self):
         value, record, revision = self.fixture()
-        record.update(stage="terra", source_revision=revision, output="terra.json", after_ref="after.json")
+        record.update(stage="builder", source_revision=revision, output="terra.json", after_ref="after.json")
         self.state["stages"].append(record)
         self.state["no_progress_reports"] = [copy.deepcopy(value)]
         self.state["no_progress_batches"] = 3
         self.assertTrue(autopilot.recover_retained_candidate(self.state, self.root))
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual(0, self.state["no_progress_batches"])
         self.assertEqual(revision, self.state["implementation"]["source_revision"])
         self.assertTrue(self.state["retained_candidate_handoffs"][-1]["reconsidered"])
 
     def test_saved_no_progress_report_cannot_bypass_changed_source_or_missing_pass(self):
         value, record, revision = self.fixture()
-        record.update(stage="terra", source_revision=revision, output="terra.json")
+        record.update(stage="builder", source_revision=revision, output="terra.json")
         self.state["stages"].append(record)
         self.state["no_progress_reports"] = [copy.deepcopy(value)]
         baseline = copy.deepcopy(self.state)
@@ -110,7 +110,7 @@ class RetainedCandidateTests(unittest.TestCase):
         support.atomic_json(after, support.snapshot(self.root))
         self.state["stages"].append(
             {
-                "stage": "terra",
+                "stage": "builder",
                 "task_id": "task-1",
                 "before_ref": str(start),
                 "output": "terra-01.json",
@@ -118,7 +118,7 @@ class RetainedCandidateTests(unittest.TestCase):
             }
         )
         record.update(
-            stage="terra", task_id="task-1", source_revision=revision, output="terra.json", after_ref=str(after)
+            stage="builder", task_id="task-1", source_revision=revision, output="terra.json", after_ref=str(after)
         )
         self.state["stages"].append(record)
         self.state["no_progress_reports"] = [copy.deepcopy(value)]
@@ -130,4 +130,4 @@ class RetainedCandidateTests(unittest.TestCase):
 
     def test_files_already_changed_when_the_task_began_are_not_its_edits(self):
         self.assertTrue(self.reconsider_after(stray_before_start=True))
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])

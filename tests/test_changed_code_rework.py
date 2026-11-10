@@ -41,12 +41,12 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
                 },
             },
         }
-        record = {"stage": "sol", "role": "sol", "source_revision": "source-one", "output": "/run/tester.json"}
+        record = {"stage": "tester", "role": "tester", "source_revision": "source-one", "output": "/run/tester.json"}
         rejected = [{"path": "app/evaluate/core.py", "line": 136, "reason": "Assert unequal values for <=."}]
         return state, record, rejected
 
     def test_validation_only_task_returns_to_review_with_evidence_and_counters_intact(self):
-        for stage, role in (("sol", "sol"), ("astra_checkpoint", "task_planner")):
+        for stage, role in (("tester", "tester"), ("review_checkpoint", "task_planner")):
             with self.subTest(stage=stage):
                 state, record, _ = self.fixture()
                 state["current_task"] = {"id": "validate-retained", "kind": "validate", "milestone_id": "D"}
@@ -54,7 +54,7 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
                 record.update(stage=stage, role=role)
                 preserved = copy.deepcopy(state)
                 self.assertTrue(rework.route(state, record, investigation_enabled=True))
-                self.assertEqual("astra_review", state["next_stage"])
+                self.assertEqual("review_completion", state["next_stage"])
                 self.assertIn("validation-only", state["next_action"])
                 self.assertIn("within the approved plan", state["next_action"])
                 self.assertIn(
@@ -75,7 +75,7 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
                 state, record, _ = self.fixture()
                 state["current_task"]["kind"] = "validate"
                 if variant == "builder":
-                    record.update(stage="terra", role="terra")
+                    record.update(stage="builder", role="builder")
                 elif variant == "failed_proof":
                     state["regression_proof"]["verdict"] = "FAIL"
                 elif variant == "settled_lines":
@@ -95,26 +95,26 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
         state["current_task"] = {"id": "validate-retained", "kind": "validate"}
         state["goal_contract"]["body"] = {"acceptance_criteria": [{"id": "C1"}]}
         findings.record_validation(state, sol("Lower return has no assertion"), {"output": "tester-first"})
-        ident = findings.open_entries(state, "sol")[0]["id"]
+        ident = findings.open_entries(state, "tester")[0]["id"]
         rework.route(state, record, investigation_enabled=True)
         findings.record_decision(state, astra("CONTINUE", dispositions=[resolved(ident)]), {"output": "scope-review"})
-        self.assertEqual([ident], [row["id"] for row in findings.open_entries(state, "sol")])
+        self.assertEqual([ident], [row["id"] for row in findings.open_entries(state, "tester")])
         repaired = sol(dispositions=[resolved(ident)])
         with self.assertRaisesRegex(ValueError, "report-only repair"):
             findings.record_validation(state, repaired, {"output": "tester-repair", "report_repaired": True})
-        self.assertEqual([ident], [row["id"] for row in findings.open_entries(state, "sol")])
+        self.assertEqual([ident], [row["id"] for row in findings.open_entries(state, "tester")])
         repaired.update(
             verdict="PASS", criterion_results=[{"id": "C1", "status": "PASS", "evidence_refs": ["event:fresh"]}]
         )
         findings.record_validation(state, repaired, {"output": "tester-fresh"})
-        self.assertEqual([], findings.open_entries(state, "sol"))
+        self.assertEqual([], findings.open_entries(state, "tester"))
 
     def test_narrowed_batch_assignment_returns_to_review_without_spending_builder_round(self):
         state, record, rejected = self.fixture()
         original_task = copy.deepcopy(state["current_task"])
         original_contract = copy.deepcopy(state["goal_contract"])
         self.assertTrue(rework.route(state, record, investigation_enabled=True, rejected=rejected))
-        self.assertEqual("astra_review", state["next_stage"])
+        self.assertEqual("review_completion", state["next_stage"])
         self.assertEqual(9, state["iteration"])
         self.assertEqual(original_task, state["current_task"])
         self.assertEqual(original_contract, state["goal_contract"])
@@ -140,7 +140,7 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
             state, {**record, "output": "/run/next-tester.json"}, investigation_enabled=True, rejected=rejected
         )
         self.assertEqual(
-            ("terra", "builder", 10),
+            ("builder", "builder", 10),
             (state["next_stage"], state["regression_proofs"][-1]["action"], state["iteration"]),
         )
 
@@ -148,14 +148,14 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
         state, record, rejected = self.fixture()
         rejected[0]["path"] = "app/store/core.py"
         rework.route(state, record, investigation_enabled=False, rejected=rejected)
-        self.assertEqual("terra", state["next_stage"])
+        self.assertEqual("builder", state["next_stage"])
         self.assertEqual("builder", state["regression_proofs"][-1]["action"])
 
     def test_combined_checkpoint_can_apply_its_review_instead_of_repeating_the_tester(self):
         state, record, rejected = self.fixture()
-        record.update(stage="astra_checkpoint", role="task_planner")
+        record.update(stage="review_checkpoint", role="task_planner")
         rework.route(state, record, investigation_enabled=False, rejected=rejected)
-        self.assertEqual("astra_review", state["next_stage"])
+        self.assertEqual("review_completion", state["next_stage"])
         self.assertFalse(rework.queued(state, record))
 
     def test_full_batch_and_legacy_assignments_keep_existing_routing(self):
@@ -175,7 +175,7 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
                 else:
                     rejected[0]["path"] = "app/evaluate_extra/core.py"
                 rework.route(state, record, investigation_enabled=False, rejected=rejected)
-                self.assertEqual("terra", state["next_stage"])
+                self.assertEqual("builder", state["next_stage"])
 
     def test_a_builder_round_is_recorded_with_the_rounds_the_gate_allows(self):
         # The status view says "round 1 of 2" from the record alone; a scope review spends no round.

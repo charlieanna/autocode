@@ -11,9 +11,9 @@ from units import autoplanner
 
 
 def fresh(joint=True, task="Review pr-184.patch before I merge it."):
-    roles = {"task_planner": {"model": "a"}, "terra": {"model": "t"}, "sol": {"model": "s"}}
+    roles = {"task_planner": {"model": "a"}, "builder": {"model": "t"}, "tester": {"model": "s"}}
     if joint:
-        roles.update(requirements={"model": "r"}, glm={"model": "g"}, plan_reviewer={"model": "p"})
+        roles.update(requirements={"model": "r"}, planner={"model": "g"}, plan_reviewer={"model": "p"})
     return {
         "version": 3,
         "task": task,
@@ -32,11 +32,11 @@ class ModuleTests(unittest.TestCase):
             with self.subTest(policy=policy):
                 run = {
                     "view": {"workflow": "bugfix", "related_profile": {"settings": {}}},
-                    "stages": ["requirements_gather", "astra_discovery"],
+                    "stages": ["requirements_gather", "draft_plan"],
                 }
                 if policy:
                     run["view"]["related_profile"]["settings"]["implementation_flow"] = policy
-                self.assertEqual("astra_discovery", oracle.bugfix_entry(run))
+                self.assertEqual("draft_plan", oracle.bugfix_entry(run))
                 checks = oracle.run_checks(run, workflow="bugfix", after_requirements=oracle.bugfix_entry(run))
                 self.assertTrue(all(row.ok for row in checks))
                 run["stages"][1] = "investigate_bug"
@@ -52,7 +52,7 @@ class ModuleTests(unittest.TestCase):
                     state["settings"]["planning_flow"] = "v2" if v2 else "legacy"
                     workflows.begin_requirements(state)
                     workflows.from_requirements(state, {"job": kind, "intended_outcome": "Fix the pager"})
-                    self.assertEqual("plan" if v2 else "astra_discovery", state["next_stage"])
+                    self.assertEqual("plan" if v2 else "draft_plan", state["next_stage"])
                     self.assertEqual(kind or "build", state["workflow"]["kind"])
                     self.assertEqual(
                         ("model", "requirements_gather"), (state["workflow"]["source"], state["workflow"]["named_by"])
@@ -64,29 +64,29 @@ class ModuleTests(unittest.TestCase):
         workflows.pin(state, "bugfix")
         self.assertEqual("requirements_gather", state["next_stage"])
         self.assertEqual(
-            ("bugfix", "user", "astra_discovery"),
+            ("bugfix", "user", "draft_plan"),
             (workflows.kind(state), state["workflow"]["source"], state["workflow"]["then"]),
         )
 
     def test_a_flow_without_requirements_starts_at_its_first_planning_stage_as_a_build(self):
         state = fresh(joint=False)
-        workflows.begin(state, "astra_discovery")
-        self.assertEqual("astra_discovery", state["next_stage"])
+        workflows.begin(state, "draft_plan")
+        self.assertEqual("draft_plan", state["next_stage"])
         self.assertEqual("build", workflows.kind(state))
-        self.assertEqual(("default", "astra_discovery"), (state["workflow"]["source"], state["workflow"]["then"]))
+        self.assertEqual(("default", "draft_plan"), (state["workflow"]["source"], state["workflow"]["then"]))
         view = run_view.view(state)
         self.assertEqual(("build", "default"), (view["workflow"], view["workflow_source"]))
         self.assertEqual("small", state["workflow"]["brief_size"])
 
     def test_pin_names_the_kind_before_the_first_stage_and_refuses_after(self):
         state = fresh(joint=False)
-        workflows.begin(state, "astra_discovery")
+        workflows.begin(state, "draft_plan")
         workflows.pin(state, "review")
         self.assertEqual(
-            ("review", "user", "astra_discovery"),
+            ("review", "user", "draft_plan"),
             (workflows.kind(state), state["workflow"]["source"], state["next_stage"]),
         )
-        self.assertEqual("astra_discovery", state["workflow"]["then"])
+        self.assertEqual("draft_plan", state["workflow"]["then"])
         view = run_view.view(state)
         self.assertEqual(("review", "user"), (view["workflow"], view["workflow_source"]))
         with self.assertRaisesRegex(ValueError, "already runs as 'review'.*--workflow bugfix"):
@@ -95,10 +95,10 @@ class ModuleTests(unittest.TestCase):
             workflows.pin(fresh(), "refactor")
         # A run from before job naming existed records nothing to name.
         with self.assertRaisesRegex(ValueError, "predates"):
-            workflows.pin({**fresh(), "next_stage": "astra_discovery"}, "build")
+            workflows.pin({**fresh(), "next_stage": "draft_plan"}, "build")
         started = fresh(joint=False)
-        workflows.begin(started, "astra_discovery")
-        started["stages"] = [{"stage": "astra_discovery"}]
+        workflows.begin(started, "draft_plan")
+        started["stages"] = [{"stage": "draft_plan"}]
         with self.assertRaisesRegex(ValueError, "already runs as 'build'"):
             workflows.pin(started, "review")
 
@@ -112,7 +112,7 @@ class ModuleTests(unittest.TestCase):
         )
         workflows.begin_requirements(state)
         self.assertEqual(("requirements_gather", None), (state["next_stage"], workflows.kind(state)))
-        self.assertEqual("astra_discovery", state["workflow"]["then"], "a build goes on to the Planner")
+        self.assertEqual("draft_plan", state["workflow"]["then"], "a build goes on to the Planner")
         named = fresh()
         workflows.begin_requirements(named)
         workflows.from_requirements(named, {"job": None, "intended_outcome": "Fix the pager."})
@@ -145,7 +145,7 @@ class ModuleTests(unittest.TestCase):
         named = {"workflow": {"kind": "review", "reason": "Named by the user with --workflow", "source": "user"}}
         self.assertIn("Job kind: review (named by you with --workflow)", workflows.approval_note(named))
         default = fresh(joint=False)
-        workflows.begin(default, "astra_discovery")
+        workflows.begin(default, "draft_plan")
         self.assertIn(
             "Job kind: build (every task without a Requirements stage is planned as a build)",
             workflows.approval_note(default),
@@ -172,7 +172,7 @@ class RetiredStageTests(unittest.TestCase):
                     self.assertIn("start a new task to continue the work", message)
 
     def test_a_current_stage_is_not_retired(self):
-        for stage in (None, "requirements_gather", "astra_discovery", "terra", "check_design", "investigate_stuck"):
+        for stage in (None, "requirements_gather", "draft_plan", "builder", "check_design", "investigate_stuck"):
             with self.subTest(stage=stage):
                 self.assertIsNone(workflows.retired_stage({"next_stage": stage}))
 
@@ -254,10 +254,10 @@ class FollowUpContextTests(unittest.TestCase):
         reviewed = {"mode": "review", "design_under_review": "docs/design/cache.md", "verdict": "request_changes"}
         cases = [
             (produced, "docs/design/cache.md", workflows.DESIGN_CHECK_STAGE),
-            (produced, "docs/design/README.md", "astra_discovery"),
-            (produced, "docs/decisions/cache.json", "astra_discovery"),
-            (None, "docs/design/cache.md", "astra_discovery"),  # the previous turn produced no design
-            (reviewed, "docs/design/cache.md", "astra_discovery"),  # a review that asked for changes
+            (produced, "docs/design/README.md", "draft_plan"),
+            (produced, "docs/decisions/cache.json", "draft_plan"),
+            (None, "docs/design/cache.md", "draft_plan"),  # the previous turn produced no design
+            (reviewed, "docs/design/cache.md", "draft_plan"),  # a review that asked for changes
             ({**reviewed, "verdict": "approve"}, "docs/design/cache.md", workflows.DESIGN_CHECK_STAGE),
         ]
         for design, named, then in cases:
@@ -277,7 +277,7 @@ class FollowUpContextTests(unittest.TestCase):
             workflows.begin_requirements(state)
             self.build(state, named)
             with self.subTest(named):
-                self.assertEqual("astra_discovery", state["next_stage"])
+                self.assertEqual("draft_plan", state["next_stage"])
         self.assertEqual(
             {"mode": "propose", "documents": ["docs/design/cache.md"]},
             workflows.design_context(
@@ -314,7 +314,7 @@ class JobRouteTests(unittest.TestCase):
                 "task": "t",
                 "workspace": workspace,
                 "status": "RUNNING",
-                "next_stage": "terra",
+                "next_stage": "builder",
                 "stages": [],
                 "phase": "EXECUTING",
                 "settings": {
@@ -328,7 +328,7 @@ class JobRouteTests(unittest.TestCase):
                     },
                     "roles": {
                         "task_planner": {"model": "gpt-6-astra", "engine": "codex"},
-                        "terra": {"model": "gpt-6-sol"},
+                        "builder": {"model": "gpt-6-sol"},
                     },
                 },
             }

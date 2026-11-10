@@ -84,11 +84,11 @@ class BoundaryScenarios(BoundaryCase):
         # role is launched with allow_write; reviewers are read-only.
         from autocode_planning import role_for
 
-        reviewers = [stage for stage in ("astra_review", "sol", "astra_discovery", "astra_plan")]
+        reviewers = [stage for stage in ("review_completion", "tester", "draft_plan", "plan_task")]
         self.check(
             "planner_and_reviewer_stages_never_builder",
             True,
-            all(role_for(self.approved_state(), stage) != "terra" for stage in reviewers),
+            all(role_for(self.approved_state(), stage) != "builder" for stage in reviewers),
         )
         before = support.snapshot(self.root)
         report = {
@@ -106,7 +106,7 @@ class BoundaryScenarios(BoundaryCase):
             (ValueError, support.Paused),
             runner.apply_result,
             self.approved_state(),
-            "sol",
+            "tester",
             report,
             record,
             self.root,
@@ -198,8 +198,8 @@ class BoundaryScenarios(BoundaryCase):
         events.write_text('{"type":"thread.started","thread_id":"t"}\n' + denial)
         before = support.snapshot(self.root)
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "iteration": 5,
             "output": str(self.run / "terra-denied.json"),
             "events": str(events),
@@ -291,7 +291,7 @@ class BoundaryScenarios(BoundaryCase):
             support.Paused,
             runner.apply_result,
             b_state,
-            "astra_review",
+            "review_completion",
             decision_a,
             {"output": "foreign.json"},
             b_root,

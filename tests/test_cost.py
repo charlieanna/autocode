@@ -10,7 +10,7 @@ TOKENS = {"input_tokens": 1000, "output_tokens": 200}
 
 
 def stage(model="gpt-5.6-sol", tokens=TOKENS, **fields):
-    return {"stage": "sol", "role": "sol", "model": model, "metrics": {"provider_tokens": dict(tokens)}, **fields}
+    return {"stage": "tester", "role": "tester", "model": model, "metrics": {"provider_tokens": dict(tokens)}, **fields}
 
 
 def run(*stages, cap=None, **fields):
@@ -116,7 +116,7 @@ class CostProjectionTests(unittest.TestCase):
 
     def test_a_partial_or_running_stage_makes_the_spend_a_floor(self):
         partial = stage(metrics={"provider_tokens": TOKENS, "provider_tokens_partial": True})
-        for state in (run(partial), run(stage(), active_stage={"stage": "terra"})):
+        for state in (run(partial), run(stage(), active_stage={"stage": "builder"})):
             with self.subTest(state=state):
                 view = cost.view(state)
                 self.assertFalse(view["complete"])
@@ -157,7 +157,7 @@ class CostProjectionTests(unittest.TestCase):
                 self.assertIsNone(cost.view(state)["estimated_usd"])
 
     def test_a_climb_is_priced_from_the_last_attempts_tokens_at_the_stronger_models_rate(self):
-        attempt = stage("gpt-5.6-luna", stage="terra")
+        attempt = stage("gpt-5.6-luna", stage="builder")
         spent = prices.estimate("gpt-5.6-luna", TOKENS)
         projected = prices.estimate("gpt-5.6-sol", TOKENS)
         self.assertEqual(

@@ -14,7 +14,7 @@ import autocode_verification_plan as verification
 from . import test_handoff_dedup as fixtures
 
 
-def packet(stage="sol"):
+def packet(stage="tester"):
     value = fixtures.packet(stage)
     value["verification_obligations"] = verification.obligations(value)
     return value
@@ -39,7 +39,7 @@ def expanded(value):
 
 class VerificationClaimHandoffTests(unittest.TestCase):
     def test_exact_claims_reference_the_complete_contract_and_round_trip_all_proof(self):
-        for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+        for stage in ("builder", "tester", "review_completion", "review_checkpoint"):
             with self.subTest(stage=stage):
                 original = packet(stage)
                 before = copy.deepcopy(original)
@@ -95,11 +95,15 @@ class VerificationClaimHandoffTests(unittest.TestCase):
 
     def test_legacy_short_malformed_and_nonexecution_packets_remain_unreferenced(self):
         for value in (
-            {"stage": "sol", "verification_obligations": {"checks": [{"claim": "legacy"}]}},
-            {"stage": "sol", "goal_contract": {"body": {"acceptance_criteria": []}}, "verification_obligations": None},
+            {"stage": "tester", "verification_obligations": {"checks": [{"claim": "legacy"}]}},
+            {
+                "stage": "tester",
+                "goal_contract": {"body": {"acceptance_criteria": []}},
+                "verification_obligations": None,
+            },
         ):
             self.assertEqual(value, handoff.deduplicate(value))
-        for stage in ("astra_discovery", "astra_plan", "write_acceptance_tests"):
+        for stage in ("draft_plan", "plan_task", "write_acceptance_tests"):
             value = packet(stage)
             self.assertEqual(value["verification_obligations"], handoff.deduplicate(value)["verification_obligations"])
         value = packet()
@@ -119,13 +123,15 @@ class VerificationClaimHandoffTests(unittest.TestCase):
                 task="Implement all 18 requirements",
                 workspace=root,
                 settings={
-                    "roles": {role: {"engine": "codex", "model": "fake"} for role in ("task_planner", "terra", "sol")}
+                    "roles": {
+                        role: {"engine": "codex", "model": "fake"} for role in ("task_planner", "builder", "tester")
+                    }
                 },
             )
             value["answers"] = value["saved_answers"]
             before = copy.deepcopy(value)
             with patch.object(stage_context.support, "snapshot", return_value={"revision": "r", "head": "h"}):
-                text, _ = stage_context.context_packet(value, "sol", Path(root) / "state.json")
+                text, _ = stage_context.context_packet(value, "tester", Path(root) / "state.json")
             data = json.loads(text.split("CURRENT HANDOFF DATA\n", 1)[1])
             self.assertTrue(all("claim_ref" in row for row in data["verification_obligations"]["checks"]))
             self.assertEqual(1, text.count(value["goal_contract"]["body"]["acceptance_criteria"][0]["criterion"]))

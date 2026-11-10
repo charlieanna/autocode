@@ -52,7 +52,7 @@ class NativeWriterExecution:
         self.record = record
         self.boundary, self.command, self.environment = deepcopy(boundary), deepcopy(command), deepcopy(environment)
         _require(
-            record.get("stage") == record.get("role") == "terra"
+            record.get("stage") == record.get("role") == "builder"
             and boundary.get("allow_write") is True
             and cast(dict, state["current_task"])["kind"] == "implement",
             "only the original first implement Builder is enabled",

@@ -64,7 +64,7 @@ def fixture():
                 ],
             }
         },
-        "roles": {"terra": {"model": "controlled-builder", "reasoning_effort": "high"}},
+        "roles": {"builder": {"model": "controlled-builder", "reasoning_effort": "high"}},
         "milestone_checkpoints": {"enabled": True},
         "limits": {"stage_timeout_seconds": 15},
     }

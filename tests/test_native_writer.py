@@ -396,14 +396,14 @@ class FirstWriterAuthorityTests(unittest.TestCase):
             snapshot=lambda value: source_scope.snapshot(self.root, value),
             planning_stages=("requirements_gather",),
         )
-        native.guard(state, "terra", allow_write=True)
-        state["next_stage"] = "terra"
+        native.guard(state, "builder", allow_write=True)
+        state["next_stage"] = "builder"
         native.require_supported_action(SimpleNamespace(run_dir=self.run), state)
-        state["next_stage"] = "astra_resolve"
+        state["next_stage"] = "resolve"
         with self.assertRaises(util.Paused):
             native.require_supported_action(SimpleNamespace(run_dir=self.run), state)
         with self.assertRaises(util.Paused):
-            native.guard(state, "terra", allow_write=False)
+            native.guard(state, "builder", allow_write=False)
         with self.assertRaises(util.Paused):
             writer_module.NativeWriterAuthority(
                 SimpleNamespace(first_writer_authority=lambda **_: {}), state, snapshot=current
@@ -433,7 +433,7 @@ class FirstWriterAuthorityTests(unittest.TestCase):
 
     def test_active_worker_and_lost_original_lock_hold(self):
         state, current = self.commit()
-        state["active_stage"] = {"stage": "terra"}
+        state["active_stage"] = {"stage": "builder"}
         with self.assertRaises(util.Paused):
             self.proof(state, current)
         state.pop("active_stage")

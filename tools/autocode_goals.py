@@ -857,7 +857,7 @@ def answer(state: RunState, question_id, text, *, delegated=False, source=None, 
         cast(dict, state).update(
             status="RUNNING",
             phase="DISCOVERING",
-            next_stage="requirements" if roles.planning_flow(state) == "v2" else "astra_discovery",
+            next_stage="requirements" if roles.planning_flow(state) == "v2" else "draft_plan",
         )
         state["discovery_summary"] = ""
     # Answers are inputs to a new draft, never goal approvals.
@@ -1005,7 +1005,7 @@ def reject_assumption(state: RunState, assumption_id, selected):
         contract.update(approval_status="draft", approval_event=None)
     invalidate(state, "An assumption rejection requires a refreshed draft and explicit approval")
     first_stage = (
-        "requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {}) else "astra_discovery"
+        "requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {}) else "draft_plan"
     )
     state.update({"status": "RUNNING", "phase": "DISCOVERING", "next_stage": first_stage, "pending_questions": []})
     return obligation
@@ -1281,7 +1281,7 @@ def reconcile_legacy_review(state: RunState, criterion, answer_id, selected, cur
         or (state.get("current_task") and val.get("task_id") != cast(dict, state["current_task"])["id"])
         or (
             state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled")
-            and val.get("reviewer_role") != "sol"
+            and val.get("reviewer_role") != "tester"
         )
         or not val.get("checks")
         or any(check.get("exit_code") != 0 for check in val["checks"])
@@ -1317,7 +1317,7 @@ def reconcile_legacy_review(state: RunState, criterion, answer_id, selected, cur
         raise ValueError("Existing acceptance did not satisfy the current review gate")
     state["pending_questions"] = []
     state.pop("user_request", None)
-    state.update({"status": "RUNNING", "phase": "READY_TO_EXECUTE", "next_stage": "astra_review"})
+    state.update({"status": "RUNNING", "phase": "READY_TO_EXECUTE", "next_stage": "review_completion"})
 
 
 def requested_review_criteria(state: RunState, request):
@@ -1383,7 +1383,7 @@ def approve_review(state: RunState, criterion, selected, current):
         and state.get("status") == "WAITING_FOR_USER"
         and not state.get("user_request")
     ):
-        state.update({"status": "RUNNING", "phase": "READY_TO_EXECUTE", "next_stage": "astra_review"})
+        state.update({"status": "RUNNING", "phase": "READY_TO_EXECUTE", "next_stage": "review_completion"})
 
 
 DECISION_PROVENANCE = prompts.get("fragments/goals/decision-provenance.md")

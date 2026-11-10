@@ -54,7 +54,7 @@ class CompletionFixtures(unittest.TestCase):
             protection=SimpleNamespace(verify_namespace=Mock(side_effect=AssertionError("No native qualification"))),
         )
         self.record = {
-            "stage": "astra_review",
+            "stage": "review_completion",
             "role": "task_planner",
             "iteration": 1,
             "rework_evidence": {"hashes": {}},
@@ -285,7 +285,7 @@ class CompletionControllerJoinControls(unittest.TestCase):
             "next_objective": "",
             "affected_paths": ["ui.py"],
         }
-        self.record = {"stage": "astra_review", "output": "controlled-original-report"}
+        self.record = {"stage": "review_completion", "output": "controlled-original-report"}
 
         def accept(state, current, **kw):
             self.order.append(("accept", kw))
@@ -342,7 +342,7 @@ class CompletionControllerJoinControls(unittest.TestCase):
         self.pilot.apply_result(
             self.runtime,
             self.state,
-            "astra_review",
+            "review_completion",
             self.value,
             self.record,
             Path("/unused-controlled-workspace"),

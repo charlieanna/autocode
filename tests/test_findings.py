@@ -136,7 +136,7 @@ class LedgerTests(unittest.TestCase):
         )
         rows = findings.open_entries(state)
         self.assertEqual(2, len(rows))
-        self.assertTrue(all(row["source"] == "sol" and row["opened_in"] == "sol-01.json" for row in rows))
+        self.assertTrue(all(row["source"] == "tester" and row["opened_in"] == "sol-01.json" for row in rows))
         self.assertNotEqual(rows[0]["id"], rows[1]["id"])
         # Citing the open id refreshes that defect. The same words without an id are a new one.
         again = sol("Empty names are accepted", severity="critical")
@@ -202,7 +202,7 @@ class LedgerTests(unittest.TestCase):
         )
         self.assertEqual(
             {"Empty names are accepted", "Help text missing"},
-            {row["finding"] for row in findings.open_entries(state, "sol")},
+            {row["finding"] for row in findings.open_entries(state, "tester")},
         )
 
     def test_astra_findings_are_tracked_separately_and_blocked_does_not_close_them(self):
@@ -213,7 +213,7 @@ class LedgerTests(unittest.TestCase):
         )
         self.assertEqual(
             {
-                ("sol", "Empty names are accepted"),
+                ("tester", "Empty names are accepted"),
                 ("task_planner", "Empty names are accepted"),
                 ("task_planner", "No test for blank input"),
             },
@@ -235,7 +235,7 @@ class LedgerTests(unittest.TestCase):
             {"output": "astra-04.json"},
         )
         self.assertEqual(
-            {("sol", "Empty names are accepted"), ("task_planner", "Empty names are accepted")},
+            {("tester", "Empty names are accepted"), ("task_planner", "Empty names are accepted")},
             {(row["source"], row["finding"]) for row in findings.open_entries(state)},
         )
         with self.assertRaisesRegex(ValueError, "severity"):
@@ -339,7 +339,7 @@ class LedgerTests(unittest.TestCase):
 
     def test_sol_report_schema_accepts_finding_dispositions(self):
         legacy = support.read(SCHEMA_DIR / "sol-report.schema.json")
-        schema = goals.role_schema(legacy, "sol")
+        schema = goals.role_schema(legacy, "tester")
         strict = support.model_output_schema(schema)
         report = {
             "verdict": "PASS",
@@ -379,7 +379,7 @@ class LedgerTests(unittest.TestCase):
         findings.record_decision(state, astra("REWORK", "B"), {"output": "astra-01.json"})
         findings.assign(state, {"id": "task-1"}, {"kind": "implement"}, {"status": "REWORK"})
         rows = findings.handoff(state)
-        self.assertEqual({"sol", "task_planner"}, {row["source"] for row in rows})
+        self.assertEqual({"tester", "task_planner"}, {row["source"] for row in rows})
         self.assertEqual({"task-1"}, {row["assigned_task"] for row in rows})
         self.assertEqual(
             {
@@ -444,7 +444,7 @@ class LedgerTests(unittest.TestCase):
         state.pop("current_task")
         report = astra("CONTINUE", "M1 layout clips text")
         report["next_task"] = {"kind": "implement", "milestone_id": "M1", "acceptance_criteria": ["C1"]}
-        findings.record_decision(state, report, {"stage": "astra_plan", "output": "astra-plan.json"})
+        findings.record_decision(state, report, {"stage": "plan_task", "output": "astra-plan.json"})
         self.assertEqual({"milestone_id": "M1", "criteria": ["C1"]}, findings.open_entries(state)[0]["scope"])
 
     def legacy_initial_plan(self):
@@ -461,7 +461,7 @@ class LedgerTests(unittest.TestCase):
         state["findings_ledger"][0]["assigned_history"] = [{"task_id": task["id"]}]
         state["stages"] = [
             {
-                "stage": "astra_plan",
+                "stage": "plan_task",
                 "output": "astra-plan.json",
                 "task_id": None,
                 "contract_hash": "approved",
@@ -489,7 +489,7 @@ class LedgerTests(unittest.TestCase):
 
     def test_legacy_scope_recovery_refuses_unproven_or_changed_scope(self):
         mutations = {
-            "review_stage": lambda s: s["stages"][0].update(stage="astra_review"),
+            "review_stage": lambda s: s["stages"][0].update(stage="review_completion"),
             "existing_task": lambda s: s["stages"][0].update(task_id="earlier-task"),
             "rejected": lambda s: s["stages"][0].update(rejected=True),
             "failed_execution": lambda s: s["stages"][0].update(exit_code=1),
@@ -556,8 +556,8 @@ class LedgerTests(unittest.TestCase):
         # RunState declares goal_contract as dict | None; None must read like an absent contract.
         state = {"goal_contract": None, "current_task": {"id": "t", "milestone_id": ""}}
         findings.record_validation(state, sol("A"), {"output": "sol-1.json"})
-        findings.record_decision(state, astra("BLOCKED", "B"), {"output": "astra-1.json", "stage": "astra_review"})
-        self.assertEqual(["sol", "task_planner"], [row["source"] for row in findings.open_entries(state)])
+        findings.record_decision(state, astra("BLOCKED", "B"), {"output": "astra-1.json", "stage": "review_completion"})
+        self.assertEqual(["tester", "task_planner"], [row["source"] for row in findings.open_entries(state)])
         self.assertIsNone(findings.report_scope(state))
         self.assertEqual(2, len(findings.blocking_for_milestone(state, {"id": "M1"})))
         findings.restore_initial_plan_scopes(state)
@@ -576,17 +576,17 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual("retracted", state["findings_ledger"][0]["status"])
 
     def test_generation_schema_pins_identity_without_mutating_input(self):
-        schema = goals.role_schema(support.read(SCHEMA_DIR / "sol-report.schema.json"), "sol")
+        schema = goals.role_schema(support.read(SCHEMA_DIR / "sol-report.schema.json"), "tester")
         state = {
             "goal_contract": {"hash": "exact-hash", "revision": 4},
             "current_task": {"id": "task-4"},
             "findings_ledger": [
-                {"id": "own", "source": "sol", "status": "open"},
+                {"id": "own", "source": "tester", "status": "open"},
                 {"id": "foreign", "source": "task_planner", "status": "open"},
-                {"id": "closed", "source": "sol", "status": "resolved"},
+                {"id": "closed", "source": "tester", "status": "resolved"},
             ],
         }
-        bound = support.review_generation_schema(schema, state, "sol")["properties"]
+        bound = support.review_generation_schema(schema, state, "tester")["properties"]
         self.assertEqual(["exact-hash"], bound["contract_hash"]["enum"])
         self.assertEqual([4], bound["contract_revision"]["enum"])
         self.assertEqual(["task-4"], bound["task_id"]["enum"])
@@ -674,7 +674,7 @@ class LedgerTests(unittest.TestCase):
         findings.record_validation(state, report, {"output": "sol-repair.json", "report_repaired": True})
         self.assertEqual(2, len(findings.open_entries(state)))
         self.assertEqual(astra_id, findings.open_entries(state, "task_planner")[0]["id"])
-        sol_entry = findings.open_entries(state, "sol")[0]
+        sol_entry = findings.open_entries(state, "tester")[0]
         self.assertNotEqual(astra_id, sol_entry["id"])
         self.assertEqual(report["findings"][0]["evidence"], sol_entry["evidence"])
         self.assertTrue(sol_entry["blocking"])
@@ -703,7 +703,7 @@ class DashboardLedgerTests(unittest.TestCase):
             (run / "state.json").write_text("{}")
             state = {
                 "status": "RUNNING",
-                "next_stage": "terra",
+                "next_stage": "builder",
                 "stages": [],
                 "unresolved_findings": [{"severity": "high", "finding": "sol only"}],
             }
@@ -714,7 +714,9 @@ class DashboardLedgerTests(unittest.TestCase):
             findings.assign(state, {"id": "task-9"}, {"kind": "implement"}, {"status": "REWORK"})
             repeat = sol("Empty names are accepted")
             repeat["findings"][0]["id"] = next(
-                row["id"] for row in findings.open_entries(state, "sol") if row["finding"] == "Empty names are accepted"
+                row["id"]
+                for row in findings.open_entries(state, "tester")
+                if row["finding"] == "Empty names are accepted"
             )
             findings.record_validation(state, repeat, {"output": "sol-02.json"})
             with patch.object(monitor, "process_table") as probe:

@@ -105,7 +105,7 @@ class VisualProfileTests(unittest.TestCase):
             "shell": self.boundary["shell"],
             "plugin": [self.activity.as_uri(), self.plugin.as_uri()],
             "agent": {
-                "autocode_sol": {
+                "autocode_tester": {
                     "mode": "primary",
                     "model": "openai/gpt-6-sol",
                     "permission": deepcopy(self.permissions),
@@ -141,7 +141,7 @@ class VisualProfileTests(unittest.TestCase):
             "--format",
             "json",
             "--agent",
-            "autocode_sol",
+            "autocode_tester",
             "--model",
             "openai/gpt-6-sol",
             "--variant",
@@ -179,7 +179,7 @@ class VisualProfileTests(unittest.TestCase):
             "settings": {
                 "engine": "opencode",
                 "provider": "opencode",
-                "roles": {"sol": {"engine": "opencode", "model": "openai/gpt-6-sol", "reasoning_effort": "high"}},
+                "roles": {"tester": {"engine": "opencode", "model": "openai/gpt-6-sol", "reasoning_effort": "high"}},
                 "transport_identity": identity,
             },
             "goal_contract": {
@@ -194,7 +194,7 @@ class VisualProfileTests(unittest.TestCase):
             "engine": "opencode",
             "provider": "opencode",
             "configured": False,
-            "role": "sol",
+            "role": "tester",
             "model": "openai/gpt-6-sol",
             "planning": False,
             "provider_session": None,
@@ -275,8 +275,8 @@ class VisualProfileTests(unittest.TestCase):
             self.assertTrue(Path(child[key]).is_relative_to(self.directory))
             self.assertEqual(0o700, Path(child[key]).stat().st_mode & 0o777)
         config = json.loads(child["OPENCODE_CONFIG_CONTENT"])
-        self.assertEqual(self.permissions, config["agent"]["autocode_sol"]["permission"])
-        self.assertEqual(list(self.permissions["bash"]), list(config["agent"]["autocode_sol"]["permission"]["bash"]))
+        self.assertEqual(self.permissions, config["agent"]["autocode_tester"]["permission"])
+        self.assertEqual(list(self.permissions["bash"]), list(config["agent"]["autocode_tester"]["permission"]["bash"]))
         self.assertEqual(self.boundary["shell"], config["shell"])
         staged_activity = self.directory / "activity.mjs"
         self.assertEqual([staged_activity.as_uri(), self.plugin.as_uri()], config["plugin"])
@@ -287,7 +287,7 @@ class VisualProfileTests(unittest.TestCase):
         audit = json.loads(child["AUTOCODE_IMAGE_AUDIT"])
         self.assertEqual(2, audit["max_requests"])
         self.assertEqual(
-            {"provider": "opencode", "model": "openai/gpt-6-sol", "agent": "autocode_sol"}, audit["reviewer"]
+            {"provider": "opencode", "model": "openai/gpt-6-sol", "agent": "autocode_tester"}, audit["reviewer"]
         )
         self.assertFalse(Path(audit["path"]).exists())
         self.assertEqual(util.digest(child), result["child_identity"]["environment_sha256"])
@@ -359,7 +359,7 @@ class VisualProfileTests(unittest.TestCase):
                     before = deepcopy((self.state, self.worker))
                     context, command, environment, _ = visual.prepare(
                         self.state,
-                        "sol",
+                        "tester",
                         self.root,
                         self.run,
                         self.run / ("validator-" + str(cap)),
@@ -375,7 +375,7 @@ class VisualProfileTests(unittest.TestCase):
                     self.assertEqual(cap, json.loads(environment["AUTOCODE_IMAGE_AUDIT"])["max_requests"])
                     self.assertEqual(
                         self.permissions,
-                        json.loads(environment["OPENCODE_CONFIG_CONTENT"])["agent"]["autocode_sol"]["permission"],
+                        json.loads(environment["OPENCODE_CONFIG_CONTENT"])["agent"]["autocode_tester"]["permission"],
                     )
                     visual.verify_prelaunch(
                         context,
@@ -477,8 +477,8 @@ else:
             command, environment, _, worker = provider_launch.prepare(
                 engine="opencode",
                 adapter=opencode,
-                role="sol",
-                route_role="sol",
+                role="tester",
+                route_role="tester",
                 workspace=self.root,
                 run_dir=self.run,
                 session=None,
@@ -544,7 +544,7 @@ else:
         snapshot = util.snapshot(self.root)
         context, actual_command, actual_env, _ = visual.prepare(
             self.state,
-            "sol",
+            "tester",
             self.root,
             self.run,
             self.run / "production-validator",
@@ -667,12 +667,12 @@ else:
                     "opencode",
                     "--workflow",
                     "build",
-                    "--sol-model",
+                    "--tester-model",
                     "openai/gpt-6-sol",
-                    "--sol-reasoning-effort",
+                    "--tester-reasoning-effort",
                     "high",
                     "--pin-model-role",
-                    "sol",
+                    "tester",
                     # Configuration/status only: the fixture client refuses every model launch.
                     "--allow-uncontained-tools",
                 ),
@@ -688,18 +688,18 @@ else:
                 timeout=30,
                 check=True,
             )
-        route = json.loads(status.stdout)["settings"]["roles"]["sol"]
+        route = json.loads(status.stdout)["settings"]["roles"]["tester"]
         self.assertIs(route["model_pinned"], True)
         self.assertEqual(("openai/gpt-6-sol", "high"), (route["model"], route["reasoning_effort"]))
-        self.state["settings"]["roles"]["sol"] = route
+        self.state["settings"]["roles"]["tester"] = route
         self.declaration["executable_sha256"] = util.file_hash(self.executable)
         self.approve()
         result = self.launch()
-        self.assertEqual(route, self.state["settings"]["roles"]["sol"])
+        self.assertEqual(route, self.state["settings"]["roles"]["tester"])
         self.assertEqual("high", result["command"][result["command"].index("--variant") + 1])
 
     def test_pin_metadata_cannot_change_or_extend_the_approved_route(self):
-        original = deepcopy(self.state["settings"]["roles"]["sol"])
+        original = deepcopy(self.state["settings"]["roles"]["tester"])
         for change in (
             {"model_pinned": "true"},
             {"model_pinned": 1},
@@ -709,7 +709,7 @@ else:
             {"model_pinned": True, "custom_route": True},
         ):
             with self.subTest(change=change):
-                self.state["settings"]["roles"]["sol"] = {**original, **change}
+                self.state["settings"]["roles"]["tester"] = {**original, **change}
                 with self.assertRaises(ValueError):
                     self.launch()
                 self.assertFalse((self.directory / "home").exists())
@@ -882,10 +882,10 @@ else:
                     self.launch()
 
     def test_saved_external_config_or_settings_auth_fields_are_unsupported(self):
-        self.state["settings"]["roles"]["sol"]["apiKey"] = "secret"
+        self.state["settings"]["roles"]["tester"]["apiKey"] = "secret"
         with self.assertRaisesRegex(ValueError, "Credential/endpoint"):
             self.launch()
-        del self.state["settings"]["roles"]["sol"]["apiKey"]
+        del self.state["settings"]["roles"]["tester"]["apiKey"]
         identity = self.state["settings"]["transport_identity"]
         identity["config_hashes"]["/do-not-open/global.json"] = "c" * 64
         self.declaration["transport_identity_sha256"] = util.digest(identity)
@@ -920,7 +920,7 @@ else:
 
     def test_contained_denies_cannot_be_replaced_by_mutated_stage_configuration(self):
         changed = deepcopy(self.config)
-        changed["agent"]["autocode_sol"]["permission"]["bash"] = {"*": "allow"}
+        changed["agent"]["autocode_tester"]["permission"]["bash"] = {"*": "allow"}
         self.env["OPENCODE_CONFIG_CONTENT"] = json.dumps(changed)
         with self.assertRaisesRegex(ValueError, "differs from the actual contained worker"):
             self.launch()
@@ -947,7 +947,7 @@ const plugin = (await import(process.argv[1])).default;
 const hooks = await plugin();
 const output = {headers: {}};
 await hooks['chat.headers']({sessionID: 'structural-session', message: {id: 'structural-user'},
-  agent: 'autocode_sol', model: {providerID: 'openai', id: 'gpt-6-sol',
+  agent: 'autocode_tester', model: {providerID: 'openai', id: 'gpt-6-sol',
   capabilities: {input: {image: true}}}}, output);
 for (let i = 0; i < 2; i++) {
   await fetch('https://not-contacted.invalid/responses', {method: 'POST', headers: output.headers,

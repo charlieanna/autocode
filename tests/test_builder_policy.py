@@ -55,7 +55,7 @@ class PolicyTests(unittest.TestCase):
             "settings": {
                 "engine": "codex",
                 "builder_retry": dict(policy.DEFAULTS),
-                "roles": {"terra": {"model": "gpt-6-luna", "reasoning_effort": "medium"}},
+                "roles": {"builder": {"model": "gpt-6-luna", "reasoning_effort": "medium"}},
             },
             "goal_contract": {"hash": "approved"},
             "current_task": {"id": "task1", "milestone_id": "M1"},
@@ -68,7 +68,7 @@ class PolicyTests(unittest.TestCase):
         state = json.loads(json.dumps(state))
         self.assertEqual("retry", policy.failure(state, "e1", "failure"))
         self.assertEqual("escalate", policy.failure(state, "e2", "failure"))
-        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["builder"]["model"])
         self.assertEqual("pause", policy.failure(state, "e3", "failure"))
         self.assertEqual("PAUSED_INTERVENTION", state["status"])
         self.assertEqual(
@@ -83,20 +83,20 @@ class PolicyTests(unittest.TestCase):
     def test_automatic_retry_cannot_add_an_unconnected_strong_route(self):
         state = self.state()
         state["settings"]["engine"] = "opencode"
-        state["settings"]["roles"]["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        state["settings"]["roles"]["builder"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
         state["settings"]["route_selection"] = {
-            "candidates": {"terra": [{"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "levels": ["medium"]}]}
+            "candidates": {"builder": [{"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "levels": ["medium"]}]}
         }
         self.assertEqual("retry", policy.failure(state, "e1", "failure"))
         self.assertEqual("pause", policy.failure(state, "e2", "failure"))
-        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", state["settings"]["roles"]["builder"]["model"])
         self.assertIn("saved accounts", state["stop_reason"])
 
     def test_nonexecution_classes_never_spend_or_mutate_the_builder_route(self):
         for kind, action in (("plan", "replan"), ("operational", "recover"), ("unknown", "investigate")):
             with self.subTest(kind=kind):
                 state = self.state()
-                state["sessions"] = {"terra": "retained-session"}
+                state["sessions"] = {"builder": "retained-session"}
                 original = copy.deepcopy(state)
                 self.assertEqual(action, policy.failure(state, "e1", "observed failure", classification=kind))
                 self.assertEqual(action, policy.failure(state, "e2", "observed failure", classification=kind))
@@ -113,7 +113,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("investigate", policy.failure(state, "e1", "ambiguous", classification="unknown"))
         self.assertEqual("retry", policy.failure(state, "e1", "verified code failure", classification="execution"))
         self.assertEqual("recover", policy.failure(state, "e2", "permission denied", classification="operational"))
-        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["builder"]["model"])
         self.assertEqual("escalate", policy.failure(state, "e3", "verified code failure", classification="execution"))
         self.assertEqual(["e1", "e3"], policy.lane(state)["failures"])
         state = json.loads(json.dumps(state))
@@ -171,7 +171,7 @@ class PolicyTests(unittest.TestCase):
         self.saw(state, failing=["pytest -q"])
         self.assertEqual("retry", policy.failure(state, "e1", "code failure"))
         self.assertEqual("escalate", policy.failure(state, "e2", "code failure"))
-        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["builder"]["model"])
         self.assertEqual("pause", policy.failure(state, "e3", "code failure"))
         self.assertEqual("PAUSED_INTERVENTION", state["status"])
         self.assertIn("remains blocked after the configured retries", state["stop_reason"])
@@ -202,7 +202,7 @@ class PolicyTests(unittest.TestCase):
         self.saw(state, resolved=["F-a", "F-b"], open=["F-c"])
         self.assertEqual("retry", policy.failure(state, "e3", "review rework"))
         policy.guard(state)
-        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["builder"]["model"])
         decisions = state["builder_retry_decisions"]
         self.assertEqual(["new", "progress", "progress"], [row["novelty"] for row in decisions])
         self.assertIn("does not count toward the retry limit", decisions[1]["reason"])
@@ -219,7 +219,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("escalate", policy.failure(state, "e2", "code failure"))
         self.saw(state, open=["F-b"], passing=["pytest -q"])
         self.assertEqual("retry", policy.failure(state, "e3", "code failure"))
-        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["builder"]["model"])
         policy.guard(state)
         self.saw(state, open=["F-b"], passing=["pytest -q"], changed=["lib.py"])
         self.assertEqual("pause", policy.failure(state, "e4", "code failure"))
@@ -268,7 +268,7 @@ class PolicyTests(unittest.TestCase):
         tokens = {"input_tokens": 1000, "output_tokens": 200} if tokens is None else tokens
         luna = {"engine": "codex", "model": "gpt-6-luna", "reasoning_effort": "medium"}
         state["stages"] = [
-            {"stage": "terra", "role": "terra", "launch_route": luna, "metrics": {"provider_tokens": tokens}}
+            {"stage": "builder", "role": "builder", "launch_route": luna, "metrics": {"provider_tokens": tokens}}
         ]
         policy.failure(state, "e1", "code failure")
         self.assertEqual("escalate", policy.failure(state, "e2", "code failure"))
@@ -293,7 +293,7 @@ class PolicyTests(unittest.TestCase):
         # The escalation decision stands: raising the cap to what the stop names lets that attempt launch.
         self.assertEqual(
             ("gpt-6-sol", "xhigh"),
-            tuple(state["settings"]["roles"]["terra"][key] for key in ("model", "reasoning_effort")),
+            tuple(state["settings"]["roles"]["builder"][key] for key in ("model", "reasoning_effort")),
         )
         state["settings"]["limits"]["max_cost_usd"] = 0.01
         policy.guard(state)
@@ -313,7 +313,7 @@ class PolicyTests(unittest.TestCase):
             with self.subTest(unknown=unknown.get("parent_run") or "no token counts"):
                 policy.guard(unknown)
         unpriced = self.climbed(0.001)
-        unpriced["settings"]["roles"]["terra"]["model"] = "mystery-model"
+        unpriced["settings"]["roles"]["builder"]["model"] = "mystery-model"
         policy.guard(unpriced)
 
     def test_a_stronger_attempt_projected_past_the_time_budget_pauses_before_it_launches(self):
@@ -376,7 +376,7 @@ class PolicyTests(unittest.TestCase):
         )
         # The escalation decision stands: a budget that admits the total, none, or the milestone's count restarted
         # by resuming with --max-milestone-seconds, lets that attempt launch.
-        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["builder"]["model"])
         for budget, used in ((1250, 650), (0, 650), (1000, 0)):
             with self.subTest(budget=budget, used=used):
                 policy.guard(self.milestone_budgeted(budget, used=used))
@@ -433,23 +433,23 @@ class PolicyTests(unittest.TestCase):
             for override in ({"model_pinned": True}, {"provider": "custom"}, {"provider": "claude"}):
                 with self.subTest(engine=engine, override=override):
                     state = self.state()
-                    state["settings"]["roles"]["terra"].update(engine=engine, **override)
-                    original = copy.deepcopy(state["settings"]["roles"]["terra"])
+                    state["settings"]["roles"]["builder"].update(engine=engine, **override)
+                    original = copy.deepcopy(state["settings"]["roles"]["builder"])
                     policy.failure(state, "e1", "failure")
                     self.assertEqual("pause", policy.failure(state, "e2", "failure"))
-                    self.assertEqual(original, state["settings"]["roles"]["terra"])
+                    self.assertEqual(original, state["settings"]["roles"]["builder"])
 
     def test_native_strong_model_is_bare_and_preserves_transport(self):
         for strong in ("openai/gpt-6-sol", "gpt-6-sol"):
             with self.subTest(strong=strong):
                 state = self.state()
                 state["settings"]["builder_retry"]["strong_model"] = strong
-                state["settings"]["roles"]["terra"].update(engine="codex", provider="openai")
+                state["settings"]["roles"]["builder"].update(engine="codex", provider="openai")
                 self.assertEqual("retry", policy.failure(state, "e1", "failure"))
                 self.assertEqual("escalate", policy.failure(state, "e2", "failure"))
                 self.assertEqual(
                     {"model": "gpt-6-sol", "reasoning_effort": "xhigh", "engine": "codex", "provider": "openai"},
-                    state["settings"]["roles"]["terra"],
+                    state["settings"]["roles"]["builder"],
                 )
                 self.assertEqual(strong, state["settings"]["builder_retry"]["strong_model"])
                 self.assertEqual("gpt-6-sol", state["builder_retry_decisions"][-1]["selected_model"])
@@ -462,11 +462,11 @@ class PolicyTests(unittest.TestCase):
             with self.subTest(run_engine=run_engine, role_engine=role_engine):
                 state = self.state()
                 state["settings"]["engine"] = run_engine
-                state["settings"]["roles"]["terra"]["engine"] = role_engine
+                state["settings"]["roles"]["builder"]["engine"] = role_engine
                 policy.failure(state, "e1", "failure")
                 self.assertEqual("escalate", policy.failure(state, "e2", "failure"))
-                self.assertEqual(expected, state["settings"]["roles"]["terra"]["model"])
-                self.assertEqual(role_engine, state["settings"]["roles"]["terra"]["engine"])
+                self.assertEqual(expected, state["settings"]["roles"]["builder"]["model"])
+                self.assertEqual(role_engine, state["settings"]["roles"]["builder"]["engine"])
                 self.assertEqual(run_engine, state["settings"]["engine"])
 
     def test_native_normalization_does_not_strip_another_provider_prefix(self):
@@ -474,7 +474,7 @@ class PolicyTests(unittest.TestCase):
         state["settings"]["builder_retry"]["strong_model"] = "custom/gpt-6-sol"
         policy.failure(state, "e1", "failure")
         self.assertEqual("escalate", policy.failure(state, "e2", "failure"))
-        self.assertEqual("custom/gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("custom/gpt-6-sol", state["settings"]["roles"]["builder"]["model"])
 
     def test_a_provider_that_lists_its_models_without_the_strong_one_retries_once_more_then_pauses(self):
         claude = OLDER_CLAUDE_PROVIDER
@@ -487,7 +487,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("retry", policy.failure(state, "e2", "failure"))
         policy.guard(state)
         self.assertEqual("pause", policy.failure(state, "e3", "failure"))
-        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["builder"]["model"])
         self.assertIn("offers no stronger Builder model", state["stop_reason"])
         with self.assertRaises(policy.s.Paused):
             policy.guard(state)
@@ -499,7 +499,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("retry", policy.failure(state, "e1", "failure"))
         self.assertEqual("retry", policy.failure(state, "e2", "failure"))
         self.assertEqual("pause", policy.failure(state, "e3", "failure"))
-        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["builder"]["model"])
         self.assertEqual(
             "AutoCode could not finish this task: "
             + policy.NOT_OFFERED.format(model="zai-coding-plan/glm-5.3")
@@ -513,8 +513,8 @@ class PolicyTests(unittest.TestCase):
         state = self.state()
         state["settings"]["engine"] = "opencode"
         state["settings"]["roles"] = {
-            "terra": {"model": "openai/gpt-6-luna", "reasoning_effort": "medium", "model_pinned": True},
-            "sol": {"model": "openai/gpt-6-luna", "reasoning_effort": "high"},
+            "builder": {"model": "openai/gpt-6-luna", "reasoning_effort": "medium", "model_pinned": True},
+            "tester": {"model": "openai/gpt-6-luna", "reasoning_effort": "high"},
             "completion": {"model": "openai/gpt-6-luna", "reasoning_effort": "medium"},
         }
         route_ladder.serve(state["settings"], {"openai/gpt-6-luna", "zai-coding-plan/glm-5.3"})
@@ -535,7 +535,7 @@ class PolicyTests(unittest.TestCase):
         policy.failure(state, "e2", "f")
         state["current_task"] = {"id": "task2", "milestone_id": "M2"}
         policy.guard(state)
-        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["builder"]["model"])
         self.assertEqual("retry", policy.failure(state, "e3", "f"))
 
     def test_new_contract_preserves_operator_pinned_route(self):
@@ -548,19 +548,19 @@ class PolicyTests(unittest.TestCase):
             "provider": None,
             "model_pinned": True,
         }
-        state["settings"]["roles"]["terra"] = copy.deepcopy(selected)
+        state["settings"]["roles"]["builder"] = copy.deepcopy(selected)
         state["goal_contract"]["hash"] = "reapproved"
         state = json.loads(json.dumps(state))
         policy.guard(state)
-        self.assertEqual(selected, state["settings"]["roles"]["terra"])
+        self.assertEqual(selected, state["settings"]["roles"]["builder"])
         self.assertEqual(selected, policy.lane(state)["initial_route"])
 
     def default_routes(self):
         state = self.state()
         state["settings"]["engine"] = "opencode"
         state["settings"]["roles"] = {
-            "terra": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "medium"},
-            "sol": {"model": "openai/gpt-6-sol", "reasoning_effort": "high"},
+            "builder": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "medium"},
+            "tester": {"model": "openai/gpt-6-sol", "reasoning_effort": "high"},
             "completion": {"model": "openai/gpt-6-sol", "reasoning_effort": "medium"},
         }
         return state
@@ -571,14 +571,18 @@ class PolicyTests(unittest.TestCase):
         policy.failure(state, "e1", "f")
         self.assertEqual("escalate", policy.failure(state, "e2", "f"))
         roles = state["settings"]["roles"]
-        self.assertEqual(("openai/gpt-6-sol", "xhigh"), (roles["terra"]["model"], roles["terra"]["reasoning_effort"]))
-        self.assertEqual(("zai-coding-plan/glm-5.3", "high"), (roles["sol"]["model"], roles["sol"]["reasoning_effort"]))
+        self.assertEqual(
+            ("openai/gpt-6-sol", "xhigh"), (roles["builder"]["model"], roles["builder"]["reasoning_effort"])
+        )
+        self.assertEqual(
+            ("zai-coding-plan/glm-5.3", "high"), (roles["tester"]["model"], roles["tester"]["reasoning_effort"])
+        )
         self.assertEqual(
             ("zai-coding-plan/glm-5.3", "medium"),
             (roles["completion"]["model"], roles["completion"]["reasoning_effort"]),
         )
         self.assertEqual(
-            {"sol": "zai-coding-plan/glm-5.3", "completion": "zai-coding-plan/glm-5.3"},
+            {"tester": "zai-coding-plan/glm-5.3", "completion": "zai-coding-plan/glm-5.3"},
             state["builder_retry_decisions"][-1]["checker_models"],
         )
         dispatch.enforce_cross_model_verification(state)
@@ -594,7 +598,7 @@ class PolicyTests(unittest.TestCase):
         policy.failure(state, "e1", "f")
         self.assertEqual("escalate", policy.failure(state, "e2", "f"))
         roles = state["settings"]["roles"]
-        self.assertEqual(policy.DEFAULTS["checker_model"], roles["sol"]["model"])
+        self.assertEqual(policy.DEFAULTS["checker_model"], roles["tester"]["model"])
         self.assertEqual(policy.DEFAULTS["checker_model"], roles["completion"]["model"])
         dispatch.enforce_cross_model_verification(state)
 
@@ -622,14 +626,14 @@ class PolicyTests(unittest.TestCase):
             strong_model="zai-coding-plan/glm-5.3", checker_model="openai/gpt-6-sol"
         )
         roles = state["settings"]["roles"]
-        roles["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
-        roles["sol"]["model"] = "zai-coding-plan/glm-5.2"
+        roles["builder"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        roles["tester"]["model"] = "zai-coding-plan/glm-5.2"
         roles["completion"]["model"] = "openai/gpt-6-luna"
         dispatch.enforce_cross_model_verification(state)
         policy.failure(state, "e1", "f")
         self.assertEqual("escalate", policy.failure(state, "e2", "f"))
-        self.assertEqual("zai-coding-plan/glm-5.3", roles["terra"]["model"])
-        self.assertEqual({"sol": "openai/gpt-6-sol"}, state["builder_retry_decisions"][-1]["checker_models"])
+        self.assertEqual("zai-coding-plan/glm-5.3", roles["builder"]["model"])
+        self.assertEqual({"tester": "openai/gpt-6-sol"}, state["builder_retry_decisions"][-1]["checker_models"])
         self.assertEqual("openai/gpt-6-luna", roles["completion"]["model"])
         dispatch.enforce_cross_model_verification(state)
 
@@ -649,20 +653,20 @@ class PolicyTests(unittest.TestCase):
 
     def test_a_climbed_checker_moves_to_a_glm_effort(self):
         state = self.default_routes()
-        state["settings"]["roles"]["sol"]["reasoning_effort"] = "max"
+        state["settings"]["roles"]["tester"]["reasoning_effort"] = "max"
         policy.failure(state, "e1", "f")
         policy.failure(state, "e2", "f")
-        self.assertEqual("high", state["settings"]["roles"]["sol"]["reasoning_effort"])
+        self.assertEqual("high", state["settings"]["roles"]["tester"]["reasoning_effort"])
         state["current_task"] = {"id": "task2", "milestone_id": "M2"}
         policy.guard(state)
-        self.assertEqual("max", state["settings"]["roles"]["sol"]["reasoning_effort"])
+        self.assertEqual("max", state["settings"]["roles"]["tester"]["reasoning_effort"])
 
     def test_a_pinned_checker_is_not_moved_and_the_cross_model_guard_still_pauses(self):
         state = self.default_routes()
-        state["settings"]["roles"]["sol"]["model_pinned"] = True
+        state["settings"]["roles"]["tester"]["model_pinned"] = True
         policy.failure(state, "e1", "f")
         self.assertEqual("escalate", policy.failure(state, "e2", "f"))
-        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["sol"]["model"])
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["tester"]["model"])
         self.assertEqual("zai-coding-plan/glm-5.3", state["settings"]["roles"]["completion"]["model"])
         with self.assertRaises(policy.s.Paused) as raised:
             dispatch.enforce_cross_model_verification(state)
@@ -677,12 +681,12 @@ class PolicyTests(unittest.TestCase):
             "provider": "openai",
             "model_pinned": True,
         }
-        state["settings"]["roles"]["sol"] = copy.deepcopy(checker)
+        state["settings"]["roles"]["tester"] = copy.deepcopy(checker)
         dispatch.enforce_cross_model_verification(state)
         policy.failure(state, "e1", "failure")
         self.assertEqual("escalate", policy.failure(state, "e2", "failure"))
-        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
-        self.assertEqual(checker, state["settings"]["roles"]["sol"])
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["builder"]["model"])
+        self.assertEqual(checker, state["settings"]["roles"]["tester"])
         with self.assertRaises(policy.s.Paused) as raised:
             dispatch.enforce_cross_model_verification(state)
         self.assertEqual("PAUSED_CROSS_MODEL", raised.exception.status)
@@ -705,7 +709,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_native_builder_still_swaps_compatible_opencode_checker(self):
         state = self.state()
-        state["settings"]["roles"]["sol"] = {
+        state["settings"]["roles"]["tester"] = {
             "model": "openai/gpt-6-sol",
             "reasoning_effort": "medium",
             "engine": "opencode",
@@ -713,7 +717,7 @@ class PolicyTests(unittest.TestCase):
         }
         policy.failure(state, "e1", "failure")
         self.assertEqual("escalate", policy.failure(state, "e2", "failure"))
-        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["builder"]["model"])
         self.assertEqual(
             {
                 "model": policy.DEFAULTS["checker_model"],
@@ -721,10 +725,10 @@ class PolicyTests(unittest.TestCase):
                 "engine": "opencode",
                 "provider": "openai",
             },
-            state["settings"]["roles"]["sol"],
+            state["settings"]["roles"]["tester"],
         )
         self.assertEqual(
-            {"sol": policy.DEFAULTS["checker_model"]}, state["builder_retry_decisions"][-1]["checker_models"]
+            {"tester": policy.DEFAULTS["checker_model"]}, state["builder_retry_decisions"][-1]["checker_models"]
         )
         dispatch.enforce_cross_model_verification(state)
 
@@ -752,8 +756,10 @@ class PolicyTests(unittest.TestCase):
         parent = json.loads(json.dumps(parent))
         policy.guard(parent)
         roles = parent["settings"]["roles"]
-        self.assertEqual(("openai/gpt-6-sol", "xhigh"), (roles["terra"]["model"], roles["terra"]["reasoning_effort"]))
-        self.assertEqual("zai-coding-plan/glm-5.3", roles["sol"]["model"])
+        self.assertEqual(
+            ("openai/gpt-6-sol", "xhigh"), (roles["builder"]["model"], roles["builder"]["reasoning_effort"])
+        )
+        self.assertEqual("zai-coding-plan/glm-5.3", roles["tester"]["model"])
         self.assertEqual("zai-coding-plan/glm-5.3", roles["completion"]["model"])
         dispatch.enforce_cross_model_verification(parent)
         policy.guard(parent)
@@ -770,12 +776,12 @@ class PolicyTests(unittest.TestCase):
         policy.failure(worker, "e1", "f")
         policy.failure(worker, "e2", "f")
         policy.adopt(parent, worker)
-        parent["settings"]["roles"]["terra"]["model_pinned"] = True
+        parent["settings"]["roles"]["builder"]["model_pinned"] = True
         with self.assertRaises(policy.s.Paused) as raised:
             policy.guard(parent)
         self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", raised.exception.status)
-        self.assertEqual(self.default_routes()["settings"]["roles"]["sol"], parent["settings"]["roles"]["sol"])
-        self.assertEqual("zai-coding-plan/glm-5.3", parent["settings"]["roles"]["terra"]["model"])
+        self.assertEqual(self.default_routes()["settings"]["roles"]["tester"], parent["settings"]["roles"]["tester"])
+        self.assertEqual("zai-coding-plan/glm-5.3", parent["settings"]["roles"]["builder"]["model"])
 
     def test_configured_strong_model_retains_opencode_transport(self):
         state = self.state()
@@ -783,8 +789,8 @@ class PolicyTests(unittest.TestCase):
         state["settings"]["builder_retry"]["strong_model"] = "gpt-6-sol"
         policy.failure(state, "e1", "f")
         policy.failure(state, "e2", "f")
-        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
-        self.assertEqual("xhigh", state["settings"]["roles"]["terra"]["reasoning_effort"])
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["builder"]["model"])
+        self.assertEqual("xhigh", state["settings"]["roles"]["builder"]["reasoning_effort"])
 
 
 class RetryLimitOutcomeTests(unittest.TestCase):
@@ -796,8 +802,8 @@ class RetryLimitOutcomeTests(unittest.TestCase):
                 "engine": "codex",
                 "builder_retry": dict(policy.DEFAULTS),
                 "roles": {
-                    "terra": {"model": "gpt-6-luna", "reasoning_effort": "medium"},
-                    "sol": {"model": "gpt-6-sol", "reasoning_effort": "high"},
+                    "builder": {"model": "gpt-6-luna", "reasoning_effort": "medium"},
+                    "tester": {"model": "gpt-6-sol", "reasoning_effort": "high"},
                 },
             },
             "goal_contract": {"hash": "approved"},
@@ -840,7 +846,7 @@ class RetryLimitOutcomeTests(unittest.TestCase):
         self.assertEqual(
             {
                 "milestone_key": policy.key(state),
-                "stage": "terra",
+                "stage": "builder",
                 "failure": "e3",
                 "attempt": 3,
                 "novelty": "repeat",
@@ -854,7 +860,7 @@ class RetryLimitOutcomeTests(unittest.TestCase):
 
     def test_a_checker_clash_ends_the_run_naming_the_clash_without_asking_a_person(self):
         state = ToolProviderPolicyTests.state(self)
-        state["settings"]["roles"]["sol"].update(model_pinned=True)
+        state["settings"]["roles"]["tester"].update(model_pinned=True)
         self.saw(state)
         self.assertEqual("retry", policy.failure(state, "e1", "failure"))
         self.assertEqual("pause", policy.failure(state, "e2", "failure"))
@@ -867,7 +873,7 @@ class RetryLimitOutcomeTests(unittest.TestCase):
         self.assertEqual(
             {
                 "milestone_key": policy.key(state),
-                "stage": "terra",
+                "stage": "builder",
                 "failure": "e2",
                 "attempt": 2,
                 "novelty": "repeat",
@@ -935,7 +941,7 @@ class ToolProviderPolicyTests(unittest.TestCase):
                 "provider": provider.NAME,
                 "builder_retry": policy.configured(None, provider),
                 "roles": {
-                    **{role: route(role) for role in ("task_planner", "terra", "sol", "completion", "planner")},
+                    **{role: route(role) for role in ("task_planner", "builder", "tester", "completion", "planner")},
                     "plan_reviewer": route("plan_reviewer", model_pinned=True),
                 },
             },
@@ -950,10 +956,12 @@ class ToolProviderPolicyTests(unittest.TestCase):
         self.assertEqual("retry", policy.failure(state, "e1", "f"))
         self.assertEqual("escalate", policy.failure(state, "e2", "f"))
         roles = state["settings"]["roles"]
-        self.assertEqual({**before["terra"], "model": "claude-sonnet-5-5", "reasoning_effort": "xhigh"}, roles["terra"])
-        self.assertEqual({**before["sol"], "model": "claude-opus-5-5"}, roles["sol"])
+        self.assertEqual(
+            {**before["builder"], "model": "claude-sonnet-5-5", "reasoning_effort": "xhigh"}, roles["builder"]
+        )
+        self.assertEqual({**before["tester"], "model": "claude-opus-5-5"}, roles["tester"])
         self.assertEqual(before["completion"], roles["completion"])
-        self.assertEqual({"sol": "claude-opus-5-5"}, state["builder_retry_decisions"][-1]["checker_models"])
+        self.assertEqual({"tester": "claude-opus-5-5"}, state["builder_retry_decisions"][-1]["checker_models"])
         dispatch.enforce_cross_model_verification(state)
         CLAUDE_PROVIDER.check_models(roles)  # every route is a model the tool serves, spelled as it spells it
         self.assertEqual("pause", policy.failure(state, "e3", "f"))
@@ -979,9 +987,9 @@ class ToolProviderPolicyTests(unittest.TestCase):
                         role: {"model": "claude-opus-5-5", "effort": "medium"}
                         for role in ("task_planner", "completion", "plan_reviewer")
                     },
-                    "terra": {"model": "mimo-v2.6-pro", "effort": "medium"},
+                    "builder": {"model": "mimo-v2.6-pro", "effort": "medium"},
                     "planner": {"model": "mimo-v2.6-pro", "effort": "medium"},
-                    "sol": {"model": "glm-5.2", "effort": "medium"},
+                    "tester": {"model": "glm-5.2", "effort": "medium"},
                 },
                 "builder_retry": {"strong_model": "glm-5.3", "checker_model": "claude-opus-5-5"},
             },
@@ -992,8 +1000,8 @@ class ToolProviderPolicyTests(unittest.TestCase):
         policy.failure(state, "e1", "f")
         self.assertEqual("escalate", policy.failure(state, "e2", "f"))
         roles = state["settings"]["roles"]
-        self.assertEqual(("glm-5.3", "claude-opus-5-5"), (roles["terra"]["model"], roles["sol"]["model"]))
-        self.assertEqual({"sol": "claude-opus-5-5"}, state["builder_retry_decisions"][-1]["checker_models"])
+        self.assertEqual(("glm-5.3", "claude-opus-5-5"), (roles["builder"]["model"], roles["tester"]["model"]))
+        self.assertEqual({"tester": "claude-opus-5-5"}, state["builder_retry_decisions"][-1]["checker_models"])
         dispatch.enforce_cross_model_verification(state)
         tool.check_models(roles)
 
@@ -1008,13 +1016,15 @@ class ToolProviderPolicyTests(unittest.TestCase):
         policy.adopt(parent, worker)
         policy.guard(parent)
         roles = parent["settings"]["roles"]
-        self.assertEqual(("claude-sonnet-5-5", "claude-opus-5-5"), (roles["terra"]["model"], roles["sol"]["model"]))
+        self.assertEqual(
+            ("claude-sonnet-5-5", "claude-opus-5-5"), (roles["builder"]["model"], roles["tester"]["model"])
+        )
         dispatch.enforce_cross_model_verification(parent)
 
     def test_a_checker_that_cannot_move_stops_the_escalation_before_any_route_changes(self):
         for name, change in (
-            ("pinned Validator", lambda st: st["settings"]["roles"]["sol"].update(model_pinned=True)),
-            ("custom-provider Validator", lambda st: st["settings"]["roles"]["sol"].update(provider="custom")),
+            ("pinned Validator", lambda st: st["settings"]["roles"]["tester"].update(model_pinned=True)),
+            ("custom-provider Validator", lambda st: st["settings"]["roles"]["tester"].update(provider="custom")),
             (
                 "checker model is the strong model",
                 lambda st: st["settings"]["builder_retry"].update(checker_model="claude-sonnet-5-5"),
@@ -1025,7 +1035,7 @@ class ToolProviderPolicyTests(unittest.TestCase):
             ),
             (
                 "Validator spells the strong model another way",
-                lambda st: st["settings"]["roles"]["sol"].update(model="openai/claude-sonnet-5-5"),
+                lambda st: st["settings"]["roles"]["tester"].update(model="openai/claude-sonnet-5-5"),
             ),
         ):
             with self.subTest(name):
@@ -1085,12 +1095,12 @@ class ToolProviderPolicyTests(unittest.TestCase):
         # and the Sonnet Tester moves to Opus.
         state = self.state()
         roles = state["settings"]["roles"]
-        roles["terra"]["model"] = "claude-sonnet-5-5"
+        roles["builder"]["model"] = "claude-sonnet-5-5"
         policy.failure(state, "e1", "f")
         self.assertEqual("escalate", policy.failure(state, "e2", "f"))
         self.assertEqual(
             ("claude-sonnet-5-5", "xhigh", "claude-opus-5-5"),
-            (roles["terra"]["model"], roles["terra"]["reasoning_effort"], roles["sol"]["model"]),
+            (roles["builder"]["model"], roles["builder"]["reasoning_effort"], roles["tester"]["model"]),
         )
         dispatch.enforce_cross_model_verification(state)
 
@@ -1102,7 +1112,7 @@ class ToolProviderPolicyTests(unittest.TestCase):
 
     def test_a_pause_before_escalating_names_jobs_by_their_screen_names(self):
         state = self.state()
-        state["settings"]["roles"]["sol"].update(model_pinned=True)
+        state["settings"]["roles"]["tester"].update(model_pinned=True)
         policy.failure(state, "e1", "f")
         self.assertEqual("pause", policy.failure(state, "e2", "f"))
         self.assertIn("a Tester or Completion Reviewer on it is pinned", state["stop_reason"])
@@ -1118,9 +1128,9 @@ class ToolProviderPolicyTests(unittest.TestCase):
                 "roles": {
                     **{
                         role: {"model": "gpt-6-sol", "effort": "medium"}
-                        for role in ("task_planner", "sol", "completion", "plan_reviewer")
+                        for role in ("task_planner", "tester", "completion", "plan_reviewer")
                     },
-                    "terra": {"model": "gpt-6-luna", "effort": "medium"},
+                    "builder": {"model": "gpt-6-luna", "effort": "medium"},
                     "planner": {"model": "gpt-6-luna", "effort": "medium"},
                 },
             },
@@ -1140,12 +1150,12 @@ class ToolProviderPolicyTests(unittest.TestCase):
         kilo = command.load("kilocode")
         state = self.state(kilo)
         self.assertEqual(policy.DEFAULTS, state["settings"]["builder_retry"])
-        state["settings"]["roles"]["sol"]["model"] = "openai/gpt-6-sol"
+        state["settings"]["roles"]["tester"]["model"] = "openai/gpt-6-sol"
         policy.failure(state, "e1", "f")
         self.assertEqual("escalate", policy.failure(state, "e2", "f"))
         roles = state["settings"]["roles"]
         self.assertEqual(
-            ("openai/gpt-6-sol", "zai-coding-plan/glm-5.3"), (roles["terra"]["model"], roles["sol"]["model"])
+            ("openai/gpt-6-sol", "zai-coding-plan/glm-5.3"), (roles["builder"]["model"], roles["tester"]["model"])
         )
 
     def test_a_kilocode_builder_given_a_bare_strong_model_gets_the_openai_alias_as_before(self):
@@ -1154,14 +1164,14 @@ class ToolProviderPolicyTests(unittest.TestCase):
         state["settings"]["builder_retry"] = policy.configured("gpt-6-sol", kilo)
         policy.failure(state, "e1", "f")
         self.assertEqual("escalate", policy.failure(state, "e2", "f"))
-        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["builder"]["model"])
 
     def test_a_tool_that_names_models_with_a_slash_keeps_the_old_policy_where_a_checker_cannot_be_proven_safe(self):
         # Before tools had their own kind a kilocode Builder escalated here: a pinned Validator stayed for the
         # cross-model guard to catch, and an unrouted GLM still took the Validator's place. It still does.
         kilo = command.load("kilocode")
         for name, change, validator in (
-            ("pinned Validator", lambda roles: roles["sol"].update(model_pinned=True), "openai/gpt-6-sol"),
+            ("pinned Validator", lambda roles: roles["tester"].update(model_pinned=True), "openai/gpt-6-sol"),
             (
                 "checker model no role uses",
                 lambda roles: roles["planner"].update(model="openai/gpt-5.6-sol"),
@@ -1171,13 +1181,13 @@ class ToolProviderPolicyTests(unittest.TestCase):
             with self.subTest(name):
                 state = self.state(kilo)
                 roles = state["settings"]["roles"]
-                roles["sol"]["model"] = "openai/gpt-6-sol"
+                roles["tester"]["model"] = "openai/gpt-6-sol"
                 change(roles)
                 policy.failure(state, "e1", "f")
                 self.assertEqual("escalate", policy.failure(state, "e2", "f"))
                 self.assertEqual(
                     ("openai/gpt-6-sol", "xhigh", validator),
-                    (roles["terra"]["model"], roles["terra"]["reasoning_effort"], roles["sol"]["model"]),
+                    (roles["builder"]["model"], roles["builder"]["reasoning_effort"], roles["tester"]["model"]),
                 )
 
 
@@ -1254,7 +1264,7 @@ class PolicyBlackbox(unittest.TestCase):
         self.assertEqual(routes, self.state()["settings"]["roles"])
         self.review()
         # No model checked its own work: GPT-6 Sol checked Luna's builds, GLM checked GPT-6 Sol's.
-        for stage in ("sol", "astra_review"):
+        for stage in ("tester", "review_completion"):
             self.assertEqual([("M2", strong), ("M1", glm), ("M3", strong)], self.checkers(stage))
 
     def test_when_every_parallel_builder_defers_the_parent_builds_each_serially(self):
@@ -1273,7 +1283,7 @@ class PolicyBlackbox(unittest.TestCase):
         self.candidate()
         self.assertEqual(["gpt-6-luna", "gpt-6-luna", strong], self.models("M2"))
         self.review()
-        for stage in ("sol", "astra_review"):
+        for stage in ("tester", "review_completion"):
             self.assertEqual([("M1", glm), ("M2", glm)], self.checkers(stage))
 
     def test_exhaustion_resume_cannot_reset_budget_or_claim_built(self):
@@ -1330,7 +1340,7 @@ class PolicyBlackbox(unittest.TestCase):
         # The fake Tester fails the same check every round: the ledger sees the second and third as repeats.
         self.assertEqual(["new", "repeat", "repeat"], [r["novelty"] for r in self.state()["builder_retry_decisions"]])
         self.assertIn("no new evidence", self.state()["stop_reason"])
-        self.assertEqual(2, len(self.events(stage="astra_resolve")))
+        self.assertEqual(2, len(self.events(stage="resolve")))
 
     def test_a_stronger_builder_attempt_past_the_cost_cap_pauses_before_it_launches(self):
         # Issue #611: the climb consults the person's cost cap before it spends, and names the arithmetic.
@@ -1393,7 +1403,7 @@ class PolicyBlackbox(unittest.TestCase):
         # so far but not both.
         path = self.run / "state.json"
         saved = json.loads(path.read_text())
-        last = [row for row in saved["stages"] if row["stage"] == "terra"][-1]
+        last = [row for row in saved["stages"] if row["stage"] == "builder"][-1]
         last["duration_seconds"] += 600
         saved["active_seconds"] += 600
         path.write_text(json.dumps(saved, indent=2))
@@ -1449,7 +1459,7 @@ class PolicyBlackbox(unittest.TestCase):
         # the milestone's time so far, and the attempt alone, but not both.
         path = self.run / "state.json"
         saved = json.loads(path.read_text())
-        last = [row for row in saved["stages"] if row["stage"] == "terra"][-1]
+        last = [row for row in saved["stages"] if row["stage"] == "builder"][-1]
         last["duration_seconds"] += 600
         row = saved["milestone_progress"][f"{saved['goal_contract']['hash']}:M1"]
         row["seconds"] += 600

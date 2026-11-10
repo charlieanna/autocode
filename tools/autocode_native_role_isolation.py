@@ -228,7 +228,7 @@ class NativeRoleIsolation:
     def _measure_writer(self, state: RunState):
         # This authenticates a restriction under the approved contract. It does
         # not authenticate causal assignment/prerequisites or permit dispatch.
-        _require(self._role == "terra", "only the saved Builder role can receive a task writer restriction")
+        _require(self._role == "builder", "only the saved Builder role can receive a task writer restriction")
         _require(contract.approved(state), "task writer requires the approved contract")
         saved = cast(dict, state["goal_contract"])
         task = state.get("current_task")
@@ -559,9 +559,9 @@ class NativeRoleIsolation:
         _require(
             self._prepared is not None
             and self._descriptor is None
-            and self._role == "sol"
+            and self._role == "tester"
             and self._prepared["allow_write"] is False
-            and self._prepared["agent"] == "autocode_sol"
+            and self._prepared["agent"] == "autocode_tester"
             and sdk_rules._profile(self._state) == profile
             and profile["model"] == self._route["model"]
             and profile["reasoning_effort"] == self._route["reasoning_effort"]

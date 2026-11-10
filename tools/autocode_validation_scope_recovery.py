@@ -40,7 +40,7 @@ def pending(state: RunState):
     task, contract = state.get("current_task") or {}, state.get("goal_contract") or {}
     if (
         state.get("status") != "WAITING_FOR_USER"
-        or state.get("next_stage") != "terra"
+        or state.get("next_stage") != "builder"
         or task.get("kind") != "validate"
         or not task.get("id")
         or state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled") is not True
@@ -95,14 +95,14 @@ def pending(state: RunState):
         or repair.get("review_output") != validation.get("output")
         or repair.get("task_id") != task["id"]
         or any(repair.get("contract_" + key) != contract[key] for key in ("hash", "revision"))
-        or validation.get("reviewer_role") != "sol"
+        or validation.get("reviewer_role") != "tester"
         or validation.get("output") not in (validation.get("evidence_hashes") or {})
     ):
         return None
     accepted = any(
         row.get("output") == validation["output"]
-        and (row.get("original_stage") or row.get("stage")) == "sol"
-        and row.get("role") == "sol"
+        and (row.get("original_stage") or row.get("stage")) == "tester"
+        and row.get("role") == "tester"
         and row.get("exit_code") == 0
         and not row.get("rejected")
         and not row.get("changed_files")
@@ -142,5 +142,5 @@ def settle(state: RunState, revision, *, at):
             "reason": REASON,
         }
     )
-    run_status.running(state, "EXECUTING", next_stage="astra_review", next_action=REASON)
+    run_status.running(state, "EXECUTING", next_stage="review_completion", next_action=REASON)
     return True

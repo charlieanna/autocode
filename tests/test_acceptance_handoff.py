@@ -33,7 +33,7 @@ def state():
                 "permission_boundaries": ["Only edit the approved files"],
             },
         },
-        "next_stage": "terra",
+        "next_stage": "builder",
     }
     acceptance.route(result)
     return result
@@ -112,5 +112,5 @@ class AcceptanceHandoffTests(unittest.TestCase):
         packet["goal_contract"]["body"]["acceptance_criteria"] = [{"id": "C1", "criterion": "Works"}]
         self.assertEqual(packet, handoff.deduplicate(packet))
         packet = job.packet(state())
-        packet["stage"] = "astra_plan"
+        packet["stage"] = "plan_task"
         self.assertEqual(packet, handoff.deduplicate(packet))

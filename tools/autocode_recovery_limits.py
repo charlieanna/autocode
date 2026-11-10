@@ -127,9 +127,9 @@ UNSETTLED = (
 def held_request(state: RunState, stage) -> dict:
     """The request a recovery dispatch of ``stage`` is admitted against: the Resolver's or the
     diagnosis request, or the repair plan or direct assignment that owns the current task."""
-    if stage == "astra_resolve":
+    if stage == "resolve":
         return state.get("resolution_request") or {}
-    if stage == "astra_diagnose":
+    if stage == "diagnose":
         return state.get("diagnosis_request") or {}
     task_id = (state.get("current_task") or {}).get("id")
     plan = state.get("repair_plan") or {}

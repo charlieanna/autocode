@@ -19,7 +19,7 @@ class ChatViewTests(unittest.TestCase):
         state = {
             "status": "RUNNING",
             "phase": "PLANNING",
-            "next_stage": "astra_challenge",
+            "next_stage": "review_plan",
             "goal_contract": {"approval_status": "draft"},
         }
         public = {"status": "RUNNING", "needs": {"kind": "continue"}, "controller": {"kind": "ready"}}
@@ -60,7 +60,7 @@ class ChatViewTests(unittest.TestCase):
             self.assertIsNone(self.project(state, "continue")["input"])
             for change in (
                 {"active_runner_check": {"kind": "regression_proof"}},
-                {"active_stage": {"stage": "sol"}},
+                {"active_stage": {"stage": "tester"}},
                 {"uncertain_artifacts": ["attempt"]},
                 {"pending_questions": [{"id": "Q1"}]},
                 {"resolver_human_proposal": {"scope": "blocker"}},
@@ -255,11 +255,11 @@ class ChatViewTests(unittest.TestCase):
                 self.assertEqual(before, state)
 
     def test_invalid_execution_reports_and_person_only_holds_offer_no_correction(self):
-        for stage in (None, "unknown", "terra", "sol", "astra_review", "investigate_bug"):
+        for stage in (None, "unknown", "builder", "tester", "review_completion", "investigate_bug"):
             with self.subTest(stage=stage):
                 state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": stage}
                 self.assertIsNone(self.project(state, "resume")["input"])
-        for stage in ("astra_finalize", "write_acceptance_tests"):
+        for stage in ("finalize_plan", "write_acceptance_tests"):
             for request in ({"kind": "human_review"}, {"kind": "blocker"}):
                 state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": stage, "user_request": request}
                 self.assertIsNone(self.project(state, "resume")["input"])
@@ -269,7 +269,7 @@ class ChatViewTests(unittest.TestCase):
 
         state = {
             "status": "PAUSED_INVALID_OUTPUT",
-            "next_stage": "astra_finalize",
+            "next_stage": "finalize_plan",
             goals.RESOLVER_PROPOSAL_KEY: {
                 "scope": "operational_exhaustion",
                 "origin": {"pause_status": "PAUSED_TIME_LIMIT"},
@@ -280,7 +280,7 @@ class ChatViewTests(unittest.TestCase):
         self.assertIsNone(self.project(state, "resume")["input"])
 
     def test_a_retained_invalid_report_does_not_offer_feedback_while_running(self):
-        state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "astra_finalize"}
+        state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "finalize_plan"}
         public = {"status": "RUNNING", "needs": {"kind": "continue"}}
         self.assertIsNone(chat.project(state, public, workspace="/ws", run_dir="/run")["input"])
 
@@ -354,7 +354,7 @@ class ChatViewTests(unittest.TestCase):
         for missing in ("resolver_request_id", "resolver_token"):
             invalid = {**public, "needs": {k: v for k, v in need.items() if k != missing}}
             self.assertIsNone(chat.project(state, invalid, workspace="/ws", run_dir="/run")["input"])
-        for change in ({"route": {"role": "sol"}}, {"resolver_scope": "requirements"}):
+        for change in ({"route": {"role": "tester"}}, {"resolver_scope": "requirements"}):
             invalid = {**public, "needs": {**need, **change}}
             self.assertIsNone(chat.project(state, invalid, workspace="/ws", run_dir="/run")["input"])
         human = {**state, "user_request": {"kind": "human_review"}}
@@ -504,12 +504,12 @@ class ChatViewTests(unittest.TestCase):
             "resolver_scope": "operational_exhaustion",
             "resolver_request_id": "req-1",
             "resolver_token": "current-token",
-            "questions": [{"id": "route-glm", "question": question, "options": []}],
+            "questions": [{"id": "route-planner", "question": question, "options": []}],
         }
         routed = {
             **need,
             "route": {
-                "question_id": "route-glm",
+                "question_id": "route-planner",
                 "role": "planner",
                 "cause": "quota",
                 "current_model": "p/old",
@@ -554,7 +554,7 @@ class ChatViewTests(unittest.TestCase):
                 state = {
                     "status": "WAITING_FOR_USER",
                     "settings": {"spec_first": True, "coordination_member": coordinated == "member"},
-                    "next_stage": "astra_discovery",
+                    "next_stage": "draft_plan",
                     "requirements_handoff": {
                         "report": {
                             "assistant_reply": "I understand the history should identify the operation.",

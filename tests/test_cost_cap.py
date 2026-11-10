@@ -137,7 +137,7 @@ class CostCapCliTests(unittest.TestCase):
 
     def test_a_next_attempt_projected_past_the_cap_pauses_before_it_launches(self):
         """#2019: an attempt of a job that already ran is priced before it launches, not only a climb. The fixture's
-        Planner runs twice, around its one question (astra_discovery drafts, glm_revise revises), on gpt-5.6-sol at
+        Planner runs twice, around its one question (draft_plan drafts, revise_plan revises), on gpt-5.6-sol at
         100 input and 50 output tokens a stage, (100 x $4 + 50 x $20) / 1M = $0.0014. A cap of $0.0021 admits the
         first stage, and the second Planner attempt, projected at another $0.0014, would pass it."""
         cap = "0.0021"
@@ -186,7 +186,7 @@ class CostCapCliTests(unittest.TestCase):
                     self.workspace,
                     BRIEF,
                     options=OPTIONS,
-                    start_options=("--max-cost-usd", CAP, "--astra-model", alias),
+                    start_options=("--max-cost-usd", CAP, "--task-planner-model", alias),
                     env=self.env,
                     timeout=300,
                 )
@@ -246,7 +246,7 @@ class ClimbCapBlackbox(unittest.TestCase):
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
         self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat", *resolver_options], code)
         status = self.status()
-        self.assertEqual("sol", status["next_stage"])
+        self.assertEqual("tester", status["next_stage"])
         self.assertEqual("GPT-6 Sol XHigh", status["reasoning_escalations"][-1]["selected"]["profile"])
         return status
 
@@ -256,9 +256,9 @@ class ClimbCapBlackbox(unittest.TestCase):
         # GPT-6 Sol's price, (10 x $2 + 10 x $10) / 1M = $0.00012. A cap halfway there admits only the spend so far.
         spent = status["view"]["cost"]["spent_usd"]
         cap = round(spent + 0.00006, 6)
-        before = self.events(stage="sol")
+        before = self.events(stage="tester")
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat", "--max-cost-usd", str(cap)], 2)
-        self.assertEqual(before, self.events(stage="sol"), "the climbed attempt must not launch past the cap")
+        self.assertEqual(before, self.events(stage="tester"), "the climbed attempt must not launch past the cap")
         view = self.status()["view"]
         self.assertEqual("PAUSED_COST_LIMIT", view["needs"].get("pause_origin"), view["needs"])
         for part in (
@@ -272,8 +272,8 @@ class ClimbCapBlackbox(unittest.TestCase):
         self.invoke(
             "autoreview", ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-cost-usd", "0.01"]
         )
-        self.assertEqual(len(before) + 1, len(self.events(stage="sol")))
-        launched = [row["launch_route"] for row in self.state()["stages"] if row["stage"] == "sol"]
+        self.assertEqual(len(before) + 1, len(self.events(stage="tester")))
+        launched = [row["launch_route"] for row in self.state()["stages"] if row["stage"] == "tester"]
         self.assertEqual(
             [("gpt-6-sol", "high"), ("gpt-6-sol", "xhigh")],
             [(row["model"], row["reasoning_effort"]) for row in launched],
@@ -300,12 +300,12 @@ class ClimbCapBlackbox(unittest.TestCase):
         printed, view = shown()
         [row] = view["escalations"]
         self.assertEqual(
-            ("effort_climb", "sol", "sol", "Tester", "validation_rework"),
+            ("effort_climb", "tester", "tester", "Tester", "validation_rework"),
             (row["kind"], row["role"], row["stage"], row["job"], row["trigger"]),
         )
         self.assertEqual({"model": "gpt-6-sol", "reasoning_effort": "high", "profile": "GPT-6 Sol High"}, row["from"])
         self.assertEqual({"model": "gpt-6-sol", "reasoning_effort": "xhigh", "profile": "GPT-6 Sol XHigh"}, row["to"])
-        climbed = [record for record in self.state()["stages"] if record["stage"] == "sol"][-1]
+        climbed = [record for record in self.state()["stages"] if record["stage"] == "tester"][-1]
         self.assertEqual(
             ("gpt-6-sol", "xhigh"), (climbed["launch_route"]["model"], climbed["launch_route"]["reasoning_effort"])
         )
@@ -353,12 +353,12 @@ class ClimbCapBlackbox(unittest.TestCase):
         self.climb("--pause-after-stage", code=2)
         # The fake clock: the High attempt took 600 s, so the climbed attempt is projected at that long. A
         # 1,000-second budget admits the active time so far (600 s and the other stages' fractions) but not both.
-        took, used = self.advance_clock("sol", 600)
-        before = self.events(stage="sol")
+        took, used = self.advance_clock("tester", 600)
+        before = self.events(stage="tester")
         self.invoke(
             "autoreview", ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-seconds", "1000"], 2
         )
-        self.assertEqual(before, self.events(stage="sol"), "the climbed attempt must not launch past the budget")
+        self.assertEqual(before, self.events(stage="tester"), "the climbed attempt must not launch past the budget")
         view = self.status()["view"]
         self.assertEqual("PAUSED_TIME_LIMIT", view["needs"].get("pause_origin"), view["needs"])
         # The projection kept the run from building, so the resume released nothing and is not listed (#611).
@@ -378,7 +378,7 @@ class ClimbCapBlackbox(unittest.TestCase):
         held = ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-seconds", str(needed - 1)]
         self.invoke("autoreview", held, 2)
         self.assertEqual(
-            before, self.events(stage="sol"), "the climbed attempt must not launch past the smaller budget"
+            before, self.events(stage="tester"), "the climbed attempt must not launch past the smaller budget"
         )
         view = self.status()["view"]
         self.assertEqual("PAUSED_TIME_LIMIT", view["needs"].get("pause_origin"), view["needs"])
@@ -390,9 +390,9 @@ class ClimbCapBlackbox(unittest.TestCase):
         self.invoke(
             "autoreview", ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-seconds", str(needed)]
         )
-        self.assertEqual(len(before) + 1, len(self.events(stage="sol")))
+        self.assertEqual(len(before) + 1, len(self.events(stage="tester")))
         self.assertEqual(["PAUSED_TIME_LIMIT"], self.resumes())
-        launched = [row["launch_route"] for row in self.state()["stages"] if row["stage"] == "sol"]
+        launched = [row["launch_route"] for row in self.state()["stages"] if row["stage"] == "tester"]
         self.assertEqual(
             [("gpt-6-sol", "high"), ("gpt-6-sol", "xhigh")],
             [(row["model"], row["reasoning_effort"]) for row in launched],

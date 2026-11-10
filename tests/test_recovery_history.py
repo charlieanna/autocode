@@ -26,7 +26,7 @@ def state(**keys):
                 "count": 2,
             },
             "b": {
-                "identity": {"stage": "terra", "error_class": "PAUSED_ASSIGNMENT_SCOPE"},
+                "identity": {"stage": "builder", "error_class": "PAUSED_ASSIGNMENT_SCOPE"},
                 "last_error": SCOPE,
                 "last_seen": "2026-11-02T05:41:01+00:00",
                 "count": 1,
@@ -57,7 +57,7 @@ def state(**keys):
         ],
         "stuck_investigations": [
             {
-                "stage": "terra",
+                "stage": "builder",
                 "requested_at": "2026-11-02T05:41:01.5+00:00",
                 "finished_at": "2026-11-02T05:41:55+00:00",
                 "outcome": "retried",
@@ -68,7 +68,7 @@ def state(**keys):
             }
         ],
         "history": [
-            {"stage": "terra", "finished_at": "2026-11-02T05:40:00+00:00"},
+            {"stage": "builder", "finished_at": "2026-11-02T05:40:00+00:00"},
             {
                 "stage": "resolver",
                 "engine": "runner",
@@ -83,7 +83,7 @@ def state(**keys):
 class RecoveryHistoryTests(unittest.TestCase):
     def test_a_run_that_never_recovered_has_none(self):
         self.assertEqual([], history.project({}))
-        self.assertEqual([], history.project({"history": [{"stage": "terra"}], "regression_proofs": []}))
+        self.assertEqual([], history.project({"history": [{"stage": "builder"}], "regression_proofs": []}))
 
     def test_each_recovery_says_which_stage_what_went_wrong_and_what_autocode_did_oldest_first(self):
         rows = history.project(state())
@@ -124,7 +124,7 @@ class RecoveryHistoryTests(unittest.TestCase):
         model_run = state(
             history=[
                 {
-                    "stage": "astra_resolve",
+                    "stage": "resolve",
                     "engine": "opencode",
                     "finished_at": "2026-11-02T05:46:00+00:00",
                     "decision": {"action": "replan", "rationale": "The milestone order blocks M2"},
@@ -203,7 +203,7 @@ class RecoveryHistoryTests(unittest.TestCase):
             return {
                 "failure_history": {
                     "s": {
-                        "identity": {"stage": "sol"},
+                        "identity": {"stage": "tester"},
                         "count": 1,
                         "last_seen": "2026-11-02T05:50:00+00:00",
                         "last_error": last_error,
@@ -219,7 +219,7 @@ class RecoveryHistoryTests(unittest.TestCase):
         stuck = {
             "stuck_investigations": [
                 {
-                    "stage": "astra_plan",
+                    "stage": "plan_task",
                     "requested_at": "2026-11-02T05:51:00+00:00",
                     "finished_at": "2026-11-02T05:52:00+00:00",
                     "outcome": "retried",
@@ -308,7 +308,7 @@ class RecoveryHistoryTests(unittest.TestCase):
             {
                 "failure_history": {
                     str(index): {
-                        "identity": {"stage": "sol"},
+                        "identity": {"stage": "tester"},
                         "last_error": f"{long} {secret}" if index == 29 else f"problem {index}",
                         "last_seen": f"2026-11-02T06:{index:02d}:00+00:00",
                     }

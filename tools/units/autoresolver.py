@@ -143,7 +143,7 @@ def wait_on_existing_diagnosis(state: RunState, decision, record, request, *, so
         "stage": source_stage,
         **{key: record[key] for key in ("output", "source_revision", "task_id") if key in record},
     }
-    lifecycle.wait_for_user(state, asked, origin=origin, evidence=evidence, next_stage="astra_review")
+    lifecycle.wait_for_user(state, asked, origin=origin, evidence=evidence, next_stage="review_completion")
 
 
 def guard(state: RunState, workspace):
@@ -212,9 +212,9 @@ def prepare_stuck(state: RunState, state_path):
 def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorization=None):
     if stage == stuck_job.STAGE:
         return prepare_stuck(state, state_path)
-    if stage == "astra_diagnose":
+    if stage == "diagnose":
         return prepare_diagnosis(state, stage, state_path, schema_dir)
-    if stage != "astra_resolve":
+    if stage != "resolve":
         raise ValueError(f"Autoresolver cannot run {stage}")
     guard(state, Path(state["workspace"]))
     repeated = failures.repeated(
@@ -229,7 +229,7 @@ def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorizati
     # resolver sessions separate from planning, completion and implementation.
     state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["task_planner"]))
     role_transport.inherit(state.get("settings"), "resolver", "task_planner")
-    request = execution_request(state, "astra_review", state_path, schema_dir, report_stage=stage)
+    request = execution_request(state, "review_completion", state_path, schema_dir, report_stage=stage)
     instruction, payload = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
     data = json.loads(payload)
     data.update(
@@ -342,7 +342,7 @@ def diagnosis_guard(state: RunState, workspace):
 
 
 def prepare_diagnosis(state: RunState, stage, state_path, schema_dir):
-    if stage != "astra_diagnose":
+    if stage != "diagnose":
         raise ValueError(f"Autoresolver cannot run {stage}")
     diagnosis_guard(state, Path(state["workspace"]))
     state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["task_planner"]))
@@ -351,7 +351,7 @@ def prepare_diagnosis(state: RunState, stage, state_path, schema_dir):
     # inventory) for input only; the output schema below is unrelated to and far
     # narrower than the reviewer decision schema that context call would imply.
     request = execution_request(
-        state, "astra_review", state_path, schema_dir, report_stage=stage, schema_override=DIAGNOSIS_SCHEMA
+        state, "review_completion", state_path, schema_dir, report_stage=stage, schema_override=DIAGNOSIS_SCHEMA
     )
     instruction, payload = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
     data = json.loads(payload)

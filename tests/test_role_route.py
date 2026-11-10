@@ -35,85 +35,89 @@ class RouteRecordTests(unittest.TestCase):
         self.assertIsNone(role_route.account("/glm-5.3"))
 
     def test_the_tool_is_the_roles_provider_else_the_runs(self):
-        run = {"engine": "opencode", "provider": "kilocode", "roles": {"sol": {"model": GLM}}}
-        self.assertEqual("kilocode", role_route.provider(run, "sol"))
+        run = {"engine": "opencode", "provider": "kilocode", "roles": {"tester": {"model": GLM}}}
+        self.assertEqual("kilocode", role_route.provider(run, "tester"))
         self.assertEqual(
             "claude",
-            role_route.provider({**run, "roles": {"sol": {"model": GLM, "provider": "claude"}}}, "sol"),
+            role_route.provider({**run, "roles": {"tester": {"model": GLM, "provider": "claude"}}}, "tester"),
         )
         # Naming the default facade is not naming another tool, so the run's tool still answers.
         self.assertEqual(
             "kilocode",
-            role_route.provider({**run, "roles": {"sol": {"model": GLM, "provider": "opencode"}}}, "sol"),
+            role_route.provider({**run, "roles": {"tester": {"model": GLM, "provider": "opencode"}}}, "tester"),
         )
-        self.assertEqual("opencode", role_route.provider({"engine": "opencode", "roles": {"sol": {}}}, "sol"))
+        self.assertEqual("opencode", role_route.provider({"engine": "opencode", "roles": {"tester": {}}}, "tester"))
 
     def test_the_codex_engine_is_its_own_transport_so_it_names_itself(self):
         self.assertEqual(
             "codex",
-            role_route.provider({"engine": "codex", "roles": {"sol": {"model": "gpt-5.6-sol"}}}, "sol"),
+            role_route.provider({"engine": "codex", "roles": {"tester": {"model": "gpt-5.6-sol"}}}, "tester"),
         )
-        self.assertEqual("codex", role_route.provider({}, "sol"))
+        self.assertEqual("codex", role_route.provider({}, "tester"))
         # A role's own engine decides, not the run's.
-        per_role = {"engine": "codex", "roles": {"sol": {"engine": "opencode", "model": GLM}}}
-        self.assertEqual("opencode", role_route.engine(per_role, "sol"))
-        self.assertEqual("codex", role_route.engine(per_role, "terra"))
-        self.assertEqual("opencode", role_route.provider(per_role, "sol"))
-        self.assertEqual("codex", role_route.provider(per_role, "terra"))
+        per_role = {"engine": "codex", "roles": {"tester": {"engine": "opencode", "model": GLM}}}
+        self.assertEqual("opencode", role_route.engine(per_role, "tester"))
+        self.assertEqual("codex", role_route.engine(per_role, "builder"))
+        self.assertEqual("opencode", role_route.provider(per_role, "tester"))
+        self.assertEqual("codex", role_route.provider(per_role, "builder"))
 
     def test_the_origin_is_read_from_the_record_that_moved_the_route_last(self):
         route = {"model": GLM, "reasoning_effort": "high"}
-        saved = {"route_origins": {"sol": "user_explicit"}}
+        saved = {"route_origins": {"tester": "user_explicit"}}
         self.assertEqual(
-            "quota_assigned", role_route.origin(saved, "sol", route, assignments=[{"role": "sol", "to": GLM}])
+            "quota_assigned", role_route.origin(saved, "tester", route, assignments=[{"role": "tester", "to": GLM}])
         )
         # An assignment for another role, or to a model this route no longer runs, is not its cause.
         self.assertEqual(
-            "user_explicit", role_route.origin(saved, "sol", route, assignments=[{"role": "terra", "to": GLM}])
+            "user_explicit", role_route.origin(saved, "tester", route, assignments=[{"role": "builder", "to": GLM}])
         )
         self.assertEqual(
-            "user_explicit", role_route.origin(saved, "sol", route, assignments=[{"role": "sol", "to": MIMO}])
+            "user_explicit", role_route.origin(saved, "tester", route, assignments=[{"role": "tester", "to": MIMO}])
         )
 
-        strong = {"builder_retry": {"strong_model": MIMO}, "route_origins": {"terra": "runner_default"}}
+        strong = {"builder_retry": {"strong_model": MIMO}, "route_origins": {"builder": "runner_default"}}
         attempted = {"model": MIMO}
         self.assertEqual(
-            "stronger_attempt", role_route.origin(strong, "terra", attempted, retries=[{"action": "escalate"}])
+            "stronger_attempt", role_route.origin(strong, "builder", attempted, retries=[{"action": "escalate"}])
         )
-        self.assertEqual("runner_default", role_route.origin(strong, "terra", attempted, retries=[{"action": "keep"}]))
-        self.assertEqual("runner_default", role_route.origin(strong, "terra", attempted))
+        self.assertEqual(
+            "runner_default", role_route.origin(strong, "builder", attempted, retries=[{"action": "keep"}])
+        )
+        self.assertEqual("runner_default", role_route.origin(strong, "builder", attempted))
         # Only the Builder has a stronger attempt; another role on that model was not moved by it.
-        self.assertEqual("unrecorded", role_route.origin(strong, "sol", attempted, retries=[{"action": "escalate"}]))
+        self.assertEqual("unrecorded", role_route.origin(strong, "tester", attempted, retries=[{"action": "escalate"}]))
 
         self.assertEqual(
-            "escalated", role_route.origin({}, "sol", route, escalations=[{"role": "sol", "selected": route}])
+            "escalated", role_route.origin({}, "tester", route, escalations=[{"role": "tester", "selected": route}])
         )
         self.assertEqual(
             "unrecorded",
             role_route.origin(
                 {},
-                "sol",
+                "tester",
                 route,
-                escalations=[{"role": "sol", "selected": {"model": GLM, "reasoning_effort": "medium"}}],
+                escalations=[{"role": "tester", "selected": {"model": GLM, "reasoning_effort": "medium"}}],
             ),
             "a climb to another reasoning level is not this route's cause",
         )
 
         for origin in role_route.CONFIGURED_ORIGINS:
-            self.assertEqual(origin, role_route.origin({"route_origins": {"sol": origin}}, "sol", route))
+            self.assertEqual(origin, role_route.origin({"route_origins": {"tester": origin}}, "tester", route))
         self.assertEqual("derived", role_route.origin({}, "resolver", {"model": GLM}))
-        self.assertEqual("unrecorded", role_route.origin({}, "sol", route))
-        self.assertEqual("unrecorded", role_route.origin({}, "sol", {}), "no route, no reason")
+        self.assertEqual("unrecorded", role_route.origin({}, "tester", route))
+        self.assertEqual("unrecorded", role_route.origin({}, "tester", {}), "no route, no reason")
         # A word that is not one of the closed set is not an origin; nothing may invent one.
-        self.assertEqual("unrecorded", role_route.origin({"route_origins": {"sol": "guessed"}}, "sol", route))
+        self.assertEqual("unrecorded", role_route.origin({"route_origins": {"tester": "guessed"}}, "tester", route))
         # A cause that is not a record of anything is not evidence.
-        self.assertEqual("unrecorded", role_route.origin({}, "sol", route, assignments=["sol"], escalations=[None]))
+        self.assertEqual(
+            "unrecorded", role_route.origin({}, "tester", route, assignments=["tester"], escalations=[None])
+        )
 
     def test_a_record_carries_every_part_of_one_route(self):
         settings = {
             "engine": "opencode",
             "provider": "kilocode",
-            "roles": {"sol": {"model": GATEWAY, "reasoning_effort": "high"}},
+            "roles": {"tester": {"model": GATEWAY, "reasoning_effort": "high"}},
         }
         self.assertEqual(
             {
@@ -125,7 +129,7 @@ class RouteRecordTests(unittest.TestCase):
                 "account": "kilo",
                 "origin": "unrecorded",
             },
-            role_route.record({"settings": settings}, "sol"),
+            role_route.record({"settings": settings}, "tester"),
         )
         self.assertEqual(
             {
@@ -137,7 +141,7 @@ class RouteRecordTests(unittest.TestCase):
                 "account": None,
                 "origin": "unrecorded",
             },
-            role_route.record({}, "sol"),
+            role_route.record({}, "tester"),
             "a role with no saved route still answers, so a caller never branches on it",
         )
 
@@ -146,40 +150,40 @@ class RouteRecordTests(unittest.TestCase):
             "settings": {
                 "engine": "opencode",
                 "provider": "kilocode",
-                "route_origins": {"sol": "user_explicit"},
+                "route_origins": {"tester": "user_explicit"},
                 "roles": {
-                    "sol": {"model": GLM, "reasoning_effort": "high"},
-                    "terra": {"model": MIMO},
+                    "tester": {"model": GLM, "reasoning_effort": "high"},
+                    "builder": {"model": MIMO},
                     "orchestrator": "no model runs here",
                 },
             },
-            "reasoning_escalations": [{"role": "terra", "selected": {"model": MIMO, "reasoning_effort": None}}],
+            "reasoning_escalations": [{"role": "builder", "selected": {"model": MIMO, "reasoning_effort": None}}],
         }
-        records = role_route.records(state, [{"role": "sol", "to": GLM}])
-        self.assertEqual(("sol", "terra"), tuple(records))
-        self.assertEqual("quota_assigned", records["sol"]["origin"], "the newest cause wins over the saved one")
-        self.assertEqual("escalated", records["terra"]["origin"])
-        self.assertEqual("xiaomi-token-plan-sgp", records["terra"]["account"])
+        records = role_route.records(state, [{"role": "tester", "to": GLM}])
+        self.assertEqual(("builder", "tester"), tuple(records))
+        self.assertEqual("quota_assigned", records["tester"]["origin"], "the newest cause wins over the saved one")
+        self.assertEqual("escalated", records["builder"]["origin"])
+        self.assertEqual("xiaomi-token-plan-sgp", records["builder"]["account"])
         self.assertNotIn("orchestrator", records, "a stage with no model has no route")
         self.assertEqual({}, role_route.records({}))
         self.assertEqual({}, role_route.records({"settings": {"roles": None}}))
 
     def test_a_new_runs_origins_say_whose_choice_each_route_was(self):
-        roles = {"sol": {}, "terra": {}}
+        roles = {"tester": {}, "builder": {}}
         self.assertEqual(
-            {"sol": "user_explicit", "terra": "runner_default"},
-            role_route.origins(SimpleNamespace(sol_model=GLM), roles, {}, None),
+            {"tester": "user_explicit", "builder": "runner_default"},
+            role_route.origins(SimpleNamespace(tester_model=GLM), roles, {}, None),
         )
         # A model an earlier command of this conversation named is the person's choice too.
         self.assertEqual(
-            {"sol": "user_explicit"}, role_route.origins(SimpleNamespace(), {"sol": {}}, {"sol": GLM}, None)
+            {"tester": "user_explicit"}, role_route.origins(SimpleNamespace(), {"tester": {}}, {"tester": GLM}, None)
         )
         self.assertEqual(
-            {"sol": "single_model", "terra": "single_model"},
-            role_route.origins(SimpleNamespace(sol_model=GLM), roles, {}, LUNA),
+            {"tester": "single_model", "builder": "single_model"},
+            role_route.origins(SimpleNamespace(tester_model=GLM), roles, {}, LUNA),
             "--single-model names every route, so none of them is the runner's choice",
         )
-        # --glm-model names the Requirements route too (autocode_configure.configure_joint).
+        # --planner-model names the Requirements route too (autocode_configure.configure_joint).
         named = SimpleNamespace(planner_model=MIMO)
         self.assertEqual({"requirements": "user_explicit"}, role_route.origins(named, {"requirements": {}}, {}, None))
         self.assertEqual(
@@ -189,21 +193,21 @@ class RouteRecordTests(unittest.TestCase):
 
     def test_a_saved_run_re_records_only_the_routes_a_flag_moved(self):
         settings = {
-            "route_origins": {"planner": "runner_default", "terra": "runner_default"},
-            "roles": {"planner": {}, "terra": {}},
+            "route_origins": {"planner": "runner_default", "builder": "runner_default"},
+            "roles": {"planner": {}, "builder": {}},
         }
         role_route.moved(SimpleNamespace(planner_model=MIMO), settings)
-        self.assertEqual({"planner": "user_explicit", "terra": "runner_default"}, settings["route_origins"])
+        self.assertEqual({"planner": "user_explicit", "builder": "runner_default"}, settings["route_origins"])
         # A launch that names nothing leaves the record alone, so a saved run's hash is stable.
         before = dict(settings)
         role_route.moved(SimpleNamespace(), settings)
         self.assertEqual(before, settings)
         # A run saved before the record existed gains one only for the routes it moves.
-        legacy = {"roles": {"planner": {}, "terra": {}}}
+        legacy = {"roles": {"planner": {}, "builder": {}}}
         role_route.moved(SimpleNamespace(), legacy)
         self.assertNotIn("route_origins", legacy)
-        role_route.moved(SimpleNamespace(terra_model=GLM), legacy)
-        self.assertEqual({"terra": "user_explicit"}, legacy["route_origins"])
+        role_route.moved(SimpleNamespace(builder_model=GLM), legacy)
+        self.assertEqual({"builder": "user_explicit"}, legacy["route_origins"])
 
 
 class ConfiguredRouteOriginTests(unittest.TestCase):
@@ -247,7 +251,7 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
                 self.assertEqual("user_explicit", settings["route_origins"]["plan_reviewer"])
                 self.assertEqual(origin, settings["effort_origins"]["plan_reviewer"])
                 state = {"settings": settings, "workflow": {"clarity": "clear", "brief_size": "small"}}
-                planning.route_for(state, "astra_challenge")
+                planning.route_for(state, "review_plan")
                 self.assertEqual("medium", settings["roles"]["plan_reviewer"]["reasoning_effort"])
 
     def test_saved_effort_keeps_its_origin_unless_an_effort_override_is_named(self):
@@ -310,10 +314,10 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
 
     def test_configure_records_whether_the_person_chose_the_builders_effort(self):
         # The light first Builder attempt (#1710) lowers only the runner's own default.
-        for flags, origin in (({}, "runner_default"), ({"terra_reasoning_effort": "high"}, "user_explicit")):
+        for flags, origin in (({}, "runner_default"), ({"builder_reasoning_effort": "high"}, "user_explicit")):
             with self.subTest(flags=flags):
                 settings = self.configure({"workspace": "/fixture", "iteration": 0}, **flags)
-                self.assertEqual(origin, settings["effort_origins"]["terra"])
+                self.assertEqual(origin, settings["effort_origins"]["builder"])
 
     def test_the_builders_effort_provenance_follows_the_same_rule(self):
         for named, global_effort, fresh, expected in (
@@ -323,41 +327,41 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
             (None, None, False, None),
         ):
             with self.subTest(named=named, global_effort=global_effort, fresh=fresh):
-                settings = {"roles": {"terra": {"reasoning_effort": "medium"}}}
-                args = SimpleNamespace(terra_reasoning_effort=named, reasoning_effort=global_effort)
+                settings = {"roles": {"builder": {"reasoning_effort": "medium"}}}
+                args = SimpleNamespace(builder_reasoning_effort=named, reasoning_effort=global_effort)
                 role_route.record_efforts(args, settings, fresh=fresh)
-                self.assertEqual(expected, (settings.get("effort_origins") or {}).get("terra"))
+                self.assertEqual(expected, (settings.get("effort_origins") or {}).get("builder"))
                 self.assertEqual(
-                    expected in ("runner_default", "auto_selected"), role_route.effort_can_reduce(settings, "terra")
+                    expected in ("runner_default", "auto_selected"), role_route.effort_can_reduce(settings, "builder")
                 )
 
     def test_a_saved_stage_choice_is_the_persons_ceiling_not_a_typed_level(self):
         # Owner decision 2026-11-05: the stage choices supply the level (autocode_stage_choices.apply), which
         # the review stages treat as a ceiling; a typed flag for another role stays exact.
-        settings = {"roles": {"sol": {"reasoning_effort": "high"}, "terra": {"reasoning_effort": "high"}}}
+        settings = {"roles": {"tester": {"reasoning_effort": "high"}, "builder": {"reasoning_effort": "high"}}}
         args = SimpleNamespace(
-            sol_reasoning_effort="high",
-            terra_reasoning_effort="high",
+            tester_reasoning_effort="high",
+            builder_reasoning_effort="high",
             reasoning_effort=None,
-            stage_choice_efforts=("sol",),
+            stage_choice_efforts=("tester",),
         )
         role_route.record_efforts(args, settings, fresh=True)
-        self.assertEqual({"sol": "stage_choice", "terra": "user_explicit"}, settings["effort_origins"])
-        self.assertFalse(role_route.effort_can_reduce(settings, "sol"), "the runner's own tiers stay off")
+        self.assertEqual({"tester": "stage_choice", "builder": "user_explicit"}, settings["effort_origins"])
+        self.assertFalse(role_route.effort_can_reduce(settings, "tester"), "the runner's own tiers stay off")
         self.assertFalse(role_route.reviewer_effort_can_reduce({"effort_origins": {"plan_reviewer": "stage_choice"}}))
 
     def test_a_new_run_records_why_each_role_has_the_route_it_has(self):
-        settings = self.configure({"workspace": "/fixture", "iteration": 0}, sol_model=LUNA)
-        self.assertEqual("user_explicit", settings["route_origins"]["sol"])
-        self.assertEqual(LUNA, settings["roles"]["sol"]["model"])
-        for role in ("terra", "planner", "requirements", "plan_reviewer", "completion", "task_planner"):
+        settings = self.configure({"workspace": "/fixture", "iteration": 0}, tester_model=LUNA)
+        self.assertEqual("user_explicit", settings["route_origins"]["tester"])
+        self.assertEqual(LUNA, settings["roles"]["tester"]["model"])
+        for role in ("builder", "planner", "requirements", "plan_reviewer", "completion", "task_planner"):
             self.assertEqual("runner_default", settings["route_origins"][role], role)
         self.assertEqual(set(settings["roles"]), set(settings["route_origins"]), "every route has a reason")
 
     def test_a_flag_that_names_two_routes_records_both_as_the_persons_choice(self):
         settings = self.configure({"workspace": "/fixture", "iteration": 0}, planner_model=MIMO)
         self.assertEqual(MIMO, settings["roles"]["planner"]["model"])
-        self.assertEqual(MIMO, settings["roles"]["requirements"]["model"], "--glm-model names Requirements too")
+        self.assertEqual(MIMO, settings["roles"]["requirements"]["model"], "--planner-model names Requirements too")
         self.assertEqual("user_explicit", settings["route_origins"]["planner"])
         self.assertEqual("user_explicit", settings["route_origins"]["requirements"])
         self.assertEqual("runner_default", settings["route_origins"]["plan_reviewer"])
@@ -368,7 +372,7 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
         self.assertEqual({"single_model"}, set(settings["route_origins"].values()))
 
     def test_a_saved_run_keeps_its_origins_until_a_flag_moves_a_route(self):
-        original = self.configure({"workspace": "/fixture", "iteration": 0}, sol_model=LUNA)
+        original = self.configure({"workspace": "/fixture", "iteration": 0}, tester_model=LUNA)
         state = {"workspace": "/fixture", "settings": original, "sessions": {"task_planner": "saved"}}
         resumed = self.configure(state)
         self.assertEqual(original["route_origins"], resumed["route_origins"], "a plain resume re-chooses nothing")
@@ -376,12 +380,12 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
         moved = self.configure(state, planner_model=MIMO)
         self.assertEqual(MIMO, moved["roles"]["planner"]["model"])
         self.assertEqual("user_explicit", moved["route_origins"]["planner"], "the resume that moved it records it")
-        self.assertEqual("user_explicit", moved["route_origins"]["sol"], "the start's record survives the resume")
-        self.assertEqual("runner_default", moved["route_origins"]["terra"])
+        self.assertEqual("user_explicit", moved["route_origins"]["tester"], "the start's record survives the resume")
+        self.assertEqual("runner_default", moved["route_origins"]["builder"])
         self.assertEqual(
             "runner_default",
             moved["route_origins"]["requirements"],
-            "a saved run's --glm-model moves the Planner only, so it records the Planner only",
+            "a saved run's --planner-model moves the Planner only, so it records the Planner only",
         )
         self.assertEqual(original["route_origins"], resumed["route_origins"], "the untouched resume is unchanged")
 
@@ -391,9 +395,9 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
         state = {"workspace": "/fixture", "settings": legacy, "sessions": {"task_planner": "saved"}}
         resumed = self.configure(state)
         self.assertNotIn("route_origins", resumed, "a plain resume of an old run invents no reason")
-        self.assertEqual("unrecorded", role_route.records({"settings": resumed})["sol"]["origin"])
-        moved = self.configure(state, sol_model=LUNA)
-        self.assertEqual({"sol": "user_explicit"}, moved["route_origins"], "it records only the route it moved")
+        self.assertEqual("unrecorded", role_route.records({"settings": resumed})["tester"]["origin"])
+        moved = self.configure(state, tester_model=LUNA)
+        self.assertEqual({"tester": "user_explicit"}, moved["route_origins"], "it records only the route it moved")
 
 
 if __name__ == "__main__":

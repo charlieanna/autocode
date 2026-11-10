@@ -199,7 +199,7 @@ class LocalComposeScenarioTests(SampleRun, unittest.TestCase):
     def test_public_component_metrics_read_no_private_state(self):
         attempts = [
             {
-                "stage": "terra",
+                "stage": "builder",
                 "model": "builder",
                 "engine": "codex",
                 "duration_seconds": 2,
@@ -209,7 +209,7 @@ class LocalComposeScenarioTests(SampleRun, unittest.TestCase):
         summary = {"components": {"api": {"view": {"usage": {"accounting": {"attempts": attempts}}}}}}
         with mock.patch.object(Path, "read_text", side_effect=AssertionError("no private files")):
             metric = run.components_driver.component_metrics(summary)
-        self.assertEqual(["terra"], metric["model_stage_names"])
+        self.assertEqual(["builder"], metric["model_stage_names"])
         self.assertEqual(10, metric["tokens"]["input"])
 
     def test_independent_oracle_controls(self):

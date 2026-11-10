@@ -5,4 +5,4 @@ check = "python3 -m unittest test_journey"
 fault = "progressive_happy"
 [run]
 max_steps = 60
-requires_stages = ["astra_challenge", "terra", "sol"]
+requires_stages = ["review_plan", "builder", "tester"]

@@ -78,7 +78,7 @@ class DeliveryReviewTests(unittest.TestCase):
             patch("autocode_source_scope.snapshot", return_value={"revision": "checked"}),
             patch("autocode_git_delivery.prepare", side_effect=lambda *a: order.append("commit") or True) as commit,
         ):
-            result.before_review(state, "sol", Path("/workspace"), Path("/run"))
+            result.before_review(state, "tester", Path("/workspace"), Path("/run"))
         self.assertEqual(["proof", "commit", "proof"], order)
         commit.assert_called_once()
         self.assertEqual(2, proof.call_count, "A commit changes source identity and needs a new runner proof")
@@ -94,7 +94,7 @@ class DeliveryReviewTests(unittest.TestCase):
                 patch("autocode_source_scope.snapshot", return_value={"revision": "checked"}),
                 patch("autocode_git_delivery.prepare") as commit,
             ):
-                result.before_review(state, "sol", Path("/workspace"), Path("/run"))
+                result.before_review(state, "tester", Path("/workspace"), Path("/run"))
                 commit.assert_not_called()
 
 
@@ -126,7 +126,7 @@ class AtomicDeliveryTests(unittest.TestCase):
         contract = {"task_id": "task", "revision": 1, "body": plan}
         contract["hash"] = util.digest(contract)
         event = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(contract)}
-        contract.update(approval_status="approved", approval_event=event, origin="astra_discovery")
+        contract.update(approval_status="approved", approval_event=event, origin="draft_plan")
         self.state = {
             "version": 3,
             "task_id": "task",
@@ -186,7 +186,7 @@ class AtomicDeliveryTests(unittest.TestCase):
         util.atomic_json(base.with_suffix(".after.json"), after)
         self.state.setdefault("stages", []).append(
             {
-                "stage": "terra",
+                "stage": "builder",
                 "exit_code": 0,
                 "contract_hash": self.state["goal_contract"]["hash"],
                 "source_revision": after["revision"],
@@ -274,7 +274,7 @@ class AtomicDeliveryTests(unittest.TestCase):
                 if kind == "missing":
                     self.state["stages"] = []
                 elif kind == "reviewer":
-                    row["stage"] = "sol"
+                    row["stage"] = "tester"
                 elif kind == "wrong_plan":
                     row["contract_hash"] = "another plan"
                 elif kind in ("rejected", "report_only"):
@@ -513,7 +513,7 @@ class AtomicDeliveryTests(unittest.TestCase):
         )
         self.assertTrue(handled)
         self.assertEqual("RUNNING", self.state["status"])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertNotIn("completed_at", self.state)
         self.assertNotIn("final_decision", self.state)
         callbacks["save_record"].assert_called_once()

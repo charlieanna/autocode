@@ -433,7 +433,7 @@ class ProjectTests(unittest.TestCase):
         self.events = self.run / "iterations" / "builder-01.jsonl"
         write(self.events, [codex("item.completed", "r1", type="reasoning", text="Thinking about tests")])
         self.state = {
-            "active_stage": {"stage": "terra", "events": str(self.events)},
+            "active_stage": {"stage": "builder", "events": str(self.events)},
             "current_task": {"milestone_id": "M2"},
             "workspace": str(self.workspace),
         }
@@ -447,7 +447,7 @@ class ProjectTests(unittest.TestCase):
         run_dir = self.workspace / ".autocode" / "builders" / "b1" / str(number) / ".autocode" / "runs" / f"w{number}"
         events = run_dir / "iterations" / "builder-01.jsonl"
         write(events, [codex("item.completed", "r1", type="reasoning", text=f"Worker {number} thinking")])
-        child = {"active_stage": {"stage": "terra", "events": str(events), **active}}
+        child = {"active_stage": {"stage": "builder", "events": str(events), **active}}
         (run_dir / "state.json").write_text(json.dumps(child))
         return {"milestone_id": f"M{number}", "run_dir": str(run_dir), "status": status}
 
@@ -464,7 +464,7 @@ class ProjectTests(unittest.TestCase):
         self.state["stages"] = [
             {**dispatch, "finished_at": "2026-11-05T10:30:00Z", "summary": "Before the turn"},
             {**dispatch, "finished_at": "2026-11-05T10:39:29Z"},
-            {"stage": "terra", "started_at": "2026-11-05T10:39:30Z"},
+            {"stage": "builder", "started_at": "2026-11-05T10:39:30Z"},
         ]
         note, builder = self.project()
         self.assertEqual(
@@ -483,9 +483,7 @@ class ProjectTests(unittest.TestCase):
     def test_a_review_below_the_saved_level_says_so_before_its_own_entries(self):
         # Owner decision 2026-11-05: a small, clear task's review runs one level below the stage choice.
         lowered = {"level": "medium", "ceiling": "high", "lowered": True, "reason": "small_clear"}
-        self.state["active_stage"].update(
-            stage="astra_challenge", started_at="2026-11-05T11:35:55Z", effort_choice=lowered
-        )
+        self.state["active_stage"].update(stage="review_plan", started_at="2026-11-05T11:35:55Z", effort_choice=lowered)
         note, thought = self.project()
         self.assertEqual(
             {
@@ -536,7 +534,7 @@ class ProjectTests(unittest.TestCase):
         outside = self.workspace.parent / f"{self.workspace.name}-outside.jsonl"
         write(outside, [codex("item.completed", "r1", type="reasoning", text="secret")])
         self.addCleanup(outside.unlink)
-        child_path.write_text(json.dumps({"active_stage": {"stage": "terra", "events": str(outside)}}))
+        child_path.write_text(json.dumps({"active_stage": {"stage": "builder", "events": str(outside)}}))
         self.state["orchestration_batch"] = {"status": "BUILDING", "workers": [row]}
         self.assertEqual([], self.project())
         row["run_dir"] = str(self.workspace.parent)
@@ -564,10 +562,10 @@ class StatusViewTests(unittest.TestCase):
                 "status": "RUNNING",
                 "iteration": 1,
                 "sessions": {},
-                "next_stage": "terra",
+                "next_stage": "builder",
                 "stages": [],
                 "active_stage": {
-                    "stage": "terra",
+                    "stage": "builder",
                     "iteration": 1,
                     "output": str(run / "builder-01.json"),
                     "events": str(events),

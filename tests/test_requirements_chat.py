@@ -21,7 +21,7 @@ import autocode_workflows as workflows
 
 class RequirementsChatTests(unittest.TestCase):
     def test_malformed_active_or_repair_stage_has_no_streamed_reply(self):
-        for active in (None, "terra", ["requirements_gather"], True, 42):
+        for active in (None, "builder", ["requirements_gather"], True, 42):
             for repair in (False, True):
                 state = {"settings": {"spec_first": True}, "active_stage": active}
                 if repair:
@@ -36,7 +36,7 @@ class RequirementsChatTests(unittest.TestCase):
         state = {"settings": {"spec_first": True}, "sessions": {"requirements": "saved-chat", "reviewer": "separate"}}
         self.assertEqual("saved-chat", transport.resume_session(state, "requirements", chat.STAGE, True, False, True))
         for stage, role, repair, supported in [
-            ("astra_challenge", "reviewer", False, True),
+            ("review_plan", "reviewer", False, True),
             (chat.STAGE, "requirements", True, True),
             (chat.STAGE, "requirements", False, False),
         ]:
@@ -47,7 +47,7 @@ class RequirementsChatTests(unittest.TestCase):
         with mock.patch.object(preflight, "_billing_groups", return_value=[]) as groups:
             self.assertFalse(preflight.check(SimpleNamespace(), state, "/run", "/project"))
             groups.assert_not_called()
-            state["next_stage"] = "astra_discovery"
+            state["next_stage"] = "draft_plan"
             self.assertFalse(preflight.check(SimpleNamespace(), state, "/run", "/project"))
             groups.assert_called_once()
 
@@ -239,7 +239,7 @@ class RequirementsChatTests(unittest.TestCase):
                     state["workflow"]["source"] = "user"
                 self.assertNotIn("investigate", review.review_question(state)["question"])
                 chat.start_after_approval(state)
-                self.assertEqual("astra_discovery", state["next_stage"])
+                self.assertEqual("draft_plan", state["next_stage"])
 
     @staticmethod
     def discussion(**report):
@@ -247,8 +247,8 @@ class RequirementsChatTests(unittest.TestCase):
         return {
             "task": "Why is the metadata cache in-process?",
             "settings": {"spec_first": True},
-            "workflow": {"kind": None, "then": "astra_discovery"},
-            "next_stage": "astra_discovery",
+            "workflow": {"kind": None, "then": "draft_plan"},
+            "next_stage": "draft_plan",
             "status": "RUNNING",
             "pending_questions": [],
             "user_events": [{"id": "feedback-1"}],
@@ -344,7 +344,7 @@ class RequirementsChatTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 later = self.approved(
                     workflow={"kind": kind, "then": chat.STAGE, "requirements_approved": True},
-                    stages=[{"stage": chat.STAGE}, {"stage": "astra_discovery"}],
+                    stages=[{"stage": chat.STAGE}, {"stage": "draft_plan"}],
                 )
                 before = copy.deepcopy(later)
                 self.assertFalse(chat.start_after_approval(later), "already approved")
@@ -357,7 +357,7 @@ class RequirementsChatTests(unittest.TestCase):
             root = Path(directory)
             (root / "reports").mkdir()
             (root / "reports" / "export.py").write_text("def export():\n    pass\n")
-            roles = ("task_planner", "planner", "terra", "sol", "requirements", "plan_reviewer", "resolver")
+            roles = ("task_planner", "planner", "builder", "tester", "requirements", "plan_reviewer", "resolver")
             state = {
                 "version": 3,
                 "task_id": "task-fixture",
@@ -419,7 +419,7 @@ class RequirementsChatTests(unittest.TestCase):
             state["active_stage"] = {"stage": chat.STAGE + "_report_repair", "events": str(root / "repair.jsonl")}
             self.assertEqual("Who will use it?", chat.streaming_reply(state, root))
             self.assertEqual("", chat.streaming_reply(state, root / "other-run"))
-            state["active_stage"]["stage"] = "astra_challenge"
+            state["active_stage"]["stage"] = "review_plan"
             self.assertEqual("", chat.streaming_reply(state, root))
 
     def test_the_latest_assistant_reply_replaces_an_earlier_shorter_one(self):

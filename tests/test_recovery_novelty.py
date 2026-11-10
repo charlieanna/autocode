@@ -235,7 +235,7 @@ class RecoveryPacketTests(unittest.TestCase):
         self.state = {
             "workspace": str(self.root),
             "run_dir": str(self.run),
-            "settings": {"roles": {"terra": {"model_pinned": True}}},
+            "settings": {"roles": {"builder": {"model_pinned": True}}},
             "goal_contract": {
                 "task_id": "approved-job",
                 "hash": "h",
@@ -249,19 +249,19 @@ class RecoveryPacketTests(unittest.TestCase):
                 "acceptance_criteria": ["C1"],
                 "affected_paths": ["app.py"],
             },
-            "stages": [{"stage": "sol", "output": str(self.validator), "events": str(self.events)}],
+            "stages": [{"stage": "tester", "output": str(self.validator), "events": str(self.events)}],
             "validation": {
                 "task_id": "T1",
                 "contract_hash": "h",
                 "contract_revision": 1,
                 "source_revision": "s1",
-                "reviewer_role": "sol",
+                "reviewer_role": "tester",
                 "output": str(self.validator),
                 "verdict": "FAIL",
                 "checks": [{"command": "python -m unittest test_app", "exit_code": 1, "evidence_ref": "event:check"}],
             },
         }
-        self.record = {"stage": "astra_review", "output": str(self.output), "source_revision": "s1"}
+        self.record = {"stage": "review_completion", "output": str(self.output), "source_revision": "s1"}
         self.request = {
             "source_revision": "s1",
             "source_output": str(self.output),
@@ -281,12 +281,12 @@ class RecoveryPacketTests(unittest.TestCase):
 
     def legacy_failure(self):
         state = copy.deepcopy(self.state)
-        state.update(status="PAUSED_REPEATED_FAILURE", next_stage="astra_resolve")
+        state.update(status="PAUSED_REPEATED_FAILURE", next_stage="resolve")
         for index in range(3):
             output = self.run / f"legacy-failure-{index}.json"
             output.write_text("{}")
             row = {
-                "stage": "astra_resolve",
+                "stage": "resolve",
                 "iteration": 1,
                 "role": "resolver",
                 "task_id": "T1",
@@ -307,7 +307,7 @@ class RecoveryPacketTests(unittest.TestCase):
         packet = recovery.load_packet(state["resolution_request"]["recovery_packet"], self.run)
         state["stages"].append(
             {
-                "stage": "terra",
+                "stage": "builder",
                 "recovery_novelty": {
                     "dispatch_id": "earlier-repair",
                     "incident_ids": [novelty.Incident(**packet["incidents"][0]).id],
@@ -330,17 +330,17 @@ class RecoveryPacketTests(unittest.TestCase):
         self.authorize_legacy(state)
         state["stages"].append(
             {
-                "stage": "astra_resolve",
+                "stage": "resolve",
                 "output": str(self.run / "old-success.json"),
                 "source_revision": "s1",
                 "exit_code": 0,
             }
         )
-        state.update(status="PAUSED_NO_PROGRESS", next_stage="astra_resolve")
+        state.update(status="PAUSED_NO_PROGRESS", next_stage="resolve")
         restarted = json.loads(json.dumps(state))
         history = copy.deepcopy(restarted["failure_history"])
         audit = copy.deepcopy(restarted["failure_retry_authorizations"])
-        attempt = {"stage": "astra_resolve", "output": str(self.run / "must-not-launch.json")}
+        attempt = {"stage": "resolve", "output": str(self.run / "must-not-launch.json")}
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
             recovery.admit_dispatch(restarted, attempt, self.root, self.run)
         self.assertNotIn("recovery_novelty", attempt)
@@ -351,7 +351,7 @@ class RecoveryPacketTests(unittest.TestCase):
         state = self.legacy_failure()
         authorization = self.authorize_legacy(state)
         audit = copy.deepcopy(state["failure_retry_authorizations"])
-        attempt = {"stage": "astra_resolve", "output": str(self.run / "authorized.json")}
+        attempt = {"stage": "resolve", "output": str(self.run / "authorized.json")}
         recovery.admit_dispatch(state, attempt, self.root, self.run, retry_authorization=authorization)
         self.assertEqual("invocation", attempt["recovery_novelty"]["grant_kind"])
         self.assertEqual("explicit_retry", attempt["recovery_novelty"]["reason"])
@@ -361,7 +361,7 @@ class RecoveryPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
             recovery.admit_dispatch(
                 state,
-                {"stage": "astra_resolve", "output": str(self.run / "second.json")},
+                {"stage": "resolve", "output": str(self.run / "second.json")},
                 self.root,
                 self.run,
                 retry_authorization=authorization,
@@ -369,7 +369,7 @@ class RecoveryPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
             recovery.admit_dispatch(
                 state,
-                {"stage": "astra_resolve", "output": str(self.run / "new-process.json")},
+                {"stage": "resolve", "output": str(self.run / "new-process.json")},
                 self.root,
                 self.run,
                 retry_authorization=audit[-1],
@@ -381,39 +381,39 @@ class RecoveryPacketTests(unittest.TestCase):
                 state = self.legacy_failure()
                 authorization = self.authorize_legacy(state)
                 if mutation == "stage":
-                    authorization["stage"] = "terra"
+                    authorization["stage"] = "builder"
                 elif mutation == "source":
                     authorization["source_revision"] = "not-the-current-source"
                 elif mutation == "count":
                     authorization["count"] += 1
                 if mutation == "pending":
-                    state["pending_report_repair"] = {"stage": "astra_resolve"}
+                    state["pending_report_repair"] = {"stage": "resolve"}
                 elif mutation == "frontier":
-                    state["next_stage"] = "terra"
+                    state["next_stage"] = "builder"
                 elif mutation == "unconsumed":
                     authorization.pop("consumed")
-                attempt = {"stage": "astra_resolve", "output": str(self.run / (mutation + ".json"))}
+                attempt = {"stage": "resolve", "output": str(self.run / (mutation + ".json"))}
                 with self.assertRaisesRegex(util.Paused, "No causal progress"):
                     recovery.admit_dispatch(state, attempt, self.root, self.run, retry_authorization=authorization)
                 self.assertNotIn("recovery_novelty", attempt)
 
     def test_new_novelty_grant_is_live_only_and_its_audit_is_not_credit(self):
         state = self.legacy_failure()
-        state.update(status="PAUSED_NO_PROGRESS", next_stage="astra_resolve")
+        state.update(status="PAUSED_NO_PROGRESS", next_stage="resolve")
         with self.assertRaises(util.Paused):
-            recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": "held"}, self.root, self.run)
+            recovery.admit_dispatch(state, {"stage": "resolve", "output": "held"}, self.root, self.run)
         settings = copy.deepcopy(state["settings"])
         authorization = recovery.authorize_retry(runner, state, self.run, self.root)
         retained = copy.deepcopy(state["failure_retry_authorizations"][-1])
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
             recovery.admit_dispatch(
                 state,
-                {"stage": "astra_resolve", "output": "audit-argument"},
+                {"stage": "resolve", "output": "audit-argument"},
                 self.root,
                 self.run,
                 retry_authorization=retained,
             )
-        attempt = {"stage": "astra_resolve", "output": str(self.run / "present-cli-grant.json")}
+        attempt = {"stage": "resolve", "output": str(self.run / "present-cli-grant.json")}
         recovery.admit_dispatch(state, attempt, self.root, self.run, retry_authorization=authorization)
         self.assertEqual("explicit_retry", attempt["recovery_novelty"]["reason"])
         self.assertEqual(retained, state["failure_retry_authorizations"][-1])
@@ -422,7 +422,7 @@ class RecoveryPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
             recovery.admit_dispatch(
                 state,
-                {"stage": "astra_resolve", "output": "audit-is-not-credit"},
+                {"stage": "resolve", "output": "audit-is-not-credit"},
                 self.root,
                 self.run,
                 retry_authorization=retained,
@@ -435,9 +435,9 @@ class RecoveryPacketTests(unittest.TestCase):
             "reasoning_effort": "medium",
         }
         state = self.legacy_failure()
-        state.update(status="PAUSED_NO_PROGRESS", next_stage="astra_resolve", active_seconds=123)
+        state.update(status="PAUSED_NO_PROGRESS", next_stage="resolve", active_seconds=123)
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
-            recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": "held"}, self.root, self.run)
+            recovery.admit_dispatch(state, {"stage": "resolve", "output": "held"}, self.root, self.run)
         return state
 
     def test_explicit_resolver_route_retains_packet_and_history_without_restart_credit(self):
@@ -456,7 +456,7 @@ class RecoveryPacketTests(unittest.TestCase):
         authorization = recovery.authorize_retry(
             runner, state, self.run, self.root, previous_settings=before["settings"]
         )
-        attempt = {"stage": "astra_resolve", "output": "approved-new-model"}
+        attempt = {"stage": "resolve", "output": "approved-new-model"}
         recovery.admit_dispatch(state, attempt, self.root, self.run, retry_authorization=authorization)
         self.assertEqual("explicit_retry", attempt["recovery_novelty"]["reason"])
         self.assertEqual("openai/gpt-6-astra", state["settings"]["roles"]["resolver"]["model"])
@@ -469,7 +469,7 @@ class RecoveryPacketTests(unittest.TestCase):
             with self.assertRaisesRegex(util.Paused, "No causal progress"):
                 recovery.admit_dispatch(
                     state,
-                    {"stage": "astra_resolve", "output": "not-approved"},
+                    {"stage": "resolve", "output": "not-approved"},
                     self.root,
                     self.run,
                     retry_authorization=grant,
@@ -480,7 +480,7 @@ class RecoveryPacketTests(unittest.TestCase):
         second = recovery.authorize_retry(runner, state, self.run, self.root, previous_settings=previous)
         recovery.admit_dispatch(
             state,
-            {"stage": "astra_resolve", "output": "approved-effort"},
+            {"stage": "resolve", "output": "approved-effort"},
             self.root,
             self.run,
             retry_authorization=second,
@@ -489,9 +489,7 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertEqual(2, len(state["failure_retry_authorizations"]))
         self.assertIsNotNone(escalation.advance(state, "resolver", trigger="rejected_output"))
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
-            recovery.admit_dispatch(
-                state, {"stage": "astra_resolve", "output": "climbed-no-credit"}, self.root, self.run
-            )
+            recovery.admit_dispatch(state, {"stage": "resolve", "output": "climbed-no-credit"}, self.root, self.run)
 
         # Choosing an earlier rung after that climb is another explicit grant,
         # not permission for old climb records to swallow the new assignment.
@@ -500,7 +498,7 @@ class RecoveryPacketTests(unittest.TestCase):
         third = recovery.authorize_retry(runner, state, self.run, self.root, previous_settings=previous)
         recovery.admit_dispatch(
             state,
-            {"stage": "astra_resolve", "output": "approved-earlier-rung"},
+            {"stage": "resolve", "output": "approved-earlier-rung"},
             self.root,
             self.run,
             retry_authorization=third,
@@ -514,7 +512,7 @@ class RecoveryPacketTests(unittest.TestCase):
                 previous = copy.deepcopy(state["settings"])
                 state["settings"]["roles"]["resolver"]["model"] = "new/model"
                 if mutation == "other-role":
-                    state["settings"]["roles"]["terra"]["model"] = "also-changed"
+                    state["settings"]["roles"]["builder"]["model"] = "also-changed"
                 elif mutation == "permission":
                     state["settings"]["allow_uncontained_tools"] = True
                 elif mutation == "engine":
@@ -524,7 +522,7 @@ class RecoveryPacketTests(unittest.TestCase):
                 elif mutation == "contract":
                     state["goal_contract"]["hash"] = "changed"
                 elif mutation == "active":
-                    state["active_stage"] = {"stage": "astra_resolve"}
+                    state["active_stage"] = {"stage": "resolve"}
                 elif mutation == "uncertain":
                     state["uncertain_artifacts"] = ["unsettled"]
                 selected = copy.deepcopy(state)
@@ -582,7 +580,7 @@ class RecoveryPacketTests(unittest.TestCase):
 
     def builder_retry_state(self):
         state = copy.deepcopy(self.state)
-        state["settings"]["roles"]["terra"].update(model="pinned-builder", reasoning_effort="high")
+        state["settings"]["roles"]["builder"].update(model="pinned-builder", reasoning_effort="high")
         state["settings"]["builder_retry"] = {
             "enabled": True,
             "ordinary_retries": 0,
@@ -592,7 +590,7 @@ class RecoveryPacketTests(unittest.TestCase):
         incident = novelty.Incident(**self.packet()["incidents"][0])
         state["stages"].append(
             {
-                "stage": "terra",
+                "stage": "builder",
                 "recovery_novelty": {
                     "dispatch_id": "earlier-repair",
                     "incident_ids": [incident.id],
@@ -612,27 +610,27 @@ class RecoveryPacketTests(unittest.TestCase):
         ]
         state.pop("stop_intent", None)
         run_status.pause(state, "PAUSED_BUILDER_RETRY_LIMIT", "Execution failure: " + str(self.output))
-        state["next_stage"] = "terra"
+        state["next_stage"] = "builder"
         builder_recovery.request_serial_retry(state, ["M1"])
         return state
 
     def test_current_builder_retry_covers_one_planning_diagnosis_and_one_builder(self):
         state = self.builder_retry_state()
         settings = copy.deepcopy(state["settings"])
-        diagnosis = {"stage": "astra_resolve", "started_at": util.now(), "output": str(self.run / "new-diagnosis.json")}
+        diagnosis = {"stage": "resolve", "started_at": util.now(), "output": str(self.run / "new-diagnosis.json")}
         recovery.admit_dispatch(state, diagnosis, self.root, self.run)
         self.assertEqual("builder", diagnosis["recovery_novelty"]["grant_kind"])
         state["stages"].append(diagnosis)
         state["current_task"]["id"] = "T2"
         plan = {"source_output": str(self.output), "tasks": [copy.deepcopy(state["current_task"])]}
         recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
-        state.update(repair_plan=plan, next_stage="terra")
-        attempt = {"stage": "terra", "started_at": util.now(), "output": str(self.run / "granted-builder.json")}
+        state.update(repair_plan=plan, next_stage="builder")
+        attempt = {"stage": "builder", "started_at": util.now(), "output": str(self.run / "granted-builder.json")}
         recovery.admit_dispatch(state, attempt, self.root, self.run)
         self.assertEqual(diagnosis["recovery_novelty"]["grant_id"], attempt["recovery_novelty"]["grant_id"])
         state["stages"].append(attempt)
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
-            recovery.admit_dispatch(state, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+            recovery.admit_dispatch(state, {"stage": "builder", "output": "second-builder"}, self.root, self.run)
         self.assertEqual(settings, state["settings"])
 
     def test_a_changed_line_repair_after_a_passing_proof_is_not_a_retry_of_the_old_incident(self):
@@ -640,14 +638,14 @@ class RecoveryPacketTests(unittest.TestCase):
         # Builder back for changed lines without evidence, and that round was held as "no causal
         # progress" on the fixed incident, which ended the run.
         state = self.builder_retry_state()
-        diagnosis = {"stage": "astra_resolve", "started_at": util.now(), "output": str(self.run / "new-diagnosis.json")}
+        diagnosis = {"stage": "resolve", "started_at": util.now(), "output": str(self.run / "new-diagnosis.json")}
         recovery.admit_dispatch(state, diagnosis, self.root, self.run)
         state["stages"].append(diagnosis)
         state["current_task"]["id"] = "T2"
         plan = {"source_output": str(self.output), "tasks": [copy.deepcopy(state["current_task"])]}
         recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
-        state.update(repair_plan=plan, next_stage="terra")
-        attempt = {"stage": "terra", "started_at": util.now(), "output": str(self.run / "granted-builder.json")}
+        state.update(repair_plan=plan, next_stage="builder")
+        attempt = {"stage": "builder", "started_at": util.now(), "output": str(self.run / "granted-builder.json")}
         recovery.admit_dispatch(state, attempt, self.root, self.run)
         state["stages"].append(attempt)
         state["regression_proof"] = {"verdict": "PASS", "source_revision": "s1"}
@@ -661,7 +659,7 @@ class RecoveryPacketTests(unittest.TestCase):
             "review_output": str(self.run / "tester.json"),
         }
         state["regression_proofs"] = [rework_row]
-        again = {"stage": "terra", "output": "changed-line-builder"}
+        again = {"stage": "builder", "output": "changed-line-builder"}
         recovery.admit_dispatch(state, again, self.root, self.run)
         self.assertNotIn("recovery_novelty", again)
         # Anything short of that exact repair is still the packet's retry and is held.
@@ -675,17 +673,17 @@ class RecoveryPacketTests(unittest.TestCase):
                 held = copy.deepcopy(state)
                 held["regression_proofs"] = [{**rework_row, **change}]
                 with self.assertRaisesRegex(util.Paused, "No causal progress"):
-                    recovery.admit_dispatch(held, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+                    recovery.admit_dispatch(held, {"stage": "builder", "output": "second-builder"}, self.root, self.run)
         for proof in ({"verdict": "FAIL", "source_revision": "s1"}, {"verdict": "PASS", "source_revision": "s0"}):
             with self.subTest(proof=proof):
                 held = copy.deepcopy(state)
                 held["regression_proof"] = proof
                 with self.assertRaisesRegex(util.Paused, "No causal progress"):
-                    recovery.admit_dispatch(held, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+                    recovery.admit_dispatch(held, {"stage": "builder", "output": "second-builder"}, self.root, self.run)
         held = copy.deepcopy(state)
         held["regression_proofs"] = [rework_row, {"path": "later-proof.json", "verdict": "PASS"}]
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
-            recovery.admit_dispatch(held, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+            recovery.admit_dispatch(held, {"stage": "builder", "output": "second-builder"}, self.root, self.run)
         # The Builder round the runner queued for an approved check that cannot find a test it names.
         checked = copy.deepcopy(state)
         checked["regression_proofs"] = []
@@ -693,20 +691,20 @@ class RecoveryPacketTests(unittest.TestCase):
         checked["planned_check_reworks"] = [{**planned_row, "command": "python -m unittest t.T.test_x"}]
         checked["iteration"] = 3
         checked["planned_check_reworks"][0]["iteration"] = 3
-        recovery.admit_dispatch(checked, {"stage": "terra", "output": "planned-check-builder"}, self.root, self.run)
+        recovery.admit_dispatch(checked, {"stage": "builder", "output": "planned-check-builder"}, self.root, self.run)
         checked["iteration"] += 1
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
-            recovery.admit_dispatch(checked, {"stage": "terra", "output": "second-builder"}, self.root, self.run)
+            recovery.admit_dispatch(checked, {"stage": "builder", "output": "second-builder"}, self.root, self.run)
 
     def test_legacy_builder_grant_consumed_without_novelty_receipt_stays_spent(self):
-        for stage, timestamp in (("terra", True), ("astra_resolve", True), ("terra", False)):
+        for stage, timestamp in (("builder", True), ("resolve", True), ("builder", False)):
             with self.subTest(stage=stage, known_clock=timestamp):
                 state = self.builder_retry_state()
                 spent = {"stage": stage, "output": str(self.run / "legacy-consumed.json"), "exit_code": 0}
                 if timestamp:
                     spent["started_at"] = util.now()
                 state["stages"].append(spent)
-                attempt = {"stage": "astra_resolve", "output": str(self.run / "must-not-launch.json")}
+                attempt = {"stage": "resolve", "output": str(self.run / "must-not-launch.json")}
                 with self.assertRaisesRegex(util.Paused, "No causal progress"):
                     recovery.admit_dispatch(state, attempt, self.root, self.run)
                 self.assertNotIn("recovery_novelty", attempt)
@@ -728,7 +726,7 @@ class RecoveryPacketTests(unittest.TestCase):
                     self.output.write_text("changed after the user grant")
                 else:
                     state["builder_retry_decisions"].append({**grant, "owner": "autoresolver"})
-                attempt = {"stage": "astra_resolve", "output": str(self.run / (mutation + "-not-launched.json"))}
+                attempt = {"stage": "resolve", "output": str(self.run / (mutation + "-not-launched.json"))}
                 with self.assertRaises(util.Paused):
                     recovery.admit_dispatch(state, attempt, self.root, self.run)
                 self.assertNotIn("recovery_novelty", attempt)
@@ -738,7 +736,7 @@ class RecoveryPacketTests(unittest.TestCase):
         state["settings"]["builder_retry"] = {"enabled": True, "ordinary_retries": 0, "strong_model": "strong"}
         source = self.capture_resolution(state, self.validation_request())
         before = copy.deepcopy(state)
-        attempt = {"stage": "astra_resolve", "output": str(self.run / "validation-planning.json")}
+        attempt = {"stage": "resolve", "output": str(self.run / "validation-planning.json")}
         with patch.object(recovery.builder_policy, "failure", side_effect=AssertionError("No Builder work requested")):
             recovery.admit_dispatch(state, attempt, self.root, self.run)
         self.assertEqual("diagnosis", attempt["recovery_novelty"]["action"])
@@ -765,7 +763,7 @@ class RecoveryPacketTests(unittest.TestCase):
         for mutation in ("mutable_label", "current_task_label", "source", "criteria", "empty_plan", "unaccepted"):
             with self.subTest(mutation=mutation):
                 state = copy.deepcopy(self.state)
-                state["settings"]["roles"]["terra"].update(model="pinned-builder")
+                state["settings"]["roles"]["builder"].update(model="pinned-builder")
                 state["settings"]["builder_retry"] = {"enabled": True, "ordinary_retries": 0, "strong_model": "strong"}
                 decision = self.validation_request()
                 if mutation in ("mutable_label", "current_task_label"):
@@ -783,7 +781,7 @@ class RecoveryPacketTests(unittest.TestCase):
                     self.output.write_text("altered after acceptance")
                 elif mutation == "unaccepted":
                     state["resolution_request"]["source_report_not_accepted"] = True
-                attempt = {"stage": "astra_resolve", "output": str(self.run / "no-bypass.json")}
+                attempt = {"stage": "resolve", "output": str(self.run / "no-bypass.json")}
                 with self.assertRaises(util.Paused):
                     recovery.admit_dispatch(state, attempt, self.root, self.run)
                 self.assertNotIn("recovery_novelty", attempt)
@@ -799,7 +797,7 @@ class RecoveryPacketTests(unittest.TestCase):
         with patch.object(
             recovery.builder_policy, "failure", side_effect=AssertionError("Validation is not Builder work")
         ):
-            attempt = {"stage": "astra_resolve", "output": str(self.run / "approved-other-check.json")}
+            attempt = {"stage": "resolve", "output": str(self.run / "approved-other-check.json")}
             recovery.admit_dispatch(state, attempt, self.root, self.run)
         self.assertEqual("diagnosis", attempt["recovery_novelty"]["action"])
 
@@ -834,7 +832,7 @@ class RecoveryPacketTests(unittest.TestCase):
             recovery.load_packet(self.request["recovery_packet"], other)
 
     def test_first_diagnosis_is_reserved_once_and_restart_cannot_dispatch_again(self):
-        record = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
+        record = {"stage": "resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
         recovery.admit_dispatch(self.state, record, self.root, self.run)
         saved = copy.deepcopy(record)
         recovery.admit_dispatch(self.state, record, self.root, self.run)
@@ -844,7 +842,7 @@ class RecoveryPacketTests(unittest.TestCase):
         before = copy.deepcopy(restarted)
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
             recovery.admit_dispatch(
-                restarted, {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}, self.root, self.run
+                restarted, {"stage": "resolve", "output": str(self.run / "new-session.json")}, self.root, self.run
             )
         self.assertEqual(before["stages"], restarted["stages"])
         self.assertNotIn("resolver", restarted)
@@ -852,7 +850,7 @@ class RecoveryPacketTests(unittest.TestCase):
     def test_a_hold_states_what_is_left_of_the_cost_cap(self):
         # #611: a repeat with no new evidence stops before the run's budget is spent, and the stop says what
         # it has spent of its cost cap, as --status prints it, so a person can decide on the one scoped retry.
-        first = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
+        first = {"stage": "resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
         recovery.admit_dispatch(self.state, first, self.root, self.run)
         self.state["stages"][0]["metrics"] = {"provider_cost_usd": 1.25}
         self.state["stages"].append({**first, "metrics": {"provider_cost_usd": 0.5}})
@@ -861,7 +859,7 @@ class RecoveryPacketTests(unittest.TestCase):
             with self.subTest(limits=limits):
                 state = copy.deepcopy(self.state)
                 state["settings"]["limits"] = limits
-                again = {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}
+                again = {"stage": "resolve", "output": str(self.run / "new-session.json")}
                 with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
                     recovery.admit_dispatch(state, again, self.root, self.run)
                 self.assertTrue(str(caught.exception).endswith(ending), str(caught.exception))
@@ -870,13 +868,13 @@ class RecoveryPacketTests(unittest.TestCase):
     def test_a_cap_changed_at_the_hold_is_the_cap_its_stop_states(self):
         # #611: the hold's reason never carries the spend, and a settings change at the hold restates the stop
         # with the cap the run has then, keeping the advice after it; without a cap it says nothing about cost.
-        first = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
+        first = {"stage": "resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
         recovery.admit_dispatch(self.state, first, self.root, self.run)
         self.state["stages"][0]["metrics"] = {"provider_cost_usd": 1.25}
         self.state["stages"].append({**first, "metrics": {"provider_cost_usd": 0.5}})
-        self.state.update(next_stage="astra_resolve")  # The hold waits on the Resolver it held.
+        self.state.update(next_stage="resolve")  # The hold waits on the Resolver it held.
         self.state["settings"]["limits"] = {"max_cost_usd": 5}
-        again = {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}
+        again = {"stage": "resolve", "output": str(self.run / "new-session.json")}
         with self.assertRaisesRegex(util.Paused, "cap \\$5.00"):
             recovery.admit_dispatch(self.state, again, self.root, self.run)
         reason = self.state["resolution_request"]["novelty_hold"]["reason"]
@@ -899,11 +897,11 @@ class RecoveryPacketTests(unittest.TestCase):
         # #1728 ends the cost line with "Stage costs: ..." when a stage ran more than once. A settings change at
         # the hold restates that whole line with the budgets after it, never keeping the old copies alongside
         # the new (master's tests.test_rework_cli, 2026-10-21: three "Active time" sentences after two changes).
-        first = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
+        first = {"stage": "resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
         recovery.admit_dispatch(self.state, first, self.root, self.run)
         self.state["stages"][0]["metrics"] = {"provider_cost_usd": 1.25}
         self.state["stages"].append({**first, "metrics": {"provider_cost_usd": 0.5}})
-        self.state.update(next_stage="astra_resolve", active_seconds=1250)
+        self.state.update(next_stage="resolve", active_seconds=1250)
         self.state["settings"]["limits"] = {"max_cost_usd": 5, "max_seconds": 43200}
         costs = " Stage costs: Orchestrator 2 attempts: $0.00; Builder 2 attempts: $0.03; Tester 2 attempts: at least $0.09 (1 unpriced)."
 
@@ -911,7 +909,7 @@ class RecoveryPacketTests(unittest.TestCase):
             return f"Cost: $1.75 so far; cap {recovery.cost.usd(view['cap_usd'])}." + costs
 
         with patch.object(recovery.cost, "line", side_effect=line):
-            again = {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}
+            again = {"stage": "resolve", "output": str(self.run / "new-session.json")}
             with self.assertRaisesRegex(util.Paused, "Stage costs"):
                 recovery.admit_dispatch(self.state, again, self.root, self.run)
             reason = self.state["resolution_request"]["novelty_hold"]["reason"]
@@ -938,13 +936,13 @@ class RecoveryPacketTests(unittest.TestCase):
         # #611: after the spend, the stop states the run's active time against its time limit and the current
         # milestone's time against its budget. Neither is saved with the hold's reason, and a limit or budget
         # changed at the hold is restated, with or without a cost cap, keeping the advice after them.
-        first = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
+        first = {"stage": "resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
         recovery.admit_dispatch(self.state, first, self.root, self.run)
         self.state["stages"][0]["metrics"] = {"provider_cost_usd": 1.25}
         self.state["stages"].append({**first, "metrics": {"provider_cost_usd": 0.5}})
-        self.state.update(next_stage="astra_resolve", active_seconds=1250)
+        self.state.update(next_stage="resolve", active_seconds=1250)
         self.state["settings"]["limits"] = {"max_cost_usd": 5, "max_seconds": 43200}
-        again = {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}
+        again = {"stage": "resolve", "output": str(self.run / "new-session.json")}
         with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
             recovery.admit_dispatch(self.state, again, self.root, self.run)
         held = "authorizes one attempt under existing limits"
@@ -1002,11 +1000,11 @@ class RecoveryPacketTests(unittest.TestCase):
         ):
             with self.subTest(flags=flags):
                 state = copy.deepcopy(self.state)
-                first = {"stage": "astra_resolve", "output": str(self.run / "first.json"), "started_at": "first"}
+                first = {"stage": "resolve", "output": str(self.run / "first.json"), "started_at": "first"}
                 recovery.admit_dispatch(state, first, self.root, self.run)
                 first.update(flags)
                 state["stages"].append(first)
-                relaunch = {"stage": "astra_resolve", "output": str(self.run / "relaunch.json"), "started_at": "second"}
+                relaunch = {"stage": "resolve", "output": str(self.run / "relaunch.json"), "started_at": "second"}
                 if not admitted:
                     with self.assertRaisesRegex(util.Paused, "No causal progress"):
                         recovery.admit_dispatch(state, relaunch, self.root, self.run)
@@ -1017,7 +1015,7 @@ class RecoveryPacketTests(unittest.TestCase):
                 # The relaunch returned a result, so the same experiment again needs new information.
                 with self.assertRaisesRegex(util.Paused, "No causal progress"):
                     recovery.admit_dispatch(
-                        state, {"stage": "astra_resolve", "output": str(self.run / "third.json")}, self.root, self.run
+                        state, {"stage": "resolve", "output": str(self.run / "third.json")}, self.root, self.run
                     )
 
     def test_an_investigators_retry_of_a_rejected_repair_admits_one_builder_attempt(self):
@@ -1031,7 +1029,7 @@ class RecoveryPacketTests(unittest.TestCase):
             state["repair_plan"] = {"tasks": [copy.deepcopy(state["current_task"])], "recovery_packet": pointer}
             state["stages"].append(
                 {
-                    "stage": "terra",
+                    "stage": "builder",
                     "rejected": True,
                     "finished_at": "2026-10-06T02:15:18+00:00",
                     "recovery_novelty": {
@@ -1045,11 +1043,11 @@ class RecoveryPacketTests(unittest.TestCase):
                 }
             )
             if investigation:
-                identity = "terra:" + investigation
+                identity = "builder:" + investigation
                 state["stuck_investigations"] = [
                     {
                         "identity": identity,
-                        "stage": "terra",
+                        "stage": "builder",
                         "status": investigation,
                         "requested_at": "2026-10-06T02:15:19+00:00",
                         "outcome": "retried",
@@ -1058,13 +1056,13 @@ class RecoveryPacketTests(unittest.TestCase):
                 ]
                 state["stuck_investigation"] = {
                     "identity": identity,
-                    "stage": "terra",
+                    "stage": "builder",
                     "status": investigation,
                     "in_force": in_force,
                 }
             return state
 
-        attempt = lambda: {"stage": "terra", "output": str(self.run / f"builder-{uuid.uuid4().hex}.json")}
+        attempt = lambda: {"stage": "builder", "output": str(self.run / f"builder-{uuid.uuid4().hex}.json")}
         state = state_with("PAUSED_INVALID_OUTPUT")
         granted = attempt()
         recovery.admit_dispatch(state, granted, self.root, self.run)
@@ -1134,11 +1132,11 @@ class RecoveryPacketTests(unittest.TestCase):
         for key in ("settings", "current_task"):
             state = copy.deepcopy(self.state)
             if key == "settings":
-                state[key]["roles"]["terra"]["model_pinned"] = False
+                state[key]["roles"]["builder"]["model_pinned"] = False
             else:
                 state[key]["acceptance_criteria"] = ["C2"]
             with self.assertRaises(util.Paused):
-                recovery.admit_dispatch(state, {"stage": "astra_resolve"}, self.root, self.run)
+                recovery.admit_dispatch(state, {"stage": "resolve"}, self.root, self.run)
 
     def test_admission_ceiling_change_preserves_packet_and_assigned_repair_not_novelty(self):
         pointer = copy.deepcopy(self.request["recovery_packet"])
@@ -1151,7 +1149,7 @@ class RecoveryPacketTests(unittest.TestCase):
             transport_identities={},
             budget_origins={"iteration_ceiling": "user_explicit", "max_seconds": "user_explicit"},
         )
-        record = {"stage": "terra", "output": str(self.run / "assigned-repair.json")}
+        record = {"stage": "builder", "output": str(self.run / "assigned-repair.json")}
         recovery.admit_dispatch(self.state, record, self.root, self.run)
         self.assertEqual("first_incident", record["recovery_novelty"]["reason"])
         self.state["stages"].append(record)
@@ -1159,7 +1157,7 @@ class RecoveryPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
             recovery.admit_dispatch(
                 self.state,
-                {"stage": "astra_resolve", "output": str(self.run / "no-new-input.json")},
+                {"stage": "resolve", "output": str(self.run / "no-new-input.json")},
                 self.root,
                 self.run,
             )
@@ -1210,9 +1208,9 @@ class RecoveryPacketTests(unittest.TestCase):
                 pointer = copy.deepcopy(state["resolution_request"]["recovery_packet"])
                 plan = {"tasks": [copy.deepcopy(state["current_task"])]}
                 recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
-                state.update(repair_plan=plan, next_stage="terra")
+                state.update(repair_plan=plan, next_stage="builder")
                 change(state["settings"])
-                attempt = {"stage": "terra", "output": str(self.run / "repair-builder.json")}
+                attempt = {"stage": "builder", "output": str(self.run / "repair-builder.json")}
                 if refused:
                     with self.assertRaisesRegex(util.Paused, refused) as caught:
                         recovery.admit_dispatch(state, attempt, self.root, self.run)
@@ -1229,9 +1227,9 @@ class RecoveryPacketTests(unittest.TestCase):
             state = self.milestone_budget_failure({})
             plan = {"tasks": [copy.deepcopy(state["current_task"])]}
             recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
-            state.update(repair_plan=plan, next_stage="terra")
+            state.update(repair_plan=plan, next_stage="builder")
             change(state["settings"])
-            attempt = {"stage": "terra", "output": str(self.run / "repair-builder.json")}
+            attempt = {"stage": "builder", "output": str(self.run / "repair-builder.json")}
             recovery.admit_dispatch(state, attempt, self.root, self.run)
             return attempt
 
@@ -1242,7 +1240,7 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertEqual("repair", admit(fitted)["recovery_novelty"]["action"])
 
         def rerouted(settings):
-            settings["roles"]["terra"] = {**settings["roles"]["terra"], "reasoning_effort": "max"}
+            settings["roles"]["builder"] = {**settings["roles"]["builder"], "reasoning_effort": "max"}
 
         with self.assertRaisesRegex(util.Paused, "settings, contract or scope changed") as caught:
             admit(rerouted)
@@ -1261,13 +1259,13 @@ class RecoveryPacketTests(unittest.TestCase):
         packet["binding"]["settings_hash"] = util.digest(state["settings"])
         path.write_text(json.dumps(packet))
         pointer["sha256"] = util.file_hash(path)
-        diagnosis = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json")}
+        diagnosis = {"stage": "resolve", "output": str(self.run / "diagnosis.json")}
         recovery.admit_dispatch(copy.deepcopy(state), diagnosis, self.root, self.run)
         self.assertEqual("diagnosis", diagnosis["recovery_novelty"]["action"])
         state["settings"]["milestone_checkpoints"]["max_seconds"] = 600
         with self.assertRaisesRegex(util.Paused, "settings") as caught:
             recovery.admit_dispatch(
-                state, {"stage": "astra_resolve", "output": str(self.run / "later.json")}, self.root, self.run
+                state, {"stage": "resolve", "output": str(self.run / "later.json")}, self.root, self.run
             )
         self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
 
@@ -1310,8 +1308,8 @@ class RecoveryPacketTests(unittest.TestCase):
                 state["goal_contract"].update(contract)
                 plan = {"tasks": [copy.deepcopy(state["current_task"])]}
                 recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
-                state.update(repair_plan=plan, next_stage="terra")
-                attempt = {"stage": "terra", "output": str(self.run / "repair-builder.json")}
+                state.update(repair_plan=plan, next_stage="builder")
+                attempt = {"stage": "builder", "output": str(self.run / "repair-builder.json")}
                 if refused:
                     with self.assertRaisesRegex(util.Paused, refused) as caught:
                         recovery.admit_dispatch(state, attempt, self.root, self.run)
@@ -1325,7 +1323,7 @@ class RecoveryPacketTests(unittest.TestCase):
                 state["stages"].append(attempt)
                 with self.assertRaisesRegex(util.Paused, "No causal progress"):
                     recovery.admit_dispatch(
-                        state, {"stage": "terra", "output": str(self.run / "again.json")}, self.root, self.run
+                        state, {"stage": "builder", "output": str(self.run / "again.json")}, self.root, self.run
                     )
 
     def test_a_repair_may_keep_a_criterion_the_reviewed_decision_assigned(self):
@@ -1366,8 +1364,8 @@ class RecoveryPacketTests(unittest.TestCase):
                 state["current_task"].update(id="T2", acceptance_criteria=repair)
                 plan = {"tasks": [copy.deepcopy(state["current_task"])]}
                 recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
-                state.update(repair_plan=plan, next_stage="terra")
-                attempt = {"stage": "terra", "output": str(self.run / "repair-builder.json")}
+                state.update(repair_plan=plan, next_stage="builder")
+                attempt = {"stage": "builder", "output": str(self.run / "repair-builder.json")}
                 if refused:
                     with self.assertRaisesRegex(util.Paused, refused) as caught:
                         recovery.admit_dispatch(state, attempt, self.root, self.run)
@@ -1381,12 +1379,12 @@ class RecoveryPacketTests(unittest.TestCase):
             {"limits": {"stage_timeout_seconds": 0}},
             {"allow_no_changes": True},
             {"transport_identities": {"opencode": {"base_url": "different-endpoint"}}},
-            {"roles": {"terra": {"model": "different", "model_pinned": True}}},
+            {"roles": {"builder": {"model": "different", "model_pinned": True}}},
         ):
             state = copy.deepcopy(self.state)
             state["settings"].update(settings)
             with self.assertRaisesRegex(util.Paused, "settings"):
-                recovery.admit_dispatch(state, {"stage": "astra_resolve"}, self.root, self.run)
+                recovery.admit_dispatch(state, {"stage": "resolve"}, self.root, self.run)
 
     def test_the_resolvers_own_climb_keeps_the_binding_and_other_route_changes_do_not(self):
         # #1345: a rejected Resolver attempt climbs the Resolver's route. That is no changed
@@ -1397,12 +1395,12 @@ class RecoveryPacketTests(unittest.TestCase):
         state["resolution_request"] = {key: value for key, value in self.request.items() if key != "recovery_packet"}
         record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
         recovery.prepare_resolution(state, {"summary": "Wrong answer"}, record)
-        first = {"stage": "astra_resolve", "output": str(self.run / "first.json"), "started_at": "first"}
+        first = {"stage": "resolve", "output": str(self.run / "first.json"), "started_at": "first"}
         recovery.admit_dispatch(state, first, self.root, self.run)
         state["stages"].append({**first, "rejected": True, "exit_code": 0})
         self.assertIsNotNone(escalation.advance(state, "resolver", trigger="rejected_output"))
         self.assertEqual("xhigh", state["settings"]["roles"]["resolver"]["reasoning_effort"])
-        relaunch = {"stage": "astra_resolve", "output": str(self.run / "relaunch.json"), "started_at": "second"}
+        relaunch = {"stage": "resolve", "output": str(self.run / "relaunch.json"), "started_at": "second"}
         with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
             recovery.admit_dispatch(copy.deepcopy(state), dict(relaunch), self.root, self.run)
         self.assertEqual("PAUSED_NO_PROGRESS", caught.exception.status)
@@ -1438,7 +1436,7 @@ class RecoveryPacketTests(unittest.TestCase):
 
     def test_existing_builder_exhaustion_precedes_diagnosis_and_is_idempotent(self):
         state = copy.deepcopy(self.state)
-        state["settings"]["roles"]["terra"].update(model="pinned-builder")
+        state["settings"]["roles"]["builder"].update(model="pinned-builder")
         state["settings"]["builder_retry"] = {
             "enabled": True,
             "ordinary_retries": 0,
@@ -1455,14 +1453,14 @@ class RecoveryPacketTests(unittest.TestCase):
         recovery.prepare_resolution(state, {"summary": "Actual failed candidate"}, record)
         settings = copy.deepcopy(state["settings"])
         for _ in range(2):
-            attempt = {"stage": "astra_resolve", "output": str(self.run / "must-not-launch.json")}
+            attempt = {"stage": "resolve", "output": str(self.run / "must-not-launch.json")}
             with self.assertRaises(util.Paused) as caught:
                 recovery.admit_dispatch(state, attempt, self.root, self.run)
             self.assertEqual("PAUSED_INTERVENTION", caught.exception.status)
             self.assertEqual(settings, state["settings"])
             self.assertNotIn("recovery_novelty", attempt)
         self.assertEqual(["pause"], [row["action"] for row in state["builder_retry_decisions"]])
-        self.assertEqual("terra", state["next_stage"])
+        self.assertEqual("builder", state["next_stage"])
         self.assertNotIn("resolver", state)
         self.assertTrue(recovery.known_builder_pause(state))
         state["phase"] = "PAUSED_OR_BLOCKED"
@@ -1492,7 +1490,7 @@ class RecoveryPacketTests(unittest.TestCase):
 
     def test_available_builder_preview_never_spends_or_escalates(self):
         state = copy.deepcopy(self.state)
-        state["settings"]["roles"]["terra"].update(model="builder", model_pinned=False)
+        state["settings"]["roles"]["builder"].update(model="builder", model_pinned=False)
         state["settings"]["builder_retry"] = {
             "enabled": True,
             "ordinary_retries": 1,
@@ -1509,7 +1507,7 @@ class RecoveryPacketTests(unittest.TestCase):
         recovery.prepare_resolution(state, {"summary": "Actual failed candidate"}, record)
         settings = copy.deepcopy(state["settings"])
         progress = copy.deepcopy(state["milestone_progress"])
-        attempt = {"stage": "astra_resolve", "output": str(self.run / "first-diagnosis.json")}
+        attempt = {"stage": "resolve", "output": str(self.run / "first-diagnosis.json")}
         recovery.admit_dispatch(state, attempt, self.root, self.run)
         self.assertEqual("first_incident", attempt["recovery_novelty"]["reason"])
         self.assertNotIn("builder_retry_decisions", state)
@@ -1521,7 +1519,7 @@ class RecoveryPacketTests(unittest.TestCase):
         packet = self.packet()
         self.state["stages"].append(
             {
-                "stage": "terra",
+                "stage": "builder",
                 "recovery_novelty": {
                     "dispatch_id": "previous",
                     "incident_ids": [novelty.Incident(**packet["incidents"][0]).id],
@@ -1548,7 +1546,7 @@ class RecoveryPacketTests(unittest.TestCase):
                 "failure": str(self.output),
             }
         ]
-        attempt = {"stage": "astra_resolve", "output": str(self.run / "unauthorized.json")}
+        attempt = {"stage": "resolve", "output": str(self.run / "unauthorized.json")}
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
             recovery.admit_dispatch(self.state, attempt, self.root, self.run)
         self.assertNotIn("recovery_novelty", attempt)
@@ -1558,7 +1556,7 @@ class RecoveryPacketTests(unittest.TestCase):
         for active in ({"active_stage": {"output": "live", "pid": 12}}, {"uncertain_artifacts": ["unknown"]}):
             state = {**copy.deepcopy(self.state), **active}
             with self.assertRaises(util.Paused):
-                recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": "replacement"}, self.root, self.run)
+                recovery.admit_dispatch(state, {"stage": "resolve", "output": "replacement"}, self.root, self.run)
             for key, value in active.items():
                 self.assertEqual(value, state[key])
 
@@ -1693,7 +1691,7 @@ class RecoveryPacketTests(unittest.TestCase):
         packet = self.packet()
         self.state["stages"].append(
             {
-                "stage": "terra",
+                "stage": "builder",
                 "recovery_novelty": {
                     "dispatch_id": "prior",
                     "incident_ids": [novelty.Incident(**packet["incidents"][0]).id],
@@ -1705,7 +1703,7 @@ class RecoveryPacketTests(unittest.TestCase):
         plan = {"tasks": [self.state["current_task"]]}
         recovery.finish_resolution_packet(self.state, self.request, plan)
         self.state["repair_plan"] = plan
-        attempt = {"stage": "terra", "output": str(self.run / "builder.json")}
+        attempt = {"stage": "builder", "output": str(self.run / "builder.json")}
         recovery.admit_dispatch(self.state, attempt, self.root, self.run)
         self.assertEqual("bounded_change", attempt["recovery_novelty"]["reason"])
         self.assertNotIn("accepted", attempt["recovery_novelty"])
@@ -1753,7 +1751,7 @@ class RecoveryPacketTests(unittest.TestCase):
                 )
                 self.assertFalse({"recovery_change", "recovery_change_id"} & set(plan))
                 state["repair_plan"] = plan
-                first = {"stage": "terra", "output": str(self.run / "builder.json"), "started_at": "first"}
+                first = {"stage": "builder", "output": str(self.run / "builder.json"), "started_at": "first"}
                 recovery.admit_dispatch(state, first, self.root, self.run)
                 self.assertEqual(
                     ("repair", "first_incident", None),
@@ -1764,7 +1762,7 @@ class RecoveryPacketTests(unittest.TestCase):
                     ),
                 )
                 state["stages"].append(first)
-                attempt = {"stage": "terra", "output": str(self.run / "builder-again.json"), "started_at": "again"}
+                attempt = {"stage": "builder", "output": str(self.run / "builder-again.json"), "started_at": "again"}
                 with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
                     recovery.admit_dispatch(state, attempt, self.root, self.run)
                 self.assertEqual("PAUSED_NO_PROGRESS", caught.exception.status)
@@ -1799,7 +1797,7 @@ class RecoveryPacketTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 state = copy.deepcopy(self.state)
                 state["resolution_request"]["recovery_change"] = {**change, **bad} if isinstance(bad, dict) else bad
-                first = {"stage": "astra_resolve", "output": str(self.run / "first.json"), "started_at": "first"}
+                first = {"stage": "resolve", "output": str(self.run / "first.json"), "started_at": "first"}
                 recovery.admit_dispatch(state, first, self.root, self.run)
                 self.assertEqual(
                     ("diagnosis", "first_incident", None),
@@ -1810,7 +1808,7 @@ class RecoveryPacketTests(unittest.TestCase):
                     ),
                 )
                 state["stages"].append(first)
-                again = {"stage": "astra_resolve", "output": str(self.run / "again.json"), "started_at": "again"}
+                again = {"stage": "resolve", "output": str(self.run / "again.json"), "started_at": "again"}
                 with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
                     recovery.admit_dispatch(state, again, self.root, self.run)
                 self.assertEqual("PAUSED_NO_PROGRESS", caught.exception.status)
@@ -1832,7 +1830,7 @@ class RecoveryPacketTests(unittest.TestCase):
         }
         archived = Path(self.packet()["originals"][0]["path"])
         archived.write_text(archived.read_text().replace("{", "{ ", 1))
-        attempt = {"stage": "astra_resolve", "output": str(self.run / "not-launched.json")}
+        attempt = {"stage": "resolve", "output": str(self.run / "not-launched.json")}
         with self.assertRaisesRegex(util.Paused, "retained original archive changed") as caught:
             recovery.admit_dispatch(self.state, attempt, self.root, self.run)
         self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
@@ -1850,7 +1848,7 @@ class RecoveryPacketTests(unittest.TestCase):
             "evidence_refs": ["event:check"],
         }
         self.request["recovery_change"] = change
-        attempt = {"stage": "astra_resolve", "output": str(self.run / "alias-diagnosis.json")}
+        attempt = {"stage": "resolve", "output": str(self.run / "alias-diagnosis.json")}
         recovery.admit_dispatch(self.state, attempt, self.root, self.run)
         self.assertEqual("diagnosis", attempt["recovery_novelty"]["action"])
 
@@ -1929,7 +1927,7 @@ class RecoveryPacketTests(unittest.TestCase):
             "request_id": "registered-request",
             "manifest": str(manifest),
             "manifest_sha256": util.file_hash(manifest),
-            "next_stage": "terra",
+            "next_stage": "builder",
         }
         self.state["dependency_wait"] = wait
         with self.assertRaisesRegex(ValueError, "matching user binding"):
@@ -1953,7 +1951,7 @@ class RecoveryPacketTests(unittest.TestCase):
         (root / "source" / "lib.py").write_text("tampered = True\n")
         with self.assertRaisesRegex(ValueError, "source hash mismatch"):
             inputs.capture(self.state, self.run)
-        attempt = {"stage": "astra_resolve", "output": str(self.run / "not-admitted.json")}
+        attempt = {"stage": "resolve", "output": str(self.run / "not-admitted.json")}
         with self.assertRaisesRegex(util.Paused, "source hash mismatch"):
             recovery.admit_dispatch(self.state, attempt, self.root, self.run)
         self.assertNotIn("recovery_novelty", attempt)
@@ -2066,7 +2064,7 @@ class RecoveryPacketTests(unittest.TestCase):
     def known_correction(self, evidence, **mutation):
         """A sealed Completion REWORK with an attested change (unless `mutation` breaks it), over a failed check captured in `evidence`."""
         self.state["iteration"] = 2
-        self.state["settings"]["roles"] = {"terra": {"model": "builder"}, "sol": {"model": "reviewer"}}
+        self.state["settings"]["roles"] = {"builder": {"model": "builder"}, "tester": {"model": "reviewer"}}
         identity = {"task_id": "T1", "contract_hash": "h", "contract_revision": 1}
         change = {
             "hypothesis": "Wrong answer",
@@ -2094,7 +2092,7 @@ class RecoveryPacketTests(unittest.TestCase):
         self.output.write_text(json.dumps(decision))
         record = {
             **identity,
-            "stage": "astra_review",
+            "stage": "review_completion",
             "source_revision": "s1",
             "exit_code": 0,
             "output": str(self.output),
@@ -2103,8 +2101,8 @@ class RecoveryPacketTests(unittest.TestCase):
         }
         accepted = {
             **identity,
-            "stage": "sol",
-            "role": "sol",
+            "stage": "tester",
+            "role": "tester",
             "source_revision": "s1",
             "exit_code": 0,
             "output": str(self.validator),
@@ -2122,11 +2120,11 @@ class RecoveryPacketTests(unittest.TestCase):
         self.state["validation"] = {
             **report,
             "source_revision": "s1",
-            "reviewer_role": "sol",
+            "reviewer_role": "tester",
             "output": str(self.validator),
             "evidence_hashes": {str(path): util.file_hash(path) for path in (self.events, raw, receipt)},
         }
-        self.state["stages"] = [{"stage": "terra", "role": "terra", "task_id": "T1"}, accepted]
+        self.state["stages"] = [{"stage": "builder", "role": "builder", "task_id": "T1"}, accepted]
         runtime = SimpleNamespace(
             lifecycle=SimpleNamespace(assign_task=Mock()),
             support=SimpleNamespace(snapshot=util.snapshot, verify_checks=Mock()),
@@ -2154,7 +2152,7 @@ class RecoveryPacketTests(unittest.TestCase):
         self.state["stages"][-1]["tool_containment"] = {"version": 1, "scratch": str(scratch)}
         state, current_record = self.known_correction_prepared(decision, record, paths)
         runtime.goals = SimpleNamespace(record_decision=Mock())
-        runtime.dispatch = SimpleNamespace(build_stage=lambda _: "terra")
+        runtime.dispatch = SimpleNamespace(build_stage=lambda _: "builder")
         with patch.object(recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
             self.assertTrue(
                 recovery.route_known_change(
@@ -2201,13 +2199,13 @@ class RecoveryPacketTests(unittest.TestCase):
         # try it, so it is routed again rather than through a paid diagnosis; a returned one holds.
         decision, record, _, paths, runtime, retry = self.known_correction(self.run)
         runtime.goals = SimpleNamespace(record_decision=Mock())
-        runtime.dispatch = SimpleNamespace(build_stage=lambda _: "terra")
+        runtime.dispatch = SimpleNamespace(build_stage=lambda _: "builder")
         state, current_record = self.known_correction_prepared(decision, record, paths)
         packet = recovery.load_packet(state["resolution_request"]["recovery_packet"], self.run)
         recovery.validate_decision(state, decision, current_record)
         earlier = {
-            "stage": "terra",
-            "role": "terra",
+            "stage": "builder",
+            "role": "builder",
             "output": str(self.run / "earlier-repair.json"),
             "recovery_novelty": {
                 "dispatch_id": "earlier-repair",
@@ -2267,7 +2265,7 @@ class RecoveryPacketTests(unittest.TestCase):
                 # The queued Resolver request, as queue_resolution binds it, with the finished review reconciled.
                 request.update(source_output=current_record["output"], review=copy.deepcopy(decision))
                 state.pop("active_stage")
-                first = {"stage": "astra_resolve", "output": str(self.run / "resolver.json"), "started_at": "first"}
+                first = {"stage": "resolve", "output": str(self.run / "resolver.json"), "started_at": "first"}
                 recovery.admit_dispatch(state, first, self.root, self.run)
                 self.assertEqual(
                     ("diagnosis", "first_incident", None),
@@ -2281,7 +2279,7 @@ class RecoveryPacketTests(unittest.TestCase):
                 with self.assertRaisesRegex(util.Paused, "Proposed change is unproven") as caught:
                     recovery.admit_dispatch(
                         state,
-                        {"stage": "astra_resolve", "output": str(self.run / "again.json"), "started_at": "again"},
+                        {"stage": "resolve", "output": str(self.run / "again.json"), "started_at": "again"},
                         self.root,
                         self.run,
                     )
@@ -2393,7 +2391,7 @@ class RecoveryPacketTests(unittest.TestCase):
             raw.write_bytes(saved[raw])
         state, current_record = prepared()
         runtime.goals = SimpleNamespace(record_decision=Mock())
-        runtime.dispatch = SimpleNamespace(build_stage=lambda _: "terra")
+        runtime.dispatch = SimpleNamespace(build_stage=lambda _: "builder")
         with patch.object(recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
             self.assertTrue(
                 recovery.route_known_change(
@@ -2436,7 +2434,7 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         self.project = materialize(scenario.seed, self.root / "project")
         flags, env = fake_setup(scenario, self.root, scenario.reference)
         if fault == "nonpython":
-            flags += ["--builder-strong-model", "gpt-5.4", "--pin-model-role", "sol"]
+            flags += ["--builder-strong-model", "gpt-5.4", "--pin-model-role", "tester"]
         env.update(
             XDG_CONFIG_HOME=str(self.root / "config"),
             CODEX_HOME=str(self.root / "codex-home"),
@@ -2474,13 +2472,12 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         retried repair delivered. No stop asked the person for a flag, a token or a packet."""
         self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
         self.assertEqual(
-            ["terra", "sol", "astra_review"] * 2 + ["astra_resolve", "terra", "sol", "astra_review"], stages
+            ["builder", "tester", "review_completion"] * 2 + ["resolve", "builder", "tester", "review_completion"],
+            stages,
         )
         state = driver.state()
         grants = state["failure_retry_authorizations"]
-        self.assertEqual(
-            [("autocode", "astra_resolve"), ("autocode", "terra")], [(g["actor"], g["stage"]) for g in grants]
-        )
+        self.assertEqual([("autocode", "resolve"), ("autocode", "builder")], [(g["actor"], g["stage"]) for g in grants])
         receipts = [row["recovery_novelty"] for row in state["stages"] if row.get("recovery_novelty")]
         self.assertEqual(
             [(None, "first_incident"), ("automatic", "explicit_retry"), ("automatic", "explicit_retry")],
@@ -2507,8 +2504,8 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         )
         checks = self.scenario.oracle()(self.project, self.scenario)
         self.assertTrue(all(check.ok for check in checks), checks)
-        self.assertEqual(["terra", "sol", "astra_review"] * 3, [row["stage"] for row in self.trace()])
-        validators = [row for row in self.trace() if row["stage"] == "sol"]
+        self.assertEqual(["builder", "tester", "review_completion"] * 3, [row["stage"] for row in self.trace()])
+        validators = [row for row in self.trace() if row["stage"] == "tester"]
         self.assertEqual([1, 1, 0], [row["exit_code"] for row in validators])
         self.assertEqual(3, len({row["task_id"] for row in validators}))
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
@@ -2533,7 +2530,8 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         stages = [row["stage"] for row in self.trace()]
         self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
         self.assertEqual(
-            ["terra", "sol", "astra_review"] * 2 + ["astra_resolve", "terra", "sol", "astra_review"], stages
+            ["builder", "tester", "review_completion"] * 2 + ["resolve", "builder", "tester", "review_completion"],
+            stages,
         )
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
 
@@ -2545,7 +2543,8 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         stages = [row["stage"] for row in trace]
         self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
         self.assertEqual(
-            ["terra", "sol", "astra_review"] * 2 + ["astra_resolve", "terra", "sol", "astra_review"], stages
+            ["builder", "tester", "review_completion"] * 2 + ["resolve", "builder", "tester", "review_completion"],
+            stages,
         )
         # The first Builder owned both criteria; the Builder after the Resolver owned only C2.
         self.assertEqual([["C1", "C2"], ["C2"]], [row["task_criteria"] for row in (trace[0], trace[7])])

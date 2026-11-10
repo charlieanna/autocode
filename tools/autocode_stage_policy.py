@@ -21,11 +21,11 @@ if TYPE_CHECKING:
 
 RECORD = "stage_policy"  # under state["workflow"], and the status view's field
 VERSION = 1
-PLANNER_DRAFT = "astra_discovery"
+PLANNER_DRAFT = "draft_plan"
 # What covers the Planner's omitted draft on the compact path (docs/plans/economical-execution/verification.md):
 # the runner writes the draft from bound records, the Plan Reviewer reviews it, the person approves the
 # displayed token, and the runner proves each regression case red on the original and green after the fix.
-COVERED_BY = ("runner:compact_draft", "astra_challenge", "person:approve_goal", "runner:regression_proof")
+COVERED_BY = ("runner:compact_draft", "review_plan", "person:approve_goal", "runner:regression_proof")
 
 
 def record(state: RunState, *, path: str, reasons, basis: dict, decision: str, reason: str) -> dict:

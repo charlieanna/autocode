@@ -231,7 +231,7 @@ def conversation_checks(run, report):
         checks.append(
             Check(
                 f"turn{number}_went_through_the_full_pipeline",
-                "terra" in stages and ARCHITECT not in stages,
+                "builder" in stages and ARCHITECT not in stages,
                 f"model stages {stages}",
             )
         )

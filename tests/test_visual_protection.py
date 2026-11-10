@@ -417,8 +417,8 @@ class DecoratorAndActualSinkTests(unittest.TestCase):
 class FinishedRecordJoinTests(unittest.TestCase):
     def record(self):
         return {
-            "stage": "terra",
-            "role": "terra",
+            "stage": "builder",
+            "role": "builder",
             "route_role": None,
             "engine": "opencode",
             "launch_route": {"engine": "opencode", "provider": "saved", "model": "saved", "reasoning_effort": "high"},
@@ -469,7 +469,7 @@ class FinishedRecordJoinTests(unittest.TestCase):
     def test_route_fallback_cannot_be_changed_when_original_route_role_is_null(self):
         original = self.record()
         with self.assertRaises(util.Paused):
-            protection.check_finished_record(original, {**original, "route_role": "sol"})
+            protection.check_finished_record(original, {**original, "route_role": "tester"})
 
     def test_existing_session_and_source_anchor_cannot_change(self):
         original = {**self.record(), "expected_session": "original-session", "source_revision": "known-before"}
@@ -685,8 +685,8 @@ class ProducerJoinGuardTests(unittest.TestCase):
             },
         }
         record = {
-            "stage": "terra",
-            "role": "terra",
+            "stage": "builder",
+            "role": "builder",
             "engine": "opencode",
             "route_role": None,
             "exit_code": 0,
@@ -822,7 +822,7 @@ class ProducerJoinGuardTests(unittest.TestCase):
                 "id": "controlled-prior-writer",
                 "sequence": len(rows),
                 "kind": "prepared",
-                "body": {"grants": ["src/a.py"], "record_identity": {"stage": "terra"}},
+                "body": {"grants": ["src/a.py"], "record_identity": {"stage": "builder"}},
             }
         )
         review["sequence"] = len(rows)
@@ -1019,7 +1019,7 @@ class FinalIntegrationReceiptTests(unittest.TestCase):
         )
         accepted_at = "2026-10-06T12:00:00+00:00"
         reviewer = {
-            "stage": "sol",
+            "stage": "tester",
             "accepted": True,
             "read_only": True,
             "independent": True,

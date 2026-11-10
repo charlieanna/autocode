@@ -69,7 +69,7 @@ class CaptureEventContractTests(unittest.TestCase):
                 "output": "opencode_events",
                 "roles": {
                     role: {"model": "fixture", "effort": "medium"}
-                    for role in ("task_planner", "planner", "terra", "sol", "completion", "plan_reviewer")
+                    for role in ("task_planner", "planner", "builder", "tester", "completion", "plan_reviewer")
                 },
             },
             Path("/unused/event-fixture.toml"),
@@ -92,12 +92,12 @@ class CaptureEventContractTests(unittest.TestCase):
                 "version": 3,
                 "task": "Fix the approved defect",
                 "workspace": str(workspace),
-                "settings": {"roles": {"terra": {"engine": "codex", "model": "fixture"}}},
+                "settings": {"roles": {"builder": {"engine": "codex", "model": "fixture"}}},
                 "current_task": {"id": "task", "affected_paths": ["app.py"]},
                 "goal_contract": {"hash": "approved", "body": {"constraints": ["Preserve existing tests"]}},
             }
             with patch.object(stage_context.support, "snapshot", return_value={"revision": "r", "head": "h"}):
-                prompt, _ = stage_context.context_packet(state, "terra", state_path)
+                prompt, _ = stage_context.context_packet(state, "builder", state_path)
             packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
             instruction = packet["builder_artifact_policy"]["instruction"]
             self.assertIn("state_file identifies mutable runner bookkeeping, not an input to read", instruction)

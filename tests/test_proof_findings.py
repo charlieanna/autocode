@@ -146,7 +146,7 @@ class ProofFindingTests(unittest.TestCase):
             sent_back = completion_result._send_back_unproven(
                 state,
                 {"revision": "r1"},
-                {"stage": "astra_review"},
+                {"stage": "review_completion"},
                 regression.complete,
             )
 

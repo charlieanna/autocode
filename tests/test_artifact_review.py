@@ -40,13 +40,13 @@ class ArtifactReviewCLITests(unittest.TestCase):
         # The person's receipt counts the criterion as checked (#29), whatever the Tester could verify.
         self.assertEqual(["reviewed"], [row["state"] for row in done["view"]["progress"]["requirements"]["items"]])
         stages = [json.loads(line) for line in probe.read_text().splitlines()]
-        self.assertEqual(1, sum(row["stage"] == "sol" for row in stages))
-        self.assertEqual(1, sum(row["stage"] == "terra" for row in stages))
+        self.assertEqual(1, sum(row["stage"] == "tester" for row in stages))
+        self.assertEqual(1, sum(row["stage"] == "builder" for row in stages))
         repairs = [row["stage"] for row in stages if row["stage"].endswith("_report_repair")]
         self.assertEqual(
-            ["astra_review_report_repair"]
+            ["review_completion_report_repair"]
             if fixture_flags.get("AUTOCODE_FIXTURE_EMPTY_HUMAN_EVIDENCE")
-            else ["sol_report_repair"]
+            else ["tester_report_repair"]
             if fixture_flags.get("AUTOCODE_FIXTURE_OMIT_CHECKS")
             or fixture_flags.get("AUTOCODE_FIXTURE_INCOMPLETE_HUMAN_PROOF")
             else [],
@@ -111,9 +111,9 @@ class ArtifactReviewCLITests(unittest.TestCase):
         self.assertFalse(status["view"]["done"])
         self.assertNotEqual("review", status["view"]["needs"]["kind"])
         stages = [json.loads(line)["stage"] for line in probe.read_text().splitlines()]
-        self.assertEqual(1, stages.count("sol"))
-        self.assertEqual(1, stages.count("terra"))
-        self.assertEqual(2, stages.count("sol_report_repair"))
+        self.assertEqual(1, stages.count("tester"))
+        self.assertEqual(1, stages.count("builder"))
+        self.assertEqual(2, stages.count("tester_report_repair"))
         # The actual report error is retained; exhausting iterations is not the cause.
         self.assertNotIn("iteration ceiling", status["view"]["stop_reason"].lower())
 

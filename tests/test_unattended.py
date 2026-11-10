@@ -74,7 +74,12 @@ class RefusalTests(unittest.TestCase):
         ):
             with self.subTest(argv=argv):
                 self.assertIn("is an operator decision", unattended.refused(["--run-dir", "r", *argv]))
-        for argv in (["--max-seconds", "60"], ["--max-seconds=60"], ["--terra-model", "m"], ["--unlimited-iterations"]):
+        for argv in (
+            ["--max-seconds", "60"],
+            ["--max-seconds=60"],
+            ["--builder-model", "m"],
+            ["--unlimited-iterations"],
+        ):
             with self.subTest(argv=argv):
                 self.assertIsNone(unattended.refused(argv), "a start-time budget or model is not a decision")
 
@@ -242,17 +247,17 @@ class AnalyzeTests(unittest.TestCase):
                             }
                         ],
                         "stages": [
-                            {"stage": "terra", "iteration": 1, "output": "terra-01.json"},
+                            {"stage": "builder", "iteration": 1, "output": "terra-01.json"},
                             {"stage": "orchestrator", "iteration": 1},
                             {
-                                "stage": "sol",
-                                "role": "sol",
+                                "stage": "tester",
+                                "role": "tester",
                                 "duration_seconds": 30.0,
                                 "metrics": {"provider_tokens": {"input_tokens": 900, "output_tokens": 90}},
                             },
                             {
-                                "stage": "sol_report_repair",
-                                "role": "sol",
+                                "stage": "tester_report_repair",
+                                "role": "tester",
                                 "duration_seconds": 5.0,
                                 "metrics": {"provider_tokens": {"input_tokens": 100, "output_tokens": 10}},
                             },
@@ -273,12 +278,12 @@ class AnalyzeTests(unittest.TestCase):
                 "Verification: run app.py",
                 "Evidence: ran it",
                 "F1 [resolved, high, validator",
-                "| terra |",
+                "| builder |",
                 "`terra-01.json`",
                 "app.py",
                 "Untracked files (new, not committed): `new.py`",
                 "Builder change",
-                "| sol | 2 | 35.0 | 1000/100 |",
+                "| tester | 2 | 35.0 | 1000/100 |",
                 "| **total** | 3 | 35.0 | 1000/100 |",
                 "Report-format repair calls: 1.",
             ):

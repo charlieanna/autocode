@@ -32,7 +32,7 @@ def update(state: RunState):
             and validation.get("task_id") == task["id"]
             and validation.get("source_revision") == implementation.get("source_revision")
             and validation.get("contract_hash") == contract
-            and not (active and stage == "terra")
+            and not (active and stage == "builder")
         )
         else {}
     )
@@ -45,10 +45,14 @@ def update(state: RunState):
         and not implementation
     )
     last_builder: dict = next(
-        (r for r in reversed(state.get("stages", [])) if r.get("stage") == "terra" and r.get("task_id") == task["id"]),
+        (
+            r
+            for r in reversed(state.get("stages", []))
+            if r.get("stage") == "builder" and r.get("task_id") == task["id"]
+        ),
         {},
     )
-    activity = (active if active and stage == "terra" else last_builder).get("activity") or {}
+    activity = (active if active and stage == "builder" else last_builder).get("activity") or {}
     rows = [
         {
             "id": "implementation",
@@ -58,13 +62,13 @@ def update(state: RunState):
             else "no_progress"
             if no_progress
             else "running"
-            if active and stage == "terra"
+            if active and stage == "builder"
             else "pending",
         },
         {
             "id": "builder_activity",
             "label": "Builder tool activity (not independent verification)",
-            "status": "recorded" if implementation else "running" if active and stage == "terra" else "pending",
+            "status": "recorded" if implementation else "running" if active and stage == "builder" else "pending",
             "completed_tools": activity.get("completed_tool_count", 0),
         },
         {
@@ -75,7 +79,7 @@ def update(state: RunState):
             else "failed"
             if validation
             else "running"
-            if active and stage == "sol"
+            if active and stage == "tester"
             else "pending",
         },
         {
@@ -84,7 +88,7 @@ def update(state: RunState):
             "status": "verified"
             if state.get("status") == "TASK_COMPLETE" and validation.get("verdict") == "PASS"
             else "running"
-            if active and stage == "astra_review"
+            if active and stage == "review_completion"
             else "pending",
         },
     ]

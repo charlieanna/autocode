@@ -147,7 +147,7 @@ class EventsCommandTests(unittest.TestCase):
         run_dir = root / ".autocode" / "runs" / "saved"
         state_path = run_dir / "state.json"
         appended = [
-            {"kind": "route_assignment", "actor": "runner", "at": "2026-10-14T05:02:00+00:00", "role": "terra"},
+            {"kind": "route_assignment", "actor": "runner", "at": "2026-10-14T05:02:00+00:00", "role": "builder"},
             {"kind": "completion_accept", "actor": "user_cli", "at": "2026-10-14T05:03:00+00:00", "basis": "evidence"},
         ]
 

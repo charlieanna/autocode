@@ -35,7 +35,7 @@ def contract(**fields):
         "permission_boundaries": ["No network"],
     }
     sealed = {"task_id": "t1", "revision": fields.pop("revision", 2), "body": body}
-    return {**sealed, "hash": util.digest(sealed), "origin": "glm_revise", **fields}
+    return {**sealed, "hash": util.digest(sealed), "origin": "revise_plan", **fields}
 
 
 def revised(body, answer_id=""):
@@ -60,7 +60,7 @@ def concern(cid="C2", text="AC2 claims the whole suite passes but names one test
 
 def reviewed_draft(*concerns):
     state = {"goal_contract": contract(approval_status="draft", approval_event=None)}
-    state["planning"] = {"reports": {"astra_challenge": {"report": {"concerns": list(concerns)}}}}
+    state["planning"] = {"reports": {"review_plan": {"report": {"concerns": list(concerns)}}}}
     return state
 
 
@@ -78,7 +78,7 @@ class ReviewBackedChangeTests(unittest.TestCase):
         state = reviewed_draft(concern())
         after = self.downgrade(state)
         with self.assertRaises(rewording.ProtectedRewording) as caught:
-            revision_guard(state, after, [], "glm_revise")
+            revision_guard(state, after, [], "revise_plan")
         self.assertEqual(
             [
                 {
@@ -101,7 +101,7 @@ class ReviewBackedChangeTests(unittest.TestCase):
         after, changes = revised(body)
         after["acceptance_criteria"][0]["sources"] = []
         with self.assertRaises(rewording.ProtectedRewording) as caught:
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         self.assertEqual(
             ("AC2", "C2", APPROVED, PROPOSED),
             tuple(caught.exception.rewordings[0][k] for k in ("item", "concern", "approved", "proposed")),
@@ -114,10 +114,10 @@ class ReviewBackedChangeTests(unittest.TestCase):
             reviewed_draft(concern(text="AC12 and AC20 need examples.")),
             reviewed_draft(concern(text="The milestone graph has a cycle.")),
         ):
-            with self.subTest(concerns=state["planning"]["reports"]["astra_challenge"]["report"]["concerns"]):
+            with self.subTest(concerns=state["planning"]["reports"]["review_plan"]["report"]["concerns"]):
                 after = self.downgrade(state)
                 with self.assertRaises(ValueError) as caught:
-                    revision_guard(state, after, [], "glm_revise")
+                    revision_guard(state, after, [], "revise_plan")
                 self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
                 self.assertIn("Keep a test:/guard: name", str(caught.exception))
 
@@ -125,14 +125,14 @@ class ReviewBackedChangeTests(unittest.TestCase):
         state = reviewed_draft(concern())
         after = self.downgrade(state)
         with self.assertRaises(rewording.ProtectedRewording) as caught:
-            revision_guard(state, after, [], "glm_revise")
+            revision_guard(state, after, [], "revise_plan")
         queued = {}
 
         def queue(target, scope, origin, **kwargs):
             queued.update(scope=scope, origin=origin, **kwargs)
 
         self.assertTrue(
-            rewording.ask(state, {"stage": "glm_revise", "output": "/run/revise.json"}, caught.exception, queue)
+            rewording.ask(state, {"stage": "revise_plan", "output": "/run/revise.json"}, caught.exception, queue)
         )
         text = queued["questions"][0]["question"]
         self.assertIn("asked by the Plan Reviewer's blocking concern C2", text)
@@ -147,7 +147,7 @@ class ReviewBackedChangeTests(unittest.TestCase):
         state = reviewed_draft(concern())
         after = self.downgrade(state)
         with self.assertRaises(rewording.ProtectedRewording) as caught:
-            revision_guard(state, after, [], "glm_revise")
+            revision_guard(state, after, [], "revise_plan")
         question = rewording.question(state, caught.exception.rewordings)
         state["answers"] = {question["id"]: {"kind": "answer", "actor": "user_cli", "text": rewording.ACCEPT}}
         changes = [
@@ -159,7 +159,7 @@ class ReviewBackedChangeTests(unittest.TestCase):
                 "replacement": APPROVED,
             }
         ]
-        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+        self.assertEqual(changes, revision_guard(state, after, changes, "revise_plan"))
 
 
 class GuardTests(unittest.TestCase):
@@ -167,7 +167,7 @@ class GuardTests(unittest.TestCase):
         state = {"goal_contract": contract(approval_status="approved", approval_event={"kind": "goal_approval"})}
         after, changes = revised(state["goal_contract"]["body"])
         with self.assertRaises(rewording.ProtectedRewording) as caught:
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         self.assertEqual([{"item": "AC2", "approved": APPROVED, "proposed": PROPOSED}], caught.exception.rewordings)
         self.assertIn("needs a saved user answer", str(caught.exception))
 
@@ -175,7 +175,7 @@ class GuardTests(unittest.TestCase):
         draft = {"goal_contract": contract(approval_status="draft", approval_event=None)}
         after, changes = revised(draft["goal_contract"]["body"])
         with self.assertRaises(ValueError) as caught:
-            revision_guard(draft, after, changes, "glm_revise")
+            revision_guard(draft, after, changes, "revise_plan")
         self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
 
         approved = {"goal_contract": contract(approval_status="approved")}
@@ -183,7 +183,7 @@ class GuardTests(unittest.TestCase):
         after["required_behaviors"] = []
         removed = [{"item": "Print one total line", "change": "removed", "basis": "agent_proposed", "answer_id": ""}]
         with self.assertRaises(ValueError) as caught:
-            revision_guard(approved, after, removed, "glm_revise")
+            revision_guard(approved, after, removed, "revise_plan")
         self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
 
     def test_unchanged_criterion_with_new_sources_is_invalid_metadata_not_a_user_decision(self):
@@ -206,7 +206,7 @@ class GuardTests(unittest.TestCase):
                     }
                 ]
                 with self.assertRaisesRegex(ValueError, "was not changed.*drop that row") as caught:
-                    revision_guard(state, after, changes, "glm_revise")
+                    revision_guard(state, after, changes, "revise_plan")
                 self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
                 self.assertEqual(APPROVED, after["acceptance_criteria"][0]["criterion"])
 
@@ -217,7 +217,7 @@ class GuardTests(unittest.TestCase):
             {"item": "AC2", "change": "reworded", "basis": "agent_proposed", "answer_id": "", "replacement": APPROVED}
         ]
         with self.assertRaisesRegex(ValueError, "was not changed.*drop that row") as caught:
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
 
     def test_unchanged_protected_list_entry_does_not_ask_for_a_rewording(self):
@@ -233,7 +233,7 @@ class GuardTests(unittest.TestCase):
             }
         ]
         with self.assertRaisesRegex(ValueError, "was not changed.*drop that row") as caught:
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
 
     def test_mixed_real_and_spurious_changes_repair_the_report_before_any_question(self):
@@ -249,7 +249,7 @@ class GuardTests(unittest.TestCase):
             }
         )
         with self.assertRaisesRegex(ValueError, "was not changed.*drop that row") as caught:
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
 
 
@@ -301,7 +301,7 @@ class DraftAssumptionQuestionTests(unittest.TestCase):
         state = self.inputs()
         after, changes = self.reworded(state)
         with self.assertRaises(rewording.ProtectedRewording) as caught:
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         self.assertEqual(
             [{"item": TRACED, "approved": TRACED, "proposed": TRACED_PROPOSED, "traced": True}],
             caught.exception.rewordings,
@@ -327,18 +327,18 @@ class DraftAssumptionQuestionTests(unittest.TestCase):
         state = self.inputs()
         after, changes = self.reworded(state)
         with self.assertRaises(rewording.ProtectedRewording) as caught:
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         asked = rewording.question(state, caught.exception.rewordings)
         state["answers"][asked["id"]] = {"kind": "answer", "actor": "user_cli", "text": rewording.ACCEPT}
         changes = [dict(changes[0], basis="user_answer", answer_id=asked["id"])]
-        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+        self.assertEqual(changes, revision_guard(state, after, changes, "revise_plan"))
 
     def test_a_dropped_assumption_is_named_as_a_drop_and_its_answer_lets_it_go(self):
         state = self.inputs()
         after = copy.deepcopy(state["goal_contract"]["body"])
         after["accepted_assumptions"] = []
         with self.assertRaises(rewording.ProtectedRewording) as caught:
-            revision_guard(state, after, [], "glm_revise")
+            revision_guard(state, after, [], "revise_plan")
         [row] = caught.exception.rewordings
         self.assertEqual(TRACED, row["approved"])
         self.assertTrue(row["proposed"].startswith("(the revised plan no longer keeps"))
@@ -347,21 +347,21 @@ class DraftAssumptionQuestionTests(unittest.TestCase):
         changes = [
             {"item": TRACED, "change": "removed", "basis": "user_answer", "answer_id": asked["id"], "replacement": ""}
         ]
-        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+        self.assertEqual(changes, revision_guard(state, after, changes, "revise_plan"))
 
     def test_the_question_is_queued_as_the_persons_clarification_not_a_repair(self):
         state = self.inputs()
         state["pending_report_repair"] = {"attempts": 1}
         after, changes = self.reworded(state)
         with self.assertRaises(rewording.ProtectedRewording) as caught:
-            revision_guard(state, after, changes, "glm_revise")
+            revision_guard(state, after, changes, "revise_plan")
         queued = {}
 
         def queue(target, scope, origin, **kwargs):
             queued.update(scope=scope, origin=origin, **kwargs)
 
         self.assertTrue(
-            rewording.ask(state, {"stage": "glm_revise", "output": "/run/revise.json"}, caught.exception, queue)
+            rewording.ask(state, {"stage": "revise_plan", "output": "/run/revise.json"}, caught.exception, queue)
         )
         self.assertEqual("clarification", queued["scope"])
         self.assertEqual("DISCOVERING", queued["phase"])
@@ -379,13 +379,13 @@ class AskTests(unittest.TestCase):
             task_id="t1",
             goal_contract=copy.deepcopy(approved),
             contract_history=[contract(revision=1, approval_status="approved")],
-            next_stage="glm_revise",
+            next_stage="revise_plan",
         )
         self.state["settings"]["report_repair"] = {"max_attempts": 2}
         after, changes = revised(approved["body"])
         with self.assertRaises(rewording.ProtectedRewording) as refused:
-            revision_guard(self.state, after, changes, "glm_revise")
-        record = self.stage_record(stage="glm_revise", role="task_planner")
+            revision_guard(self.state, after, changes, "revise_plan")
+        record = self.stage_record(stage="revise_plan", role="task_planner")
 
         with self.assertRaises(runner.ReportRepairQueued):
             runner.reject_completed_stage(self.state, self.run, record, refused.exception)
@@ -402,7 +402,7 @@ class AskTests(unittest.TestCase):
         goals.answer(saved, question["id"], rewording.ACCEPT)
         self.assertEqual("RUNNING", saved["status"])
         after, changes = revised(approved["body"], answer_id=question["id"])
-        self.assertEqual(changes, revision_guard(saved, after, changes, "glm_revise"))
+        self.assertEqual(changes, revision_guard(saved, after, changes, "revise_plan"))
 
     def test_a_question_about_wording_the_contract_no_longer_has_is_not_published(self):
         self.state["goal_contract"] = contract(approval_status="approved")

@@ -55,7 +55,7 @@ def expand(value, stage, current_token, saved_body, trace):
     changes = body.get("changes")
     # Keep the admission order and short-circuiting: diagnostics identify the
     # first refusal, never a reported token, field name, value or saved body.
-    if stage != "glm_revise":
+    if stage != "revise_plan":
         reason = "wrong_stage"
     elif not current_token:
         reason = "current_reference_unavailable"

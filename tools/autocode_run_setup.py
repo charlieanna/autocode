@@ -406,7 +406,7 @@ def resolve(runner, args, parser):
             "history": [],
             "stages": [],
             "no_progress_batches": 0,
-            "next_stage": "astra_plan",
+            "next_stage": "plan_task",
             "acceptance_criteria": [],
         }
         try:
@@ -684,8 +684,8 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
         # any selected settings, so a rejected retry cannot strand the packet.
         if (
             not refusal
-            and state.get("next_stage") == "astra_resolve"
-            and resolver_recovery.recovery_limits.held_request(state, "astra_resolve").get("novelty_hold")
+            and state.get("next_stage") == "resolve"
+            and resolver_recovery.recovery_limits.held_request(state, "resolve").get("novelty_hold")
             and (args.resolver_model or args.resolver_reasoning_effort)
         ):
             if not (args.resume_paused and args.retry_failed_stage):
@@ -708,7 +708,7 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
         # these checks. A collected refusal (Paused, #541) still asks its question there; only a
         # stop carrying its member payload proceeds there. Other stops reject before settings
         # are saved. A parent-only Builder route change cannot reach its child.
-        if not refusal and args.retry_builder and state.get("next_stage") != "terra":
+        if not refusal and args.retry_builder and state.get("next_stage") != "builder":
             try:
                 member = runner.dispatch.member_retry_refusal(state, args.retry_builder)
             except support.Paused as error:

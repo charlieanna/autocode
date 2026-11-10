@@ -168,7 +168,7 @@ class RouteEvidenceTests(unittest.TestCase):
         source = fixtures.state()
         source["stages"] = [
             {
-                "stage": "glm_revise",
+                "stage": "revise_plan",
                 "role": "planner",
                 "engine": "opencode",
                 "command": ["fake", "--model", GLM],
@@ -178,7 +178,7 @@ class RouteEvidenceTests(unittest.TestCase):
                 "metrics": {"request_context": {"accounting": native}},
             },
             {
-                "stage": "glm_revise_report_repair",
+                "stage": "revise_plan_report_repair",
                 "role": "planner",
                 "engine": "opencode",
                 "command": ["fake", "--model", GLM],

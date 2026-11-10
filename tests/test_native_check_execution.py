@@ -888,9 +888,9 @@ class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase
             snapshot=lambda value: source_scope.snapshot(self.root, value),
             planning_stages=("requirements_gather",),
         )
-        for stage in ("terra", "sol", "astra_checkpoint", "plan_finalize"):
+        for stage in ("builder", "tester", "review_checkpoint", "plan_finalize"):
             with self.subTest(stage=stage), self.assertRaises(util.Paused):
-                native.guard(self.state, stage, allow_write=stage == "terra")
+                native.guard(self.state, stage, allow_write=stage == "builder")
         with self.assertRaises(util.Paused):
             native.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
 

@@ -17,14 +17,14 @@ if stage == 'collect_design':
         report = dict(status='READY',manifest_path=str(destination / Path(os.environ['FAKE_NATIVE_MANIFEST']).name),blockers=[],summary='Offline complete two-file collection')
 if 'requirements_rerun' in data.get('report_schema', {}).get('properties', {}):
     report['requirements_rerun'] = ''
-elif stage == 'astra_discovery' and data.get('brief_feedback'):
+elif stage == 'draft_plan' and data.get('brief_feedback'):
     report['requirements_rerun'] = ''
 if 'requirement_trace' in report and 'requirement_trace_rows' in data and 'retain_contract' not in report.get('contract', {}):
     report['requirement_trace'] = [dict(requirement_id=row['requirement_id'], disposition='covered', evidence='C1')
                                  for row in data['requirement_trace_rows']]
 design = data.get('design_manifest')
 design_cases = (design.get('catalog', {}).get('cases', design.get('body', {}).get('cases', []))
-                if design and stage in ('terra', 'sol') else
+                if design and stage in ('builder', 'tester') else
                 design.get('body', {}).get('cases', []) if design else [])
 if design and design.get('body', {}).get('version') == 2 and 'contract' in report and 'retain_contract' not in report['contract']:
     reference_scope = ('Use supplied design manifest ' + design['manifest_hash']
@@ -43,7 +43,7 @@ if design and design.get('body', {}).get('version') == 2 and 'contract' in repor
 if design:
     sys.path.insert(0, os.environ['FAKE_CAPTURE_REPO'])
     from tests.visual_capture_fixtures import make_capture
-if design and stage == 'terra':
+if design and stage == 'builder':
     if os.environ.get('FAKE_DESIGN_STALE_CAPTURE'):
         old = [make_capture(Path.cwd(), design['manifest_hash'], case, asset=CAPTURE_ASSET) for case in design_cases]
         Path('.autocode/old-captures.json').write_text(json.dumps(old))
@@ -51,7 +51,7 @@ if design and stage == 'terra':
             source.write('\n# Implementation B: current source differs from capture A.\n')
     for case in design_cases:
         make_capture(Path.cwd(), design['manifest_hash'], case, asset=CAPTURE_ASSET)
-if design and stage == 'sol' and not data.get('report_repair'):
+if design and stage == 'tester' and not data.get('report_repair'):
     design = dict(design,body=json.loads(Path(design['full_manifest']).read_text())) if 'body' not in design else design
     selected = {row['case']['id']: row for row in data['implementation_captures']['current']}
     assert set(selected) == {case['id'] for case in design['body']['cases']}, selected
@@ -72,7 +72,7 @@ if design and stage == 'sol' and not data.get('report_repair'):
 if design or stage == 'collect_design':
     with open(os.environ['FAKE_DESIGN_PROMPTS'], 'a') as log:
         log.write(json.dumps(dict(stage=stage, ids=[c['id'] for c in design_cases])) + '\n')
-if data.get('report_repair') and stage in ('sol', 'astra_discovery', 'glm_revise', 'astra_finalize'):
+if data.get('report_repair') and stage in ('tester', 'draft_plan', 'revise_plan', 'finalize_plan'):
     report = data['rejected_report']['content']
 """
 

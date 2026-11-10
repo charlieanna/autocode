@@ -41,7 +41,7 @@ except ImportError:
 STAGE = "write_acceptance_tests"
 KEY: Final = "acceptance_tests"
 SETTING_BLIND: Final = "blind_tests"
-BUILD_STAGES = ("terra", "orchestrator")
+BUILD_STAGES = ("builder", "orchestrator")
 
 
 def is_blind(state: RunState) -> bool:
@@ -245,7 +245,7 @@ def route(state: RunState, wave=None) -> None:
 
 def resume_stage(state: RunState) -> str:
     """Where the run goes once the tests are accepted: the stage the build was routed away from."""
-    return (state.get(KEY) or {}).get("redirected_from") or "terra"
+    return (state.get(KEY) or {}).get("redirected_from") or "builder"
 
 
 def record_receipt(state: RunState, cases: list[dict], receipt: dict) -> None:
@@ -368,7 +368,7 @@ def check_untouched(state: RunState, workspace) -> bool:
     retries = [row for row in record.get("builder_edits") or [] if row.get("contract_hash") == current]
     if len(retries) < DIRECT_RETRIES:
         record.setdefault("builder_edits", []).append({"contract_hash": current, "paths": changed})
-        state["next_stage"] = "terra"
+        state["next_stage"] = "builder"
         return True
     # paths=[]: the runner's snapshot restore must not touch these; they are already restored.
     raise StrayWrites(

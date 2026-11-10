@@ -323,7 +323,7 @@ def _source_revision(state: RunState, stage, pointer, packet, workspace):
     the last attempt, remains a stale handoff."""
     current, bound = source_scope.snapshot(workspace, state), packet["binding"]["source_revision"]
     if (
-        stage == "terra"
+        stage == "builder"
         and current["revision"] != bound
         and retained.own_repair_source(state.get("stages", []), pointer, bound, current)
     ):
@@ -543,7 +543,7 @@ def prepare_resolution(state: RunState, decision, record):
     records = [
         copy.deepcopy(row)
         for row in state.get("stages", [])
-        if row.get("stage") in ("terra", "astra_resolve", "astra_diagnose", "sol", "astra_review")
+        if row.get("stage") in ("builder", "resolve", "diagnose", "tester", "review_completion")
     ]
     # Preserve diffs and logs from all prior repair attempts before later paths can change.
     seen = {row["original_path"] for row in originals}
@@ -659,7 +659,7 @@ def _attest(packet, change):
     streams = {
         row["events"]
         for row in packet["prior_attempts"]
-        if row.get("stage") == "sol"
+        if row.get("stage") == "tester"
         and row.get("events")
         and row.get("output") == validation.get("output")
         and row["events"] in available
@@ -769,7 +769,7 @@ def _live_grant(state: RunState, packet, record, authorization):
         or authorization.get("_novelty_consumed")
         or (authorization.get("stage") or (authorization.get("identity") or {}).get("stage")) != record["stage"]
         or state.get("next_stage")
-        not in (record["stage"], "orchestrator" if record["stage"] == "terra" else record["stage"])
+        not in (record["stage"], "orchestrator" if record["stage"] == "builder" else record["stage"])
         or state.get("pending_report_repair")
     ):
         return None
@@ -822,7 +822,7 @@ def _time(value):
 def _builder_grant(state: RunState, packet, request: dict, record, prior):
     """Verify outstanding serial authority using its real dispatch history too."""
     stage = record["stage"]
-    if stage not in ("astra_resolve", "terra") or not builder_policy.enabled(state):
+    if stage not in ("resolve", "builder") or not builder_policy.enabled(state):
         return None
     key = builder_policy.key(state)
     lane = state.get("builder_retries", {}).get(key) or {}
@@ -842,8 +842,8 @@ def _builder_grant(state: RunState, packet, request: dict, record, prior):
         or lane.get("failures", [])[-1:] != [source]
         or type(grant.get("attempt")) is not int
         or grant["attempt"] != len(lane["failures"])
-        or grant.get("selected_model") != state["settings"]["roles"]["terra"].get("model")
-        or grant.get("selected_effort") != state["settings"]["roles"]["terra"].get("reasoning_effort")
+        or grant.get("selected_model") != state["settings"]["roles"]["builder"].get("model")
+        or grant.get("selected_effort") != state["settings"]["roles"]["builder"].get("reasoning_effort")
     ):
         return None
     event: dict = next(
@@ -862,10 +862,10 @@ def _builder_grant(state: RunState, packet, request: dict, record, prior):
         or event.get("failure") != source
     ):
         return None
-    pending = state.get("resolution_request") if stage == "astra_resolve" else state.get("repair_plan")
+    pending = state.get("resolution_request") if stage == "resolve" else state.get("repair_plan")
     if request is not pending or request.get("source_output") != source or not request.get("recovery_packet"):
         return None
-    if stage == "terra" and (
+    if stage == "builder" and (
         not request.get("recovery_admission") or (state.get("current_task") or {}).get("kind") != "implement"
     ):
         return None
@@ -885,17 +885,11 @@ def _builder_grant(state: RunState, packet, request: dict, record, prior):
     if not original or _hash(_owned(source, packet["run_dir"])) != original["sha256"]:
         _stale("Builder retry source no longer matches its bound accepted failure")
     ident = util.digest(grant)
-    if any(
-        row.get("grant_id") == ident and (stage == "astra_resolve" or row.get("action") == "repair") for row in prior
-    ):
+    if any(row.get("grant_id") == ident and (stage == "resolve" or row.get("action") == "repair") for row in prior):
         return None
     diagnoses = 0
     for row in rows[origin + 1 :]:
-        if (
-            row.get("stage") not in ("terra", "astra_resolve", "astra_diagnose")
-            or row.get("report_only")
-            or row.get("dry_run")
-        ):
+        if row.get("stage") not in ("builder", "resolve", "diagnose") or row.get("report_only") or row.get("dry_run"):
             continue
         started = _time(row.get("started_at"))
         if started is None:
@@ -904,8 +898,8 @@ def _builder_grant(state: RunState, packet, request: dict, record, prior):
             continue
         receipt = row.get("recovery_novelty") or {}
         if (
-            stage != "terra"
-            or row.get("stage") != "astra_resolve"
+            stage != "builder"
+            or row.get("stage") != "resolve"
             or receipt.get("grant_kind") != "builder"
             or receipt.get("grant_id") != ident
             or receipt.get("packet") != request["recovery_packet"]
@@ -938,7 +932,7 @@ def _diagnosis_grant(state: RunState, packet, request: dict, record):
     pointer = request.get("recovery_packet")
     recommendation = request.get("recommendation") or {}
     if (
-        record["stage"] != "terra"
+        record["stage"] != "builder"
         or request is not state.get("repair_plan")
         or request.get("kind") != "operational-diagnosis"
         or recommendation.get("action") != "retry"
@@ -981,9 +975,9 @@ def _investigation_grant(state: RunState, request, record):
     """
     pointer, current = request.get("recovery_packet"), state.get("stuck_investigation") or {}
     if (
-        record["stage"] != "terra"
+        record["stage"] != "builder"
         or not current.get("in_force")
-        or current.get("stage") != "terra"
+        or current.get("stage") != "builder"
         or current.get("status") not in REJECTED_OUTPUT
     ):
         return None
@@ -1001,7 +995,7 @@ def _investigation_grant(state: RunState, request, record):
         (
             row
             for row in reversed(state.get("stages", []))
-            if row.get("stage") == "terra"
+            if row.get("stage") == "builder"
             and not row.get("report_only")
             and not row.get("dry_run")
             and not _returned_nothing(row)
@@ -1220,7 +1214,7 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
             ("task_id", task.get("id")),
             ("source_revision", record.get("source_revision")),
             ("contract_hash", cast(dict, state["goal_contract"])["hash"]),
-            ("reviewer_role", "sol"),
+            ("reviewer_role", "tester"),
         )
     ):
         return False
@@ -1228,7 +1222,9 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
         (
             row
             for row in state.get("stages", [])
-            if row.get("output") == validation.get("output") and row.get("stage") == "sol" and not row.get("rejected")
+            if row.get("output") == validation.get("output")
+            and row.get("stage") == "tester"
+            and not row.get("rejected")
         ),
         None,
     )
@@ -1243,16 +1239,16 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
         (
             row
             for row in reversed(state.get("stages", []))
-            if row.get("stage") == "terra" and row.get("task_id") == task.get("id") and not row.get("rejected")
+            if row.get("stage") == "builder" and row.get("task_id") == task.get("id") and not row.get("rejected")
         ),
         {},
     )
     roles = state.get("settings", {}).get("roles", {})
-    builder_model = (builder.get("launch_route") or roles.get("terra") or {}).get("model", "")
-    validator_model = (accepted.get("launch_route") or roles.get("sol") or {}).get("model", "")
+    builder_model = (builder.get("launch_route") or roles.get("builder") or {}).get("model", "")
+    validator_model = (accepted.get("launch_route") or roles.get("tester") or {}).get("model", "")
     if (
         not builder
-        or accepted.get("role") != "sol"
+        or accepted.get("role") != "tester"
         or type(accepted.get("exit_code")) is not int
         or accepted["exit_code"] != 0
         or not builder_model
@@ -1328,7 +1324,7 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
     if action not in ("retry", "escalate", "pause", "defer"):
         raise util.Paused("PAUSED_BUILDER_CLASSIFICATION", "Verified correction returned a non-execution action")
     if action in ("pause", "defer"):
-        candidate["next_stage"] = "terra"
+        candidate["next_stage"] = "builder"
         runtime.goals.record_decision(candidate, decision)
         cast(dict, state).clear()
         state.update(candidate)
@@ -1342,7 +1338,7 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
             candidate,
             error,
             current,
-            origin={"stage": "astra_review", "output": record["output"]},
+            origin={"stage": "review_completion", "output": record["output"]},
             ask_user=runtime.lifecycle.wait_for_user,
         )
         runtime.goals.record_decision(candidate, decision)
@@ -1405,7 +1401,7 @@ def authorize_retry(runner, state: RunState, run_dir, workspace, *, previous_set
                 *state.get("failure_retry_authorizations", []),
                 {
                     "actor": "user_cli",
-                    "stage": "astra_resolve",
+                    "stage": "resolve",
                     "novelty_packet": util.digest(packet),
                     "resolver_route_change": route_change,
                 },
@@ -1427,7 +1423,7 @@ def authorize_retry(runner, state: RunState, run_dir, workspace, *, previous_set
         "binding": packet["binding"],
         "dispatch_binding": copy.deepcopy(held["binding"]),
         "stage": held.get("stage")
-        or ("terra" if state.get("next_stage") == "orchestrator" else state.get("next_stage")),
+        or ("builder" if state.get("next_stage") == "orchestrator" else state.get("next_stage")),
         "ordinal": len(state.get("failure_retry_authorizations", [])),
     }
     if route_change:
@@ -1510,7 +1506,7 @@ def _exhausted_builder(state: RunState, request, packet):
         or validation.get("verdict") != "FAIL"
         or any(validation.get(key) != binding.get(key) for key in ("task_id", "source_revision", "contract_hash"))
         or not any(
-            row.get("stage") == "sol" and not row.get("rejected") and row.get("output") == validation.get("output")
+            row.get("stage") == "tester" and not row.get("rejected") and row.get("output") == validation.get("output")
             for row in packet.get("prior_attempts", [])
         )
         or not any(
@@ -1532,7 +1528,7 @@ def _exhausted_builder(state: RunState, request, packet):
     accepted = next(
         row
         for row in packet["prior_attempts"]
-        if row.get("stage") == "sol" and not row.get("rejected") and row.get("output") == validation.get("output")
+        if row.get("stage") == "tester" and not row.get("rejected") and row.get("output") == validation.get("output")
     )
     verified_checks = copy.deepcopy(validation.get("checks", []))
     paths = [
@@ -1582,7 +1578,7 @@ def _exhausted_builder(state: RunState, request, packet):
     )
     if action not in ("pause", "defer"):
         return  # A preview must not charge, grant a retry, or switch any route.
-    candidate["next_stage"] = "terra"
+    candidate["next_stage"] = "builder"
     cast(dict, state).clear()
     state.update(candidate)
     raise util.Paused(state["status"], state["stop_reason"])
@@ -1600,7 +1596,7 @@ def known_builder_pause(state: RunState):
         and state.get("status") == stop.STOP_STATUS
         and receipt is not None
         and (receipt.get("outcome") or {}).get("result") == "could_not_finish"
-        and state.get("next_stage") == "terra"
+        and state.get("next_stage") == "builder"
         and lane.get("action") == "pause"
         and lane.get("failures", [])[-1:] == [source]
         and decision.get("owner") == "autoresolver"
@@ -1710,7 +1706,7 @@ def recover_no_progress(runner, state: RunState, run_dir, workspace, error):
         not held
         or not pointer
         or cause != novelty.NO_PROGRESS
-        or state.get("next_stage") not in (stage, "orchestrator" if stage == "terra" else stage)
+        or state.get("next_stage") not in (stage, "orchestrator" if stage == "builder" else stage)
     ):
         return False
     if any(state.get(key) for key in recovery_limits.UNSETTLED):
@@ -1724,7 +1720,7 @@ def recover_no_progress(runner, state: RunState, run_dir, workspace, error):
         spent = {row.get("grant_id") for row in receipts(state)}
         if not all(util.digest(grant) in spent for grant in taken):
             return False  # The grant stands unspent: another guard holds the stage, and its pause says which.
-        action = "repair" if stage == "terra" else "diagnosis"
+        action = "repair" if stage == "builder" else "diagnosis"
         incidents = [novelty.Incident(**row) for row in packet["incidents"]]
         incident = next((row for row in incidents if row.id == held.get("incident_id")), incidents[0])
         ended = _no_progress_outcome(incident, action, pointer, stage)
@@ -1751,13 +1747,13 @@ def recover_no_progress(runner, state: RunState, run_dir, workspace, error):
 def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authorization=None):
     """Run inside the caller's final locked admission, before any allowance charge."""
     stage = record.get("stage")
-    if stage not in ("terra", "astra_resolve", "astra_diagnose") or record.get("report_only") or record.get("dry_run"):
+    if stage not in ("builder", "resolve", "diagnose") or record.get("report_only") or record.get("dry_run"):
         return
     request = _request(state, stage)
     pointer = request.get("recovery_packet")
     if not pointer:
         return  # Legacy requests retain their existing conservative limits.
-    if stage == "terra":
+    if stage == "builder":
         revision = source_scope.snapshot(workspace, state)["revision"]
         if changed_code_rework.owns_builder_round(state, revision) or planned_check_rework.owns_builder_round(
             state, revision
@@ -1766,7 +1762,7 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
             # packet's incident (#2815).
             return
     packet = load_packet(pointer, run_dir)
-    if stage == "astra_resolve" and (
+    if stage == "resolve" and (
         request.get("source_output") != packet.get("source_output")
         or ("review" in request and util.digest(request["review"]) != util.digest(packet["current_error"]))
     ):
@@ -1782,10 +1778,10 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
     bound = _binding(state, revision)
     # A repair has a newly assigned task, but the approved stable scope must match;
     # a pinned repair task may only narrow the failed task's criteria (#423).
-    expected = {**packet["binding"], "task_id": bound["task_id"]} if stage == "terra" else packet["binding"]
+    expected = {**packet["binding"], "task_id": bound["task_id"]} if stage == "builder" else packet["binding"]
     scope = _scope(state)
     within = packet["scope"] == scope
-    if stage == "terra" and request.get("recovery_admission"):
+    if stage == "builder" and request.get("recovery_admission"):
         pin = request["recovery_admission"]
         path = _owned(pin["path"], run_dir)
         if not path.is_file() or util.file_hash(path) != pin["sha256"]:
@@ -1806,7 +1802,7 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
         raise util.Paused(
             "PAUSED_NO_PROGRESS", "Reconcile owned active or uncertain workers before recovery; do not restart them"
         )
-    if stage == "astra_resolve":
+    if stage == "resolve":
         _exhausted_builder(state, request, packet)
     prior = receipts(state)
     dispatch_id = util.digest(
@@ -1821,7 +1817,7 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
     # handoff (#418). It is still named in a hold, with the check it failed.
     change_id, unproven = _attest(packet, proposal)
     change = proposal if isinstance(proposal, dict) else {}
-    action = "repair" if stage == "terra" else "diagnosis"
+    action = "repair" if stage == "builder" else "diagnosis"
     considered = [row for row in receipts(state, returned=True) if action != "repair" or row.get("action") == "repair"]
     if (
         action == "repair"

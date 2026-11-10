@@ -34,7 +34,7 @@ def run_todo_cli(*, fault=None, reports=False):
         result = run.run_one(catalog.load("greenfield-todo-cli"), args)
         state = json.loads((Path(result["run_dir"]) / "state.json").read_text()) if result["run_dir"] else {}
         for row in state.get("stages", []) if reports else ():
-            if row["stage"] == "sol":
+            if row["stage"] == "tester":
                 row["accepted"] = json.loads(Path(row["output"]).read_text())
                 row["raw"] = json.loads(Path(row.get("reported_output") or row["output"]).read_text())
         return result, state
@@ -63,8 +63,8 @@ class LazyValidatorTests(unittest.TestCase):
         self.assertEqual(verdict.PASS, result["verdict"])
         self.assertEqual("TASK_COMPLETE", state["status"])
         stages = [row["stage"] for row in state["stages"]]
-        self.assertNotIn("sol_report_repair", stages)
-        testers = [row for row in state["stages"] if row["stage"] == "sol" and row.get("dropped_evidence_refs")]
+        self.assertNotIn("tester_report_repair", stages)
+        testers = [row for row in state["stages"] if row["stage"] == "tester" and row.get("dropped_evidence_refs")]
         self.assertTrue(testers, stages)
         for row in testers:
             self.assertTrue(all(drop["ref"] == "todo.py" for drop in row["dropped_evidence_refs"]))

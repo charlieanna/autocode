@@ -75,7 +75,7 @@ class LiveComposerScreenTests(unittest.TestCase):
         amendment = textwrap.dedent(f"""
             with Path({str(calls)!r}).open('a') as log:
                 log.write(stage + (' conversation' if data.get('message') else '') + '\\n')
-            if stage == 'astra_discovery' and not Path({str(ready)!r}).exists():
+            if stage == 'draft_plan' and not Path({str(ready)!r}).exists():
                 Path({str(ready)!r}).write_text('ready')
                 with Path({str(gate)!r}).open() as signal:
                     signal.read()
@@ -125,9 +125,9 @@ class LiveComposerScreenTests(unittest.TestCase):
         text = [row["text"] for row in reviewed["chat"]["messages"]]
         self.assertEqual((1, 1), (text.count(QUESTION), text.count(REPLY)))
         stages = calls.read_text().splitlines()
-        self.assertEqual(1, stages.count("astra_discovery"), stages)
+        self.assertEqual(1, stages.count("draft_plan"), stages)
         self.assertEqual(1, stages.count("requirements_gather conversation"), stages)
-        self.assertNotIn("terra", stages)
+        self.assertNotIn("builder", stages)
         reopened = taskrun.TaskRun(workspace, run.run_dir, env=env).status()
         self.assertEqual(reviewed["needs"]["token"], reopened["needs"]["token"])
         self.assertEqual(stages, calls.read_text().splitlines())

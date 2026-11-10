@@ -420,14 +420,14 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
                 {
                     "status": "RUNNING",
                     "phase": "DISCOVERING",
-                    "next_stage": "requirements" if roles.planning_flow(state) == "v2" else "astra_discovery",
+                    "next_stage": "requirements" if roles.planning_flow(state) == "v2" else "draft_plan",
                 }
             )
             return
     if (
         joint
         and not questions
-        and origin in ("glm_draft", "glm_revise", "user_cli_edit", "resolver_recommendation", "plan", "plan_revise")
+        and origin in ("glm_draft", "revise_plan", "user_cli_edit", "resolver_recommendation", "plan", "plan_revise")
     ):
         if origin == "plan":
             state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": "plan_review"})
@@ -435,8 +435,8 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
         if origin == "plan_revise":
             state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": "plan_finalize"})
             return
-        if origin == "glm_revise":
-            state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": "astra_finalize"})
+        if origin == "revise_plan":
+            state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": "finalize_plan"})
         else:
             planning_cycle.start(state)
         return
@@ -455,9 +455,9 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
         evidence=evidence,
         status="WAITING_FOR_USER" if questions else "AWAITING_GOAL_APPROVAL",
         phase="DISCOVERING" if questions else "AWAITING_GOAL_APPROVAL",
-        next_stage=("requirements" if roles.planning_flow(state) == "v2" else "astra_discovery")
+        next_stage=("requirements" if roles.planning_flow(state) == "v2" else "draft_plan")
         if questions
-        else "astra_plan",
+        else "plan_task",
     )
 
 
@@ -481,7 +481,7 @@ def apply_resolver_recommendation(state: RunState, *, run_dir=None):
     proposal = identity.get("proposal") or {}
     origin, evidence = proposal.get("origin") or {}, proposal.get("evidence") or {}
     selected = (proposal.get("request") or {}).get("recommended_revision")
-    if proposal.get("scope") != "blocker" or origin.get("stage") != "astra_resolve" or selected is None:
+    if proposal.get("scope") != "blocker" or origin.get("stage") != "resolve" or selected is None:
         raise ValueError("Accept recommended revision requires a current Resolver criterion recommendation")
     request_id = response.get("request_id")
     binding = identity.get("binding")
@@ -510,7 +510,7 @@ def apply_resolver_recommendation(state: RunState, *, run_dir=None):
         (
             row
             for row in reversed(state.get("stages", []))
-            if row.get("stage") == "astra_resolve" and row.get("output") == output
+            if row.get("stage") == "resolve" and row.get("output") == output
         ),
         None,
     )
@@ -645,7 +645,7 @@ def migrate(state: RunState, *, fresh=False):
         if roles.planning_flow(state) == "v2"
         else "requirements_gather"
         if "requirements" in state.get("settings", {}).get("roles", {})
-        else "astra_discovery"
+        else "draft_plan"
     )
     state.update(
         {"version": 3, "phase": "DISCOVERING", "status": "RUNNING", "pending_questions": [], "next_stage": first_stage}
@@ -832,7 +832,7 @@ def render(state: RunState, run_dir=None, *, details=True):
             for row in revision.get("declared_changes") or []
             if isinstance(row, dict) and (row.get("review_concerns") or row.get("change") == current_behavior.CHANGE)
         ]
-        if revision.get("origin") in ("glm_draft", "astra_discovery", "plan"):
+        if revision.get("origin") in ("glm_draft", "draft_plan", "plan"):
             break
     if declared:
         lines += ["", "Declared contract changes:"]
@@ -915,7 +915,7 @@ def render(state: RunState, run_dir=None, *, details=True):
         for stage, report in state["planning"]["reports"].items():
             lines.append(f"  {stage}: {report['output']}")
         reports = state["planning"]["reports"]
-        final = (reports.get("plan_finalize") or reports.get("astra_finalize") or {}).get("report", {})
+        final = (reports.get("plan_finalize") or reports.get("finalize_plan") or {}).get("report", {})
         for decision in final.get("decisions", []):
             lines += [
                 f"  [{decision['concern_id']}] {decision['decision']}",
@@ -1070,7 +1070,7 @@ def _approve(state: RunState, selected, *, initial_assignment_proof=None, source
     finding_rescope.on_approval(
         state, recorded_under, contract_token=selected, at=event["at"], new_id=lambda: findings.allocate_id(state)
     )
-    state.update({"phase": "READY_TO_EXECUTE", "status": "RUNNING", "next_stage": "astra_plan"})
+    state.update({"phase": "READY_TO_EXECUTE", "status": "RUNNING", "next_stage": "plan_task"})
     # Approval authorizes the selected inventory, including Git-ignored deliverables.
     current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot) if joint else None
     carried = []
@@ -1081,7 +1081,7 @@ def _approve(state: RunState, selected, *, initial_assignment_proof=None, source
         if contract["body"]["initial_task"]["milestone_id"] in carried:
             state.update(
                 {
-                    "next_stage": "astra_review",
+                    "next_stage": "review_completion",
                     "next_action": "Preserve carried milestones; assign unfinished work or final integration validation",
                 }
             )
@@ -1097,9 +1097,9 @@ def _approve(state: RunState, selected, *, initial_assignment_proof=None, source
         state.update(
             {
                 "next_action": decision["next_objective"],
-                "next_stage": "sol"
+                "next_stage": "tester"
                 if kind == "validate"
-                else "terra"
+                else "builder"
                 if progressive_state.enabled(state)
                 else dispatch.build_stage(state),
             }
@@ -1115,7 +1115,7 @@ def resolve_passing_checkpoint(state: RunState, question_id, text):
     choices = request.get("options") or []
     if (
         state.get("status") != "WAITING_FOR_USER"
-        or state.get("next_stage") != "astra_review"
+        or state.get("next_stage") != "review_completion"
         or request.get("kind") != "blocker"
         or request.get("proposed_delta")
         or len(questions) != 1
@@ -1130,7 +1130,7 @@ def resolve_passing_checkpoint(state: RunState, question_id, text):
         raise ValueError("Checkpoint reconciliation requires the explicit saved choice and approved goal")
     description = str(request.get("discovered", "")).lower()
     if not all(word in description for word in ("checkpoint", "evidence")) or not (
-        "sol" in description or "validator" in description
+        "tester" in description or "validator" in description
     ):
         raise ValueError("The pending request is not a Validator milestone checkpoint")
     current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
@@ -1194,7 +1194,7 @@ def wait_for_user(state: RunState, request, *, origin=None, evidence=None, next_
                     "status": "RUNNING",
                     "phase": "READY_TO_EXECUTE",
                     "pending_questions": [],
-                    "next_stage": "astra_review",
+                    "next_stage": "review_completion",
                 }
             )
             return

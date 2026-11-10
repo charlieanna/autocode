@@ -80,7 +80,7 @@ def make_capture(root, reference, case, *, asset="greet.py"):
 def install_native_hook(provider, *, result="result", asset="'greet.py'", indent=""):
     """Extend only a test's private copied provider with synthetic capture evidence."""
     root = Path(__file__).resolve().parents[1]
-    hook = f"""if data.get('figma_file') and stage == 'sol':
+    hook = f"""if data.get('figma_file') and stage == 'tester':
     sys.path.insert(0, {str(root)!r})
     from tests.visual_capture_fixtures import make_capture
     import autocode_visual_evidence as visual

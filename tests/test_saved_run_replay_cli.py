@@ -141,7 +141,7 @@ class SavedRunReplayCliTest(unittest.TestCase):
         self.assertEqual("answer", view["needs"]["kind"])
         self.assertEqual(1, len(view["needs"]["questions"]))
         records = view["replay_source"]["records"]
-        self.assertEqual(["requirements_gather", "astra_discovery"], [row["stage"] for row in records])
+        self.assertEqual(["requirements_gather", "draft_plan"], [row["stage"] for row in records])
         attempts = [row for row in view["usage"]["accounting"]["attempts"] if not row.get("runner_owned")]
         self.assertEqual(2, len(attempts))
         self.assertTrue(all(row["engine"] == "opencode" and row["exit_code"] == 0 for row in attempts))

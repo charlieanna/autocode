@@ -151,7 +151,7 @@ class ReportSourceTests(unittest.TestCase):
         original.write_text('{"summary": "original schema failure"}')
         latest.write_text('{"summary": "latest syntax failure" "checks": []}')
         pending = {
-            "original": {"engine": "codex", "stage": "sol", "output": str(original)},
+            "original": {"engine": "codex", "stage": "tester", "output": str(original)},
             "latest_rejected": {"engine": "codex", "output": str(latest)},
         }
         before, current = repair_context.sources(pending, report_source.repair_report_source)
@@ -200,8 +200,8 @@ class ReportSourceTests(unittest.TestCase):
 
     def test_only_length_truncated_review_attempts_qualify_as_repair_inputs(self):
         length = {"type": "turn.failed", "error": {"code": "output_token_limit", "message": "Output token limit"}}
-        record = {"stage": "astra_challenge", "truncated_output": True}
-        for stage in ("sol", "astra_review", "astra_checkpoint", "astra_challenge", "astra_finalize"):
+        record = {"stage": "review_plan", "truncated_output": True}
+        for stage in ("tester", "review_completion", "review_checkpoint", "review_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 record.update(stage=stage, events=str(self.write("review.jsonl", [length])))
                 self.assertTrue(report_source.valid_truncated_report_attempt(record, False))
@@ -209,15 +209,15 @@ class ReportSourceTests(unittest.TestCase):
                 repair = {**record, "stage": stage + "_report_repair", "original_stage": stage, "report_only": True}
                 self.assertTrue(report_source.valid_truncated_report_attempt(repair, False))
         for case, fields, rows in (
-            ("builder", {"stage": "terra"}, [length]),
+            ("builder", {"stage": "builder"}, [length]),
             ("unknown stage", {"stage": "investigate_bug"}, [length]),
-            ("forged review owner", {"stage": "terra", "original_stage": "sol"}, [length]),
+            ("forged review owner", {"stage": "builder", "original_stage": "tester"}, [length]),
             (
                 "mismatched repair owner",
-                {"stage": "terra_report_repair", "original_stage": "sol", "report_only": True},
+                {"stage": "builder_report_repair", "original_stage": "tester", "report_only": True},
                 [length],
             ),
-            ("unmarked repair", {"stage": "sol_report_repair", "original_stage": "sol"}, [length]),
+            ("unmarked repair", {"stage": "tester_report_repair", "original_stage": "tester"}, [length]),
             ("missing marker", {"truncated_output": False}, [length]),
             ("no failure", {}, [{"type": "thread.started"}]),
             # This recognized failure is deliberately given length-like prose;
@@ -237,7 +237,7 @@ class ReportSourceTests(unittest.TestCase):
             with self.subTest(case=case):
                 candidate = {
                     **record,
-                    "stage": "astra_challenge",
+                    "stage": "review_plan",
                     **fields,
                     "events": str(self.write("review.jsonl", rows)),
                 }

@@ -73,10 +73,10 @@ class ZeroTraceCliTests(unittest.TestCase):
             view = run.advance_until_input()
             self.assertEqual("approve_plan", view["needs"]["kind"], view["stop_reason"])
             attempts = view["usage"]["accounting"]["attempts"]
-            self.assertEqual(1, sum(row["stage"] == "astra_finalize" for row in attempts))
+            self.assertEqual(1, sum(row["stage"] == "finalize_plan" for row in attempts))
             self.assertFalse(any(row.get("report_only") for row in attempts), attempts)
             self.assertFalse(view["approvals"])
-            draft = next(row for row in attempts if row["stage"] == "astra_discovery")
+            draft = next(row for row in attempts if row["stage"] == "draft_plan")
             plan = json.loads(Path(draft["output"]).read_text())["contract"]
             self.assertTrue(any("exits zero" in row for row in plan["required_behaviors"]))
             self.assertTrue(

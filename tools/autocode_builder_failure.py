@@ -108,12 +108,12 @@ def hold(state: RunState, evidence, status, reason):
         "status": status,
         "reason": reason,
     }
-    run_status.pause(state, status, reason, next_stage="terra")
+    run_status.pause(state, status, reason, next_stage="builder")
 
 
 def dispatch_guard(state: RunState, stage, workspace):
     held = state.get("builder_failure_hold")
-    if not held or stage not in ("terra", "orchestrator", "astra_resolve", "investigate_stuck"):
+    if not held or stage not in ("builder", "orchestrator", "resolve", "investigate_stuck"):
         return
     bound = held["binding"]
     task, contract = state.get("current_task") or {}, state.get("goal_contract") or {}
@@ -126,7 +126,7 @@ def dispatch_guard(state: RunState, stage, workspace):
         state.pop("builder_failure_hold")  # A changed assignment still passes every normal admission gate.
         return
     if (
-        stage == "terra"
+        stage == "builder"
         and state.get("status") == "RUNNING"
         and held["status"] == "PAUSED_BUILDER_CLASSIFICATION"
         and held["reason"].startswith("Builder completed an implementation attempt without source changes")
@@ -261,7 +261,7 @@ def queue(state: RunState, value, reason, *, enabled, completed_record=None):
     request = {
         "identity": key,
         "mode": "builder_failure",
-        "stage": "terra",
+        "stage": "builder",
         "status": "PAUSED_BUILDER_CLASSIFICATION",
         "reason": reason,
         "phase": state.get("phase"),
@@ -272,7 +272,7 @@ def queue(state: RunState, value, reason, *, enabled, completed_record=None):
     state.setdefault("stuck_investigations", []).append(
         {
             "identity": key,
-            "stage": "terra",
+            "stage": "builder",
             "status": request["status"],
             "reason": reason,
             "requested_at": request["requested_at"],

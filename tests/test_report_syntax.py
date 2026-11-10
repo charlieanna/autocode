@@ -207,7 +207,7 @@ class LoaderTests(unittest.TestCase):
         schema = self.root / "report.schema.json"
         atomic_json(schema, {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]})
         self.output.write_text('{"summary":false,}')
-        record = {**self.record, "schema": str(schema), "stage": "astra_challenge"}
+        record = {**self.record, "schema": str(schema), "stage": "review_plan"}
         with self.assertRaisesRegex(ValueError, "string"):
             base.runner.load_stage_report(record)
         self.assertEqual('{"summary":false,}', Path(record["response_text"]).read_text())

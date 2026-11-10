@@ -17,7 +17,7 @@ import autocode_support as support
 
 
 class ReadyCaptureBatchTests(unittest.TestCase):
-    def packet(self, commands, stage="sol"):
+    def packet(self, commands, stage="tester"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             state = {
@@ -139,7 +139,7 @@ class ReadyCaptureBatchTests(unittest.TestCase):
                 packet = self.packet(["python3 -m unittest", unsupported])
                 self.assertNotIn("ready_capture_batch", packet)
                 self.assertIn("capture_command", packet)
-        for stage in ("terra", "astra_review", "astra_checkpoint"):
+        for stage in ("builder", "review_completion", "review_checkpoint"):
             with self.subTest(stage=stage):
                 self.assertNotIn(
                     "ready_capture_batch", self.packet(["python3 -m unittest", "python3 -m pytest"], stage)

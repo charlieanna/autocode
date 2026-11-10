@@ -131,7 +131,7 @@ class CommandProviderTests(unittest.TestCase):
         )
         provider = command.load("escaped")
         launched, _, _ = provider.launch(
-            "terra", Path("/work"), Path("/run"), None, "demo", "medium", True, report=Path("/run/report.json")
+            "builder", Path("/work"), Path("/run"), None, "demo", "medium", True, report=Path("/run/report.json")
         )
         self.assertEqual(["tool", "${VAR}", '{"key":1}', "/run/report.json"], launched)
 
@@ -161,9 +161,9 @@ class CommandProviderTests(unittest.TestCase):
             returncode=0, stdout="  MODEL  DESCRIPTION\n# legacy aliases\n\n  demo  Fixture model\n"
         )
         with mock.patch("tools.providers.command.subprocess.run", return_value=listed):
-            provider.check_models({"terra": {"model": "demo"}}, self.home)
+            provider.check_models({"builder": {"model": "demo"}}, self.home)
             with self.assertRaisesRegex(RuntimeError, "Models unavailable"):
-                provider.check_models({"terra": {"model": "missing"}}, self.home)
+                provider.check_models({"builder": {"model": "missing"}}, self.home)
 
     def test_launch_fills_read_only_and_write_sandboxes(self):
         write_config(
@@ -179,7 +179,7 @@ class CommandProviderTests(unittest.TestCase):
         )
         provider = command.load("filled")
         read_only, _, _ = provider.launch(
-            "sol",
+            "tester",
             Path("/work"),
             Path("/run"),
             None,
@@ -191,7 +191,7 @@ class CommandProviderTests(unittest.TestCase):
             sandbox="read-only",
         )
         write, _, _ = provider.launch(
-            "terra",
+            "builder",
             Path("/work"),
             Path("/run"),
             None,
@@ -456,8 +456,8 @@ class CommandProviderTests(unittest.TestCase):
         )
         provider = command.load("events")
         self.assertTrue(provider.SUPPORTS_SESSIONS)
-        fresh, _, _ = provider.launch("terra", Path("/work"), Path("/run"), None, "demo", "medium", True)
-        resumed, _, _ = provider.launch("terra", Path("/work"), Path("/run"), "ses_saved", "demo", "medium", True)
+        fresh, _, _ = provider.launch("builder", Path("/work"), Path("/run"), None, "demo", "medium", True)
+        resumed, _, _ = provider.launch("builder", Path("/work"), Path("/run"), "ses_saved", "demo", "medium", True)
         self.assertEqual(["kilo", "run", "--model", "demo"], fresh)
         self.assertEqual(["kilo", "run", "--model", "demo", "--session", "ses_saved"], resumed)
         prompt = provider.prompt_for_schema(
@@ -486,7 +486,7 @@ class CommandProviderTests(unittest.TestCase):
         self.assertEqual("opencode_events", provider.OUTPUT)
         self.assertTrue(provider.CONFIGURED)
         launched, _, _ = provider.launch(
-            "terra", Path("/work"), Path("/run"), "ses_saved", provider.DEFAULT_MODELS["terra"], "medium", True
+            "builder", Path("/work"), Path("/run"), "ses_saved", provider.DEFAULT_MODELS["builder"], "medium", True
         )
         self.assertEqual(
             [
@@ -606,7 +606,7 @@ class CommandProviderTests(unittest.TestCase):
         timed = command.load("timed")
         response = SimpleNamespace(returncode=0, stdout="api", stderr="")
         with mock.patch.object(command.env_prep, "preflight_run", return_value=response) as probe:
-            timed.check_subscription_routes({"terra": {"model": "demo/x"}}, self.home)
+            timed.check_subscription_routes({"builder": {"model": "demo/x"}}, self.home)
             self.assertEqual(15, probe.call_args.kwargs["timeout"])
         bundled = command.load("kilocode")
         self.assertEqual(30, bundled._config["auth"]["timeout_seconds"])
@@ -635,7 +635,7 @@ class CommandProviderTests(unittest.TestCase):
         )
         write_config(self.home, "timed", 'name = "timed"\ncommand = ["tool"]\n' + auth + ROLES)
         provider = command.load("timed")
-        roles = {"terra": {"model": "demo/x"}}
+        roles = {"builder": {"model": "demo/x"}}
         outcomes = (
             (
                 command.subprocess.TimeoutExpired(["fake-auth"], 30, output=b"secret-output", stderr=b"secret-error"),
@@ -716,7 +716,7 @@ class CommandProviderTests(unittest.TestCase):
         )
         provider = command.load("authed")
         roles = {
-            "terra": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
+            "builder": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
             "planner": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-flash"},
         }
         with mock.patch.object(command.env_prep, "preflight_run") as probe:
@@ -732,7 +732,7 @@ class CommandProviderTests(unittest.TestCase):
         self.assertIn("Choose a model with a routed prefix", message)
         response = SimpleNamespace(returncode=0, stdout="oauth", stderr="")
         with mock.patch.object(command.env_prep, "preflight_run", return_value=response) as probe:
-            provider.check_subscription_routes({"terra": {"model": "xiaomi-sgp/mimo-v2.6-pro"}}, self.home)
+            provider.check_subscription_routes({"builder": {"model": "xiaomi-sgp/mimo-v2.6-pro"}}, self.home)
             probe.assert_called_once()
 
     def test_the_bundled_kilocode_glm_default_is_a_route_kilo_publishes(self):
@@ -827,7 +827,7 @@ class CommandProviderTests(unittest.TestCase):
 
     def test_direct_anthropic_route_requires_native_api_login_without_gateway_fallback(self):
         bundled = command.load("kilocode")
-        roles = {"sol": {"model": "anthropic/claude-opus-5-5"}}
+        roles = {"tester": {"model": "anthropic/claude-opus-5-5"}}
         for mode, accepted in (("api", True), ("oauth", False), ("missing", False)):
             summary = "● Kilo Gateway oauth\n" + ("● Anthropic " + mode + "\n" if mode != "missing" else "")
             result = SimpleNamespace(returncode=0, stdout=summary, stderr="")
@@ -847,12 +847,12 @@ class CommandProviderTests(unittest.TestCase):
         bundled = command.load("kilocode")
         with mock.patch.object(command.env_prep, "preflight_run") as probe:
             with self.assertRaisesRegex(RuntimeError, "no subscription route"):
-                bundled.check_subscription_routes({"sol": {"model": "unapproved/claude-opus-5-5"}}, self.home)
+                bundled.check_subscription_routes({"tester": {"model": "unapproved/claude-opus-5-5"}}, self.home)
             probe.assert_not_called()
         summary = SimpleNamespace(returncode=0, stdout="● Anthropic api\n", stderr="")
         with mock.patch.object(command.env_prep, "preflight_run", return_value=summary):
             with self.assertRaisesRegex(RuntimeError, "kilo/ models require login mode 'oauth'"):
-                bundled.check_subscription_routes({"sol": {"model": "kilo/claude-opus-5-5"}}, self.home)
+                bundled.check_subscription_routes({"tester": {"model": "kilo/claude-opus-5-5"}}, self.home)
 
 
 class ExplicitRoleTransportTests(unittest.TestCase):
@@ -883,14 +883,14 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             CONFIGURED=False,
             DEFAULT_MODELS={
                 "task_planner": "openai/check",
-                "terra": "zai-coding-plan/glm-5.3",
-                "sol": "openai/check",
+                "builder": "zai-coding-plan/glm-5.3",
+                "tester": "openai/check",
                 "completion": "openai/check",
                 "planner": "zai-coding-plan/glm-5.3",
                 "plan_reviewer": "xiaomi-token-plan-sgp/mimo",
             },
             DEFAULT_REASONING_EFFORTS={
-                role: "high" for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+                role: "high" for role in ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
             },
             LISTED_MODELS=None,
             BUILDER_RETRY=None,
@@ -1040,19 +1040,19 @@ class ExplicitRoleTransportTests(unittest.TestCase):
 
         self.assertEqual(0, self.cli_configure(self.args()))
         prior = copy.deepcopy(self.observed[-1])
-        flags = [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+        flags = [*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude"]
         self.assertEqual(0, self.cli_configure(flags))
         current = self.observed[-1]
         for role in prior["roles"]:
-            if role != "sol":
+            if role != "tester":
                 self.assertEqual(prior["roles"][role], current["roles"][role], role)
         self.assertEqual("opencode", current["provider"])
-        self.assertEqual("kilocode", current["roles"]["sol"]["provider"])
-        self.assertEqual("anthropic/fixture-claude", current["roles"]["sol"]["model"])
-        self.assertEqual("high", current["roles"]["sol"]["reasoning_effort"])
+        self.assertEqual("kilocode", current["roles"]["tester"]["provider"])
+        self.assertEqual("anthropic/fixture-claude", current["roles"]["tester"]["model"])
+        self.assertEqual("high", current["roles"]["tester"]["reasoning_effort"])
         self.assertIs(self.open, self.cli.opencode)
-        self.assertIs(self.external, self.transport.adapter(current, "sol", self.open, self.workspace))
-        for role in ("requirements", "planner", "plan_reviewer", "resolver", "terra"):
+        self.assertIs(self.external, self.transport.adapter(current, "tester", self.open, self.workspace))
+        for role in ("requirements", "planner", "plan_reviewer", "resolver", "builder"):
             self.assertIs(self.open, self.transport.adapter(current, role, self.open, self.workspace))
 
     def test_a_new_run_takes_the_stage_choices_saved_for_its_backend(self):
@@ -1077,15 +1077,15 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             stage_choices.save(
                 {
                     "claude": {
-                        "terra": {"model": "opus", "effort": "low"},
+                        "builder": {"model": "opus", "effort": "low"},
                         "planner": {"model": "haiku", "effort": "max"},
                     },
-                    "opencode": {"sol": {"model": "zai-coding-plan/glm-5.3", "effort": "low"}},
+                    "opencode": {"tester": {"model": "zai-coding-plan/glm-5.3", "effort": "low"}},
                 }
             )
             for flags, builder, said in (
                 (base, ("opus", "low"), True),
-                ([*base, "--terra-model", "haiku"], ("haiku", "high"), False),
+                ([*base, "--builder-model", "haiku"], ("haiku", "high"), False),
             ):
                 self.observed.clear()
                 notices = io.StringIO()
@@ -1097,56 +1097,56 @@ class ExplicitRoleTransportTests(unittest.TestCase):
                 ):
                     self.assertEqual(0, self.cli.main())
                 roles = self.observed[-1]["roles"]
-                self.assertEqual(builder, (roles["terra"]["model"], roles["terra"]["reasoning_effort"]))
-                self.assertEqual("sonnet", roles["planner"]["model"], "the typed --glm-model wins")
-                self.assertEqual("sonnet", roles["sol"]["model"], "OpenCode's choices are not Claude Code's")
+                self.assertEqual(builder, (roles["builder"]["model"], roles["builder"]["reasoning_effort"]))
+                self.assertEqual("sonnet", roles["planner"]["model"], "the typed --planner-model wins")
+                self.assertEqual("sonnet", roles["tester"]["model"], "OpenCode's choices are not Claude Code's")
                 self.assertEqual(said, "Stage choices from" in notices.getvalue())
                 if said:  # the saved level is the person's stage choice, a ceiling for reviews (2026-11-05)
-                    self.assertEqual("stage_choice", self.observed[-1]["effort_origins"]["terra"])
+                    self.assertEqual("stage_choice", self.observed[-1]["effort_origins"]["builder"])
             # Resuming the saved run (settings present) takes no choice, even one saved since.
-            stage_choices.save({"claude": {"terra": {"model": "sonnet", "effort": "max"}}})
+            stage_choices.save({"claude": {"builder": {"model": "sonnet", "effort": "max"}}})
             with (
                 mock.patch.object(self.invocation, "resolve_and_run", side_effect=started),
                 mock.patch.object(self.cli.sys, "argv", ["autocode", *base]),
             ):
                 self.observed[:] = [self.observed[-1]]
                 self.assertEqual(0, self.cli.main())
-            self.assertEqual("haiku", self.observed[-1]["roles"]["terra"]["model"])
+            self.assertEqual("haiku", self.observed[-1]["roles"]["builder"]["model"])
 
     def test_a_run_on_claude_code_binds_one_role_to_another_connected_tool(self):
         # #2049: the base tool is any provider on the facade engine, not only OpenCode.
-        flags = self.claude_args("--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude")
+        flags = self.claude_args("--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude")
         self.assertEqual(0, self.cli_configure(flags))
         current = self.observed[-1]
         self.assertEqual(("opencode", "claude"), (current["engine"], current["provider"]))
-        self.assertEqual("kilocode", current["roles"]["sol"]["provider"])
-        self.assertEqual("anthropic/fixture-claude", current["roles"]["sol"]["model"])
-        self.assertEqual(self.external_identity, current["transport_identities"]["role:sol"]["identity"])
-        self.assertIs(self.external, self.transport.adapter(current, "sol", self.claude, self.workspace))
-        for role in ("requirements", "planner", "plan_reviewer", "resolver", "terra"):
+        self.assertEqual("kilocode", current["roles"]["tester"]["provider"])
+        self.assertEqual("anthropic/fixture-claude", current["roles"]["tester"]["model"])
+        self.assertEqual(self.external_identity, current["transport_identities"]["role:tester"]["identity"])
+        self.assertIs(self.external, self.transport.adapter(current, "tester", self.claude, self.workspace))
+        for role in ("requirements", "planner", "plan_reviewer", "resolver", "builder"):
             self.assertEqual("sonnet", current["roles"][role]["model"], role)
             self.assertIs(self.claude, self.transport.adapter(current, role, self.claude, self.workspace))
         # Each tool checked only its own role.
         self.external.check_models.assert_called_once()
-        self.assertEqual({"sol"}, set(self.external.check_models.call_args.args[0]))
+        self.assertEqual({"tester"}, set(self.external.check_models.call_args.args[0]))
         for call in self.claude.check_models.call_args_list:
-            self.assertNotIn("sol", call.args[0])
+            self.assertNotIn("tester", call.args[0])
 
     def test_a_role_bound_to_the_run_s_own_tool_or_another_engine_is_refused(self):
         for flags, reason in (
-            (self.claude_args("--role-transport", "sol=claude", "--sol-model", "opus"), "run's own tool"),
+            (self.claude_args("--role-transport", "sol=claude", "--tester-model", "opus"), "run's own tool"),
             (
-                [*self.args(), "--role-transport", "sol=opencode", "--sol-model", "openai/check"],
+                [*self.args(), "--role-transport", "sol=opencode", "--tester-model", "openai/check"],
                 "run's own tool",
             ),
         ):
             with self.subTest(flags=flags), self.assertRaisesRegex(ValueError, reason):
                 self.cli_configure(flags)
         # Codex is an engine with its own transport, not a facade provider.
-        codex = {"engine": "codex", "provider": None, "roles": {"sol": {"model": "gpt-5"}}}
+        codex = {"engine": "codex", "provider": None, "roles": {"tester": {"model": "gpt-5"}}}
         with self.assertRaisesRegex(ValueError, "OpenCode facade engine"):
             self.transport.configure(
-                codex, SimpleNamespace(role_transport=["sol=kilocode"], sol_model="anthropic/fixture-claude"), None
+                codex, SimpleNamespace(role_transport=["sol=kilocode"], tester_model="anthropic/fixture-claude"), None
             )
         self.assertNotIn("transport_identities", codex)
 
@@ -1178,7 +1178,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
 
     def test_public_cli_refuses_a_saved_role_transport_change(self):
         self.cli_configure(
-            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+            [*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude"]
         )
         import copy
 
@@ -1186,7 +1186,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         before = copy.deepcopy(saved)
         with self.assertRaisesRegex(ValueError, "only available when starting a new run"):
             self.cli_configure(
-                [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"],
+                [*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude"],
                 saved=saved,
             )
         self.assertEqual(before, saved)
@@ -1195,14 +1195,14 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         import autocode_util
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+            [*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude"]
         )
         settings = self.observed[-1]
         self.external.local_settings.return_value = {**self.external_identity, "config_sha256": "b" * 64}
         with self.assertRaises(autocode_util.Paused) as refused:
-            self.transport.adapter(settings, "sol", self.open, self.workspace)
+            self.transport.adapter(settings, "tester", self.open, self.workspace)
         self.assertEqual("PAUSED_TRANSPORT_CHANGED", refused.exception.status)
-        self.assertEqual("The saved sol tool identity changed; no fallback", str(refused.exception))
+        self.assertEqual("The saved tester tool identity changed; no fallback", str(refused.exception))
         self.assertIs(self.open, self.transport.adapter(settings, "planner", self.open, self.workspace))
         self.assertIs(self.open, self.cli.opencode)
 
@@ -1210,7 +1210,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         import model_catalogue
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+            [*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude"]
         )
         import copy
 
@@ -1219,9 +1219,9 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         model_catalogue.choose(settings, self.open, self.workspace, interactive=False)
         self.assertEqual(before, settings["roles"])
         groups = list(self.transport.groups(settings, self.open))
-        self.assertEqual({"sol"}, next(routes for facade, routes, _ in groups if facade is self.external).keys())
+        self.assertEqual({"tester"}, next(routes for facade, routes, _ in groups if facade is self.external).keys())
         self.assertEqual(
-            set(before) - {"sol"}, next(routes for facade, routes, _ in groups if facade is self.open).keys()
+            set(before) - {"tester"}, next(routes for facade, routes, _ in groups if facade is self.open).keys()
         )
 
     def test_role_ladder_isolation_preserves_other_tools_escalation_ladders(self):
@@ -1241,13 +1241,13 @@ class ExplicitRoleTransportTests(unittest.TestCase):
                 *self.args(),
                 "--completion-model",
                 "openai/gpt-6-sol",
-                "--astra-model",
+                "--task-planner-model",
                 "openai/gpt-6-astra",
-                "--terra-model",
+                "--builder-model",
                 "zai-coding-plan/glm-5.3",
                 "--role-transport",
                 "sol=kilocode",
-                "--sol-model",
+                "--tester-model",
                 "anthropic/fixture-claude",
             ]
         )
@@ -1257,25 +1257,25 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         model_catalogue.choose(settings, self.open, self.workspace, interactive=False)
 
         # sol on kilocode has its ladder filtered against kilocode (emptied because kilocode lacks gpt-6-sol).
-        self.assertEqual([], settings["route_ladders"]["effort"]["sol"])
+        self.assertEqual([], settings["route_ladders"]["effort"]["tester"])
         # terra and resolver on opencode must NOT have their ladders wiped out by kilocode!
-        expected_terra = [list(rung) for rung in route_ladder.EFFORT_LADDERS["terra"]]
-        self.assertEqual(expected_terra, settings["route_ladders"]["effort"]["terra"])
+        expected_terra = [list(rung) for rung in route_ladder.EFFORT_LADDERS["builder"]]
+        self.assertEqual(expected_terra, settings["route_ladders"]["effort"]["builder"])
         expected_resolver = [list(rung) for rung in route_ladder.EFFORT_LADDERS["resolver"]]
         self.assertEqual(expected_resolver, settings["route_ladders"]["effort"]["resolver"])
 
     def test_invalid_selection_cannot_fall_back_or_change_other_roles(self):
         for extras, reason in (
-            (["--role-transport", "sol=missing", "--sol-model", "anthropic/fixture-claude"], "no provider config"),
+            (["--role-transport", "sol=missing", "--tester-model", "anthropic/fixture-claude"], "no provider config"),
             (["--role-transport", "not_a_role=kilocode"], "existing role"),
-            (["--role-transport", "sol=kilocode"], "explicit --sol-model"),
+            (["--role-transport", "sol=kilocode"], "explicit --tester-model"),
             (
                 [
                     "--role-transport",
                     "sol=kilocode",
                     "--role-transport",
                     "sol=kilocode",
-                    "--sol-model",
+                    "--tester-model",
                     "anthropic/fixture-claude",
                 ],
                 "named exactly once",
@@ -1289,7 +1289,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         import autocode_model_preflight as preflight
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+            [*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude"]
         )
         settings = self.observed[-1]
         # The selected tool declares billing logins; the built-in OpenCode run tool does not.
@@ -1312,7 +1312,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             self.assertTrue(preflight.check(runner, {"settings": settings}, run_dir, self.workspace))
         self.assertEqual([(self.external, "anthropic/fixture-claude")], probes)
         self.external.check_subscription_routes.assert_called_once_with(
-            {"sol": settings["roles"]["sol"]}, self.workspace
+            {"tester": settings["roles"]["tester"]}, self.workspace
         )
         self.open.check_subscription_routes.assert_not_called()
 
@@ -1324,8 +1324,8 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             launch.prepare(
                 engine="opencode",
                 adapter=self.external,
-                role="sol",
-                route_role="sol",
+                role="tester",
+                route_role="tester",
                 workspace=self.workspace,
                 run_dir=self.workspace,
                 session=None,
@@ -1347,14 +1347,14 @@ class ExplicitRoleTransportTests(unittest.TestCase):
 
     def test_bare_external_model_is_not_normalized_to_openai(self):
         self.external.available_models = lambda workspace: ["fixture-claude"]
-        self.cli_configure([*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "fixture-claude"])
-        self.assertEqual("fixture-claude", self.observed[-1]["roles"]["sol"]["model"])
+        self.cli_configure([*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "fixture-claude"])
+        self.assertEqual("fixture-claude", self.observed[-1]["roles"]["tester"]["model"])
 
     def test_missing_null_malformed_and_unknown_identity_never_fall_back(self):
         import copy
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+            [*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude"]
         )
         selected = self.observed[-1]
         for kind in (
@@ -1370,30 +1370,30 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             saved = copy.deepcopy(selected)
             identities = saved["transport_identities"]
             if kind in ("absent", "absent_null_engine"):
-                identities.pop("role:sol")
+                identities.pop("role:tester")
                 if kind == "absent_null_engine":
-                    saved["roles"]["sol"]["engine"] = None
+                    saved["roles"]["tester"]["engine"] = None
             elif kind == "null":
-                identities["role:sol"] = None
+                identities["role:tester"] = None
             elif kind == "malformed":
-                identities["role:sol"] = "kilocode"
+                identities["role:tester"] = "kilocode"
             elif kind == "unknown_role":
-                identities["role:missing"] = identities.pop("role:sol")
+                identities["role:missing"] = identities.pop("role:tester")
             elif kind == "unknown_provider":
-                identities["role:sol"]["provider"] = "not_configured"
+                identities["role:tester"]["provider"] = "not_configured"
             elif kind == "bad_hash":
-                identities["role:sol"]["identity"]["config_sha256"] = None
+                identities["role:tester"]["identity"]["config_sha256"] = None
             else:
-                saved["roles"]["sol"]["engine"] = "codex"
+                saved["roles"]["tester"]["engine"] = "codex"
             with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, "Saved"):
-                self.transport.adapter(saved, "sol", self.open, self.workspace)
+                self.transport.adapter(saved, "tester", self.open, self.workspace)
         self.assertIs(self.open, self.cli.opencode)
 
     def test_admission_inventory_is_only_used_for_its_default_catalogue(self):
         from autocode_model_inventory import InvocationInventory
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+            [*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude"]
         )
         selected = self.observed[-1]
         inventory = InvocationInventory(self.open, self.workspace)
@@ -1401,13 +1401,13 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         self.open.check_models.reset_mock()
         self.external.check_models.reset_mock()
         self.transport.check_models(selected, self.open, self.workspace, inventory=inventory)
-        self.assertEqual({"sol"}, self.external.check_models.call_args.args[0].keys())
-        self.assertNotIn("sol", self.open.check_models.call_args.args[0])
+        self.assertEqual({"tester"}, self.external.check_models.call_args.args[0].keys())
+        self.assertNotIn("tester", self.open.check_models.call_args.args[0])
         self.external.check_subscription_routes.reset_mock()
         self.open.check_subscription_routes.reset_mock()
         self.transport.check_subscription_routes(selected, self.open, self.workspace)
-        self.assertEqual({"sol"}, self.external.check_subscription_routes.call_args.args[0].keys())
-        self.assertNotIn("sol", self.open.check_subscription_routes.call_args.args[0])
+        self.assertEqual({"tester"}, self.external.check_subscription_routes.call_args.args[0].keys())
+        self.assertNotIn("tester", self.open.check_subscription_routes.call_args.args[0])
         self.assertEqual(
             set(self.open.available_models(self.workspace)), self.open.check_models.call_args.kwargs["inventory"]
         )
@@ -1416,11 +1416,11 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         import copy
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+            [*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude"]
         )
         settings = copy.deepcopy(self.observed[-1])
-        settings["roles"]["acceptance_tester"] = copy.deepcopy(settings["roles"]["sol"])
-        self.transport.inherit(settings, "acceptance_tester", "sol")
+        settings["roles"]["acceptance_tester"] = copy.deepcopy(settings["roles"]["tester"])
+        self.transport.inherit(settings, "acceptance_tester", "tester")
         self.assertIn("role:acceptance_tester", settings["transport_identities"])
         self.assertEqual("kilocode", self.transport.entry(settings, "acceptance_tester")["provider"])
         self.assertIs(self.external, self.transport.adapter(settings, "acceptance_tester", self.open, self.workspace))
@@ -1453,10 +1453,10 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         import copy
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+            [*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude"]
         )
         settings = copy.deepcopy(self.observed[-1])
-        settings["roles"]["acceptance_tester"] = copy.deepcopy(settings["roles"]["sol"])
+        settings["roles"]["acceptance_tester"] = copy.deepcopy(settings["roles"]["tester"])
         self.assertNotIn("role:acceptance_tester", settings["transport_identities"])
         entry = self.transport.entry(settings, "acceptance_tester")
         self.assertEqual("kilocode", entry["provider"])
@@ -1469,7 +1469,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         # The Resolver keeps its own model on OpenCode while its source role, the
         # Completion Reviewer, moves to kilocode: nothing is copied and it stays on OpenCode.
         self.cli_configure(
-            [*self.args(), "--role-transport", "astra=kilocode", "--astra-model", "anthropic/fixture-claude"]
+            [*self.args(), "--role-transport", "astra=kilocode", "--task-planner-model", "anthropic/fixture-claude"]
         )
         settings = copy.deepcopy(self.observed[-1])
         self.assertIsNone(settings["roles"]["resolver"].get("provider"))
@@ -1498,7 +1498,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         from units import autoreview
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+            [*self.args(), "--role-transport", "sol=kilocode", "--tester-model", "anthropic/fixture-claude"]
         )
         settings = copy.deepcopy(self.observed[-1])
         state = {"workspace": str(self.workspace), "task": "A task", "settings": settings, "history": []}
@@ -1548,7 +1548,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
                 "anthropic/fixture-claude",
                 "--role-transport",
                 "sol=kilocode",
-                "--sol-model",
+                "--tester-model",
                 "anthropic/fixture-claude",
             ]
         )
@@ -1567,7 +1567,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         self.assertIs(self.external, adapter_design)
 
         # 2. Tester: runs on sol
-        self.assertIs(self.external, self.transport.adapter(settings, "sol", self.open, self.workspace))
+        self.assertIs(self.external, self.transport.adapter(settings, "tester", self.open, self.workspace))
 
         # 3. Stuck-investigator path: produces stuck_investigator derived from plan_reviewer
         state_stuck = {
@@ -1575,7 +1575,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             "task": "A task",
             "settings": copy.deepcopy(settings),
             "history": [],
-            "stuck_investigation": {"stage": "terra", "status": "PAUSED", "reason": "No progress"},
+            "stuck_investigation": {"stage": "builder", "status": "PAUSED", "reason": "No progress"},
         }
         autoresolver.prepare_stuck(state_stuck, Path(self.workspace) / "state.json")
         adapter_stuck = self.transport.adapter(state_stuck["settings"], stuck_job.ROUTE, self.open, self.workspace)

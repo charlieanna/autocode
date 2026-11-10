@@ -170,7 +170,7 @@ class OwnedTransportTests(unittest.TestCase):
             planning_review_call_limit=2,
             effort_origins={"plan_reviewer": "auto_selected"},
             roles={
-                "terra": {"model": "fixture-model"},
+                "builder": {"model": "fixture-model"},
                 "plan_reviewer": {
                     "engine": "opencode",
                     "model": "openai/gpt-6-astra",
@@ -189,14 +189,14 @@ class OwnedTransportTests(unittest.TestCase):
         state = {
             "task": self.projection["task"],
             "status": "RUNNING",
-            "next_stage": "astra_challenge",
+            "next_stage": "review_plan",
             "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
             "planning": {"astra_calls": 0, "reports": {}},
             "planning_history": [{"astra_calls": 1}],
         }
         args = SimpleNamespace(replay_recording=tape.manifest_path, replay_checks="fresh")
         state["settings"] = transport.configure(args, state)
-        self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
+        self.assertEqual("plan_reviewer", planning.route_for(state, "review_plan"))
         self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         self.assertEqual({"plan_reviewer": "auto_selected"}, state["settings"]["effort_origins"])
         self.assertEqual("high", state["settings"]["roles"]["investigator"]["reasoning_effort"])
@@ -205,10 +205,10 @@ class OwnedTransportTests(unittest.TestCase):
         self.assertEqual(1, state["planning"]["review_calls_before_policy"])
         self.assertEqual(1, state["planning"]["astra_calls"])
         self.recorded_facade(tape).check_models(state["settings"]["roles"], self.workspace)
-        planning.charge(state, "astra_challenge")
+        planning.charge(state, "review_plan")
         self.assertEqual(2, state["planning"]["astra_calls"])
         with self.assertRaises(util.Paused) as raised:
-            planning.charge(state, "astra_challenge")
+            planning.charge(state, "review_plan")
         self.assertEqual("PAUSED_PLANNING_BUDGET", raised.exception.status)
 
     def test_historical_reviewer_effort_change_still_refuses_before_emitter_effects(self):
@@ -224,13 +224,13 @@ class OwnedTransportTests(unittest.TestCase):
         self.assertFalse(self.report.exists())
 
     def test_recorded_model_route_substitution_refuses_without_provider_or_workspace_effects(self):
-        self.projection["settings"]["roles"]["terra"].update(
+        self.projection["settings"]["roles"]["builder"].update(
             engine="opencode", provider=None, reasoning_effort="medium"
         )
         tape = self.tape()
         facade = self.recorded_facade(tape)
         routes = copy.deepcopy(tape.document["launch"]["settings"]["roles"])
-        alternatives = [{"unknown": routes["terra"]}, {"terra": {}}]
+        alternatives = [{"unknown": routes["builder"]}, {"builder": {}}]
         for key, value in (
             ("model", "foreign-model"),
             ("engine", "codex"),
@@ -238,7 +238,7 @@ class OwnedTransportTests(unittest.TestCase):
             ("reasoning_effort", "high"),
         ):
             changed = copy.deepcopy(routes)
-            changed["terra"][key] = value
+            changed["builder"][key] = value
             alternatives.append(changed)
         before = (self.workspace / "greet.py").read_bytes()
         with patch.object(transport.native, "available_models", side_effect=AssertionError("live model listing")):
@@ -255,7 +255,7 @@ class OwnedTransportTests(unittest.TestCase):
         tape = self.tape()
         routes = copy.deepcopy(tape.document["launch"]["settings"]["roles"])
         facade = self.recorded_facade(tape)
-        facade.recording.document["launch"]["settings"]["roles"]["terra"]["model"] = "foreign-model"
+        facade.recording.document["launch"]["settings"]["roles"]["builder"]["model"] = "foreign-model"
         with self.assertRaisesRegex(recording.RecordingError, "document changed"):
             facade.check_models(routes, self.workspace)
         facade = self.recorded_facade(tape)
@@ -352,7 +352,7 @@ class OwnedTransportTests(unittest.TestCase):
         row = self.tape_value.document["dispatches"][0]
         context = {key: row[key] for key in (*transport.CONTEXT_KEYS, "task_id", "contract_hash", "criteria_revision")}
         context["consumed"] = 0
-        for changed in ({"consumed": 1}, {"stage": "sol"}, {"iteration": 2}, {"turn": 2}, {"report_only": True}):
+        for changed in ({"consumed": 1}, {"stage": "tester"}, {"iteration": 2}, {"turn": 2}, {"report_only": True}):
             with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, "diverged"):
                 self.prepare(context={**context, **changed})
         self.assertFalse((self.run_dir / "replay-transport").exists())
@@ -360,7 +360,7 @@ class OwnedTransportTests(unittest.TestCase):
     def test_changed_role_model_effort_or_provider_cannot_reuse_the_recorded_response(self):
         self.tape()
         for changed in (
-            {"role": "sol"},
+            {"role": "tester"},
             {"model": "another-model"},
             {"effort": "high"},
             {"provider": "foreign-provider"},
@@ -825,10 +825,12 @@ class ArchivedCheckTests(unittest.TestCase):
         run_dir = Path(self.projection["run_dir"])
         records = self.projection["records"]
         first = copy.deepcopy(records[0])
-        first.update(stage="sol", role="sol", route_role="sol", original_stage="sol", after_ref=first["before_ref"])
+        first.update(
+            stage="tester", role="tester", route_role="tester", original_stage="tester", after_ref=first["before_ref"]
+        )
         second = copy.deepcopy(first)
         second.update(iteration=2, before_ref=records[0]["after_ref"], after_ref=records[0]["after_ref"])
-        self.projection["settings"]["roles"]["sol"] = {"model": "fixture-model"}
+        self.projection["settings"]["roles"]["tester"] = {"model": "fixture-model"}
         self.projection["records"] = [first, second]
         original_files = {}
         for index, (verdict, command_rows, log) in enumerate(
@@ -1195,7 +1197,7 @@ class RecordedObligationTests(unittest.TestCase):
         self.state = {
             "workspace": str(self.workspace),
             "status": "BUILDING",
-            "next_stage": "terra",
+            "next_stage": "builder",
             "settings": {
                 "replay_recording": {
                     "path": str(self.tape.manifest_path),
@@ -1506,7 +1508,7 @@ def make_retained_run(
     output.parent.mkdir(parents=True)
     output.write_text('{"status":"COMPLETE"}\n')
     record = {
-        "stage": "terra",
+        "stage": "builder",
         "output": str(output),
         "replay": {"manifest_sha256": tape.sha256, "dispatch_id": "dispatch-0", "ordinal": 0},
     }
@@ -2005,10 +2007,10 @@ class CheckSummaryProjectionTests(unittest.TestCase):
         snapshot = util.snapshot(self.workspace)
         Path(record["after_ref"]).write_text(json.dumps(snapshot))
         record.update(
-            stage="sol",
-            role="sol",
-            route_role="sol",
-            original_stage="sol",
+            stage="tester",
+            role="tester",
+            route_role="tester",
+            original_stage="tester",
             before_ref=record["after_ref"],
             source_revision=snapshot["revision"],
         )
@@ -2035,7 +2037,7 @@ class CheckSummaryProjectionTests(unittest.TestCase):
             "status": "TASK_COMPLETE",
             "base_commit": projection["revisions"][0],
             "runner_revision": projection["origin"]["runner_revision"],
-            "settings": {"engine": "codex", "roles": {"sol": {"model": "fixture-model"}}},
+            "settings": {"engine": "codex", "roles": {"tester": {"model": "fixture-model"}}},
             "stages": [record],
             "validation": {"output": record["output"], "check_replay": self.result},
         }
@@ -2191,9 +2193,9 @@ class PublicReplayProjectionTests(unittest.TestCase):
     def test_public_capture_preserves_archived_identity_without_install_inference(self):
         archived = "a" * 64
         records = [
-            {"role": "terra", "events": "known.jsonl", "prompts_hash": archived},
-            {"role": "sol", "events": "unknown.jsonl", "prompts_hash": None},
-            {"role": "sol", "events": "legacy.jsonl"},
+            {"role": "builder", "events": "known.jsonl", "prompts_hash": archived},
+            {"role": "tester", "events": "unknown.jsonl", "prompts_hash": None},
+            {"role": "tester", "events": "legacy.jsonl"},
         ]
         state = {"status": "RUNNING", "prompts_hash": "b" * 64, "stages": records}
         original = copy.deepcopy(state)
@@ -2226,7 +2228,7 @@ class PublicReplayProjectionTests(unittest.TestCase):
                 )
 
     def test_corrupt_stage_inventory_keeps_status_readable_and_export_unavailable(self):
-        valid = {"stage": "terra", "role": "terra", "events": "builder.jsonl", "output": "builder.json"}
+        valid = {"stage": "builder", "role": "builder", "events": "builder.jsonl", "output": "builder.json"}
         for stages in (None, "none", True, {}, ["x", None, valid], [valid, "corrupt"]):
             with self.subTest(stages=stages), tempfile.TemporaryDirectory() as temporary:
                 state = {"status": "RUNNING", "stages": stages}
@@ -2244,9 +2246,9 @@ class PublicReplayProjectionTests(unittest.TestCase):
     def test_valid_neighbor_rows_preserve_every_replayable_dispatch_without_mutation(self):
         records = [
             {"role": "runner", "events": "runner.jsonl"},
-            {"stage": "terra", "role": "terra", "events": "builder.jsonl", "output": "builder.json"},
-            {"stage": "sol", "role": "sol", "events": "tester.jsonl", "output": "tester.json"},
-            {"stage": "sol", "metrics": {}},
+            {"stage": "builder", "role": "builder", "events": "builder.jsonl", "output": "builder.json"},
+            {"stage": "tester", "role": "tester", "events": "tester.jsonl", "output": "tester.json"},
+            {"stage": "tester", "metrics": {}},
         ]
         state = {"status": "RUNNING", "stages": records}
         original = copy.deepcopy(state)
@@ -2254,7 +2256,7 @@ class PublicReplayProjectionTests(unittest.TestCase):
         self.assertEqual(original, state)
 
     def test_corrupt_optional_inventory_cannot_silently_drop_an_action_or_receipt(self):
-        valid = {"stage": "terra", "role": "terra", "events": "builder.jsonl", "output": "builder.json"}
+        valid = {"stage": "builder", "role": "builder", "events": "builder.jsonl", "output": "builder.json"}
         for key in ("contract_history", "user_events", "validation_archive", "regression_proofs"):
             for value in ("corrupt", {}, [None, {}], [{}, "corrupt"]):
                 with self.subTest(key=key, value=value):
@@ -2277,7 +2279,7 @@ class PublicReplayProjectionTests(unittest.TestCase):
         )
         for update in updates:
             with self.subTest(update=update):
-                state = {"stages": [{"role": "terra", "events": "builder.jsonl"}], **update}
+                state = {"stages": [{"role": "builder", "events": "builder.jsonl"}], **update}
                 original = copy.deepcopy(state)
                 self.assertIsNone(replay_view.project(state))
                 self.assertEqual(original, state)
@@ -2417,7 +2419,7 @@ class CurrentProofRefusalTests(unittest.TestCase):
 
     def test_direct_delivery_export_declines_recorded_mode_even_with_current_true_from_caller(self):
         self.state["stages"] = []
-        for stage in ("sol", "astra_review"):
+        for stage in ("tester", "review_completion"):
             report = self.run_dir / (stage + ".json")
             report.write_text("{}\n")
             self.state["stages"].append(

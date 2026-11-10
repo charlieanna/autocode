@@ -60,7 +60,7 @@ def source_change_restart(state: RunState):
 
 # What an internal-answer restart carries from the archived cycle: the reviewer's first review and the Planner's
 # answer to it, the allowance they were charged against and the depth decisions made for this plan.
-INHERITED_REPORTS = ("astra_challenge", "glm_revise")
+INHERITED_REPORTS = ("review_plan", "revise_plan")
 INHERITED_KEYS = (
     "review_call_limit",
     "review_call_limit_origin",
@@ -84,7 +84,7 @@ def inherits_review(archived) -> bool:
         archived
         and archived.get("internal_answer_restart")
         and not archived.get("review_depth_reduced")
-        and ((archived.get("reports") or {}).get("astra_challenge") or {}).get("report")
+        and ((archived.get("reports") or {}).get("review_plan") or {}).get("report")
     )
 
 
@@ -232,13 +232,13 @@ def start(state: RunState):
     state.pop(human.PRIVATE, None)
     state.pop(human.PUBLIC, None)
     state.pop("user_request", None)
-    next_stage = "plan_review" if role_names.planning_flow(state) == "v2" else "astra_challenge"
-    if next_stage == "astra_challenge" and planning.get("inherited_review"):
+    next_stage = "plan_review" if role_names.planning_flow(state) == "v2" else "review_plan"
+    if next_stage == "review_plan" and planning.get("inherited_review"):
         remaining = remaining_reviews(state, planning)
         if remaining is not None and remaining <= 1:
             # The redraft answers the inherited review as a revision would: with one call left, the final review
             # decides on it (what it cannot settle returns as blocking questions, as after any revision). With
             # more, the Plan Reviewer re-reviews it with its earlier concerns in the packet (previous_review).
-            next_stage = "astra_finalize"
+            next_stage = "finalize_plan"
         planning["inherited_review"]["next_stage"] = next_stage
     state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": next_stage, "pending_questions": []})

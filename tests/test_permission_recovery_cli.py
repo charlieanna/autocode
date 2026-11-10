@@ -15,8 +15,8 @@ class PermissionRecoveryCLI(AdversarialCase):
         self.assertEqual(1, len(corrected), self.root)
         self.assertEqual("external_directory", corrected[0]["denied_operation"]["capability"])
         self.assertEqual("corrected diagnostic executed\n", Path(corrected[0]["receipt"]).read_text())
-        self.assertTrue(self.trace("stage_enter", "sol"), "A diagnostic is not independent validation")
-        self.assertTrue(self.trace("stage_enter", "astra_review"), "Completion must run normally")
+        self.assertTrue(self.trace("stage_enter", "tester"), "A diagnostic is not independent validation")
+        self.assertTrue(self.trace("stage_enter", "review_completion"), "Completion must run normally")
         self.assertEqual("TASK_COMPLETE", view["status"], view)
 
     def test_repeated_denial_holds_after_one_retry_and_survives_restart(self):
@@ -38,7 +38,7 @@ class PermissionRecoveryCLI(AdversarialCase):
         self.assertEqual(2, len(self.trace("builder_permission_denied")), "Restart minted another retry")
         self.assertEqual(recovery_before, self.driver.state().get("automatic_recoveries_since_resume", 0))
         self.assertEqual(pins, {str(path): path.read_bytes() for path in archived})
-        self.assertFalse(self.trace("stage_enter", "sol"))
+        self.assertFalse(self.trace("stage_enter", "tester"))
 
     def test_distinct_denials_never_exhaust_the_timeout_budget_and_hold_at_their_own_ceiling(self):
         self.set_fault("recovery", "builder_permission_distinct")
@@ -90,5 +90,5 @@ class PermissionRecoveryCLI(AdversarialCase):
         self.set_fault("recovery", "builder_permission_corrected")
         view = self.driver.drive(self.scenario.brief)
         self.assertTrue(self.trace("builder_permission_corrected"), self.root)
-        self.assertTrue(self.trace("stage_enter", "sol"))
+        self.assertTrue(self.trace("stage_enter", "tester"))
         self.assertFalse(view["done"], "Successful scratch work cannot hide failed acceptance tests")

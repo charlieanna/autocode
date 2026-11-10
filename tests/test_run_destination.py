@@ -185,9 +185,9 @@ class RelocatedDestinationCliTests(unittest.TestCase):
         self.requested = self.plain / ".autocode" / "runs" / "20261018-120000-vscode-a1b2c3"
         self.models = {
             role: "fixture/reviewer"
-            for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+            for role in ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
         }
-        self.models["terra"] = self.models["planner"] = "fixture/builder"
+        self.models["builder"] = self.models["planner"] = "fixture/builder"
         config = {
             "name": "budgetfixture",
             "command": [sys.executable, "-c", "raise AssertionError('no provider may spawn')"],

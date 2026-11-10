@@ -234,7 +234,7 @@ class ScopedIntakeTests(unittest.TestCase):
             1,
             len(
                 manifest.context(
-                    {"design_manifest": record}, stage="terra", current_task={"affected_paths": ["src/filea.js"]}
+                    {"design_manifest": record}, stage="builder", current_task={"affected_paths": ["src/filea.js"]}
                 )["catalog"]["cases"]
             ),
         )

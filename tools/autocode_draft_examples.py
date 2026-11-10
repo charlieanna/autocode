@@ -21,7 +21,7 @@ except ImportError:
 import json
 import re
 
-PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
+PLANNER_ORIGINS = {"glm_draft", "revise_plan", "finalize_plan", "draft_plan"}
 RECEIPT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -210,7 +210,7 @@ def corrections(state: RunState, before, after, changes, user_basis):
     old = {r["id"]: r for r in before.get("acceptance_criteria", [])}
     new = {r["id"]: r for r in after.get("acceptance_criteria", [])}
     reports = (state.get("planning") or {}).get("reports") or {}
-    review = (reports.get("astra_challenge") or reports.get("plan_review") or {}).get("report") or {}
+    review = (reports.get("review_plan") or reports.get("plan_review") or {}).get("report") or {}
     sources = [state.get(key) for key in ("task", "answers", "brief_feedback", "user_events", "approved_design")]
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
     sources += [r.get("source_quote", "") for r in handoff.get("requirements", [])]

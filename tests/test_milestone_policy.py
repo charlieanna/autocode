@@ -26,13 +26,13 @@ class MilestonePolicyTests(unittest.TestCase):
                 "joint_planning": True,
                 "limits": {"iteration_ceiling": 23},
                 "roles": {
-                    "terra": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3", "reasoning_effort": "max"}
+                    "builder": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3", "reasoning_effort": "max"}
                 },
             },
         }
 
     def test_every_execution_role_gets_policy_without_state_mutation(self):
-        for stage in ("astra_plan", "terra", "sol", "astra_review", "astra_discovery"):
+        for stage in ("plan_task", "builder", "tester", "review_completion", "draft_plan"):
             with self.subTest(stage=stage):
                 state = self.state()
                 before = copy.deepcopy(state)
@@ -44,7 +44,7 @@ class MilestonePolicyTests(unittest.TestCase):
                 self.assertEqual(before, state)
 
     def test_final_validation_is_conditional_in_initial_and_send_back_handoffs(self):
-        for stage in ("astra_review", "astra_checkpoint"):
+        for stage in ("review_completion", "review_checkpoint"):
             for evidence_ready in (False, True):
                 for sent_back in (False, True):
                     with self.subTest(stage=stage, evidence_ready=evidence_ready, sent_back=sent_back):
@@ -95,7 +95,7 @@ class MilestonePolicyTests(unittest.TestCase):
     def test_builder_gets_shared_checkpoint_rules_without_advancement_rules(self):
         checkpoint = {"current": {"id": "M1", "status": "PENDING"}, "limits": {"max_replans": 1, "stalled_reviews": 2}}
         prompts = {}
-        for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+        for stage in ("builder", "tester", "review_completion", "review_checkpoint"):
             state = self.state()
             with (
                 patch.object(support, "snapshot", return_value={"revision": "r1", "head": "h1"}),
@@ -111,9 +111,9 @@ class MilestonePolicyTests(unittest.TestCase):
                 self.assertEqual(1, instruction.count(milestones.POLICY))
                 self.assertIn("Never weaken the full-task completion gate.", instruction)
                 self.assertIn("File edits and reworded reports alone are not progress.", instruction)
-                self.assertEqual(stage != "terra", milestones.ADVANCEMENT_POLICY in instruction)
-        self.assertNotIn("propose the next eligible milestone", prompts["terra"])
-        self.assertNotIn("PAUSED_MILESTONE_STALLED", prompts["terra"])
+                self.assertEqual(stage != "builder", milestones.ADVANCEMENT_POLICY in instruction)
+        self.assertNotIn("propose the next eligible milestone", prompts["builder"])
+        self.assertNotIn("PAUSED_MILESTONE_STALLED", prompts["builder"])
 
     def test_joint_planning_includes_same_sizing_and_safety_policy(self):
         state = self.state()
@@ -128,9 +128,9 @@ class MilestonePolicyTests(unittest.TestCase):
                 self.assertIn("grants no new goal or permission approval", prompt)
 
     def test_old_microtask_instruction_removed_but_approval_retained(self):
-        self.assertNotIn("Make it small and executable", planning.PROMPTS["astra_finalize"])
+        self.assertNotIn("Make it small and executable", planning.PROMPTS["finalize_plan"])
         self.assertNotIn("and small milestones", goals.DISCOVERY_PROMPT)
-        self.assertIn("user must approve this exact plan", planning.PROMPTS["astra_finalize"])
+        self.assertIn("user must approve this exact plan", planning.PROMPTS["finalize_plan"])
         self.assertIn("Do not start implementation before that approval", goals.DISCOVERY_PROMPT)
 
     def test_unapproved_goal_still_cannot_execute(self):

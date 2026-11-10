@@ -41,7 +41,7 @@ def check(project, scenario, run=None):
         return checks
     view = run.get("view") or {}
     assignments = view.get("route_assignments") or []
-    recorded = [row for row in assignments if row.get("role") == "sol"]
+    recorded = [row for row in assignments if row.get("role") == "tester"]
     checks.append(
         Check("one_route_assignment", len(assignments) == 1 and len(recorded) == 1, f"route_assignments: {assignments}")
     )
@@ -54,9 +54,9 @@ def check(project, scenario, run=None):
             str(row),
         )
     )
-    route = (view.get("routes") or {}).get("sol") or {}
+    route = (view.get("routes") or {}).get("tester") or {}
     checks.append(Check("tester_route_is_the_named_model", route.get("model") == NAMED, str(route)))
-    asked = [answer for answer in run.get("answers") or [] if answer.get("id") == "route-sol"]
+    asked = [answer for answer in run.get("answers") or [] if answer.get("id") == "route-tester"]
     checks.append(
         Check(
             "model_named_by_the_person",

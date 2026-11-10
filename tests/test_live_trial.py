@@ -67,18 +67,18 @@ class ProfilesTest(unittest.TestCase):
     def test_live_profiles_pin_model_and_effort(self):
         profile = profiles.resolve("glm53")
         flags = profiles.cli_overrides(profile)
-        self.assertIn("--terra-model", flags)
+        self.assertIn("--builder-model", flags)
         self.assertIn("zai-coding-plan/glm-5.3", flags)
-        self.assertIn("--glm-reasoning-effort", flags)
+        self.assertIn("--planner-reasoning-effort", flags)
         self.assertIn("max", flags)
 
     def test_glm53_openai_uses_subscription_models_only(self):
         profile = profiles.resolve("glm53-openai")
         flags = profiles.cli_overrides(profile)
         joined = " ".join(flags)
-        self.assertIn("--glm-model", flags)
+        self.assertIn("--planner-model", flags)
         self.assertIn("zai-coding-plan/glm-5.3", flags)
-        self.assertIn("--terra-model", flags)
+        self.assertIn("--builder-model", flags)
         self.assertIn("openai/gpt-6-sol", flags)
         self.assertNotIn("mimo", joined)
         self.assertNotIn("-free", joined)
@@ -107,7 +107,7 @@ class ProfilesTest(unittest.TestCase):
         self.assertEqual("medium", flags[i + 1])
         i = flags.index("--reasoning-effort")
         self.assertEqual("medium", flags[i + 1])
-        i = flags.index("--sol-reasoning-effort")
+        i = flags.index("--tester-reasoning-effort")
         self.assertEqual("high", flags[i + 1])
 
 

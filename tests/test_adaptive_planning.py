@@ -40,7 +40,7 @@ class EntryStage(unittest.TestCase):
         workflows.begin_requirements(state)
         self.assertEqual("requirements_gather", state["next_stage"])
         workflows.from_requirements(state, {"job": "build", "intended_outcome": "Greet", "clarity": "clear"})
-        self.assertEqual((state["next_stage"], state["workflow"]["clarity"]), ("astra_discovery", "clear"))
+        self.assertEqual((state["next_stage"], state["workflow"]["clarity"]), ("draft_plan", "clear"))
         self.assertNotIn("requirements_skipped", state["workflow"])
 
     def test_requirements_judges_clarity_only_while_it_names_the_job(self):
@@ -60,7 +60,7 @@ class EntryStage(unittest.TestCase):
                 self.assertFalse(adaptive.requirements_judge_clarity(other))
                 self.assertNotIn("clarity", autoplanner._model_report_schema(schema, other)["properties"])
                 self.assertIn("job", autoplanner._model_report_schema(schema, other)["properties"])
-        self.assertNotIn('Add "clarity"', adaptive.prompt_rule(state, "astra_discovery"))
+        self.assertNotIn('Add "clarity"', adaptive.prompt_rule(state, "draft_plan"))
         state = {"settings": {"adaptive_planning": True, "roles": {"requirements": {}}}, "workspace": "."}
         workflows.begin_requirements(state)
         workflows.from_requirements(state, {"job": "build", "clarity": "vague"})
@@ -139,8 +139,8 @@ class StatusView(unittest.TestCase):
             **sized,
             "review_limit": 2,
             "challenges": 1,
-            "approved_at": "astra_challenge#1",
-            "final_stage": "astra_challenge",
+            "approved_at": "review_plan#1",
+            "final_stage": "review_plan",
         }
         shown = adaptive.view({**ON, "planning": {"adaptive": planning}})
         self.assertEqual(
@@ -223,20 +223,20 @@ class NewRunsOnly(unittest.TestCase):
 
 class Schemas(unittest.TestCase):
     def test_adaptive_planner_drafts_carry_initial_task(self):
-        for stage in ("astra_discovery", "glm_revise"):
+        for stage in ("draft_plan", "revise_plan"):
             contract = autoplanner.schema_for(ON, stage)["properties"]["contract"]
             self.assertIn("initial_task", contract["required"])
             self.assertNotIn("initial_task", autoplanner.schema_for(OFF, stage)["properties"]["contract"]["properties"])
         self.assertNotIn("initial_task", goals.BODY_SCHEMA["properties"], "the shared schema must not change")
 
     def test_prompt_rules_follow_the_stage(self):
-        self.assertIn(adaptive.NO_REQUIREMENTS_RULE, adaptive.prompt_rule(ON, "astra_discovery"))
+        self.assertIn(adaptive.NO_REQUIREMENTS_RULE, adaptive.prompt_rule(ON, "draft_plan"))
         handoff = {**ON, "requirements_handoff": {"report": {}}}
-        self.assertNotIn(adaptive.NO_REQUIREMENTS_RULE, adaptive.prompt_rule(handoff, "astra_discovery"))
-        self.assertEqual(adaptive.prompt_rule(ON, "astra_challenge"), adaptive.REVIEW_RULE)
-        self.assertEqual(adaptive.prompt_rule(ON, "glm_revise"), adaptive.PLANNER_RULE)
-        self.assertEqual(adaptive.prompt_rule(ON, "astra_finalize"), "")
-        self.assertEqual(adaptive.prompt_rule(OFF, "astra_challenge"), "")
+        self.assertNotIn(adaptive.NO_REQUIREMENTS_RULE, adaptive.prompt_rule(handoff, "draft_plan"))
+        self.assertEqual(adaptive.prompt_rule(ON, "review_plan"), adaptive.REVIEW_RULE)
+        self.assertEqual(adaptive.prompt_rule(ON, "revise_plan"), adaptive.PLANNER_RULE)
+        self.assertEqual(adaptive.prompt_rule(ON, "finalize_plan"), "")
+        self.assertEqual(adaptive.prompt_rule(OFF, "review_plan"), "")
 
 
 class Size(unittest.TestCase):
@@ -275,17 +275,17 @@ class Convergence(unittest.TestCase):
         self.assertEqual([c["id"] for c in adaptive.blocking(concerns)], ["2"])
 
     def test_default_allowance_revises_once_then_finalizes(self):
-        self.assertEqual(adaptive.after_revise(2, 1, 1), "astra_finalize")
+        self.assertEqual(adaptive.after_revise(2, 1, 1), "finalize_plan")
 
     def test_large_allowance_reviews_the_revision_again(self):
-        self.assertEqual(adaptive.after_revise(3, 1, 1), "astra_challenge")
-        self.assertEqual(adaptive.after_revise(3, 2, 2), "astra_finalize")
+        self.assertEqual(adaptive.after_revise(3, 1, 1), "review_plan")
+        self.assertEqual(adaptive.after_revise(3, 2, 2), "finalize_plan")
 
     def test_an_early_approved_plan_shows_the_reviewers_notes(self):
         concern = {"id": "1", "concern": "Name the log file", "requested_change": "Use run.log", "blocking": False}
         planning = {
-            "adaptive": {"approved_at": "astra_challenge#1"},
-            "reports": {"astra_challenge": {"report": {"concerns": [concern]}}},
+            "adaptive": {"approved_at": "review_plan#1"},
+            "reports": {"review_plan": {"report": {"concerns": [concern]}}},
         }
         self.assertEqual(
             ["  Reviewer note [1]: Name the log file", "    Suggested: Use run.log"], adaptive.review_notes(planning)
@@ -294,8 +294,8 @@ class Convergence(unittest.TestCase):
         self.assertEqual([], adaptive.review_notes(planning), "a plan finalized by the final review shows decisions")
 
     def test_unlimited_allowance_stops_re_reviewing_after_the_cap(self):
-        self.assertEqual(adaptive.after_revise(0, 2, 2), "astra_challenge")
-        self.assertEqual(adaptive.after_revise(0, 3, adaptive.MAX_CHALLENGES), "astra_finalize")
+        self.assertEqual(adaptive.after_revise(0, 2, 2), "review_plan")
+        self.assertEqual(adaptive.after_revise(0, 3, adaptive.MAX_CHALLENGES), "finalize_plan")
 
 
 def awaiting(*, setting=True, roles=("requirements", "plan_reviewer"), status="AWAITING_GOAL_APPROVAL", handoff=None):
@@ -363,7 +363,7 @@ class QueuedFeedbackOnAShownPlan(unittest.TestCase):
                 original = json.loads(json.dumps(state))
                 self.apply(state)
                 self.assertEqual("PAUSED_INTERVENTION", state["status"])
-                self.assertEqual("astra_discovery", state["next_stage"])
+                self.assertEqual("draft_plan", state["next_stage"])
                 self.assertEqual(original["requirements_handoff"], state["requirements_handoff"])
                 self.assertEqual(original["settings"], state["settings"])
                 self.assertEqual(original["stages"], state["stages"])
@@ -373,7 +373,7 @@ class QueuedFeedbackOnAShownPlan(unittest.TestCase):
                 self.assertEqual(["Also accept --shout."], [row["text"] for row in rows])
                 self.assertIn(
                     "intervention-queued-correction",
-                    [row["requirement_id"] for row in autoplanner.trace_rows(state, "astra_discovery")],
+                    [row["requirement_id"] for row in autoplanner.trace_rows(state, "draft_plan")],
                 )
                 self.assertTrue(adaptive.can_rerun(state), "Planner can send genuine requirement changes back")
                 self.assertIn("Planner", state["stop_reason"])
@@ -407,7 +407,7 @@ class FeedbackOnAShownPlan(unittest.TestCase):
         state["goal_contract"].update(approval_status="approved", approval_event={"actor": "user_cli"})
         saved = json.loads(json.dumps(state["requirements_handoff"]))
         goals.feedback(state, "The Tester can now admit verified Go prerequisites.", interpret=False)
-        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual("draft_plan", state["next_stage"])
         self.assertEqual(saved, state["requirements_handoff"])
         self.assertEqual({"requirements_handoff": HANDOFF["output"]}, state["brief_feedback"][-1][adaptive.FEEDBACK])
         self.assertEqual("draft", state["goal_contract"]["approval_status"])
@@ -419,7 +419,7 @@ class FeedbackOnAShownPlan(unittest.TestCase):
         state = awaiting(handoff=HANDOFF)
         goals.feedback(state, "Also accept --shout.")
         event = state["brief_feedback"][-1]
-        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual("draft_plan", state["next_stage"])
         self.assertEqual({"requirements_handoff": HANDOFF["output"]}, event[adaptive.FEEDBACK])
         self.assertEqual("draft", state["goal_contract"]["approval_status"])
 
@@ -443,7 +443,7 @@ class FeedbackOnAShownPlan(unittest.TestCase):
             [{"id": event_id, "text": "Also accept --shout.", "source_quote": "Also accept --shout."}], rows
         )
         self.assertEqual(
-            ["R1", event_id], [row["requirement_id"] for row in autoplanner.trace_rows(state, "astra_discovery")]
+            ["R1", event_id], [row["requirement_id"] for row in autoplanner.trace_rows(state, "draft_plan")]
         )
         self.assertEqual([], autoplanner.trace_rows(state, "requirements_gather"))
         state["requirements_handoff"] = {**HANDOFF, "output": "iterations/002/requirements_gather-01.json"}
@@ -489,12 +489,12 @@ class FeedbackOnAShownPlan(unittest.TestCase):
 
     def test_only_a_draft_revising_from_feedback_may_send_it_back_to_requirements(self):
         state = awaiting(handoff=HANDOFF)
-        self.assertNotIn("requirements_rerun", autoplanner.schema_for(state, "astra_discovery")["properties"])
+        self.assertNotIn("requirements_rerun", autoplanner.schema_for(state, "draft_plan")["properties"])
         self.assertEqual("", adaptive.requirements_rerun(state, {"requirements_rerun": "New product"}))
         goals.feedback(state, "Make it a web page instead.")
-        self.assertIn("requirements_rerun", autoplanner.schema_for(state, "astra_discovery")["properties"])
-        self.assertNotIn("requirements_rerun", autoplanner.schema_for(state, "astra_discovery")["required"])
-        self.assertNotIn("requirements_rerun", autoplanner.schema_for(state, "glm_revise")["properties"])
+        self.assertIn("requirements_rerun", autoplanner.schema_for(state, "draft_plan")["properties"])
+        self.assertNotIn("requirements_rerun", autoplanner.schema_for(state, "draft_plan")["required"])
+        self.assertNotIn("requirements_rerun", autoplanner.schema_for(state, "revise_plan")["properties"])
         self.assertEqual("New product", adaptive.requirements_rerun(state, {"requirements_rerun": " New product "}))
         no_stage = awaiting(roles=("plan_reviewer",))
         goals.feedback(no_stage, "Make it a web page instead.")
@@ -508,7 +508,7 @@ class FeedbackOnAShownPlan(unittest.TestCase):
         state = awaiting(handoff=HANDOFF)
         goals.feedback(state, "Make it a web page instead.")
         self.assertFalse(autoplanner.rerun_requirements(state, {"requirements_rerun": "", "summary": ""}))
-        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual("draft_plan", state["next_stage"])
         self.assertTrue(
             autoplanner.rerun_requirements(
                 state, {"requirements_rerun": "A web page is another product", "summary": ""}
@@ -518,14 +518,14 @@ class FeedbackOnAShownPlan(unittest.TestCase):
 
     def test_prompt_rules_name_the_feedback_only_while_it_is_traced(self):
         state = awaiting(handoff=HANDOFF)
-        self.assertNotIn(adaptive.FEEDBACK_RULE, adaptive.prompt_rule(state, "astra_discovery"))
+        self.assertNotIn(adaptive.FEEDBACK_RULE, adaptive.prompt_rule(state, "draft_plan"))
         goals.feedback(state, "Also accept --shout.")
-        planner = adaptive.prompt_rule(state, "astra_discovery")
+        planner = adaptive.prompt_rule(state, "draft_plan")
         self.assertIn(adaptive.FEEDBACK_RULE, planner)
         self.assertIn(adaptive.RERUN_RULE, planner)
-        self.assertIn(adaptive.FEEDBACK_REVIEW_RULE, adaptive.prompt_rule(state, "astra_challenge"))
-        self.assertIn(adaptive.FEEDBACK_TRACE_RULE, adaptive.prompt_rule(state, "glm_revise"))
-        self.assertEqual(adaptive.FEEDBACK_TRACE_RULE, adaptive.prompt_rule(state, "astra_finalize"))
+        self.assertIn(adaptive.FEEDBACK_REVIEW_RULE, adaptive.prompt_rule(state, "review_plan"))
+        self.assertIn(adaptive.FEEDBACK_TRACE_RULE, adaptive.prompt_rule(state, "revise_plan"))
+        self.assertEqual(adaptive.FEEDBACK_TRACE_RULE, adaptive.prompt_rule(state, "finalize_plan"))
 
     def test_the_runner_names_a_trace_row_that_can_only_be_the_feedback(self):
         # The live tiny-greeting draft (2026-10-02): the feedback was planned (AC8) but its only trace row
@@ -534,7 +534,7 @@ class FeedbackOnAShownPlan(unittest.TestCase):
         goals.feedback(state, "Also accept --shout.")
         event_id = state["brief_feedback"][-1]["id"]
         row = {"disposition": "covered", "evidence": "AC8 verifies the --shout flag"}
-        filled = autoplanner.fill_trace_id(state, "astra_discovery", {"requirement_trace": [row]})
+        filled = autoplanner.fill_trace_id(state, "draft_plan", {"requirement_trace": [row]})
         self.assertEqual(event_id, filled["requirement_trace"][0]["requirement_id"])
         self.assertNotIn("requirement_id", row, "the reported row is left as it was")
         revised = contract_body()
@@ -557,20 +557,16 @@ class FeedbackOnAShownPlan(unittest.TestCase):
                 {"disposition": "covered", "evidence": "C1"},
             ]
         }
-        self.assertIs(two_unnamed, autoplanner.fill_trace_id(state, "astra_discovery", two_unnamed))
+        self.assertIs(two_unnamed, autoplanner.fill_trace_id(state, "draft_plan", two_unnamed))
         complete = {"requirement_trace": [{"requirement_id": "R1", "disposition": "covered", "evidence": "C1"}]}
         self.assertIs(
             complete,
-            autoplanner.fill_trace_id(state, "astra_discovery", complete),
+            autoplanner.fill_trace_id(state, "draft_plan", complete),
             "no unnamed row: the missing feedback row stays missing",
         )
         one = {"requirement_trace": [{"disposition": "covered", "evidence": "C1"}]}
-        self.assertIs(
-            one, autoplanner.fill_trace_id(state, "astra_discovery", one), "R1 and the feedback both untraced"
-        )
-        self.assertIs(
-            one, autoplanner.fill_trace_id(state, "astra_challenge", one), "only Planner reports carry a trace"
-        )
+        self.assertIs(one, autoplanner.fill_trace_id(state, "draft_plan", one), "R1 and the feedback both untraced")
+        self.assertIs(one, autoplanner.fill_trace_id(state, "review_plan", one), "only Planner reports carry a trace")
 
     def test_trace_rows_naming_nothing_are_dropped_when_nothing_must_be_traced(self):
         # The first adaptive draft of a clear request (no Requirements stage): GLM traced anyway, without IDs.
@@ -583,7 +579,7 @@ class FeedbackOnAShownPlan(unittest.TestCase):
         }
         self.assertEqual(
             [{"requirement_id": "R1", "disposition": "covered", "evidence": "AC1"}],
-            autoplanner.fill_trace_id(state, "astra_discovery", value)["requirement_trace"],
+            autoplanner.fill_trace_id(state, "draft_plan", value)["requirement_trace"],
         )
 
     def test_explicit_empty_and_unknown_trace_ids_are_not_reassigned(self):
@@ -597,7 +593,7 @@ class FeedbackOnAShownPlan(unittest.TestCase):
         ):
             with self.subTest(rows=rows):
                 value = {"requirement_trace": [dict(row, disposition="covered", evidence="AC1") for row in rows]}
-                self.assertIs(value, autoplanner.fill_trace_id(state, "astra_discovery", value))
+                self.assertIs(value, autoplanner.fill_trace_id(state, "draft_plan", value))
 
     def test_loader_recovers_feedback_id_before_strict_planning_metadata(self):
         import json
@@ -631,7 +627,7 @@ class FeedbackOnAShownPlan(unittest.TestCase):
             output, schema_path = Path(directory) / "report.json", Path(directory) / "schema.json"
             output.write_text(json.dumps(raw))
             schema_path.write_text(json.dumps(schema))
-            record = {"stage": "astra_discovery", "engine": "codex", "output": str(output), "schema": str(schema_path)}
+            record = {"stage": "draft_plan", "engine": "codex", "output": str(output), "schema": str(schema_path)}
             value = runner.load_stage_report(record, state=state)
             self.assertEqual(ident, value["requirement_trace"][0]["requirement_id"])
             self.assertEqual(raw, json.loads(Path(record["reported_output"]).read_text()))
@@ -685,8 +681,8 @@ class ReReviewAfterAnswers(unittest.TestCase):
             "astra_calls": 2,
             "final_token": None,
             "reports": {
-                "astra_challenge": {"report": {"summary": "", "concerns": [concern]}},
-                "astra_finalize": {"report": {"summary": "", "decisions": [decision], "contract": contract}},
+                "review_plan": {"report": {"summary": "", "concerns": [concern]}},
+                "finalize_plan": {"report": {"summary": "", "decisions": [decision], "contract": contract}},
             },
         }
 
@@ -724,10 +720,10 @@ class ReReviewAfterAnswers(unittest.TestCase):
             [{"id": "C1", "concern": "AC2 contradicts the request", "blocking": True}], earlier["concerns"]
         )
         path = Path(state["workspace"]) / "state.json"
-        review, _ = autoplanner.context(state, "astra_challenge", path)
+        review, _ = autoplanner.context(state, "review_plan", path)
         self.assertIn(autoplanner.REREVIEW_RULE, review)
         self.assertEqual(earlier, json.loads(review.split("CURRENT HANDOFF DATA\n", 1)[1])["previous_review"])
-        revise, _ = autoplanner.context(state, "glm_revise", path)
+        revise, _ = autoplanner.context(state, "revise_plan", path)
         self.assertNotIn(autoplanner.REREVIEW_RULE, revise)
 
     def test_an_internal_default_counts_as_an_answer_and_says_who_gave_it(self):

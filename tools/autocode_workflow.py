@@ -100,8 +100,8 @@ def guard(state: RunState):
 def review_stage(state: RunState):
     guard(state)
     if final_only(state):
-        return "terra"
-    return "astra_checkpoint" if enabled(state) else "sol"
+        return "builder"
+    return "review_checkpoint" if enabled(state) else "tester"
 
 
 def activate_final(state: RunState, *, approval_source):
@@ -139,14 +139,14 @@ def activate_final(state: RunState, *, approval_source):
         }
     )
     if state["status"] not in ("TASK_COMPLETE", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
-        state["next_stage"] = "terra"
+        state["next_stage"] = "builder"
     # Preserve the approved current task and all already completed reports. The Builder
     # consumes the saved review and owns subsequent in-scope technical planning.
 
 
 def implementation_schema(schema_dir):
-    schema = goals.role_schema(support.read(schema_dir / "v2/terra-report.schema.json"), "terra")
-    review = goals.role_schema(support.read(schema_dir / "v2/sol-report.schema.json"), "sol")
+    schema = goals.role_schema(support.read(schema_dir / "v2/terra-report.schema.json"), "builder")
+    review = goals.role_schema(support.read(schema_dir / "v2/sol-report.schema.json"), "tester")
     # A Builder self-assessment cannot issue independent changed-line reasons.
     # Remove the field before the strict provider schema is made, not only in
     # the prompt projection: final-only Builders use this canonical schema.
@@ -172,10 +172,10 @@ def dispatch_guard(state: RunState, stage, workspace):
     guard(state)
     if not final_only(state):
         return
-    if stage not in ("sol", "astra_checkpoint"):
+    if stage not in ("tester", "review_checkpoint"):
         return
     saved = (
-        cast(dict, state).get("final_audit_request" if stage == "astra_checkpoint" else "targeted_consultation") or {}
+        cast(dict, state).get("final_audit_request" if stage == "review_checkpoint" else "targeted_consultation") or {}
     )
     if (
         saved.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
@@ -186,7 +186,7 @@ def dispatch_guard(state: RunState, stage, workspace):
         raise support.Paused(
             "PAUSED_STALE_HANDOFF", "GPT dispatch lacks a current explicit escalation/final-audit request"
         )
-    if stage == "astra_checkpoint" and (
+    if stage == "review_checkpoint" and (
         not saved.get("evidence_hashes")
         or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in saved["evidence_hashes"].items())
     ):
@@ -223,7 +223,7 @@ def apply_implementation(runner, state: RunState, value, record, workspace, run_
         }
         lifecycle.assign_task(state, decision, {"revision": record["source_revision"]})
         state.update(
-            {"next_stage": "terra", "next_action": spec["objective"], "affected_paths": spec["affected_paths"]}
+            {"next_stage": "builder", "next_action": spec["objective"], "affected_paths": spec["affected_paths"]}
         )
         state["iteration"] += 1
         goals.record_decision(state, decision)
@@ -237,7 +237,7 @@ def apply_implementation(runner, state: RunState, value, record, workspace, run_
             "contract_hash": value["contract_hash"],
             "source_revision": record["source_revision"],
         }
-        state["next_stage"] = "sol"
+        state["next_stage"] = "tester"
         state["iteration"] += 1
     elif action == "REQUEST_FINAL_AUDIT":
         if value["untested_behavior"]:
@@ -270,7 +270,7 @@ def apply_implementation(runner, state: RunState, value, record, workspace, run_
             "requested_at": support.now(),
             "independent": False,
         }
-        state["next_stage"] = "astra_checkpoint"
+        state["next_stage"] = "review_checkpoint"
 
 
 FINAL_POLICY = prompts.get("fragments/workflow/final-policy.md")
@@ -307,12 +307,12 @@ def activate(state: RunState, *, approval_source):
             "previous_workflow": "astra_terra_sol_astra",
         }
     )
-    if state.get("next_stage") == "sol":
-        state["next_stage"] = "astra_checkpoint"
+    if state.get("next_stage") == "tester":
+        state["next_stage"] = "review_checkpoint"
 
 
 def checkpoint_schema(schema_dir):
-    validation = goals.role_schema(support.read(schema_dir / "v2/sol-report.schema.json"), "sol")
+    validation = goals.role_schema(support.read(schema_dir / "v2/sol-report.schema.json"), "tester")
     decision = goals.role_schema(support.read(schema_dir / "v2/astra-decision.schema.json"), "task_planner")
     return goals.obj(
         {
@@ -346,7 +346,7 @@ def rollback(state: RunState):
         )
         state["human_reviews"] = {}
         state.pop("displayed_review", None)
-    if state.get("next_stage") == "astra_checkpoint" or state.get("status") == "TASK_COMPLETE":
+    if state.get("next_stage") == "review_checkpoint" or state.get("status") == "TASK_COMPLETE":
         if state.get("status") == "TASK_COMPLETE":
             state.setdefault("completion_archive", []).append(
                 {"completed_at": state.pop("completed_at", None), "decision": state.pop("final_decision", None)}
@@ -355,7 +355,7 @@ def rollback(state: RunState):
             state,
             "PAUSED_WORKFLOW_ROLLBACK",
             "Legacy routing restored; resume the same run for Validator validation",
-            next_stage="sol",
+            next_stage="tester",
         )
 
 
@@ -369,14 +369,14 @@ def apply_checkpoint(runner, state: RunState, value, record, workspace, run_dir)
     if not enabled(state) or record.get("role") != "task_planner":
         raise ValueError("Independent checkpoint must run under the approved Plan Reviewer role")
     support.validate_schema(
-        value, design_coverage.extend_schema(checkpoint_schema(runner.SCHEMA_DIR), state, "astra_checkpoint")
+        value, design_coverage.extend_schema(checkpoint_schema(runner.SCHEMA_DIR), state, "review_checkpoint")
     )
     current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if record.get("source_revision") != current["revision"] or record.get("changed_files"):
         raise support.Paused("PAUSED_STALE_VALIDATION", "Checkpoint does not match a read-only current artifact")
     validation, decision, consult = value["validation"], value["decision"], value["consult_sol"]
     if final_only(state):
-        dispatch_guard(state, "astra_checkpoint", workspace)
+        dispatch_guard(state, "review_checkpoint", workspace)
         if consult["requested"]:
             raise ValueError(
                 "Final audit returns findings to the Builder; a Validator escalation is only Builder-requested"
@@ -397,7 +397,7 @@ def apply_checkpoint(runner, state: RunState, value, record, workspace, run_dir)
     stages, history = len(state.get("stages", [])), len(state.get("history", []))
     # Reuse existing validators and goal transitions transactionally. These are two
     # logical results from ONE provider call, so persist only its single receipt.
-    runner._apply_result(state, "sol", validation, record, workspace, run_dir)
+    runner._apply_result(state, "tester", validation, record, workspace, run_dir)
     cast(dict, state["validation"])["reviewer_role"] = "task_planner"
     cast(dict, state["validation"])["final_audit"] = final_only(state)
     if changed_code_rework.queued(state, record):
@@ -417,11 +417,11 @@ def apply_checkpoint(runner, state: RunState, value, record, workspace, run_dir)
             "source_revision": current["revision"],
             "contract_hash": validation["contract_hash"],
         }
-        state["next_stage"] = "sol"
+        state["next_stage"] = "tester"
         state["iteration"] += 1
         goals.record_decision(state, decision)
     else:
-        runner._apply_result(state, "astra_review", decision, record, workspace, run_dir)
+        runner._apply_result(state, "review_completion", decision, record, workspace, run_dir)
         state.pop("targeted_consultation", None)
     state["stages"] = state.get("stages", [])[:stages]
     state["history"] = state.get("history", [])[:history]

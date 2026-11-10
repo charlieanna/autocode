@@ -59,10 +59,10 @@ class ConflictTests(unittest.TestCase):
 
     def test_saved_clarification_keeps_both_requirements_and_reaches_independent_review(self):
         before = copy.deepcopy(self.report)
-        autopilot.apply_planning(self.state, "astra_discovery", self.report, {"output": "draft.json"})
-        self.assertEqual("astra_challenge", self.state["next_stage"])
+        autopilot.apply_planning(self.state, "draft_plan", self.report, {"output": "draft.json"})
+        self.assertEqual("review_plan", self.state["next_stage"])
         self.assertEqual([], self.state["pending_questions"])
-        self.assertEqual(before, self.state["planning"]["reports"]["astra_discovery"]["report"])
+        self.assertEqual(before, self.state["planning"]["reports"]["draft_plan"]["report"])
 
     def test_saved_answer_can_resolve_conflict(self):
         self.state["answers"]["Q1"] = {"text": self.event["text"]}
@@ -110,7 +110,7 @@ class ConflictTests(unittest.TestCase):
             goals.check_requirement_trace(self.state, self.report, self.contract)
 
     def test_new_report_schemas_require_explicit_resolution_lists(self):
-        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 self.assertIn("conflict_resolutions", autoplanner.SCHEMAS[stage]["required"])
 
@@ -123,12 +123,12 @@ class ConflictTests(unittest.TestCase):
 
     def test_saved_resolution_survives_refreshed_handoff(self):
         self.refresh_resolved_handoff()
-        autopilot.apply_planning(self.state, "astra_discovery", self.report, {"output": "draft.json"})
-        self.assertEqual("astra_challenge", self.state["next_stage"])
+        autopilot.apply_planning(self.state, "draft_plan", self.report, {"output": "draft.json"})
+        self.assertEqual("review_plan", self.state["next_stage"])
         self.assertEqual([], self.state["pending_questions"])
         self.assertEqual(
             self.report["conflict_resolutions"],
-            self.state["planning"]["reports"]["astra_discovery"]["report"]["conflict_resolutions"],
+            self.state["planning"]["reports"]["draft_plan"]["report"]["conflict_resolutions"],
         )
 
     def test_historical_resolution_cannot_transfer_to_reused_ids(self):
@@ -159,7 +159,7 @@ class ConflictTests(unittest.TestCase):
     def test_review_context_includes_conflict_history_with_source_identity(self):
         self.refresh_resolved_handoff()
         self.state["settings"]["engine"] = "codex"
-        prompt, _ = autoplanner.context(self.state, "astra_challenge", Path("/fixture/state.json"))
+        prompt, _ = autoplanner.context(self.state, "review_plan", Path("/fixture/state.json"))
         import json
 
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -173,7 +173,7 @@ class ConflictGenerationTests(unittest.TestCase):
     setUp = ConflictTests.setUp
     refresh_resolved_handoff = ConflictTests.refresh_resolved_handoff
 
-    def resolution_schema(self, stage="astra_discovery"):
+    def resolution_schema(self, stage="draft_plan"):
         current = copy.deepcopy(self.state)
         current["settings"]["engine"] = "codex"
         request = autoplanner.prepare(current, stage, Path("/fixture/state.json"), None)
@@ -184,7 +184,7 @@ class ConflictGenerationTests(unittest.TestCase):
         before = copy.deepcopy(autoplanner.SCHEMAS)
         # Saved incident shape: a single newly traced requirement confused with a review concern.
         impossible = [dict(self.report["conflict_resolutions"][0], requirement_ids=["R1"])]
-        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 schema = self.resolution_schema(stage)
                 self.assertEqual(0, schema["maxItems"])
@@ -200,8 +200,8 @@ class ConflictGenerationTests(unittest.TestCase):
         ):
             goals.check_requirement_trace(self.state, invalid, self.contract)
         valid = {**self.report, "conflict_resolutions": []}
-        autopilot.apply_planning(self.state, "astra_discovery", valid, {"output": "draft.json"})
-        self.assertEqual("astra_challenge", self.state["next_stage"])
+        autopilot.apply_planning(self.state, "draft_plan", valid, {"output": "draft.json"})
+        self.assertEqual("review_plan", self.state["next_stage"])
         self.assertEqual([], self.state["pending_questions"])
         self.assertFalse(goals.approved(self.state))
 
@@ -209,7 +209,7 @@ class ConflictGenerationTests(unittest.TestCase):
         for historical in (False, True):
             if historical:
                 self.refresh_resolved_handoff()
-            for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+            for stage in ("draft_plan", "revise_plan", "finalize_plan"):
                 with self.subTest(stage=stage, historical=historical):
                     schema = self.resolution_schema(stage)
                     self.assertNotIn("maxItems", schema)
@@ -259,12 +259,12 @@ class ConflictGenerationTests(unittest.TestCase):
         self.assertEqual(0, self.resolution_schema()["maxItems"])
 
     def test_unrelated_schemas_and_malformed_unknown_context_are_unchanged(self):
-        schema = copy.deepcopy(autoplanner.SCHEMAS["astra_discovery"])
+        schema = copy.deepcopy(autoplanner.SCHEMAS["draft_plan"])
         handoff = {"requirements": [{"id": "R1"}], "conflicts": []}
         for history in (None, [None], [{"report": None}], [{"report": {"requirements": [], "conflicts": "unknown"}}]):
             with self.subTest(history=history):
                 self.assertEqual(schema, policy.conflict_schema(schema, handoff, [], history))
-        unrelated = autoplanner.SCHEMAS["astra_challenge"]
+        unrelated = autoplanner.SCHEMAS["review_plan"]
         self.assertEqual(unrelated, policy.conflict_schema(unrelated, handoff, [], []))
 
 

@@ -51,7 +51,7 @@ class ProviderStartupRecovery(AdversarialCase):
             home = self.root / "config"
             path = home / "autocode/providers/startupfixture.toml"
             path.parent.mkdir(parents=True)
-            roles = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+            roles = ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
             models = ["gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-sol"]
             path.write_text(
                 'name = "startupfixture"\noutput = "report_file"\n'
@@ -96,14 +96,14 @@ class ProviderStartupRecovery(AdversarialCase):
         self.assertEqual([True, False], [r["injected"] for r in self.startup_trace()])
         self.assertFalse(view["done"])
         # Requirements ran first and named the job; the Planner is next.
-        self.assertEqual("astra_discovery", view["next_stage"], self.root)
+        self.assertEqual("draft_plan", view["next_stage"], self.root)
 
     def test_persistent_lock_is_bounded_and_does_not_resume_implicitly(self):
         self.setup_fault("repeated")
         view = self.driver.drive(self.scenario.brief)
         self.assertFalse(view["done"])
         self.assertEqual(3, len(self.startup_trace()), self.root)
-        self.assertFalse(self.trace("stage_enter", "terra"))
+        self.assertFalse(self.trace("stage_enter", "builder"))
         saved = self.driver.state()  # Evidence read only; status is checked through CLI.
         self.assertIn("startup retry limit", json.dumps(saved))
         self.assertEqual(2, sum(bool(r.get("startup_recovery")) for r in saved["stages"]))
@@ -113,18 +113,18 @@ class ProviderStartupRecovery(AdversarialCase):
     def test_retry_bound_survives_restart_between_different_stages(self):
         self.setup_fault("per_stage")
         config = json.loads(self.config_path.read_text())
-        config["startup_fault"]["stages"] = ["requirements_gather", "astra_discovery", "astra_challenge"]
+        config["startup_fault"]["stages"] = ["requirements_gather", "draft_plan", "review_plan"]
         self.config_path.write_text(json.dumps(config))
         self.invoke("--pause-after-stage", task=self.scenario.brief)
         self.discover_run()
-        self.assertEqual("astra_discovery", self.driver.view()["next_stage"])
+        self.assertEqual("draft_plan", self.driver.view()["next_stage"])
         self.invoke("--resume-paused", "--pause-after-stage")
-        self.assertEqual("astra_challenge", self.driver.view()["next_stage"])
+        self.assertEqual("review_plan", self.driver.view()["next_stage"])
         result = self.invoke("--resume-paused")
         self.assertIn("startup retry limit", result.stdout + result.stderr)
         self.assertEqual([True, False, True, False, True], [r["injected"] for r in self.startup_trace()])
         self.assertFalse(self.driver.view()["done"])
-        self.assertFalse(self.trace("stage_enter", "terra"))
+        self.assertFalse(self.trace("stage_enter", "builder"))
 
     def test_started_session_is_retained_without_automatic_retry(self):
         self.assert_no_retry("session")
@@ -145,4 +145,4 @@ class ProviderStartupRecovery(AdversarialCase):
         view = self.driver.drive(self.scenario.brief)
         self.assertFalse(view["done"])
         self.assertEqual(1, len(self.startup_trace()), self.root)
-        self.assertFalse(self.trace("stage_enter", "terra"))
+        self.assertFalse(self.trace("stage_enter", "builder"))

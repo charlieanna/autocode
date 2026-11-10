@@ -52,13 +52,13 @@ def paused(status, **more):
         "stages": [],
         "history": [],
         "iteration": 6,
-        "next_stage": "astra_challenge" if status == "PAUSED_PLANNING_BUDGET" else "terra",
+        "next_stage": "review_plan" if status == "PAUSED_PLANNING_BUDGET" else "builder",
         "phase": "EXECUTING",
         "active_seconds": 2800.5,
         "no_progress_batches": 3,
         "automatic_recoveries_since_resume": 3,
         "consecutive_timeout_recoveries": 3,
-        "automatic_timeout_recoveries": [{"stage": "terra"}],
+        "automatic_timeout_recoveries": [{"stage": "builder"}],
         "recovery_grants": [],
         "planning": {"astra_calls": 2, "review_call_limit": 2},
         "goal_contract": CONTRACT,
@@ -196,7 +196,7 @@ class EveryPauseNumberIsDescribed(unittest.TestCase):
         for status, changes in (
             ("PAUSED_COST_LIMIT", {"settings": {"limits": {}}}),  # no cap: not the cost bound
             ("PAUSED_NO_PROGRESS", {"stop_reason": "Owned workers must be reconciled"}),
-            ("PAUSED_ITERATION_LIMIT", {"active_stage": {"stage": "terra"}}),
+            ("PAUSED_ITERATION_LIMIT", {"active_stage": {"stage": "builder"}}),
             ("PAUSED_ITERATION_LIMIT", {"applied_interventions": [{"kind": "stop"}]}),
         ):
             with self.subTest(status=status, changes=changes):

@@ -20,7 +20,7 @@ class ProofReferenceTests(unittest.TestCase):
         }
 
     def test_planning_roles_assign_independent_fail_first_proof_to_runner_without_duplicate_builder_phase(self):
-        for stage in ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "review_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 prompt, _ = autoplanner.context(self.state(), stage, Path("/fixture/state.json"))
                 for policy in (
@@ -42,7 +42,7 @@ class ProofReferenceTests(unittest.TestCase):
     def test_review_and_revision_name_the_saved_original_repository_reference(self):
         state = self.state()
         before = copy.deepcopy(state)
-        for stage in ("astra_challenge", "glm_revise", "astra_finalize"):
+        for stage in ("review_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 prompt, _ = autoplanner.context(state, stage, Path("/fixture/state.json"))
                 packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -57,7 +57,7 @@ class ProofReferenceTests(unittest.TestCase):
         state = self.state()
         before = copy.deepcopy(state)
         source = {"format": "json", "content": {"summary": "retained"}}
-        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 instruction, packet = repair.prompt_parts(
                     state, {"original": {"stage": stage}}, source, source, ("", {})
@@ -72,7 +72,7 @@ class ProofReferenceTests(unittest.TestCase):
         for base in (None, "", "HEAD", [], "z" * 40):
             state = self.state()
             state["base_commit"] = base
-            prompt, _ = autoplanner.context(state, "glm_revise", Path("/fixture/state.json"))
+            prompt, _ = autoplanner.context(state, "revise_plan", Path("/fixture/state.json"))
             reference = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])["regression_reference"]
             self.assertIsNone(reference["repository_base_commit"])
             self.assertEqual("unknown", reference["scope"])

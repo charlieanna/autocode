@@ -17,7 +17,7 @@ from typing import Any
 # The canonical planning stage lists (units/autoplanner.py runs them). Every
 # module that asks "is this a planning stage?" asks here; private copies have
 # diverged before (issue #1124). tests/test_planning_stages.py enforces it.
-PLANNING_STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
+PLANNING_STAGES = ("requirements_gather", "draft_plan", "review_plan", "revise_plan", "finalize_plan")
 PLANNING_V2_STAGES = ("requirements", "plan", "plan_review", "plan_revise", "plan_finalize")
 ALL_PLANNING_STAGES = PLANNING_STAGES + PLANNING_V2_STAGES
 
@@ -57,31 +57,30 @@ SCREEN = {
 # A stage that can do more than one job is overridden in job_for_stage.
 STAGE_JOB = {
     "requirements_gather": "requirements",
-    "astra_discovery": "planner",
-    "glm_revise": "planner",
+    "draft_plan": "planner",
+    "revise_plan": "planner",
     "requirements_planner": "requirements",
     "requirements_revision": "requirements",
     "requirements": "requirements",
-    "astra_plan": "planner",
+    "plan_task": "planner",
     "plan": "planner",
     "plan_revise": "planner",
-    "astra_challenge": "plan_reviewer",
-    "astra_finalize": "plan_reviewer",
+    "review_plan": "plan_reviewer",
+    "finalize_plan": "plan_reviewer",
     "plan_reviewer": "plan_reviewer",
     "plan_finalizer": "plan_reviewer",
     "plan_review": "plan_reviewer",
     "plan_finalize": "plan_reviewer",
     "orchestrator": "orchestrator",
-    "terra": "builder",
     "builder": "builder",
-    "sol": "tester",
+    "tester": "tester",
     "write_acceptance_tests": "tester",
     "validator": "tester",
-    "astra_review": "completion",
+    "review_completion": "completion",
     "decision_owner": "completion",
-    "astra_checkpoint": "completion",
-    "astra_resolve": "resolver",
-    "astra_diagnose": "resolver",
+    "review_checkpoint": "completion",
+    "resolve": "resolver",
+    "diagnose": "resolver",
     "collect_design": "design_inventory",
     "check_design": "design_reviewer",
     "investigate_stuck": "investigator",
@@ -100,8 +99,8 @@ ROUTE_JOB = {
     "planner": "planner",
     "requirements": "requirements",
     "plan_reviewer": "plan_reviewer",
-    "terra": "builder",
-    "sol": "tester",
+    "builder": "builder",
+    "tester": "tester",
     "completion": "completion",
     "resolver": "resolver",
     "architect": "design_reviewer",
@@ -120,8 +119,8 @@ JOB_ROUTES = {
     "requirements": ("requirements",),
     "planner": ("planner", "task_planner"),
     "plan_reviewer": ("plan_reviewer", "task_planner"),
-    "builder": ("terra",),
-    "tester": ("sol",),
+    "builder": ("builder",),
+    "tester": ("tester",),
     "completion": ("completion", "task_planner"),
 }
 
@@ -157,7 +156,7 @@ def job_for_stage(stage: str, state: Mapping[str, Any] | None = None) -> str | N
     job = STAGE_JOB.get(key)
     if job is None:
         return None
-    if key == "astra_checkpoint" and state is not None:
+    if key == "review_checkpoint" and state is not None:
         mode = ((state.get("settings") or {}).get("workflow") or {}).get("mode")
         if mode in VALIDATION_ROUTING_MODES:
             return "tester"
@@ -165,7 +164,7 @@ def job_for_stage(stage: str, state: Mapping[str, Any] | None = None) -> str | N
 
 
 def screen_name(stage: str, state: Mapping[str, Any] | None = None) -> str:
-    """Printed name for a stage: 'terra' -> 'Builder'. Unknown stages title-case."""
+    """Printed name for a stage: 'builder' -> 'Builder'. Unknown stages title-case."""
     if not stage:
         return ""
     job = job_for_stage(stage, state)

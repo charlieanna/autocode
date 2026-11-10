@@ -79,8 +79,8 @@ class RiskRuntimeTests(RiskFixture, unittest.TestCase):
 
     def test_default_adaptive_and_v2_reviewers_receive_source_inventory_with_only_binding_fields(self):
         for stage, adaptive, v2 in [
-            ("astra_finalize", False, False),
-            ("astra_challenge", True, False),
+            ("finalize_plan", False, False),
+            ("review_plan", True, False),
             ("plan_finalize", False, True),
         ]:
             with self.subTest(stage=stage):
@@ -106,8 +106,8 @@ class RiskRuntimeTests(RiskFixture, unittest.TestCase):
     def test_planners_and_requirements_cannot_author_risk_binding_or_provenance(self):
         for stage, v2 in [
             ("requirements_gather", False),
-            ("astra_discovery", False),
-            ("glm_revise", False),
+            ("draft_plan", False),
+            ("revise_plan", False),
             ("requirements", True),
             ("plan", True),
             ("plan_revise", True),
@@ -124,7 +124,7 @@ class RiskRuntimeTests(RiskFixture, unittest.TestCase):
                 self.assertNotIn("risk_declaration_inventory", self.packet(request))
 
     def test_ordinary_tasks_keep_reviewer_schemas_without_empty_risk_fields(self):
-        for stage, v2 in [("astra_challenge", False), ("astra_finalize", False), ("plan_finalize", True)]:
+        for stage, v2 in [("review_plan", False), ("finalize_plan", False), ("plan_finalize", True)]:
             with self.subTest(stage=stage):
                 state = self.state(task="Build a local greeting CLI", v2=v2)
                 request = self.request(state, stage)

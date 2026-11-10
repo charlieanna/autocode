@@ -40,7 +40,7 @@ def correction_request(correction="verification_commands"):
     return request
 
 
-def publish(state, request, scope="blocker", stage="astra_resolve"):
+def publish(state, request, scope="blocker", stage="resolve"):
     human.queue(
         state,
         scope,
@@ -49,7 +49,7 @@ def publish(state, request, scope="blocker", stage="astra_resolve"):
         evidence={"diagnosis": "The saved command is wrong", "output": "iterations/001/resolver-01.json"},
     )
     state["stages"].append(
-        {"stage": "astra_resolve", "output": "iterations/001/resolver-01.json", "exit_code": 0, "changed_files": []}
+        {"stage": "resolve", "output": "iterations/001/resolver-01.json", "exit_code": 0, "changed_files": []}
     )
     assert human.evaluate(state) == "escalate"
     return human.current(state)
@@ -88,10 +88,10 @@ class CommandCorrectionViewTests(unittest.TestCase):
                 self.assertFalse(verification_config.command_correction(self.state))
 
     def test_the_mark_counts_only_on_a_resolver_blocker(self):
-        proposal = {"scope": "blocker", "origin": {"stage": "astra_review"}, "request": correction_request()}
+        proposal = {"scope": "blocker", "origin": {"stage": "review_completion"}, "request": correction_request()}
         with patch.object(verification_config, "blocker_hold", return_value=(proposal, None)):
             self.assertFalse(verification_config.command_correction({}))
-        proposal["origin"]["stage"] = "astra_resolve"
+        proposal["origin"]["stage"] = "resolve"
         with patch.object(verification_config, "blocker_hold", return_value=(proposal, None)):
             self.assertTrue(verification_config.command_correction({}))
         with patch.object(verification_config, "blocker_hold", return_value=None):
@@ -116,7 +116,7 @@ class CommandCorrectionSchemaTests(unittest.TestCase):
             "resolution_request": {"source_revision": "source"},
         }
         with patch.object(autoresolver, "guard"), patch.object(autoresolver, "execution_request", return_value=source):
-            return autoresolver.prepare(state, "astra_resolve", Path("state.json"), Path("schemas"))
+            return autoresolver.prepare(state, "resolve", Path("state.json"), Path("schemas"))
 
     def test_the_mark_is_a_nullable_enum_optional_in_saved_reports_and_required_on_the_wire(self):
         request = self.prepare()
@@ -140,13 +140,13 @@ class CommandCorrectionSchemaTests(unittest.TestCase):
         schema = self.prepare().schema
         legacy = {"user_request": correction_request()}
         del legacy["user_request"]["correction"]
-        result = report_schema.normalize_absent_authority(legacy, schema, {"stage": "astra_resolve"})
+        result = report_schema.normalize_absent_authority(legacy, schema, {"stage": "resolve"})
         self.assertIsNone(result["user_request"]["correction"])
         kept = report_schema.normalize_absent_authority(
-            {"user_request": correction_request()}, schema, {"stage": "astra_resolve"}
+            {"user_request": correction_request()}, schema, {"stage": "resolve"}
         )
         self.assertEqual("verification_commands", kept["user_request"]["correction"])
-        other = report_schema.normalize_absent_authority(copy.deepcopy(legacy), schema, {"stage": "astra_review"})
+        other = report_schema.normalize_absent_authority(copy.deepcopy(legacy), schema, {"stage": "review_completion"})
         self.assertNotIn("correction", other["user_request"])
 
 

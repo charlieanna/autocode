@@ -213,7 +213,7 @@ class ApplicationValidationTests(unittest.TestCase):
 
     def test_other_stages_and_saved_flows_keep_the_strict_full_schema(self):
         for options in (
-            {"stage": "astra_challenge"},
+            {"stage": "review_plan"},
             {"current": state(requirements_triage={"outcome": "ready"})},
             {"current": state(settings={"joint_planning": True})},
         ):
@@ -256,7 +256,7 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual([QUESTION], report["open_questions"])
         self.assertEqual([], report["required_behaviors"] + report["acceptance_tests"])
         self.assertEqual([QUESTION], [row for kwargs in queued for row in kwargs["questions"]])
-        self.assertEqual("astra_discovery", current["next_stage"], "the answer returns to Requirements")
+        self.assertEqual("draft_plan", current["next_stage"], "the answer returns to Requirements")
 
     def test_a_ready_answer_dispatches_the_full_report_without_a_handoff(self):
         current, queued = self.accept(self.triage_answer(ready=True, questions=[]))
@@ -291,7 +291,7 @@ class RoutingTests(unittest.TestCase):
         }
         current, queued = self.accept(full)
         self.assertNotIn(triage.SETTING, current)
-        self.assertEqual("astra_discovery", current["next_stage"])
+        self.assertEqual("draft_plan", current["next_stage"])
         self.assertEqual([], queued)
 
     def test_a_materialized_ready_field_on_a_full_draft_stays_on_the_ordinary_path(self):
@@ -313,7 +313,7 @@ class RoutingTests(unittest.TestCase):
         }
         current, queued = self.accept(full)
         self.assertNotIn(triage.SETTING, current)
-        self.assertEqual("astra_discovery", current["next_stage"])
+        self.assertEqual("draft_plan", current["next_stage"])
         self.assertEqual([], queued)
 
 
@@ -346,7 +346,7 @@ class EffortTests(unittest.TestCase):
         self.assertFalse(kept["lowered"])
 
     def test_only_the_triage_dispatch_considers_a_level(self):
-        self.assertIsNone(self.decision("medium", ["low", "high"], stage="astra_discovery"))
+        self.assertIsNone(self.decision("medium", ["low", "high"], stage="draft_plan"))
 
 
 @unittest.skipUnless(sys.platform == "linux", "supervised fake providers require supported Linux")
@@ -375,7 +375,7 @@ class TriageCliTests(unittest.TestCase):
     @staticmethod
     def stages(run):
         """Stages that ran, from their retained artifacts (iterations/NNN/<slug>-NN.jsonl)."""
-        slugs = {"requirements-gather": "requirements_gather", "discovery": "astra_discovery"}
+        slugs = {"requirements-gather": "requirements_gather", "discovery": "draft_plan"}
         found = [
             path.stem.rsplit("-", 1)[0] for path in sorted(Path(run.run_dir).glob("iterations/*/*-[0-9][0-9].jsonl"))
         ]
@@ -398,7 +398,7 @@ class TriageCliTests(unittest.TestCase):
         view = run.advance_until_input()
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
         self.assertEqual(2, self.stages(run).count("requirements_gather"), "the triage pass, then the full report")
-        self.assertIn("astra_discovery", self.stages(run))
+        self.assertIn("draft_plan", self.stages(run))
 
     def test_a_fresh_fake_run_with_no_blocking_question_runs_the_full_report_at_once(self):
         run, view = self.start(*JOINT)

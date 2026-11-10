@@ -37,11 +37,11 @@ class PlanRetentionTests(unittest.TestCase):
                 "hash": "saved-hash",
                 "body": body,
                 "approval_status": "approved",
-                "origin": "glm_revise",
+                "origin": "revise_plan",
             },
             "planning": {
                 "reports": {
-                    "glm_revise": {
+                    "revise_plan": {
                         "report": {
                             "contract": body,
                             "requirement_trace": [
@@ -83,7 +83,7 @@ class PlanRetentionTests(unittest.TestCase):
         )
         draft["hash"] = digest({k: draft[k] for k in ("task_id", "revision", "body")})
         revised = copy.deepcopy(draft)
-        revised.update(revision=2, origin="glm_revise")
+        revised.update(revision=2, origin="revise_plan")
         revised["body"]["acceptance_criteria"][0]["verification_method"] = "guard: test_ac8_bad_usage"
         if added_guard:
             revised_body = revised["body"]
@@ -103,13 +103,13 @@ class PlanRetentionTests(unittest.TestCase):
             revised["body"]["acceptance_criteria"][1]["current_behavior"] = "Old count: 4"
         revised["hash"] = digest({k: revised[k] for k in ("task_id", "revision", "body")})
         state.update(goal_contract=revised, contract_history=[draft], iteration=1)
-        state["planning"]["reports"]["astra_challenge"] = {
+        state["planning"]["reports"]["review_plan"] = {
             "output": "accepted-review.json",
             "report": {"summary": "AC8: run with ID 1, output bytes unchanged."},
         }
         state["stages"] = [
             {
-                "stage": "astra_challenge",
+                "stage": "review_plan",
                 "iteration": 1,
                 "contract_hash": draft["hash"],
                 "source_revision": "source-1",
@@ -186,21 +186,21 @@ class PlanRetentionTests(unittest.TestCase):
             with patch.object(
                 planner.stage_context.source_scope, "snapshot", return_value={"revision": source_revision}
             ):
-                prompt, _ = planner.context(state, "astra_finalize", Path("/tmp/run/state.json"))
+                prompt, _ = planner.context(state, "finalize_plan", Path("/tmp/run/state.json"))
             packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
             self.assertIn("CHECK EVERY WORKED EXAMPLE", prompt)
             self.assertEqual(source_revision == "source-1", "prior_review_examples" in packet)
             self.assertEqual(source_revision == "source-1", "Recompute changed examples" in prompt)
             if source_revision == "source-1":
                 self.assertEqual(["AC8"], packet["prior_review_examples"]["unchanged_example_ids"])
-                self.assertNotIn("summary", packet["planning"]["reports"]["astra_challenge"]["report"])
+                self.assertNotIn("summary", packet["planning"]["reports"]["review_plan"]["report"])
 
     def test_inherited_row_is_exact_and_still_passes_protected_revision_guard(self):
         state = self.state()
         before = copy.deepcopy(state)
         value = {"contract": {**state["goal_contract"]["body"], "acceptance_criteria": retention.inventory(state)}}
-        expanded = retention.expand(state, "astra_discovery", value)
-        revision.revision_guard(state, expanded["contract"], [], "astra_discovery")
+        expanded = retention.expand(state, "draft_plan", value)
+        revision.revision_guard(state, expanded["contract"], [], "draft_plan")
         self.assertEqual(before, state)
         self.assertEqual(state["goal_contract"]["body"], expanded["contract"])
         expanded["contract"]["acceptance_criteria"][0]["criterion"] = "corrupted"
@@ -215,9 +215,9 @@ class PlanRetentionTests(unittest.TestCase):
             state = self.state()
             value = {"contract": copy.deepcopy(state["goal_contract"]["body"])}
             value["contract"]["acceptance_criteria"][0][field] = replacement
-            expanded = retention.expand(state, "glm_revise", value)
+            expanded = retention.expand(state, "revise_plan", value)
             with self.subTest(field=field), self.assertRaises(ValueError):
-                revision.revision_guard(state, expanded["contract"], [], "glm_revise")
+                revision.revision_guard(state, expanded["contract"], [], "revise_plan")
 
     def test_stale_unknown_and_overridden_criterion_references_are_refused(self):
         state = self.state()
@@ -229,7 +229,7 @@ class PlanRetentionTests(unittest.TestCase):
             {**ref, "human_review": False},
         ):
             with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "criterion reference"):
-                retention.expand(state, "glm_revise", {"contract": {"acceptance_criteria": [bad]}})
+                retention.expand(state, "revise_plan", {"contract": {"acceptance_criteria": [bad]}})
 
     def delta(self, state, *, upsert=(), remove=()):
         return {"retain_from": retention.token(state), "upsert": list(upsert), "remove": list(remove)}
@@ -242,7 +242,7 @@ class PlanRetentionTests(unittest.TestCase):
         added = {**copy.deepcopy(old[0]), "id": "AC30"}
         report = {"contract": {"acceptance_criteria": self.delta(state, upsert=[changed, added], remove=["AC10"])}}
         before = copy.deepcopy((state, report))
-        expanded = retention.expand(state, "glm_revise", report)
+        expanded = retention.expand(state, "revise_plan", report)
         expected = [old[0], changed, *old[3:], added]
         self.assertEqual(expected, expanded["contract"]["acceptance_criteria"])
         self.assertLess(len(json.dumps(report)), len(json.dumps(retention.inventory(state))))
@@ -253,9 +253,9 @@ class PlanRetentionTests(unittest.TestCase):
     def test_unchanged_criteria_need_one_contract_identity_and_no_row_hashes(self):
         state = self.state()
         report = {"contract": {**state["goal_contract"]["body"], "acceptance_criteria": self.delta(state)}}
-        expanded = retention.expand(state, "astra_discovery", report)
+        expanded = retention.expand(state, "draft_plan", report)
         self.assertEqual(state["goal_contract"]["body"], expanded["contract"])
-        revision.revision_guard(state, expanded["contract"], [], "astra_discovery")
+        revision.revision_guard(state, expanded["contract"], [], "draft_plan")
         self.assertNotIn("sha256", json.dumps(report))
 
     def test_criteria_delta_rejects_stale_and_ambiguous_inputs(self):
@@ -276,14 +276,14 @@ class PlanRetentionTests(unittest.TestCase):
             {k: v for k, v in good.items() if k != "remove"},
         ):
             with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "criteria delta"):
-                retention.expand(state, "glm_revise", {"contract": {"acceptance_criteria": bad}})
-        for stage in ("astra_finalize", "terra", "plan_revise"):
+                retention.expand(state, "revise_plan", {"contract": {"acceptance_criteria": bad}})
+        for stage in ("finalize_plan", "builder", "plan_revise"):
             with self.subTest(stage=stage), self.assertRaisesRegex(ValueError, "criteria delta"):
                 retention.expand(state, stage, {"contract": {"acceptance_criteria": good}})
         # The same IDs with a new contract revision cannot borrow the earlier binding.
         state["goal_contract"]["revision"] += 1
         with self.assertRaisesRegex(ValueError, "criteria delta"):
-            retention.expand(state, "glm_revise", {"contract": {"acceptance_criteria": good}})
+            retention.expand(state, "revise_plan", {"contract": {"acceptance_criteria": good}})
 
     def test_delta_still_requires_authority_for_weakened_proof_or_removal(self):
         for action in ("weaken", "remove"):
@@ -291,9 +291,9 @@ class PlanRetentionTests(unittest.TestCase):
             row = {**state["goal_contract"]["body"]["acceptance_criteria"][0], "verification_method": "echo PASS"}
             change = self.delta(state, upsert=[row]) if action == "weaken" else self.delta(state, remove=["AC8"])
             report = {"contract": {**state["goal_contract"]["body"], "acceptance_criteria": change}}
-            expanded = retention.expand(state, "glm_revise", report)
+            expanded = retention.expand(state, "revise_plan", report)
             with self.subTest(action=action), self.assertRaises(ValueError):
-                revision.revision_guard(state, expanded["contract"], [], "glm_revise")
+                revision.revision_guard(state, expanded["contract"], [], "revise_plan")
 
     def test_proof_delta_copies_every_other_criterion_field_exactly(self):
         state = self.state()
@@ -306,15 +306,15 @@ class PlanRetentionTests(unittest.TestCase):
                 "acceptance_criteria": {**self.delta(state), "proofs": [proof]},
             }
         }
-        expanded = retention.expand(state, "glm_revise", report)
+        expanded = retention.expand(state, "revise_plan", report)
         expected = copy.deepcopy(state["goal_contract"]["body"])
         expected["acceptance_criteria"][0]["verification_method"] = proof["verification_method"]
         self.assertEqual(expected, expanded["contract"])
         self.assertEqual(before, state)
-        revision.revision_guard(state, expanded["contract"], [], "glm_revise")
+        revision.revision_guard(state, expanded["contract"], [], "revise_plan")
         state["goal_contract"]["approval_status"] = "approved"
         with self.assertRaises(ValueError):
-            revision.revision_guard(state, expanded["contract"], [], "glm_revise")
+            revision.revision_guard(state, expanded["contract"], [], "revise_plan")
 
     def test_proof_delta_rejects_ambiguous_or_hidden_changes(self):
         state = self.state()
@@ -330,11 +330,11 @@ class PlanRetentionTests(unittest.TestCase):
         ):
             delta = {**self.delta(state), "proofs": proofs, **extras}
             with self.subTest(delta=delta), self.assertRaisesRegex(ValueError, "criteria delta"):
-                retention.expand(state, "glm_revise", {"contract": {"acceptance_criteria": delta}})
+                retention.expand(state, "revise_plan", {"contract": {"acceptance_criteria": delta}})
 
     def test_pinned_old_delta_schema_does_not_offer_the_new_proof_field(self):
         state = self.state()
-        schema = retention.model_schema(planner.SCHEMAS["astra_discovery"], state, "astra_discovery")
+        schema = retention.model_schema(planner.SCHEMAS["draft_plan"], state, "draft_plan")
         self.assertIn("PROOF-ONLY DELTA", retention.delta_rule(schema))
         branch = schema["properties"]["contract"]["properties"]["acceptance_criteria"]["anyOf"][1]
         branch["properties"].pop("proofs")
@@ -342,25 +342,25 @@ class PlanRetentionTests(unittest.TestCase):
 
     def test_author_schema_offers_delta_with_full_rows_but_keeps_legacy_array(self):
         state = self.state()
-        source = copy.deepcopy(planner.SCHEMAS["glm_revise"])
+        source = copy.deepcopy(planner.SCHEMAS["revise_plan"])
         criteria = source["properties"]["contract"]["properties"]["acceptance_criteria"]
-        for stage in ("astra_discovery", "glm_revise"):
+        for stage in ("draft_plan", "revise_plan"):
             schema = retention.model_schema(source, state, stage)
             contract = schema["properties"]["contract"]
-            if stage == "glm_revise":
+            if stage == "revise_plan":
                 contract = contract["anyOf"][1]
             options = contract["properties"]["acceptance_criteria"]["anyOf"]
             delta = options[1]
             self.assertEqual(criteria["items"], delta["properties"]["upsert"]["items"])
             self.assertEqual({"retain_from", "upsert", "remove"}, set(delta["required"]))
             self.assertEqual("array", options[0]["type"])
-            self.assertEqual(stage == "astra_discovery", retention.allows_row_references(schema))
-            if stage == "glm_revise":
+            self.assertEqual(stage == "draft_plan", retention.allows_row_references(schema))
+            if stage == "revise_plan":
                 self.assertEqual(criteria["items"], options[0]["items"])
                 self.assertNotIn("retain_criterion", json.dumps(schema))
             else:
                 self.assertIn("retain_criterion", json.dumps(options[0]["items"]))
-        self.assertEqual(planner.SCHEMAS["glm_revise"], source)
+        self.assertEqual(planner.SCHEMAS["revise_plan"], source)
 
     def test_planner_revision_prompt_copies_one_contract_reference_instead_of_row_hashes(self):
         state = self.state()
@@ -370,7 +370,7 @@ class PlanRetentionTests(unittest.TestCase):
             version=2,
             settings={"joint_planning": True, "roles": {"planner": {"model": "fixture", "engine": "codex"}}},
         )
-        prompt, _ = planner.context(state, "glm_revise", Path("/tmp/run/state.json"))
+        prompt, _ = planner.context(state, "revise_plan", Path("/tmp/run/state.json"))
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(retention.token(state), packet["retained_contract"])
         self.assertNotIn("retained_criteria", packet)
@@ -387,10 +387,10 @@ class PlanRetentionTests(unittest.TestCase):
             "conflict_resolutions": [],
             "decisions": [{"concern_id": "C1", "resolved": True}],
         }
-        result = retention.expand(state, "astra_finalize", report)
+        result = retention.expand(state, "finalize_plan", report)
         self.assertEqual(state["goal_contract"]["body"], result["contract"])
         self.assertEqual(
-            state["planning"]["reports"]["glm_revise"]["report"]["requirement_trace"], result["requirement_trace"]
+            state["planning"]["reports"]["revise_plan"]["report"]["requirement_trace"], result["requirement_trace"]
         )
         self.assertEqual(report["decisions"], result["decisions"])
         self.assertEqual(before, state)
@@ -407,20 +407,20 @@ class PlanRetentionTests(unittest.TestCase):
         ]
         for report in cases:
             with self.subTest(report=report), self.assertRaises(ValueError):
-                retention.expand(state, "astra_finalize", report)
+                retention.expand(state, "finalize_plan", report)
         with self.assertRaises(ValueError):
-            retention.expand(state, "glm_revise", {"contract": ref})
+            retention.expand(state, "revise_plan", {"contract": ref})
 
     def test_unrelated_prior_report_cannot_lend_trace_to_current_contract(self):
         state = self.state()
-        state["planning"]["reports"]["glm_revise"]["report"]["contract"] = {"acceptance_criteria": []}
+        state["planning"]["reports"]["revise_plan"]["report"]["contract"] = {"acceptance_criteria": []}
         trace = [{"requirement_id": "R1", "disposition": "covered", "evidence": "AC8"}]
         report = {"contract": {"retain_contract": retention.token(state)}, "requirement_trace": trace}
         self.assertIsNone(retention.validated_trace(state))
-        self.assertEqual(trace, retention.expand(state, "astra_finalize", report)["requirement_trace"])
+        self.assertEqual(trace, retention.expand(state, "finalize_plan", report)["requirement_trace"])
         # No inherited trace is fabricated: ordinary coverage validation sees an empty report.
         report["requirement_trace"] = []
-        self.assertEqual([], retention.expand(state, "astra_finalize", report)["requirement_trace"])
+        self.assertEqual([], retention.expand(state, "finalize_plan", report)["requirement_trace"])
 
     def test_final_generation_is_a_verdict_with_a_criteria_delta_not_another_contract_author(self):
         state = self.state()
@@ -433,7 +433,7 @@ class PlanRetentionTests(unittest.TestCase):
                 "milestones": {"type": "array", "items": {}},
             },
         }
-        schema = retention.model_schema({"properties": {"contract": body}}, state, "astra_finalize")
+        schema = retention.model_schema({"properties": {"contract": body}}, state, "finalize_plan")
         reference = schema["properties"]["contract"]
         self.assertEqual(
             {"retain_contract", "initial_task", "open_blocking_questions", "acceptance_criteria"},
@@ -475,7 +475,7 @@ class PlanRetentionTests(unittest.TestCase):
             "contract_changes": [],
             "conflict_resolutions": [],
         }
-        result = retention.expand(state, "astra_finalize", report)
+        result = retention.expand(state, "finalize_plan", report)
         expected = copy.deepcopy(state["goal_contract"]["body"])
         expected["acceptance_criteria"] = [
             {**old[0], "verification_method": proof["verification_method"]},
@@ -485,7 +485,7 @@ class PlanRetentionTests(unittest.TestCase):
         ]
         self.assertEqual(expected, result["contract"])
         self.assertEqual(
-            state["planning"]["reports"]["glm_revise"]["report"]["requirement_trace"], result["requirement_trace"]
+            state["planning"]["reports"]["revise_plan"]["report"]["requirement_trace"], result["requirement_trace"]
         )
         self.assertEqual(before, state)
 
@@ -498,37 +498,37 @@ class PlanRetentionTests(unittest.TestCase):
         proof = {"id": "AC8", "verification_method": "guard: test_all_bad_usage"}
         corrected = retention.expand(
             state,
-            "astra_finalize",
+            "finalize_plan",
             {
                 "contract": {**ref, "acceptance_criteria": self.final_delta(state, proofs=[proof])},
                 "contract_changes": [],
             },
         )
-        revision.revision_guard(state, corrected["contract"], [], "astra_finalize")
+        revision.revision_guard(state, corrected["contract"], [], "finalize_plan")
         dropped = retention.expand(
             state,
-            "astra_finalize",
+            "finalize_plan",
             {"contract": {**ref, "acceptance_criteria": self.final_delta(state, remove=["AC8"])}},
         )
         self.assertEqual([], dropped["contract"]["acceptance_criteria"])
         with self.assertRaises(ValueError):
-            revision.revision_guard(state, dropped["contract"], [], "astra_finalize")
+            revision.revision_guard(state, dropped["contract"], [], "finalize_plan")
         receipt = [{"item": "AC8", "change": "removed", "basis": "user_answer", "answer_id": "Q1"}]
         state["answers"] = {"Q1": {"text": "Drop AC8"}}
         backed = retention.expand(
             state,
-            "astra_finalize",
+            "finalize_plan",
             {
                 "contract": {**ref, "acceptance_criteria": self.final_delta(state, remove=["AC8"])},
                 "contract_changes": receipt,
             },
         )
         self.assertEqual(
-            receipt, revision.revision_guard(state, backed["contract"], backed["contract_changes"], "astra_finalize")
+            receipt, revision.revision_guard(state, backed["contract"], backed["contract_changes"], "finalize_plan")
         )
         state["goal_contract"]["approval_status"] = "approved"
         with self.assertRaises(ValueError):
-            revision.revision_guard(state, corrected["contract"], [], "astra_finalize")
+            revision.revision_guard(state, corrected["contract"], [], "finalize_plan")
 
     def test_final_reference_refuses_a_full_array_a_stale_delta_and_receipts_for_no_change(self):
         state = self.state()
@@ -550,27 +550,27 @@ class PlanRetentionTests(unittest.TestCase):
             ({"contract": {**ref, "acceptance_criteria": empty, "milestones": []}}, "final review"),
         ):
             with self.subTest(report=report), self.assertRaisesRegex(ValueError, message):
-                retention.expand(state, "astra_finalize", report)
+                retention.expand(state, "finalize_plan", report)
         # The empty delta is the reference's ordinary form: it retains every row and the validated trace.
-        result = retention.expand(state, "astra_finalize", {"contract": {**ref, "acceptance_criteria": empty}})
+        result = retention.expand(state, "finalize_plan", {"contract": {**ref, "acceptance_criteria": empty}})
         self.assertEqual(state["goal_contract"]["body"], result["contract"])
 
     def test_a_corrected_criterion_set_may_bring_its_own_trace_but_an_unchanged_one_may_not(self):
         state = self.state()
         ref = {"retain_contract": retention.token(state)}
-        validated = state["planning"]["reports"]["glm_revise"]["report"]["requirement_trace"]
+        validated = state["planning"]["reports"]["revise_plan"]["report"]["requirement_trace"]
         own = [{"requirement_id": "R1", "disposition": "covered", "evidence": "AC9"}]
         added = {**copy.deepcopy(state["goal_contract"]["body"]["acceptance_criteria"][0]), "id": "AC9"}
         corrected = {
             "contract": {**ref, "acceptance_criteria": self.final_delta(state, upsert=[added])},
             "requirement_trace": own,
         }
-        self.assertEqual(own, retention.expand(state, "astra_finalize", corrected)["requirement_trace"])
+        self.assertEqual(own, retention.expand(state, "finalize_plan", corrected)["requirement_trace"])
         corrected["requirement_trace"] = []
-        self.assertEqual(validated, retention.expand(state, "astra_finalize", corrected)["requirement_trace"])
+        self.assertEqual(validated, retention.expand(state, "finalize_plan", corrected)["requirement_trace"])
         unchanged = {"contract": {**ref, "acceptance_criteria": self.final_delta(state)}, "requirement_trace": own}
         with self.assertRaisesRegex(ValueError, "validated trace"):
-            retention.expand(state, "astra_finalize", unchanged)
+            retention.expand(state, "finalize_plan", unchanged)
 
     def test_v2_generation_keeps_its_separate_artifact_protocol(self):
         schema = {"properties": {"contract": {"properties": {"acceptance_criteria": {"items": {}}}}}}
@@ -586,7 +586,7 @@ class PlanRetentionTests(unittest.TestCase):
         }
         question = {"id": "Q1", "question": "Which behavior?"}
         report = {"contract": {"retain_contract": retention.token(state), "open_blocking_questions": [question]}}
-        result = retention.expand(state, "astra_finalize", report)
+        result = retention.expand(state, "finalize_plan", report)
         self.assertEqual([question], result["contract"]["open_blocking_questions"])
         self.assertEqual("none", result["contract"]["initial_task"]["kind"])
         self.assertEqual(
@@ -595,7 +595,7 @@ class PlanRetentionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             retention.expand(
                 state,
-                "astra_finalize",
+                "finalize_plan",
                 {"contract": {"retain_contract": retention.token(state), "initial_task": {"kind": "implement"}}},
             )
 
@@ -605,7 +605,7 @@ class PlanRetentionTests(unittest.TestCase):
         state["goal_contract"]["body"]["open_blocking_questions"] = [held]
         new = {"id": "Q2", "question": "Which exit code?"}
         report = {"contract": {"retain_contract": retention.token(state), "open_blocking_questions": [dict(held), new]}}
-        result = retention.expand(state, "astra_finalize", report)
+        result = retention.expand(state, "finalize_plan", report)
         self.assertEqual([held, new], result["contract"]["open_blocking_questions"])
 
     def test_compaction_retains_all_requirements_conflicts_and_human_authority(self):
@@ -645,12 +645,12 @@ class CompletedTurnAllowanceTests(unittest.TestCase):
             "settings": {},
             "planning": {
                 "astra_calls": 2,
-                "reports": {"astra_finalize": {"output": "old.json"}},
+                "reports": {"finalize_plan": {"output": "old.json"}},
                 "review_depth_reduced": True,
                 "review_call_limit": 2,
                 **({"review_call_limit_origin": "user_explicit"} if explicit else {}),
             },
-            "stages": [{"stage": "astra_finalize", "duration_seconds": 5}],
+            "stages": [{"stage": "finalize_plan", "duration_seconds": 5}],
             "cost_ledger": {"spent": 1},
         }
 
@@ -660,10 +660,10 @@ class CompletedTurnAllowanceTests(unittest.TestCase):
         ledger = copy.deepcopy(state["cost_ledger"])
         state["turns"] = [{"event_id": "human-followup-1"}]
         state["workflow"] = {"kind": "build", "clarity": "clear", "brief_size": "small"}
-        state["next_stage"] = "astra_challenge"
+        state["next_stage"] = "review_plan"
         cycle.new_cycle(state, new_turn=True)
         self.assertEqual(0, state["planning"]["astra_calls"])
-        planner.charge(state, "astra_challenge")
+        planner.charge(state, "review_plan")
         self.assertEqual(1, state["planning"]["astra_calls"])
         self.assertEqual(2, state["planning_history"][0]["astra_calls"])
         self.assertEqual(stages, state["stages"])

@@ -8,7 +8,7 @@ import autocode_util as util
 GLM = ["low", "high", "max"]  # GLM 5.3's declared variants: no medium, no xhigh
 
 
-def settings_for(role="terra", model="zai-coding-plan/glm-5.3", effort="high", *, origin=None, declared=GLM):
+def settings_for(role="builder", model="zai-coding-plan/glm-5.3", effort="high", *, origin=None, declared=GLM):
     settings = {"roles": {role: {"model": model, "reasoning_effort": effort}}}
     if origin:
         settings["effort_origins"] = {role: origin}
@@ -36,18 +36,18 @@ class NearestTests(unittest.TestCase):
 
 class FitTests(unittest.TestCase):
     def test_a_runner_chosen_level_moves_to_the_nearest_declared_variant(self):
-        fitted = route_fit.fit(settings_for(effort="medium"), "terra")
+        fitted = route_fit.fit(settings_for(effort="medium"), "builder")
         self.assertEqual(route_fit.Fit("zai-coding-plan/glm-5.3", "high", "medium", "fitted", False), fitted)
 
     def test_a_declared_level_needs_no_move(self):
-        fitted = route_fit.fit(settings_for(effort="max"), "terra")
+        fitted = route_fit.fit(settings_for(effort="max"), "builder")
         self.assertEqual(("declared", "max", False), (fitted.reason, fitted.effort, fitted.explicit))
 
     def test_a_derived_tier_is_never_a_persons_choice_so_it_fits_even_when_the_saved_level_is_theirs(self):
         settings = settings_for(effort="max", origin=route_fit.USER_EXPLICIT)
-        fitted = route_fit.fit(settings, "terra", effort="medium")
+        fitted = route_fit.fit(settings, "builder", effort="medium")
         self.assertEqual(("fitted", "high", False), (fitted.reason, fitted.effort, fitted.explicit))
-        self.assertEqual("max", settings["roles"]["terra"]["reasoning_effort"], "the saved level is untouched")
+        self.assertEqual("max", settings["roles"]["builder"]["reasoning_effort"], "the saved level is untouched")
 
     def test_a_person_named_undeclared_level_refuses_with_its_flag_and_is_both_a_pause_and_a_value_error(self):
         settings = settings_for("completion", effort="medium", origin=route_fit.USER_EXPLICIT)
@@ -61,28 +61,28 @@ class FitTests(unittest.TestCase):
 
     def test_a_saved_stage_choice_is_the_persons_level_and_a_tier_below_it_is_derived(self):
         # The saved level is theirs (it never moves); the review tier under it is the runner's (2026-11-05).
-        settings = settings_for("sol", effort="medium", origin=route_fit.STAGE_CHOICE)
+        settings = settings_for("tester", effort="medium", origin=route_fit.STAGE_CHOICE)
         with self.assertRaises(route_fit.EffortUnsupported):
-            route_fit.fit(settings, "sol")
-        settings = settings_for("sol", effort="max", origin=route_fit.STAGE_CHOICE)
-        saved, tier = route_fit.fit(settings, "sol"), route_fit.fit(settings, "sol", effort="xhigh")
+            route_fit.fit(settings, "tester")
+        settings = settings_for("tester", effort="max", origin=route_fit.STAGE_CHOICE)
+        saved, tier = route_fit.fit(settings, "tester"), route_fit.fit(settings, "tester", effort="xhigh")
         self.assertEqual(("max", True), (saved.effort, saved.explicit))
         self.assertEqual(("max", False, "fitted"), (tier.effort, tier.explicit, tier.reason))
 
     def test_a_person_named_level_the_model_declares_is_kept_and_marked_explicit(self):
         settings = settings_for(effort="max", origin=route_fit.USER_EXPLICIT)
-        fitted = route_fit.fit(settings, "terra")
+        fitted = route_fit.fit(settings, "builder")
         self.assertEqual(("max", True), (fitted.effort, fitted.explicit))
 
     def test_a_reviewer_fallback_fits_against_the_model_it_actually_launches(self):
         # The fallback borrows another role's route for this launch; the saved route's model is not what runs.
         settings = settings_for(effort="medium", declared=["low", "high"])
         settings[route_fit.DECLARED]["openai/gpt-6-sol"] = ["low", "medium", "high"]
-        fitted = route_fit.fit(settings, "terra", model="openai/gpt-6-sol")
+        fitted = route_fit.fit(settings, "builder", model="openai/gpt-6-sol")
         self.assertEqual(("declared", "medium"), (fitted.reason, fitted.effort))
 
     def test_no_listing_records_the_effort_as_unverified_instead_of_guessing(self):
-        fitted = route_fit.fit(settings_for(effort="medium", declared=None), "terra")
+        fitted = route_fit.fit(settings_for(effort="medium", declared=None), "builder")
         self.assertEqual(("unverified", "medium"), (fitted.reason, fitted.effort))
 
     def test_the_runs_saved_candidate_levels_serve_a_fit_after_a_new_listing(self):
@@ -90,34 +90,34 @@ class FitTests(unittest.TestCase):
         settings["route_selection"] = {
             "candidates": {"completion": [{"model": "zai-coding-plan/glm-5.3", "levels": GLM}]}
         }
-        fitted = route_fit.fit(settings, "terra")
+        fitted = route_fit.fit(settings, "builder")
         self.assertEqual(("fitted", "high"), (fitted.reason, fitted.effort))
 
 
 class LaunchTests(unittest.TestCase):
     def test_a_fitted_move_is_recorded_at_the_one_launch_boundary(self):
         settings = settings_for(effort="medium")
-        self.assertEqual("high", route_fit.launch(settings, "terra", "medium", stage="terra"))
-        self.assertEqual({"from": "medium", "to": "high", "reason": "route_fit"}, settings["effort_fits"]["terra"])
+        self.assertEqual("high", route_fit.launch(settings, "builder", "medium", stage="builder"))
+        self.assertEqual({"from": "medium", "to": "high", "reason": "route_fit"}, settings["effort_fits"]["builder"])
 
     def test_an_unverified_launch_says_so_and_keeps_an_existing_fit(self):
         settings = settings_for(effort="medium", declared=None)
-        route_fit.launch(settings, "terra", "medium", stage="terra")
+        route_fit.launch(settings, "builder", "medium", stage="builder")
         self.assertEqual(
-            {"from": "medium", "to": "medium", "reason": "unverified", "stage": "terra"},
-            settings["effort_fits"]["terra"],
+            {"from": "medium", "to": "medium", "reason": "unverified", "stage": "builder"},
+            settings["effort_fits"]["builder"],
         )
-        settings["effort_fits"]["terra"] = {"from": "medium", "to": "high", "reason": "route_answer"}
-        route_fit.launch(settings, "terra", "medium")
+        settings["effort_fits"]["builder"] = {"from": "medium", "to": "high", "reason": "route_answer"}
+        route_fit.launch(settings, "builder", "medium")
         self.assertEqual(
             {"from": "medium", "to": "high", "reason": "route_answer"},
-            settings["effort_fits"]["terra"],
+            settings["effort_fits"]["builder"],
             "the earlier decision stays as recorded",
         )
 
     def test_a_declared_level_records_nothing(self):
         settings = settings_for(effort="high")
-        self.assertEqual("high", route_fit.launch(settings, "terra", "high"))
+        self.assertEqual("high", route_fit.launch(settings, "builder", "high"))
         self.assertNotIn("effort_fits", settings)
 
 
@@ -130,9 +130,9 @@ class CertifiedLevelTests(unittest.TestCase):
         return settings
 
     def test_a_derived_lower_tier_is_not_moved_up_to_the_one_certified_level(self):
-        settings = self.unlisted("terra", "high")
-        self.assertEqual("low", route_fit.launch(settings, "terra", "low"), "the light first attempt stays light")
-        self.assertEqual("unverified", settings["effort_fits"]["terra"]["reason"])
+        settings = self.unlisted("builder", "high")
+        self.assertEqual("low", route_fit.launch(settings, "builder", "low"), "the light first attempt stays light")
+        self.assertEqual("unverified", settings["effort_fits"]["builder"]["reason"])
 
     def test_an_unprobed_person_named_level_neither_moves_nor_pauses(self):
         settings = self.unlisted("task_planner", "xhigh", origin=route_fit.USER_EXPLICIT)
@@ -144,7 +144,7 @@ class CertifiedLevelTests(unittest.TestCase):
     def test_a_certified_level_is_declared_even_where_the_listing_omits_it(self):
         settings = settings_for(effort="medium", origin=route_fit.USER_EXPLICIT)
         settings[route_fit.CERTIFIED] = {"zai-coding-plan/glm-5.3": ["medium"]}
-        self.assertEqual("declared", route_fit.fit(settings, "terra").reason)
+        self.assertEqual("declared", route_fit.fit(settings, "builder").reason)
 
     def test_certified_levels_stay_out_of_the_settings_identity(self):
         settings = settings_for()
@@ -156,7 +156,7 @@ class CertifiedLevelTests(unittest.TestCase):
 class ReconcileTests(unittest.TestCase):
     def roles(self):
         return {
-            "terra": {"model": "m", "reasoning_effort": "high"},
+            "builder": {"model": "m", "reasoning_effort": "high"},
             "completion": {"model": "m", "reasoning_effort": "medium"},
             "plan_reviewer": {"model": "m", "reasoning_effort": "xhigh"},
         }
@@ -169,7 +169,7 @@ class ReconcileTests(unittest.TestCase):
         )
         self.assertEqual(
             ("high", "high", "max"),
-            tuple(roles[r]["reasoning_effort"] for r in ("terra", "completion", "plan_reviewer")),
+            tuple(roles[r]["reasoning_effort"] for r in ("builder", "completion", "plan_reviewer")),
         )
         note = route_fit.notice(moved, "zai-coding-plan/glm-5.3", GLM)
         self.assertIn("declares the reasoning variants low, high, max", note)
@@ -193,7 +193,7 @@ class DeclaredForTests(unittest.TestCase):
     def test_a_single_model_runs_saved_listing_serves_declared_for_first(self):
         settings = {
             route_fit.DECLARED: {"zai-coding-plan/glm-5.3": GLM},
-            "route_selection": {"candidates": {"sol": [{"model": "zai-coding-plan/glm-5.3", "levels": ["low"]}]}},
+            "route_selection": {"candidates": {"tester": [{"model": "zai-coding-plan/glm-5.3", "levels": ["low"]}]}},
         }
         self.assertEqual(GLM, route_fit.declared_for(settings, "zai-coding-plan/glm-5.3"))
         self.assertIsNone(route_fit.declared_for(settings, "other/model"))
@@ -203,7 +203,7 @@ class DeclaredForTests(unittest.TestCase):
         settings = {
             "route_selection": {
                 "candidates": {
-                    "sol": [{"model": "openai/gpt-6-sol", "levels": ["low", "medium", "high"]}],
+                    "tester": [{"model": "openai/gpt-6-sol", "levels": ["low", "medium", "high"]}],
                     "completion": [{"model": "zai-coding-plan/glm-5.3", "levels": GLM}],
                 }
             }
@@ -219,7 +219,7 @@ class SavedSettingsIdentityTests(unittest.TestCase):
     def test_a_fit_recorded_after_an_approval_leaves_its_settings_identity_unchanged(self):
         approved = settings_for(effort="medium")
         launched = settings_for(effort="medium")
-        route_fit.record(launched, "terra", route_fit.fit(launched, "terra"))
+        route_fit.record(launched, "builder", route_fit.fit(launched, "builder"))
         self.assertNotEqual(approved, launched, "the launch records its fit")
         self.assertTrue(route_fit.same(approved, launched))
         self.assertEqual(route_fit.identity(approved), route_fit.identity(launched))

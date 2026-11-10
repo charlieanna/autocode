@@ -47,7 +47,7 @@ class ResolverProducerTests(unittest.TestCase):
             "iteration": 1,
             "settings": {},
             "status": "RUNNING",
-            "next_stage": "astra_discovery",
+            "next_stage": "draft_plan",
             "answers": {},
             "user_events": [],
             "stages": [],
@@ -73,7 +73,7 @@ class ResolverProducerTests(unittest.TestCase):
         self.state.pop(human.PUBLIC, None)
         decision = self.decision("CONTINUE")
         lifecycle.assign_task(self.state, decision, {"revision": "source-one"})
-        self.state["next_stage"] = "astra_review"
+        self.state["next_stage"] = "review_completion"
 
     def decision(self, status="BLOCKED", kind="blocker"):
         return {
@@ -120,7 +120,7 @@ class ResolverProducerTests(unittest.TestCase):
 
     def test_draft_questions_stay_sealed_and_unissued_until_external_publication(self):
         draft = body(questions=True)
-        lifecycle.install_draft(self.state, draft, origin="astra_discovery")
+        lifecycle.install_draft(self.state, draft, origin="draft_plan")
         contract = copy.deepcopy(self.state["goal_contract"])
         self.assert_private()
         self.assertEqual(draft["open_blocking_questions"], human.internal_questions(self.state))
@@ -137,17 +137,17 @@ class ResolverProducerTests(unittest.TestCase):
 
     def test_intermediate_joint_drafts_and_migration_do_not_queue_approval(self):
         self.state["settings"]["joint_planning"] = True
-        for origin, next_stage in (("glm_draft", "astra_challenge"), ("glm_revise", "astra_finalize")):
+        for origin, next_stage in (("glm_draft", "review_plan"), ("revise_plan", "finalize_plan")):
             lifecycle.install_draft(self.state, body(), origin=origin)
             self.assertEqual("RUNNING", self.state["status"])
             self.assertEqual(next_stage, self.state["next_stage"])
             self.assertNotIn(human.PRIVATE, self.state)
-        final = self.record("astra_finalize", {"contract": body()})
-        lifecycle.install_draft(self.state, body(), origin="astra_finalize", record=final)
+        final = self.record("finalize_plan", {"contract": body()})
+        lifecycle.install_draft(self.state, body(), origin="finalize_plan", record=final)
         self.assert_private()
         self.assertEqual("defer", human.evaluate(self.state))
         self.state["planning"]["final_token"] = goals.token(self.state["goal_contract"])
-        self.state["planning"]["reports"]["astra_finalize"] = {"output": final["output"]}
+        self.state["planning"]["reports"]["finalize_plan"] = {"output": final["output"]}
         self.state["stages"].append(final)
         self.assertEqual("escalate", human.evaluate(self.state))
         self.assertIn("Approval token:", lifecycle.present(self.state))
@@ -171,10 +171,10 @@ class ResolverProducerTests(unittest.TestCase):
             "conflict_resolutions": [],
             "requirement_trace": [],
         }
-        self.apply("astra_discovery", value)
+        self.apply("draft_plan", value)
         self.assert_private()
         self.assertNotIn("planning", self.state)
-        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.assertEqual("draft_plan", self.state["next_stage"])
 
     def test_protected_requests_queue_without_execution_or_diagnosis(self):
         self.ready()
@@ -182,7 +182,7 @@ class ResolverProducerTests(unittest.TestCase):
         for kind in ("permission", "goal_change"):
             with self.subTest(kind=kind):
                 self.state = copy.deepcopy(original)
-                record = self.apply("astra_review", self.decision(kind=kind))
+                record = self.apply("review_completion", self.decision(kind=kind))
                 self.assert_private()
                 proposal = self.state[human.PRIVATE]
                 self.assertEqual(kind, proposal["scope"])
@@ -202,7 +202,7 @@ class ResolverProducerTests(unittest.TestCase):
         }
         self.state["answers"]["permission-one"] = answer
         self.state["user_events"].append(answer)
-        lifecycle.wait_for_user(self.state, request, origin={"stage": "astra_review"})
+        lifecycle.wait_for_user(self.state, request, origin={"stage": "review_completion"})
         self.assertEqual("RUNNING", self.state["status"])
         self.assertEqual(answer["text"], self.state["permission_reuse_context"]["answer"])
         self.assertNotIn(human.PRIVATE, self.state)
@@ -215,8 +215,8 @@ class ResolverProducerTests(unittest.TestCase):
         for kind in ("blocker", "clarification"):
             with self.subTest(kind=kind):
                 self.state = copy.deepcopy(original)
-                record = self.apply("astra_review", self.decision(kind=kind))
-                self.assertEqual("astra_resolve", self.state["next_stage"])
+                record = self.apply("review_completion", self.decision(kind=kind))
+                self.assertEqual("resolve", self.state["next_stage"])
                 self.assertEqual("RUNNING", self.state["status"])
                 self.assertNotIn(human.PRIVATE, self.state)
                 self.assertEqual(record["output"], self.state["resolution_request"]["review_output"])
@@ -224,18 +224,18 @@ class ResolverProducerTests(unittest.TestCase):
                     **self.decision(kind=kind),
                     "diagnosis": "Inspected saved failure; no permitted repair remains",
                 }
-                record = self.apply("astra_resolve", value)
+                record = self.apply("resolve", value)
                 self.assert_private()
                 proposal = self.state[human.PRIVATE]
                 self.assertEqual("blocker", proposal["scope"])
-                self.assertEqual("astra_resolve", proposal["origin"]["stage"])
+                self.assertEqual("resolve", proposal["origin"]["stage"])
                 self.assertEqual(value["diagnosis"], proposal["evidence"]["diagnosis"])
                 self.assertEqual(
                     support.file_hash(Path(record["output"])), proposal["evidence"]["hashes"][record["output"]]
                 )
                 self.assertEqual("escalate", human.evaluate(self.state))
                 pending = human.current(self.state)
-                reviewed = self.apply("astra_review", self.decision())
+                reviewed = self.apply("review_completion", self.decision())
                 self.assertFalse(reviewed.get("rejected"))
                 human.evaluate(self.state)
                 self.assertEqual(pending, human.current(self.state))
@@ -245,30 +245,30 @@ class ResolverProducerTests(unittest.TestCase):
         # diagnosis's question was answered and the source was unchanged, the Completion Owner blocked
         # again, the refusal of a second diagnosis rejected its valid report, and repair could never fix it.
         self.ready()
-        self.apply("astra_review", self.decision())
+        self.apply("review_completion", self.decision())
         diagnosis = {**self.decision(), "diagnosis": "The regression proof has no test command to run"}
-        diagnosed = self.apply("astra_resolve", diagnosis)
+        diagnosed = self.apply("resolve", diagnosis)
         # The user answers the diagnosis's question; the source does not change.
         self.state.pop(human.PRIVATE, None)
         self.state.pop(human.PUBLIC, None)
-        self.state.update(status="RUNNING", next_stage="astra_review")
+        self.state.update(status="RUNNING", next_stage="review_completion")
         for status in ("BLOCKED", "REWORK"):
             with self.subTest(status=status):
                 before = copy.deepcopy(self.state)
                 value = self.decision(status)
                 if status == "REWORK":
                     value["user_request"] = {**envelope(self.state)["user_request"]}
-                record = self.apply("astra_review", value)
+                record = self.apply("review_completion", value)
                 self.assertFalse(record.get("rejected"))
                 self.assertEqual(record["output"], self.state["stages"][-1]["output"])
-                self.assertNotEqual("astra_resolve", self.state["next_stage"])
+                self.assertNotEqual("resolve", self.state["next_stage"])
                 proposal = self.state[human.PRIVATE]
                 self.assertEqual(diagnosis["diagnosis"], proposal["evidence"]["diagnosis"])
                 self.assertEqual(diagnosed["output"], proposal["evidence"]["output"])
                 self.assertTrue(proposal["evidence"]["repeated_on_unchanged_source"])
-                self.assertEqual("astra_review", proposal["origin"]["stage"])
+                self.assertEqual("review_completion", proposal["origin"]["stage"])
                 # Still one diagnosis for this task and source.
-                self.assertEqual(1, sum(row.get("stage") == "astra_resolve" for row in self.state["stages"]))
+                self.assertEqual(1, sum(row.get("stage") == "resolve" for row in self.state["stages"]))
                 self.state = before
 
     def test_a_repeated_rework_after_an_answered_diagnosis_holds_instead_of_looping(self):
@@ -276,37 +276,37 @@ class ResolverProducerTests(unittest.TestCase):
         # REWORK, the Resolver diagnosed it and its question was answered. Every later REWORK on the
         # unchanged source staged the existing-diagnosis blocker, the writer boundary deferred it for
         # "internal AutoResolver investigation", requeued the same resolution (which staged the same
-        # blocker) and set the run RUNNING at astra_review again: the Completion Reviewer ran 11 times.
+        # blocker) and set the run RUNNING at review_completion again: the Completion Reviewer ran 11 times.
         self.ready()
-        self.apply("astra_review", self.decision())
+        self.apply("review_completion", self.decision())
         diagnosis = {**self.decision(), "diagnosis": "The regression replay failed once on a timing flake"}
-        self.apply("astra_resolve", diagnosis)
+        self.apply("resolve", diagnosis)
         records.normalize_human_boundary(self.state, self.run)
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         # The user answers the diagnosis's question; the source does not change.
         self.state.pop(human.PRIVATE, None)
         self.state.pop(human.PUBLIC, None)
         self.state.pop("user_request", None)
-        self.state.update(status="RUNNING", next_stage="astra_review", pending_questions=[])
+        self.state.update(status="RUNNING", next_stage="review_completion", pending_questions=[])
         rework = self.decision("REWORK")
         rework["user_request"] = {**envelope(self.state)["user_request"]}
-        reviewed = self.apply("astra_review", rework)
+        reviewed = self.apply("review_completion", rework)
         self.assertFalse(reviewed.get("rejected"))
         records.normalize_human_boundary(self.state, self.run)
         # The run holds with the existing diagnosis; it does not schedule the same review again.
         self.assertEqual("RESOLVER_PENDING", self.state["status"])
         self.assertIn("existing diagnosis", self.state["stop_reason"])
-        self.assertEqual(1, sum(row.get("stage") == "astra_resolve" for row in self.state["stages"]))
+        self.assertEqual(1, sum(row.get("stage") == "resolve" for row in self.state["stages"]))
         # The boundary is idempotent: persisting again (as a resume does) holds again, never RUNNING.
         records.normalize_human_boundary(self.state, self.run)
         self.assertEqual("RESOLVER_PENDING", self.state["status"])
-        self.assertEqual(1, sum(row.get("stage") == "astra_resolve" for row in self.state["stages"]))
+        self.assertEqual(1, sum(row.get("stage") == "resolve" for row in self.state["stages"]))
 
     def test_changed_verification_command_reopens_a_retained_diagnosis(self):
         self.ready()
         self.state["settings"]["regression"] = {"regression_command": "old regression"}
-        self.apply("astra_review", self.decision())
-        self.apply("astra_resolve", {**self.decision(), "diagnosis": "The old regression command cannot run"})
+        self.apply("review_completion", self.decision())
+        self.apply("resolve", {**self.decision(), "diagnosis": "The old regression command cannot run"})
         diagnosed = copy.deepcopy(self.state)
         for answered in (False, True):
             with self.subTest(answered=answered):
@@ -315,9 +315,9 @@ class ResolverProducerTests(unittest.TestCase):
                     self.state.pop(human.PRIVATE, None)
                     self.state.pop(human.PUBLIC, None)
                 self.state["settings"]["regression"]["regression_command"] = "new regression"
-                self.state.update(status="RUNNING", next_stage="astra_review")
-                reviewed = self.apply("astra_review", self.decision())
-                self.assertEqual("astra_resolve", self.state["next_stage"])
+                self.state.update(status="RUNNING", next_stage="review_completion")
+                reviewed = self.apply("review_completion", self.decision())
+                self.assertEqual("resolve", self.state["next_stage"])
                 request = self.state["resolution_request"]
                 self.assertEqual(reviewed["output"], request["source_output"])
                 self.assertNotIn("diagnosis_output", request)
@@ -330,26 +330,26 @@ class ResolverProducerTests(unittest.TestCase):
             limits={"max_seconds": 100, "iteration_ceiling": 2},
             budget_origins={"max_seconds": "cli", "iteration_ceiling": "cli"},
         )
-        self.apply("astra_review", self.decision())
-        diagnosed = self.apply("astra_resolve", {**self.decision(), "diagnosis": "A product decision is needed"})
+        self.apply("review_completion", self.decision())
+        diagnosed = self.apply("resolve", {**self.decision(), "diagnosis": "A product decision is needed"})
         self.state.pop(human.PRIVATE, None)
         self.state.pop(human.PUBLIC, None)
         self.state["settings"]["limits"].update(max_seconds=200, iteration_ceiling=4)
         self.state["settings"]["budget_origins"].update(max_seconds="user", iteration_ceiling="user")
         self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
-        self.state.update(status="RUNNING", next_stage="astra_review")
-        self.apply("astra_review", self.decision())
-        self.assertNotEqual("astra_resolve", self.state["next_stage"])
+        self.state.update(status="RUNNING", next_stage="review_completion")
+        self.apply("review_completion", self.decision())
+        self.assertNotEqual("resolve", self.state["next_stage"])
         self.assertEqual(diagnosed["output"], self.state[human.PRIVATE]["evidence"]["output"])
 
     def test_legacy_diagnosis_without_a_settings_binding_stays_held(self):
         self.ready()
-        self.apply("astra_review", self.decision())
-        diagnosed = self.apply("astra_resolve", {**self.decision(), "diagnosis": "Retained legacy blocker"})
+        self.apply("review_completion", self.decision())
+        diagnosed = self.apply("resolve", {**self.decision(), "diagnosis": "Retained legacy blocker"})
         self.state.pop(human.PRIVATE, None)
         self.state.pop(human.PUBLIC, None)
         self.state["settings"]["regression"] = {"regression_command": "new regression"}
-        self.state.update(status="RUNNING", next_stage="astra_review")
+        self.state.update(status="RUNNING", next_stage="review_completion")
         legacy = copy.deepcopy(self.state)
         for binding in (None, {}, {"settings_hash": None}):
             with self.subTest(binding=binding):
@@ -358,14 +358,14 @@ class ResolverProducerTests(unittest.TestCase):
                     self.state["resolution_request"].pop("diagnosis_binding", None)
                 else:
                     self.state["resolution_request"]["diagnosis_binding"] = binding
-                self.apply("astra_review", self.decision())
-                self.assertNotEqual("astra_resolve", self.state["next_stage"])
+                self.apply("review_completion", self.decision())
+                self.assertNotEqual("resolve", self.state["next_stage"])
                 self.assertEqual(diagnosed["output"], self.state[human.PRIVATE]["evidence"]["output"])
 
     def test_changed_source_bytes_reopen_a_retained_diagnosis(self):
         self.ready()
-        self.apply("astra_review", self.decision())
-        self.apply("astra_resolve", {**self.decision(), "diagnosis": "The greeting source needs correction"})
+        self.apply("review_completion", self.decision())
+        self.apply("resolve", {**self.decision(), "diagnosis": "The greeting source needs correction"})
         self.state.pop(human.PRIVATE, None)
         self.state.pop(human.PUBLIC, None)
         source = self.root / "greet.py"
@@ -377,18 +377,18 @@ class ResolverProducerTests(unittest.TestCase):
         }
         current["revision"] = util.digest(current)
         self.assertNotEqual(original_hash, current["files"]["greet.py"])
-        self.state.update(status="RUNNING", next_stage="astra_review")
+        self.state.update(status="RUNNING", next_stage="review_completion")
         value = self.decision()
-        record = self.record("astra_review", value)
+        record = self.record("review_completion", value)
         record["source_revision"] = current["revision"]
         with (
             patch.object(support, "snapshot", return_value=current) as runner_source,
             patch.object(util, "snapshot", return_value=current) as resolver_source,
         ):
-            autopilot.apply_result(runner, self.state, "astra_review", value, record, self.root, self.root)
+            autopilot.apply_result(runner, self.state, "review_completion", value, record, self.root, self.root)
         runner_source.assert_called()
         resolver_source.assert_called()
-        self.assertEqual("astra_resolve", self.state["next_stage"])
+        self.assertEqual("resolve", self.state["next_stage"])
         self.assertEqual(record["output"], self.state["resolution_request"]["source_output"])
         self.assertNotIn("diagnosis_output", self.state["resolution_request"])
 
@@ -396,7 +396,7 @@ class ResolverProducerTests(unittest.TestCase):
         self.ready()
         self.state["settings"]["workflow"] = {"mode": workflow.FINAL_MODE}
         original = copy.deepcopy(self.state)
-        for stage in ("terra", "sol"):
+        for stage in ("builder", "tester"):
             with self.subTest(stage=stage):
                 self.state = copy.deepcopy(original)
                 value = {**envelope(self.state), "user_request": self.request(), "checks": ["Unvalidated claim"]}
@@ -408,7 +408,7 @@ class ResolverProducerTests(unittest.TestCase):
                 self.assertNotIn("review", request)
                 self.assertNotIn("validation", self.state)
                 self.assertEqual(criteria, self.state["acceptance_criteria"])
-                self.assertEqual("astra_resolve", self.state["next_stage"])
+                self.assertEqual("resolve", self.state["next_stage"])
 
     def test_missing_task_stale_output_and_repeated_diagnosis_fail_closed(self):
         self.ready()
@@ -417,7 +417,7 @@ class ResolverProducerTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 self.state = copy.deepcopy(original)
                 value = self.decision()
-                record = self.record("astra_review", value)
+                record = self.record("review_completion", value)
                 if mutation == "task":
                     self.state.pop("current_task")
                 elif mutation == "source":
@@ -426,18 +426,18 @@ class ResolverProducerTests(unittest.TestCase):
                     Path(record["output"]).unlink()
                 elif mutation == "failure":
                     self.state["failure_history"] = {
-                        "failed": {"count": 3, "identity": {"stage": "astra_resolve", "artifact_hash": "source-one"}}
+                        "failed": {"count": 3, "identity": {"stage": "resolve", "artifact_hash": "source-one"}}
                     }
                 else:
-                    self.state["stages"] = [{"stage": "astra_resolve", "source_revision": "source-one"}] * 3
+                    self.state["stages"] = [{"stage": "resolve", "source_revision": "source-one"}] * 3
                 before = copy.deepcopy(self.state)
                 with self.assertRaises(support.Paused):
-                    autopilot.apply_result(runner, self.state, "astra_review", value, record, self.root, self.root)
+                    autopilot.apply_result(runner, self.state, "review_completion", value, record, self.root, self.root)
                 self.assertEqual(before, self.state)
 
     def test_resolver_diagnosis_cannot_change_findings_or_review_verdict(self):
         self.ready()
-        self.apply("astra_review", self.decision())
+        self.apply("review_completion", self.decision())
         before = copy.deepcopy(self.state.get("findings_ledger"))
         criteria = copy.deepcopy(self.state["acceptance_criteria"])
         value = {
@@ -446,7 +446,7 @@ class ResolverProducerTests(unittest.TestCase):
             "findings": [{"id": "forged", "severity": "high", "finding": "Made up", "evidence": "None"}],
         }
         value["acceptance_criteria"][0]["status"] = "verified"
-        self.apply("astra_resolve", value)
+        self.apply("resolve", value)
         self.assertEqual(before, self.state.get("findings_ledger"))
         self.assertEqual(criteria, self.state["acceptance_criteria"])
         self.assertNotIn("validation", self.state)
@@ -465,7 +465,7 @@ class ResolverProducerTests(unittest.TestCase):
         with patch.object(completion_gate, "completion_ready", return_value=True):
             value = self.decision("COMPLETE")
             value["user_request"] = envelope(self.state)["user_request"]
-            self.apply("astra_review", value)
+            self.apply("review_completion", value)
         self.assert_private()
         self.assertEqual(token, self.state[human.PRIVATE]["evidence"]["review_token"])
         self.assertEqual(["C1"], self.state[human.PRIVATE]["evidence"]["criteria"])
@@ -483,9 +483,9 @@ class ResolverProducerTests(unittest.TestCase):
 
     def test_resolver_evidence_mutation_and_writes_rejected(self):
         self.ready()
-        self.apply("astra_review", self.decision())
+        self.apply("review_completion", self.decision())
         value = {**self.decision(), "diagnosis": "Inspected failure"}
-        record = self.record("astra_resolve", value)
+        record = self.record("resolve", value)
         record["changed_files"] = ["greet.py"]
         with self.assertRaisesRegex(support.Paused, "unchanged"):
             autoresolver.validate(self.state, value, record, self.root)
@@ -501,11 +501,11 @@ class ResolverProducerTests(unittest.TestCase):
         value = self.decision("COMPLETE")
         value["user_request"] = envelope(self.state)["user_request"]
         with self.assertRaisesRegex(support.Paused, "independent evidence"):
-            self.apply("astra_review", value)
+            self.apply("review_completion", value)
         self.assertEqual(before, self.state)
 
     def test_stale_receipt_removes_display_controls_without_republication(self):
-        lifecycle.install_draft(self.state, body(), origin="astra_discovery")
+        lifecycle.install_draft(self.state, body(), origin="draft_plan")
         human.evaluate(self.state)
         self.assertIn("Approval token:", lifecycle.present(self.state))
         self.state["settings"]["changed"] = True

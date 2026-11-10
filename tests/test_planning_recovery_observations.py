@@ -52,7 +52,7 @@ class RecoveryObservationsTests(unittest.TestCase):
         for path in (before, after):
             path.write_text(json.dumps({"revision": "source-1"}))
         self.record = {
-            "stage": "astra_challenge",
+            "stage": "review_plan",
             "iteration": 1,
             "abandoned": True,
             "rejected": True,
@@ -65,12 +65,12 @@ class RecoveryObservationsTests(unittest.TestCase):
             "contract_hash": self.state["goal_contract"]["hash"],
         }
         self.state["stages"] = [self.record]
-        self.state["recovery_context"] = {"stage": "astra_challenge", "next_stage": "astra_challenge"}
+        self.state["recovery_context"] = {"stage": "review_plan", "next_stage": "review_plan"}
 
     def test_public_planning_packet_carries_the_prior_read_into_tool_free_recovery(self):
         original = copy.deepcopy(self.state)
         with patch.object(planning.stage_context.source_scope, "snapshot", return_value={"revision": "source-1"}):
-            prompt, _ = planning.context(self.state, "astra_challenge", self.run / "state.json")
+            prompt, _ = planning.context(self.state, "review_plan", self.run / "state.json")
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         retained = packet["retained_review_observations"]
         self.assertEqual("return day.year, 54", retained["attempts"][0]["observations"][0]["output"])
@@ -81,18 +81,18 @@ class RecoveryObservationsTests(unittest.TestCase):
         current = copy.deepcopy(self.state["goal_contract"]["body"])
         previous = {**current, "required_behaviors": ["Keep the historical behavior visible to the reviewer."]}
         reports = {
-            "astra_discovery": {
+            "draft_plan": {
                 "report": {"contract": current, "summary": "Keep the discovery summary."},
                 "output": "/run/discovery.json",
             },
-            "astra_challenge": {
+            "review_plan": {
                 "report": {"concerns": [{"id": "R1", "description": "Keep the review concern."}]},
                 "output": "/run/challenge.json",
             },
-            "glm_revise": {"report": {"contract": previous}, "output": "/run/revision.json"},
+            "revise_plan": {"report": {"contract": previous}, "output": "/run/revision.json"},
         }
         self.state["planning"]["reports"] = reports
-        for stage in ("astra_challenge", "astra_finalize"):
+        for stage in ("review_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 self.state["recovery_context"] = {"stage": stage, "next_stage": stage}
                 self.record["stage"] = stage
@@ -104,15 +104,15 @@ class RecoveryObservationsTests(unittest.TestCase):
                 packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
                 projected = packet["planning"]["reports"]
                 expected = copy.deepcopy(reports)
-                del expected["astra_discovery"]["report"]["contract"]
-                expected["astra_discovery"]["report"]["contract_ref"] = "#/goal_contract/body"
+                del expected["draft_plan"]["report"]["contract"]
+                expected["draft_plan"]["report"]["contract_ref"] = "#/goal_contract/body"
                 self.assertEqual(expected, projected)
                 self.assertEqual(current, packet["goal_contract"]["body"])
                 self.assertIn("Resolve contract_ref within this handoff", prompt)
                 self.assertIn("retained_review_observations", packet)
                 self.assertEqual(original, self.state)
 
-    def retained(self, stage="astra_challenge", revision="source-1"):
+    def retained(self, stage="review_plan", revision="source-1"):
         return observations.context(self.state, stage, self.run, revision)
 
     def test_changed_plan_source_and_unfinished_attempts_are_not_reused(self):
@@ -123,11 +123,11 @@ class RecoveryObservationsTests(unittest.TestCase):
             ("rejected", False),
             ("abandoned", False),
             ("finished_at", None),
-            ("stage", "terra"),
+            ("stage", "builder"),
         ):
             with self.subTest(key=key), patch.dict(self.record, {key: value}):
                 self.assertIsNone(self.retained())
-        self.assertIsNone(self.retained(stage="terra"))
+        self.assertIsNone(self.retained(stage="builder"))
         self.assertIsNone(self.retained(revision=None))
         for key in ("before_ref", "after_ref"):
             path = Path(self.record[key])
@@ -199,13 +199,13 @@ class RecoveryObservationsTests(unittest.TestCase):
 
     def test_an_ordinary_review_does_not_inherit_abandoned_observations(self):
         self.state.pop("recovery_context")
-        prompt, _ = planning.context(self.state, "astra_challenge", self.run / "state.json")
+        prompt, _ = planning.context(self.state, "review_plan", self.run / "state.json")
         self.assertNotIn('"retained_review_observations"', prompt)
 
     def test_explicit_abandonment_retains_observations_without_granting_report_recovery(self):
         self.state["recovery_context"] = {"attempt_id": "001/plan-challenge-02"}
         with patch.object(planning.stage_context.source_scope, "snapshot", return_value={"revision": "source-1"}):
-            prompt, _ = planning.context(self.state, "astra_challenge", self.run / "state.json")
+            prompt, _ = planning.context(self.state, "review_plan", self.run / "state.json")
         packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertIn("retained_review_observations", packet)
         self.assertNotIn("resolver_remediation", packet)

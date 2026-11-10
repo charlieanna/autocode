@@ -1211,7 +1211,7 @@ class CompactFixtureReviewTests(unittest.TestCase):
         reference = REFERENCE.parents[1] / "ladder-03-csv-validation-cli/reference"
         shutil.copytree(reference, self.root, dirs_exist_ok=True)
         self.data = {
-            "stage": "sol",
+            "stage": "tester",
             "regression_proof": {
                 "path": "proof.json",
                 "mutation_check": {
@@ -1322,7 +1322,7 @@ class CompactFixtureReviewTests(unittest.TestCase):
         for name, content in sources.items():
             (self.root / name).write_bytes(content)
         data = {
-            "stage": "sol",
+            "stage": "tester",
             "regression_proof": {
                 "path": "proof.json",
                 "changed_code_evidence": {

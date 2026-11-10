@@ -295,7 +295,7 @@ class OutputLimitTests(unittest.TestCase):
             "settings": {
                 "engine": "opencode",
                 "roles": {
-                    role: {"model": "fixture/" + role} for role in ("task_planner", "terra", "sol", "completion")
+                    role: {"model": "fixture/" + role} for role in ("task_planner", "builder", "tester", "completion")
                 },
             },
         }
@@ -324,7 +324,7 @@ class OutputLimitTests(unittest.TestCase):
         ):
             with self.assertRaises(support.Paused) as caught:
                 runner.run_role(
-                    role="terra",
+                    role="builder",
                     prompt="Fixture",
                     sandbox="workspace-write",
                     workspace=self.root,
@@ -346,7 +346,7 @@ class OutputLimitTests(unittest.TestCase):
         self.assertFalse(persisted["timed_out"])
         seconds = state["active_seconds"]
         self.assertEqual(approved, state["goal_contract"])
-        self.assertEqual("terra", state["next_stage"])
+        self.assertEqual("builder", state["next_stage"])
         self.assertFalse(runner.automatically_recover_timed_out_stage(state, self.run, self.root, caught.exception))
 
         with patch.object(runner, "assert_stage_stopped"), patch.object(runner.subprocess, "Popen") as popen:
@@ -361,10 +361,10 @@ class OutputLimitTests(unittest.TestCase):
                 runner.abandon_stage(state, self.run, self.root, runner.attempt_id(record))
             popen.assert_not_called()
         self.assertEqual("PAUSED_STAGE_ABANDONED", state["status"])
-        self.assertEqual("terra", state["next_stage"])
+        self.assertEqual("builder", state["next_stage"])
         self.assertEqual(approved, state["goal_contract"])
         self.assertNotIn("active_stage", state)
-        self.assertNotIn("terra", state["sessions"])
+        self.assertNotIn("builder", state["sessions"])
         archived = state["stages"][-1]
         self.assertTrue(archived["abandoned"])
         self.assertTrue(archived["rejected"])
@@ -410,12 +410,12 @@ class OutputLimitTests(unittest.TestCase):
             launch.assert_not_called()
         resumed = support.read(self.run / "state.json")
         self.assertEqual("RUNNING", resumed["status"])
-        self.assertEqual("terra", resumed["next_stage"])
+        self.assertEqual("builder", resumed["next_stage"])
         self.assertEqual(approved, resumed["goal_contract"])
         self.assertEqual([archived], resumed["stages"])
         self.assertEqual(seconds, resumed["active_seconds"])
         self.assertEqual([], resumed["history"])
-        self.assertNotIn("terra", resumed["sessions"])
+        self.assertNotIn("builder", resumed["sessions"])
         self.assertNotIn("validation", resumed)
         self.assertEqual("# retained unfinished implementation\n", partial.read_text())
 

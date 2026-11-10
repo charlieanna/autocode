@@ -160,7 +160,7 @@ class CoordinatedConversationCliTests(unittest.TestCase):
         amendment = textwrap.dedent(f"""
             with Path({str(calls)!r}).open('a') as log:
                 log.write(stage + (' conversation' if data.get('message') else '') + '\\n')
-            if stage == 'astra_discovery' and not Path({str(ready)!r}).exists():
+            if stage == 'draft_plan' and not Path({str(ready)!r}).exists():
                 Path({str(ready)!r}).write_text('ready')
                 with Path({str(gate)!r}).open() as signal:
                     signal.read()
@@ -257,9 +257,9 @@ class CoordinatedConversationCliTests(unittest.TestCase):
         else:
             self.fail(str(result["needs"]))
         events = calls.read_text().splitlines()
-        self.assertEqual(1, events.count("astra_discovery"), events)
+        self.assertEqual(1, events.count("draft_plan"), events)
         self.assertEqual(1, events.count("requirements_gather conversation"), events)
-        self.assertNotIn("terra", events)
+        self.assertNotIn("builder", events)
         approved = peer.status()["needs"]["token"]
         retry = invoke("message", "--request-id", "live-question", "--text", "Could we reuse the conversion?")
         self.assertTrue(retry["idempotent"])
@@ -277,7 +277,7 @@ class CoordinatedConversationCliTests(unittest.TestCase):
         amendment = textwrap.dedent(f"""
             with Path({str(calls)!r}).open('a') as log:
                 log.write(stage + (' conversation' if data.get('message') else '') + '\\n')
-            if stage == 'astra_discovery':
+            if stage == 'draft_plan':
                 report['workspace_scope'] = {{'spans_repositories': True, 'external_parts': [{{
                     'target': 'history', 'work': 'Preserve the history result',
                     'source_quote': 'history', 'evidence': ''}}]}}
@@ -385,9 +385,9 @@ class CoordinatedConversationCliTests(unittest.TestCase):
         self.assertTrue(retry["idempotent"])
         self.assertEqual(result["conversation"]["results"], invoke("status")["conversation"]["results"])
         events = calls.read_text().splitlines()
-        self.assertEqual(1, events.count("astra_discovery"), events)
+        self.assertEqual(1, events.count("draft_plan"), events)
         self.assertEqual(1, events.count("requirements_gather conversation"), events)
-        self.assertNotIn("terra", events)
+        self.assertNotIn("builder", events)
 
     def test_question_preserves_plans_and_change_delivers_only_original_text_with_fresh_review(self):
         workspace, env = fixture_workspace(self)

@@ -88,7 +88,7 @@ class VisualRuntimeTests(unittest.TestCase):
             "workspace": str(self.root),
             "settings": {
                 "design_manifest": {"root": str(exports), "body": body, "manifest_hash": util.digest(body)},
-                "roles": {"sol": {"engine": "opencode", "provider": None, "model": "openai/reviewer"}},
+                "roles": {"tester": {"engine": "opencode", "provider": None, "model": "openai/reviewer"}},
             },
             "current_task": {"id": "T1"},
             "acceptance_criteria": deepcopy(criteria),
@@ -99,8 +99,8 @@ class VisualRuntimeTests(unittest.TestCase):
         with patch.object(util, "snapshot", side_effect=lambda root: self.snapshot()):
             self.captures = {case["id"]: make_capture(self.root, util.digest(body), case) for case in cases}
         self.builder = {
-            "stage": "terra",
-            "role": "terra",
+            "stage": "builder",
+            "role": "builder",
             "engine": "opencode",
             "task_id": "T1",
             "exit_code": 0,
@@ -117,13 +117,13 @@ class VisualRuntimeTests(unittest.TestCase):
         )
         util.atomic_json(Path(self.builder["output"]), {"status": "BUILT_NOT_VISUALLY_ACCEPTED"})
         self.state["stages"].append(self.builder)
-        self.command = ["opencode", "run", "--model", "openai/reviewer", "--agent", "autocode_sol"]
+        self.command = ["opencode", "run", "--model", "openai/reviewer", "--agent", "autocode_tester"]
         self.env = {
             "OPENCODE_CONFIG_CONTENT": json.dumps({"permission": {"read": "deny", "bash": {"*": "deny"}}}),
             "HOME": "/original/home",
             "SOME_AUTH_ENV": "fixture-unchanged-never-written",
         }
-        self.base = self.run / "sol"
+        self.base = self.run / "tester"
         self.proof = self.run / "qualified-config.json"
         self.proof.write_text('{"test_only":true}')
         self.limits = {"width": 2, "height": 1, "pixels": 2, "bytes": 4096}
@@ -162,7 +162,7 @@ class VisualRuntimeTests(unittest.TestCase):
         options = {"launch_authority": self.qualified_config, "current_snapshot": self.snapshot(), **options}
         return visual.prepare(
             self.state,
-            "sol",
+            "tester",
             self.root,
             self.run,
             self.base,
@@ -248,7 +248,7 @@ class VisualRuntimeTests(unittest.TestCase):
         self.assertEqual("READY", context["status"])
         self.assertEqual(str(self.run / "qualified-home"), environment["HOME"])
         self.assertEqual(visual.delivery.SESSION_MAX_REQUESTS, context["audit_options"]["max_requests"])
-        self.assertEqual("autocode_sol", context["audit_options"]["reviewer"]["agent"])
+        self.assertEqual("autocode_tester", context["audit_options"]["reviewer"]["agent"])
         self.assertNotIn("fixture-unchanged-never-written", Path(context["launch_manifest"]).read_text())
         visual.verify_prelaunch(
             context, self.state, run_dir=self.run, current_snapshot=self.snapshot(), command=command, env=environment
@@ -321,8 +321,8 @@ class VisualRuntimeTests(unittest.TestCase):
             context, self.state, run_dir=self.run, current_snapshot=self.snapshot(), command=command, env=env, **options
         )
         self.record = {
-            "stage": "sol",
-            "role": "sol",
+            "stage": "tester",
+            "role": "tester",
             "engine": "opencode",
             "exit_code": 0,
             "task_id": "T1",
@@ -331,7 +331,7 @@ class VisualRuntimeTests(unittest.TestCase):
             "source_revision": self.snapshot()["revision"],
             "expected_session": None,
             "thread_id": "reviewer-session",
-            "launch_route": deepcopy(self.state["settings"]["roles"]["sol"]),
+            "launch_route": deepcopy(self.state["settings"]["roles"]["tester"]),
             "events": str(self.run / "sol.jsonl"),
             "output": str(self.run / "sol.json"),
             "before_ref": str(self.run / "sol.before.json"),
@@ -723,7 +723,7 @@ class VisualRuntimeTests(unittest.TestCase):
             workflow=SimpleNamespace(enabled=Mock(return_value=False)),
             milestones=SimpleNamespace(),
             escalation=SimpleNamespace(),
-            dispatch=SimpleNamespace(build_stage=Mock(return_value="terra")),
+            dispatch=SimpleNamespace(build_stage=Mock(return_value="builder")),
             now=lambda: "controlled time",
             write_json=Mock(),
             save_record=Mock(),
@@ -755,9 +755,9 @@ class VisualRuntimeTests(unittest.TestCase):
             autopilot.apply_result(
                 runtime,
                 self.state,
-                "astra_review",
+                "review_completion",
                 value,
-                {"stage": "astra_review", "output": str(self.run / "completion-review.json")},
+                {"stage": "review_completion", "output": str(self.run / "completion-review.json")},
                 self.root,
                 None,
             )
@@ -791,11 +791,11 @@ class VisualRuntimeTests(unittest.TestCase):
                     self.scope_calls.clear()
                     assign = self.continue_through_controller(native)
                     if shortcut:
-                        self.assertEqual("astra_review", self.state["next_stage"])
+                        self.assertEqual("review_completion", self.state["next_stage"])
                         self.assertEqual(self.snapshot()["revision"], self.state["completion_sent_back"])
                         assign.assert_not_called()
                     else:
-                        self.assertEqual("terra", self.state["next_stage"])
+                        self.assertEqual("builder", self.state["next_stage"])
                         self.assertNotIn("completion_sent_back", self.state)
                         assign.assert_called_once()
                     # The controller consulted the factory's authority with the fresh source, and only it.
@@ -848,7 +848,7 @@ class VisualRuntimeTests(unittest.TestCase):
     def test_scoped_functional_pass_not_ready_holds_but_failure_keeps_bounded_rework(self):
         self.install_test_only_scope()
         context = {"status": "NOT_READY", "reason": "Missing required capture"}
-        record = {"stage": "sol", "visual_runtime": context}
+        record = {"stage": "tester", "visual_runtime": context}
         with self.owned_fixture_snapshot(), patch.object(visual.delivery, "verify") as delivery:
             self.assert_blocked(
                 lambda: visual.accept_review(
@@ -1298,7 +1298,7 @@ class VisualRuntimeTests(unittest.TestCase):
             ("truncated_output", True),
             ("expected_session", "foreign"),
             ("thread_id", "builder-session"),
-            ("role", "terra"),
+            ("role", "builder"),
             ("launch_route", {"engine": "opencode", "model": "model-report-claims-sol"}),
             ("contract_hash", "a" * 64),
             ("source_revision", "b" * 64),
@@ -1333,7 +1333,7 @@ class VisualRuntimeTests(unittest.TestCase):
                 if change == "record":
                     self.state["stages"][-1]["exit_code"] = 1
                 if change == "route":
-                    self.state["settings"]["roles"]["sol"]["model"] = "other/model"
+                    self.state["settings"]["roles"]["tester"]["model"] = "other/model"
                 if change == "source":
                     (self.root / "greet.py").write_text("changed source\n")
                 with (
@@ -1423,7 +1423,7 @@ class VisualRuntimeTests(unittest.TestCase):
         self.assert_blocked(self.accept)
 
     def test_only_exported_actual_sol_boundary_is_in_scope(self):
-        for stage in ("terra", "sol_report_repair", "astra_checkpoint", "review_change"):
+        for stage in ("builder", "tester_report_repair", "review_checkpoint", "review_change"):
             self.assertEqual(
                 (None, self.command, self.env, "p"),
                 visual.prepare(self.state, stage, self.root, self.run, self.base, self.command, self.env, "p"),
@@ -1458,7 +1458,7 @@ class VisualRuntimeTests(unittest.TestCase):
                     visual.accept_review(
                         None,
                         self.state,
-                        {"stage": "sol"},
+                        {"stage": "tester"},
                         run_dir=self.run,
                         current_snapshot=self.snapshot(),
                         accepted_validation={},
@@ -1486,7 +1486,7 @@ class VisualRuntimeTests(unittest.TestCase):
                         visual.accept_review(
                             None,
                             self.state,
-                            {"stage": "sol", "visual_runtime": context},
+                            {"stage": "tester", "visual_runtime": context},
                             run_dir=self.run,
                             current_snapshot=self.snapshot(),
                             accepted_validation={"verdict": "PASS"},
@@ -1532,7 +1532,7 @@ class VisualRuntimeTests(unittest.TestCase):
     def functional_launcher(self, *, before_admission=None):
         # The real common launcher and reference/capture policies are exercised.
         # Only provider/containment dependencies are stubbed; no client is run.
-        self.state.update(iteration=1, sessions={}, next_stage="sol", version=2)
+        self.state.update(iteration=1, sessions={}, next_stage="tester", version=2)
         self.state["settings"].update(transport_identity={"fixture": True})
         schema = self.run / "functional-schema.json"
         util.atomic_json(schema, {"type": "object", "required": [], "properties": {}})
@@ -1564,7 +1564,7 @@ class VisualRuntimeTests(unittest.TestCase):
                     state=self.state,
                     workspace=self.root,
                     run_dir=self.run,
-                    role="sol",
+                    role="tester",
                     sandbox="read-only",
                     schema=schema,
                     prompt="Functional validation only",
@@ -1588,7 +1588,7 @@ class VisualRuntimeTests(unittest.TestCase):
                     state=self.state,
                     workspace=self.root,
                     run_dir=self.run,
-                    role="sol",
+                    role="tester",
                     sandbox="read-only",
                     schema=schema,
                     prompt="Functional validation only",
@@ -1617,7 +1617,7 @@ class VisualRuntimeTests(unittest.TestCase):
             "external root": lambda: self.state["settings"]["design_manifest"].update(root=str(self.root.parent)),
             "symlinked root": lambda: self.state["settings"]["design_manifest"].update(root=str(alias)),
         }
-        self.state.update(iteration=1, sessions={}, next_stage="sol")
+        self.state.update(iteration=1, sessions={}, next_stage="tester")
         for label, change in changes.items():
             with self.subTest(label=label):
                 self.state["settings"]["design_manifest"] = deepcopy(record)
@@ -1632,7 +1632,7 @@ class VisualRuntimeTests(unittest.TestCase):
                         state=self.state,
                         workspace=self.root,
                         run_dir=self.run,
-                        role="sol",
+                        role="tester",
                         sandbox="read-only",
                         schema=self.run / "unused-schema.json",
                         prompt="Retained reference integrity",
@@ -1657,7 +1657,7 @@ class VisualRuntimeTests(unittest.TestCase):
                     state=self.state,
                     workspace=self.root,
                     run_dir=self.run,
-                    role="sol",
+                    role="tester",
                     sandbox="read-only",
                     schema=schema,
                     prompt="Retained reference integrity",
@@ -1671,7 +1671,7 @@ class VisualRuntimeTests(unittest.TestCase):
 
     def test_common_launcher_holds_missing_manifest_before_provider_preparation(self):
         self.state["settings"].pop("design_manifest")
-        self.state.update(iteration=1, sessions={}, next_stage="sol")
+        self.state.update(iteration=1, sessions={}, next_stage="tester")
         with (
             patch.object(autocode.provider_launch, "prepare") as prepare,
             patch.object(autocode.subprocess, "Popen") as popen,
@@ -1681,7 +1681,7 @@ class VisualRuntimeTests(unittest.TestCase):
                 state=self.state,
                 workspace=self.root,
                 run_dir=self.run,
-                role="sol",
+                role="tester",
                 sandbox="read-only",
                 schema=self.run / "unused-schema.json",
                 prompt="No visual manifest",
@@ -1801,7 +1801,7 @@ if design:
         declaration = 'VISUAL_CASE_CRITERIA=' + json.dumps(mapping, sort_keys=True)
         result['contract']['constraints'] = [row for row in result['contract']['constraints']
             if not row.startswith('VISUAL_CASE_CRITERIA=')] + [declaration]
-    if stage in ('sol', 'astra_checkpoint'):
+    if stage in ('tester', 'review_checkpoint'):
         result['design_manifest_hash'] = design['manifest_hash']
         result['design_results'] = [dict(id=case['id'], status='NOT_VERIFIED',
             criterion_ids=['C2' if mode == 'milestones' and index == 1 else 'C1'],
@@ -1930,7 +1930,7 @@ from tests.visual_capture_fixtures import make_capture
 from unittest.mock import patch
 original_prepare = visual.prepare
 def observe_prepare(state, stage, workspace, run_dir, base, command, env, prompt, **options):
-    if stage != 'sol':
+    if stage != 'tester':
         return original_prepare(state, stage, workspace, run_dir, base, command, env, prompt, **options)
     record = state['settings']['design_manifest']
     snapshot = source_scope.snapshot(workspace, state)
@@ -1991,9 +1991,9 @@ with patch.object(visual, 'prepare', observe_prepare):
         view = run.advance_until_input()
         self.assertFalse(view["done"], view)
         stages = self.launched_stages()
-        self.assertGreaterEqual(stages.count("sol"), 2, (stages, view["status"], view["stop_reason"]))
-        self.assertGreaterEqual(stages.count("terra"), 2, stages)
-        self.assertIn("astra_review", stages)
+        self.assertGreaterEqual(stages.count("tester"), 2, (stages, view["status"], view["stop_reason"]))
+        self.assertGreaterEqual(stages.count("builder"), 2, stages)
+        self.assertIn("review_completion", stages)
         self.assertTrue((self.project / "bye.py").is_file(), view)
         self.assertEqual(["empty", "filled"], view["design"]["not_passing"])
         self.assertIsNone(view["design"]["current_visual_acceptance"])
@@ -2007,8 +2007,8 @@ with patch.object(visual, 'prepare', observe_prepare):
         view = run.advance_until_input()
         self.assertFalse(view["done"], view)
         stages = self.launched_stages()
-        self.assertGreaterEqual(stages.count("sol"), 2, (stages, view["status"], view["stop_reason"]))
-        self.assertGreaterEqual(stages.count("terra"), 2, stages)
+        self.assertGreaterEqual(stages.count("tester"), 2, (stages, view["status"], view["stop_reason"]))
+        self.assertGreaterEqual(stages.count("builder"), 2, stages)
         validations = [
             json.loads(path.read_text())
             for path in sorted(run.run_dir.glob("iterations/*/validator-*.json"))
@@ -2093,7 +2093,7 @@ TRANSPORT_HOLD = """
             + repr(transport_hold)
             + """
 def observe_prepare(state, stage, workspace, run_dir, base, command, env, prompt, **options):
-    if stage != 'sol':
+    if stage != 'tester':
         return original_prepare(state, stage, workspace, run_dir, base, command, env, prompt, **options)
     task = state['current_task']
     initial = state['goal_contract']['body']['initial_task']
@@ -2120,7 +2120,7 @@ def observe_prepare(state, stage, workspace, run_dir, base, command, env, prompt
            'transport_calls': calls,
            'inputs_unchanged': (argv, environment, returned_prompt) == (command, env, prompt),
            'task_and_contract_unchanged': stable == util.digest({'task': task, 'contract': state['goal_contract']}),
-           'no_builder': not any(item.get('stage') == 'terra' or item.get('role') in ('terra', 'builder')
+           'no_builder': not any(item.get('stage') == 'builder' or item.get('role') in ('builder', 'builder')
                                  for item in state.get('stages', [])),
            'no_visual_receipts': not state.get('visual_acceptance_receipts')}
     with Path("""
@@ -2174,7 +2174,7 @@ with patch.object(visual, 'prepare', observe_prepare):
         self.assertTrue(first["inputs_unchanged"], first)
         self.assertTrue(first["task_and_contract_unchanged"], first)
         self.assertTrue(first["no_visual_receipts"], first)
-        self.assertNotIn("terra", self.launched_stages())
+        self.assertNotIn("builder", self.launched_stages())
         self.assertEqual(seeded, {name: util.file_hash(self.project / name) for name in seeded})
         self.assertFalse(view["done"], view)
         self.assertIsNone(view["design"]["current_visual_acceptance"])

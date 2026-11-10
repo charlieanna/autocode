@@ -32,7 +32,7 @@ def assert_unchanged_review(record, *, workspace=None):
     """Refuse a read-only native OpenCode report after any recorded source drift."""
     if (
         not records_native_snapshots(record.get("engine"), record.get("output_mode", "opencode_events"))
-        or (record.get("role") == "terra" and not record.get("report_only"))
+        or (record.get("role") == "builder" and not record.get("report_only"))
         or (record.get("stage") in stage_access.WRITING_JOBS and not record.get("report_only"))
     ):
         return

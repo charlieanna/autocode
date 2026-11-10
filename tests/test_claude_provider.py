@@ -66,12 +66,12 @@ class SurfaceTests(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            {"requirements", "planner", "plan_reviewer", "terra", "sol", "completion", "task_planner"},
+            {"requirements", "planner", "plan_reviewer", "builder", "tester", "completion", "task_planner"},
             set(claude.DEFAULT_MODELS),
         )
         self.assertEqual(set(claude.DEFAULT_MODELS), set(claude.DEFAULT_REASONING_EFFORTS))
         self.assertLessEqual(set(claude.DEFAULT_MODELS.values()), set(claude.LISTED_MODELS))
-        self.assertEqual("claude-haiku-4-5-20251001", claude.DEFAULT_MODELS["terra"])
+        self.assertEqual("claude-haiku-4-5-20251001", claude.DEFAULT_MODELS["builder"])
         for absent in ("parse_opencode_version", "transport_version", "openai_auth", "configuration_inputs"):
             self.assertFalse(hasattr(claude, absent), absent)
         policy = builder_policy.configured(None, claude)
@@ -83,7 +83,7 @@ class SurfaceTests(unittest.TestCase):
 class LaunchTests(FakeClaude, unittest.TestCase):
     def launch(self, *, allow_write, planning=False, sandbox=None, session=None, model="claude-haiku-4-5-20251001"):
         return claude.launch(
-            "terra",
+            "builder",
             self.workspace,
             self.root / "run",
             session,
@@ -147,7 +147,7 @@ class LaunchTests(FakeClaude, unittest.TestCase):
     def test_launch_refuses_before_any_request(self):
         with self.assertRaisesRegex(ValueError, "reasoning effort must be one of"):
             claude.launch(
-                "terra",
+                "builder",
                 self.workspace,
                 self.root,
                 None,
@@ -158,12 +158,12 @@ class LaunchTests(FakeClaude, unittest.TestCase):
                 env=self.env(),
             )
         with self.assertRaisesRegex(ValueError, "needs a model"):
-            claude.launch("terra", self.workspace, self.root, None, "", "medium", True, schema="s", env=self.env())
+            claude.launch("builder", self.workspace, self.root, None, "", "medium", True, schema="s", env=self.env())
         with self.assertRaisesRegex(ValueError, "needs a report schema"):
-            claude.launch("terra", self.workspace, self.root, None, "claude-opus-5-5", None, True, env=self.env())
+            claude.launch("builder", self.workspace, self.root, None, "claude-opus-5-5", None, True, env=self.env())
         with self.assertRaisesRegex(RuntimeError, "claude is not on PATH; no provider request was launched"):
             claude.launch(
-                "terra",
+                "builder",
                 self.workspace,
                 self.root,
                 None,
@@ -432,7 +432,7 @@ class LoginTests(FakeClaude, unittest.TestCase):
         self.assertEqual([["claude", "--version"], ["claude", "auth", "status", "--json"]], calls)
 
     def test_the_subscription_route_check_is_the_login_check(self):
-        roles = {"terra": {"model": "claude-haiku-4-5-20251001"}}
+        roles = {"builder": {"model": "claude-haiku-4-5-20251001"}}
         self.assertTrue(claude.check_subscription_routes(roles, self.workspace, env=self.env())["loggedIn"])
         with self.assertRaisesRegex(RuntimeError, "not logged in"):
             claude.check_subscription_routes(roles, self.workspace, env=self.env(FAKE_AUTH='{"loggedIn": false}'))
@@ -440,12 +440,12 @@ class LoginTests(FakeClaude, unittest.TestCase):
 
 class ModelTests(unittest.TestCase):
     def test_unlisted_models_and_unknown_efforts_are_refused(self):
-        claude.check_models({"terra": {"model": "claude-haiku-4-5-20251001", "reasoning_effort": "max"}})
+        claude.check_models({"builder": {"model": "claude-haiku-4-5-20251001", "reasoning_effort": "max"}})
         with self.assertRaisesRegex(RuntimeError, "Models unavailable in claude: openai/gpt-6-sol"):
-            claude.check_models({"sol": {"model": "openai/gpt-6-sol"}})
+            claude.check_models({"tester": {"model": "openai/gpt-6-sol"}})
         with self.assertRaisesRegex(RuntimeError, "reasoning effort must be one of low, medium, high, xhigh, max"):
-            claude.check_models({"sol": {"model": "claude-sonnet-5-5", "reasoning_effort": "extreme"}})
-        claude.check_models({"sol": {"model": "claude-next"}}, inventory={"claude-next"})
+            claude.check_models({"tester": {"model": "claude-sonnet-5-5", "reasoning_effort": "extreme"}})
+        claude.check_models({"tester": {"model": "claude-next"}}, inventory={"claude-next"})
         self.assertEqual(sorted(claude.LISTED_MODELS), claude.list_models())
         self.assertEqual(set(claude.LISTED_MODELS), claude.available_models())
 

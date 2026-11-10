@@ -29,7 +29,7 @@ class RecoveryReportCompatibility(unittest.TestCase):
         util.atomic_json(root / "schema.json", schema)
         util.atomic_json(root / "report.json", report)
         record = {
-            "stage": "astra_diagnose",
+            "stage": "diagnose",
             "engine": "codex",
             "output": str(root / "report.json"),
             "schema": str(root / "schema.json"),
@@ -65,7 +65,7 @@ class RecoveryReportCompatibility(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "report.json"
             identity = {"contract_revision": 7, "contract_hash": "approved", "task_id": "repair-task"}
-            packet = {"report_repair": True, "original": {"stage": "sol"}, "report_identity": identity}
+            packet = {"report_repair": True, "original": {"stage": "tester"}, "report_identity": identity}
             with (
                 mock.patch("sys.argv", ["codex", "-o", str(output)]),
                 mock.patch("sys.stdin", io.StringIO("CURRENT HANDOFF DATA\n" + json.dumps(packet))),

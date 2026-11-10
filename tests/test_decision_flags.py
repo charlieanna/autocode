@@ -34,7 +34,7 @@ class DecisionFlagTests(unittest.TestCase):
         for flag in ("--skip-requirements", "--skip-to-build", "--allow-uncontained-tools", "--accept-source-edit"):
             self.assertIn(flag, flags.DECISION_FLAGS)
         self.assertIn("--planning-review-call-limit", flags.DECISION_FLAGS)
-        for flag in ("--max-seconds", "--unlimited-iterations", "--no-progress-limit", "--terra-model"):
+        for flag in ("--max-seconds", "--unlimited-iterations", "--no-progress-limit", "--builder-model"):
             self.assertIn(flag, flags.START_FLAGS)
 
     def test_triage_flow_switches_configure_start_without_recording_a_decision(self):

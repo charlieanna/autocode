@@ -39,15 +39,15 @@ class RetainedRepairFlow(unittest.TestCase):
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
         self.launch(["Build greeting", "--chat"], 2 if broken else 0, answers="CLI\nyes\n")
         stages = [json.loads(line)["stage"] for line in probe.read_text().splitlines()]
-        self.assertGreaterEqual(stages.count("sol"), 2)
+        self.assertGreaterEqual(stages.count("tester"), 2)
         run = next((self.project / ".autocode/runs").iterdir())
         status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
         return status, stages
 
     def test_new_assignment_reviews_retained_work_without_another_source_edit(self):
         status, stages = self.run_retained_candidate()
-        self.assertEqual(2, stages.count("terra"))
-        self.assertEqual(2, stages.count("sol"))
+        self.assertEqual(2, stages.count("builder"))
+        self.assertEqual(2, stages.count("tester"))
         self.assertEqual("TASK_COMPLETE", status["status"])
         self.assertTrue(status["done"])
 

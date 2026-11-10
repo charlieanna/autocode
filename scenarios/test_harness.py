@@ -320,7 +320,7 @@ class DriverFlagTests(unittest.TestCase):
             "claude-sonnet-5-5",
             "--builder-strong-model=claude-opus-5-5",
             "--workflow=build",
-            "--terra-model",
+            "--builder-model",
             "claude-haiku",
             "--package",
             "packages/greet/",
@@ -336,7 +336,7 @@ class DriverFlagTests(unittest.TestCase):
         # The CLI refuses --builder-strong-model, --workflow and --package on a saved run, so a resume never
         # repeats them.
         self.assertEqual(
-            ["--provider", "claude", "--terra-model", "claude-haiku", "--resume-paused"],
+            ["--provider", "claude", "--builder-model", "claude-haiku", "--resume-paused"],
             then[then.index("--no-chat") + 1 :],
         )
         self.assertEqual(flags, driver.flags)
@@ -926,7 +926,7 @@ class HarnessAttemptTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "attempt"
             self.admission(root)
-            row = {"stage": "terra", "tokens": {"input_tokens": {"known": 1, "total": 1}}, "note": "x" * 4000}
+            row = {"stage": "builder", "tokens": {"input_tokens": {"known": 1, "total": 1}}, "note": "x" * 4000}
             usage = {
                 "cost_usd": {"reported": 9.3, "complete": True},
                 "accounting": {
@@ -1257,7 +1257,7 @@ class DriverStatusObservationTests(unittest.TestCase):
             "done": need is None,
             "needs": need,
             "status": status,
-            "next_stage": "sol",
+            "next_stage": "tester",
             "iteration": iteration,
             "phase": "build",
             "usage": {"tokens": iteration},
@@ -1348,7 +1348,7 @@ class DriverStatusObservationTests(unittest.TestCase):
         self.assertEqual(["--approve-goal", "reviewed-plan"], self.driver.steps[-1]["args"])
 
     def test_explicit_answer_and_resume_mutations_each_require_a_new_observation(self):
-        self.driver.explicit_answers = {"route-sol": "gpt-6-sol"}
+        self.driver.explicit_answers = {"route-tester": "gpt-6-sol"}
         before = self.snapshot("RUNNING", {"kind": "continue"})
         question = self.snapshot(
             "AWAITING_RESOLVER",
@@ -1356,7 +1356,7 @@ class DriverStatusObservationTests(unittest.TestCase):
                 "kind": "answer",
                 "resolver_scope": "operational_exhaustion",
                 "resolver_token": "request",
-                "questions": [{"id": "route-sol", "proposed_default": "No default."}],
+                "questions": [{"id": "route-tester", "proposed_default": "No default."}],
             },
         )
         paused = self.snapshot("PAUSED_INTERVENTION", {"kind": "resume"}, iteration=2)
@@ -1433,13 +1433,13 @@ class DriverAnswerTests(unittest.TestCase):
         "kind": "answer",
         "resolver_scope": "operational_exhaustion",
         "resolver_token": "token",
-        "questions": [{"id": "route-sol", "proposed_default": "", "options": []}],
-        "route": {"question_id": "route-sol", "role": "sol"},
+        "questions": [{"id": "route-tester", "proposed_default": "", "options": []}],
+        "route": {"question_id": "route-tester", "role": "tester"},
     }
 
     def views(self, *needs):
         return [
-            {"done": need is None, "needs": need, "status": "S", "next_stage": "sol", "iteration": 1, "phase": "P"}
+            {"done": need is None, "needs": need, "status": "S", "next_stage": "tester", "iteration": 1, "phase": "P"}
             for need in needs
         ]
 
@@ -1526,12 +1526,12 @@ class DriverAnswerTests(unittest.TestCase):
         driver = Driver(
             Path.cwd(),
             Path.cwd(),
-            ["--sol-model", "gpt-5.6-sol"],
+            ["--tester-model", "gpt-5.6-sol"],
             {},
             autocode=[],
             max_steps=5,
             timeout_seconds=60,
-            explicit_answers=(("route-sol", "gpt-6-luna"),),
+            explicit_answers=(("route-tester", "gpt-6-luna"),),
         )
         resume = {"kind": "resume", "reason": "Partial work retained"}
         with (
@@ -1541,12 +1541,12 @@ class DriverAnswerTests(unittest.TestCase):
             self.assertTrue(driver.until_stopped()["done"])
         self.assertEqual(
             [
-                (("answer", "--answer", "route-sol=gpt-6-luna", "--resolver-token", "token"), {"action": True}),
+                (("answer", "--answer", "route-tester=gpt-6-luna", "--resolver-token", "token"), {"action": True}),
                 (("resume", "--resume-paused"), {}),
             ],
             [(c.args, c.kwargs) for c in call.call_args_list],
         )
-        self.assertEqual(["--sol-model", "gpt-6-luna"], driver.flags, "the old model is never passed back")
+        self.assertEqual(["--tester-model", "gpt-6-luna"], driver.flags, "the old model is never passed back")
         self.assertTrue(driver.answers[0]["explicit"])
         with patch.object(driver, "call") as call, patch.object(driver, "view", side_effect=self.views(resume)):
             self.assertEqual(resume, driver.until_stopped()["needs"])
@@ -2610,7 +2610,7 @@ class RunChecksTests(unittest.TestCase):
         run_record = {
             "view": {"workflow": None},
             "cli_calls": ["start", "approve-plan", "resume"],
-            "stages": ["requirements_gather", "astra_discovery", "terra", "sol"],
+            "stages": ["requirements_gather", "draft_plan", "builder", "tester"],
             "answers": [],
         }
         failed = {
@@ -2632,7 +2632,7 @@ class RunChecksTests(unittest.TestCase):
         run_record = {
             "view": {"workflow": "review"},
             "cli_calls": ["start", "resume"],
-            "stages": ["requirements_gather", "review_change", "sol"],
+            "stages": ["requirements_gather", "review_change", "tester"],
             "answers": [],
         }
         self.assertTrue(
@@ -2647,11 +2647,11 @@ class RunChecksTests(unittest.TestCase):
     def test_requirements_runs_once_and_first(self):
         """Every flow starts at Requirements, which names the job (owner decision 2026-10-22, #1860)."""
         for stages, ok in (
-            (["requirements_gather", "investigate_bug", "astra_discovery"], True),
+            (["requirements_gather", "investigate_bug", "draft_plan"], True),
             (["requirements_gather", "requirements_gather_report_repair", "investigate_bug", "orchestrator"], True),
             (["recognize_workflow", "requirements_gather", "investigate_bug"], False),
-            (["investigate_bug", "astra_discovery"], False),
-            (["requirements_gather", "investigate_bug", "requirements_gather", "astra_discovery"], False),
+            (["investigate_bug", "draft_plan"], False),
+            (["requirements_gather", "investigate_bug", "requirements_gather", "draft_plan"], False),
         ):
             with self.subTest(stages=stages):
                 run_record = {"view": {"workflow": "bugfix"}, "stages": stages, "answers": []}
@@ -2663,11 +2663,11 @@ class RunChecksTests(unittest.TestCase):
             "view": {"workflow": "bugfix"},
             "cli_calls": ["start", "approve-plan", "resume"],
             "steps": [{"kind": "approve-plan", "exit": 0}],
-            "stages": ["investigate_bug", "astra_discovery", "astra_challenge", "terra"],
+            "stages": ["investigate_bug", "draft_plan", "review_plan", "builder"],
             "answers": [],
         }
         self.assertTrue(all(c.ok for c in oracle.run_checks(planned, workflow="bugfix", plan_approved=True)))
-        small = {**planned, "cli_calls": ["start", "resume"], "steps": [], "stages": ["investigate_bug", "terra"]}
+        small = {**planned, "cli_calls": ["start", "resume"], "steps": [], "stages": ["investigate_bug", "builder"]}
         failed = {c.name for c in oracle.run_checks(small, workflow="bugfix", plan_approved=True) if not c.ok}
         self.assertEqual({"plan_reviewed", "plan_approved_by_user"}, failed)
 
@@ -2678,7 +2678,7 @@ class RunChecksTests(unittest.TestCase):
                     "view": {"workflow": "build"},
                     "cli_calls": ["start", "approve-plan"],
                     "steps": steps,
-                    "stages": ["astra_challenge", "glm_revise"],
+                    "stages": ["review_plan", "revise_plan"],
                 }
                 checks = {row.name: row for row in oracle.run_checks(run, workflow="build", plan_approved=True)}
                 self.assertFalse(checks["plan_approved_by_user"].ok)
@@ -2688,7 +2688,7 @@ class RunChecksTests(unittest.TestCase):
             "view": {"workflow": "build", "done": True, "status": "COMPLETE"},
             "cli_calls": ["start", "approve-plan", "resume"],
             "steps": [{"kind": "approve-plan", "exit": 0}],
-            "stages": ["astra_challenge", "glm_revise", "terra"],
+            "stages": ["review_plan", "revise_plan", "builder"],
         }
         checks = oracle.run_checks(run, workflow="build", plan_approved=True)
         self.assertTrue(all(row.ok for row in checks))
@@ -2702,12 +2702,12 @@ class RunChecksTests(unittest.TestCase):
                 "requirements_gather",
                 "investigate_bug",
                 "orchestrator",
-                "terra",
+                "builder",
                 "regression_proof",
-                "sol",
-                "astra_review",
+                "tester",
+                "review_completion",
             ],
-            "model_stages": ["requirements_gather", "investigate_bug", "terra", "sol", "astra_review"],
+            "model_stages": ["requirements_gather", "investigate_bug", "builder", "tester", "review_completion"],
         }
         (check,) = [
             c for c in oracle.run_checks(run_record, workflow="bugfix", max_model_stages=5) if c.name == "stage_budget"
@@ -2735,7 +2735,7 @@ class MonorepoPackageOracleTests(unittest.TestCase):
             record = {
                 "status": "RESOLVER_PENDING",
                 "view": {"workflow": "build", "package": package, "evidence": {"findings": findings}},
-                "stages": ["astra_challenge", "terra", "sol", "astra_review"],
+                "stages": ["review_plan", "builder", "tester", "review_completion"],
                 "steps": [{"kind": "approve-plan", "exit": 0}],
             }
             result = verdict.evaluate(scenario, project, record)
@@ -2783,7 +2783,7 @@ class BugfixMonorepoPackageOracleTests(unittest.TestCase):
 
     FINDING = "Files outside the package packages/invoices/ changed: "
     NOTE = "docs/bugs/scripted-diagnosis.json"
-    STAGES = ["requirements_gather", "investigate_bug", "astra_discovery", "astra_challenge", "terra", "sol"]
+    STAGES = ["requirements_gather", "investigate_bug", "draft_plan", "review_plan", "builder", "tester"]
 
     def score(self, overlay, findings, stages=STAGES, package="packages/invoices", model_stages=None, extra=()):
         from harness.project import materialize
@@ -2822,7 +2822,7 @@ class BugfixMonorepoPackageOracleTests(unittest.TestCase):
             ([], False),
             # The finding must name the file, and come from the runner.
             ([self.finding("packages/search/test_pager.py (modified). A --package run may change only")], False),
-            ([{**self.finding(search), "source": "sol"}], False),
+            ([{**self.finding(search), "source": "tester"}], False),
         ):
             with self.subTest(findings=findings):
                 checks = self.score("broken/fixes-search-copy-too", findings)
@@ -2856,9 +2856,9 @@ class BugfixMonorepoPackageOracleTests(unittest.TestCase):
             (["requirements_gather", "requirements_gather_report_repair", *self.STAGES[1:]], None, True),
             # A runner-owned record is not a model stage.
             (["requirements_gather", "model_preflight", *self.STAGES[1:]], self.STAGES, True),
-            (["requirements_gather", "astra_discovery", "investigate_bug", "terra"], None, False),
-            (self.STAGES, ["requirements_gather", "astra_discovery", "investigate_bug"], False),
-            (["requirements_gather", "astra_discovery", "terra"], None, False),
+            (["requirements_gather", "draft_plan", "investigate_bug", "builder"], None, False),
+            (self.STAGES, ["requirements_gather", "draft_plan", "investigate_bug"], False),
+            (["requirements_gather", "draft_plan", "builder"], None, False),
         ):
             with self.subTest(stages=stages, model_stages=model_stages):
                 checks = self.score("reference", [], stages=stages, model_stages=model_stages)
@@ -2881,7 +2881,7 @@ class ProgressiveLearningOracleTests(unittest.TestCase):
                 "workflow": "build",
                 "progressive": {"demonstrated_slices": demonstrated, "current_whole_product_proof": proof},
             },
-            "stages": ["astra_challenge", "glm_revise", "terra", "sol", "astra_review"],
+            "stages": ["review_plan", "revise_plan", "builder", "tester", "review_completion"],
             "cli_calls": ["start", "approve-plan", "resume"],
             "steps": [{"kind": "approve-plan", "exit": 0}],
         }
@@ -2950,25 +2950,21 @@ class ExercisedTests(unittest.TestCase):
     """`[run] requires_stages` (issue #59): a run that never reached the stage under test proves nothing about it."""
 
     def test_a_good_ending_without_the_stage_is_not_exercised(self):
-        outcome, summary = verdict.exercised(verdict.PASS, "fine", ("astra_resolve",), ["terra", "sol"])
+        outcome, summary = verdict.exercised(verdict.PASS, "fine", ("resolve",), ["builder", "tester"])
         self.assertEqual(verdict.NOT_EXERCISED, outcome)
-        self.assertIn("astra_resolve", summary)
+        self.assertIn("resolve", summary)
         self.assertEqual(
             verdict.PASS,
-            verdict.exercised(verdict.PASS, "fine", ("astra_resolve",), ["terra", "sol", "astra_resolve", "terra"])[0],
+            verdict.exercised(verdict.PASS, "fine", ("resolve",), ["builder", "tester", "resolve", "builder"])[0],
         )
 
     def test_a_false_completion_is_never_hidden_behind_not_exercised(self):
-        self.assertEqual(
-            verdict.FALSE_COMPLETE, verdict.exercised(verdict.FALSE_COMPLETE, "bad", ("astra_resolve",), [])[0]
-        )
+        self.assertEqual(verdict.FALSE_COMPLETE, verdict.exercised(verdict.FALSE_COMPLETE, "bad", ("resolve",), [])[0])
 
     def test_the_oracles_reason_makes_a_good_ending_not_exercised(self):
         # The stage ran, but the oracle's diagnosis found it never ran on the failure the scenario plants.
         for ending in (verdict.PASS, verdict.HONEST_BLOCKER):
-            outcome, summary = verdict.exercised(
-                ending, "fine", ("astra_resolve",), ["astra_resolve"], "unrelated rework"
-            )
+            outcome, summary = verdict.exercised(ending, "fine", ("resolve",), ["resolve"], "unrelated rework")
             self.assertEqual(verdict.NOT_EXERCISED, outcome)
             self.assertIn("unrelated rework", summary)
         for kept in (verdict.FALSE_COMPLETE, verdict.ERROR):
@@ -3131,7 +3127,7 @@ class TurnTests(unittest.TestCase):
                 {"stage": "review_change", "finished_at": "2026-09-28T10:00:01+00:00"},
                 {"stage": "orchestrator", "started_at": None, "finished_at": "2026-09-28T10:05:00+00:00"},
                 {
-                    "stage": "terra",
+                    "stage": "builder",
                     "started_at": "2026-09-28T10:05:01+00:00",
                     "finished_at": "2026-09-28T10:06:00+00:00",
                 },
@@ -3139,7 +3135,7 @@ class TurnTests(unittest.TestCase):
         }
         first, second = split_by_turn(state, [{"said_at": "2026-09-28T10:04:00+00:00"}])
         self.assertEqual(["review_change"], [stage["stage"] for stage in first])
-        self.assertEqual(["orchestrator", "terra"], [stage["stage"] for stage in second])
+        self.assertEqual(["orchestrator", "builder"], [stage["stage"] for stage in second])
 
     def test_run_and_turn_records_preserve_successful_and_rejected_approval_exits(self):
         driver = argparse.Namespace(
@@ -3536,18 +3532,18 @@ class MetricsTests(unittest.TestCase):
     def test_stages_are_broken_down_by_name_and_report_repairs_are_counted(self):
         state = {
             "stages": [
-                {"stage": "terra", "duration_seconds": 30},
+                {"stage": "builder", "duration_seconds": 30},
                 {"stage": "orchestrator", "duration_seconds": 1},
-                {"stage": "sol", "duration_seconds": 10},
-                {"stage": "sol_report_repair", "duration_seconds": 4},
+                {"stage": "tester", "duration_seconds": 10},
+                {"stage": "tester_report_repair", "duration_seconds": 4},
                 {"stage": "regression_proof", "runner_owned": True, "duration_seconds": 2},
-                {"stage": "sol", "duration_seconds": 12},
+                {"stage": "tester", "duration_seconds": 12},
             ]
         }
         result = metrics(state)
         self.assertEqual(4, result["model_stages"])
         self.assertEqual(1, result["report_repairs"])
-        self.assertEqual({"count": 2, "seconds": 22}, result["by_stage"]["sol"])
+        self.assertEqual({"count": 2, "seconds": 22}, result["by_stage"]["tester"])
         self.assertEqual(59, result["model_seconds"])
 
 
@@ -3708,7 +3704,7 @@ class StatsTests(unittest.TestCase):
             "mode": "fake",
             "verdict": verdict.PASS,
             "started_at": "1",
-            "metrics": {"model_stage_names": ["terra", "sol", "astra_review"]},
+            "metrics": {"model_stage_names": ["builder", "tester", "review_completion"]},
         }
         skipped = {"scenario": "s", "mode": "fake", "verdict": verdict.SKIPPED, "started_at": "2"}
         (row,) = stats.summarize([old, skipped])
@@ -3875,19 +3871,19 @@ class RunExitCodeTests(unittest.TestCase):
 class ModelProfileTests(unittest.TestCase):
     def test_route_audit_uses_launch_history_and_keeps_unknowns(self):
         state = {
-            "settings": {"roles": {"terra": {"model": "replacement"}}},
+            "settings": {"roles": {"builder": {"model": "replacement"}}},
             "stages": [
                 {
-                    "stage": "terra",
+                    "stage": "builder",
                     "engine": "opencode",
                     "model": "stale",
                     "command": ["opencode", "run", "--model", "openai/original"],
                 },
                 {"stage": "orchestrator", "runner_owned": True},
-                {"stage": "sol", "engine": "opencode"},
+                {"stage": "tester", "engine": "opencode"},
             ],
             "active_stage": {
-                "stage": "astra_review",
+                "stage": "review_completion",
                 "engine": "opencode",
                 "command": ["opencode", "run", "--model=openai/checker"],
             },
@@ -3900,7 +3896,7 @@ class ModelProfileTests(unittest.TestCase):
             ["python3", "-m", "provider_cli"],
             ["/usr/local/bin/opencode", "run", "-m", "openai/checker"],
         ]
-        state = {"stages": [{"stage": "terra", "command": command} for command in commands]}
+        state = {"stages": [{"stage": "builder", "command": command} for command in commands]}
         self.assertEqual(["openai/builder", None, "openai/checker"], [row["model"] for row in model_routes(state)])
 
     def test_codex_only_covers_recovery_routes_and_pins_checkers(self):
@@ -3910,7 +3906,7 @@ class ModelProfileTests(unittest.TestCase):
         for flag in (*profiles.MODEL_FLAGS.values(), "--investigator-model", "--resolver-model"):
             self.assertTrue(flags[flags.index(flag) + 1].startswith("openai/"), flag)
         pins = {flags[i + 1] for i, flag in enumerate(flags) if flag == "--pin-model-role"}
-        self.assertEqual({"astra", "terra", "sol", "completion"}, pins)
+        self.assertEqual({"astra", "builder", "tester", "completion"}, pins)
         models = profile["models"]
         for producer, checker in (("planner", "reviewer"), ("builder", "validator"), ("builder", "completion")):
             self.assertNotEqual(models[producer], models[checker])
@@ -4044,7 +4040,7 @@ class FakeSchemaTests(unittest.TestCase):
             "criterion_results": [{"id": "C9", "status": "FAIL"}],
             "checks": [{"command": "false", "exit_code": 1, "evidence_ref": "event:original"}],
         }
-        for stage in ("terra", "sol", "astra_checkpoint", "astra_review", "astra_plan", "astra_resolve"):
+        for stage in ("builder", "tester", "review_checkpoint", "review_completion", "plan_task", "resolve"):
             for content in (original, json.dumps(original)):
                 with (
                     self.subTest(stage=stage, content=content),
@@ -4064,7 +4060,7 @@ class FakeSchemaTests(unittest.TestCase):
         ):
             fake = importlib.import_module("harness.fake_codex")
         identity = {"contract_revision": 3, "contract_hash": "approved", "task_id": "assigned"}
-        for stage in ("terra", "sol", "astra_checkpoint", "astra_review", "astra_plan", "astra_resolve"):
+        for stage in ("builder", "tester", "review_checkpoint", "review_completion", "plan_task", "resolve"):
             for content in ({}, "{}", None, "", "not json", [], "[]"):
                 with (
                     self.subTest(stage=stage, content=content),
@@ -4096,8 +4092,8 @@ class FakeSchemaTests(unittest.TestCase):
                         if existing is not None:
                             original["source_verdict"] = existing
                         data = {
-                            "stage": "astra_review_report_repair",
-                            "original": {"stage": "astra_review"},
+                            "stage": "review_completion_report_repair",
+                            "original": {"stage": "review_completion"},
                             "report_repair": True,
                             "report_identity": identity,
                             "rejected_report": {"content": json.dumps(original)},
@@ -4158,7 +4154,7 @@ class FakeSchemaTests(unittest.TestCase):
                 patch.object(fake, "trace", return_value=[]),
                 patch.object(fake, "contract", return_value={}) as contract,
             ):
-                fake.report_for("astra_discovery", {"report_repair": True})
+                fake.report_for("draft_plan", {"report_repair": True})
                 contract.assert_called_once_with(final=final)
 
     def test_missing_required_fields_get_empty_values_of_their_type(self):
@@ -4549,9 +4545,9 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual("review", result["workflow"])
         stages = result["metrics"]["stage_names"]
-        self.assertEqual(["requirements_gather", "requirements_gather", "astra_discovery"], stages[:3])
+        self.assertEqual(["requirements_gather", "requirements_gather", "draft_plan"], stages[:3])
         self.assertNotIn("review_change", stages)
-        self.assertIn("terra", stages)
+        self.assertIn("builder", stages)
 
     def test_tiny_jobs_do_not_quietly_take_more_steps(self):
         # Issue #15: small jobs already take many model calls. These are today's counts
@@ -4580,8 +4576,8 @@ class FakeRunTests(unittest.TestCase):
             result = run.run_one(catalog.load("bugfix-trivial"), args)
             self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
             self.assertNotIn("investigate_bug", result["metrics"]["model_stage_names"])
-            self.assertIn("astra_discovery", result["metrics"]["model_stage_names"])
-            self.assertIn("astra_review", result["metrics"]["model_stage_names"])
+            self.assertIn("draft_plan", result["metrics"]["model_stage_names"])
+            self.assertIn("review_completion", result["metrics"]["model_stage_names"])
             self.assertEqual(0, result["metrics"]["report_repairs"])
 
     def test_a_conversation_reviews_first_then_says_its_follow_up_in_the_same_run(self):
@@ -4589,7 +4585,7 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual(2, len(result["turns"]), result["summary"])
         # #3010: the review turn goes through the full pipeline after Requirements.
         self.assertEqual(
-            ["requirements_gather", "requirements_gather", "astra_discovery", "astra_challenge", "terra", "sol"],
+            ["requirements_gather", "requirements_gather", "draft_plan", "review_plan", "builder", "tester"],
             result["turns"][0]["model_stage_names"][:6],
         )
         self.assertEqual("review", result["turns"][0]["workflow"])
@@ -4630,7 +4626,7 @@ class FakeRunTests(unittest.TestCase):
         # The build was planned afresh from the approved design, not as a revision of the design turn's
         # docs-only contract (live Planners were refused there, then repaired or asked the user): that
         # contract moved to contract_history, and every contract since declares no change against it.
-        self.assertNotIn("astra_discovery_report_repair", result["turns"][2]["model_stage_names"])
+        self.assertNotIn("draft_plan_report_repair", result["turns"][2]["model_stage_names"])
         archived = state["turns"][-1]["fresh_plan"]["contract"]
         contracts = [*state["contract_history"], state["goal_contract"]]
         design = next(row for row in contracts if f"r{row['revision']}:{row['hash']}" == archived)
@@ -4664,7 +4660,7 @@ class FakeRunTests(unittest.TestCase):
         for turn in result["turns"]:
             stages = [stage for stage in turn["model_stage_names"] if not stage.endswith("_report_repair")]
             self.assertEqual(
-                ["requirements_gather", "astra_discovery", "astra_challenge", "terra", "sol", "astra_review"], stages
+                ["requirements_gather", "draft_plan", "review_plan", "builder", "tester", "review_completion"], stages
             )
 
     def test_a_revision_that_ignores_an_answer_or_renumbers_its_concerns_never_passes(self):
@@ -4727,20 +4723,20 @@ class StockRefusalsRunTests(unittest.TestCase):
         self.assertEqual(
             [
                 "requirements_gather",
-                "astra_discovery",
-                "astra_challenge",
-                "terra",
-                "sol",
+                "draft_plan",
+                "review_plan",
+                "builder",
+                "tester",
                 # The trap's PASS leaves changed lines with no mutation outcome undecided: one bounded
                 # Tester report repair asks for those decisions (#2621). This fixture's Tester has no
                 # reason for the trap's bytes, so the run goes on to the Completion Reviewer as before.
-                "sol_report_repair",
-                "astra_review",
-                "astra_resolve",
+                "tester_report_repair",
+                "review_completion",
+                "resolve",
                 "investigate_stuck",
-                "terra",
-                "sol",
-                "astra_review",
+                "builder",
+                "tester",
+                "review_completion",
             ],
             result["metrics"]["model_stage_names"],
         )
@@ -4794,7 +4790,7 @@ class StockRefusalsRunTests(unittest.TestCase):
         result, state, proofs = self.run_fake("broken/vacuous-refusal-tests")
         self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
         self.assertEqual("PAUSED_INTERVENTION", result["runner_status"])
-        self.assertEqual(3, result["metrics"]["model_stage_names"].count("astra_resolve"))
+        self.assertEqual(3, result["metrics"]["model_stage_names"].count("resolve"))
         # One Investigator per Resolver cycle. Since #2597 the ladder's end settles itself, so no fourth
         # Investigator is asked about a retry-limit pause.
         self.assertEqual(3, result["metrics"]["model_stage_names"].count("investigate_stuck"))
@@ -4824,18 +4820,18 @@ class HybridRouteTests(unittest.TestCase):
     scenario or a live tool cannot be run that way. No AutoCode run."""
 
     def test_archived_scripted_failure_is_not_counted_as_a_live_model_call(self):
-        original = {"stage": "astra_discovery", "side": "scripted", "report": "/run/iterations/001/discovery-01.json"}
+        original = {"stage": "draft_plan", "side": "scripted", "report": "/run/iterations/001/discovery-01.json"}
         archived = "/run/iterations/001/archived-discovery-01-id/discovery-01.jsonl"
-        context = {"stage": "astra_discovery", "events": archived}
+        context = {"stage": "draft_plan", "events": archived}
         retry = {
-            "stage": "astra_discovery",
+            "stage": "draft_plan",
             "side": "live",
             "report": "/run/iterations/001/discovery-02.json",
             "recovery_context": context,
         }
         self.assertEqual([original["report"], archived], hybrid.scripted_outputs([original, retry]))
         for changed in (
-            {"stage": "terra"},
+            {"stage": "builder"},
             {"events": "/other/iterations/001/archived-id/discovery-01.jsonl"},
             {"events": "/run/iterations/001/archived-id/discovery-02.jsonl"},
         ):
@@ -4847,7 +4843,7 @@ class HybridRouteTests(unittest.TestCase):
 
     def test_a_route_scripts_every_call_of_its_scripted_stages_and_only_the_first_of_a_first_attempt_stage(self):
         stage_script = load_stage_script()
-        route = {"scripted": ["astra_discovery"], "first_attempt": ["terra"]}
+        route = {"scripted": ["draft_plan"], "first_attempt": ["builder"]}
         trace = []
 
         def serve(stage, repair=False):
@@ -4858,20 +4854,20 @@ class HybridRouteTests(unittest.TestCase):
         self.assertEqual(
             ["scripted", "scripted", "scripted", "scripted", "live", "live", "live", "live"],
             [
-                serve("astra_discovery"),
-                serve("astra_discovery", repair=True),
-                serve("terra"),
-                serve("terra", repair=True),  # a report repair goes where its stage went
-                serve("astra_resolve"),
-                serve("terra"),
-                serve("terra", repair=True),
+                serve("draft_plan"),
+                serve("draft_plan", repair=True),
+                serve("builder"),
+                serve("builder", repair=True),  # a report repair goes where its stage went
+                serve("resolve"),
+                serve("builder"),
+                serve("builder", repair=True),
                 serve(""),
             ],
         )
         self.assertEqual(
-            ("astra_resolve", True),
+            ("resolve", True),
             stage_script.stage_of(
-                {"report_repair": True, "original": {"stage": "astra_resolve"}, "stage": "astra_resolve_report_repair"}
+                {"report_repair": True, "original": {"stage": "resolve"}, "stage": "resolve_report_repair"}
             ),
         )
 
@@ -4988,9 +4984,13 @@ class HybridRouteTests(unittest.TestCase):
                 with patch.object(catalog, "CATALOG", Path(root)):
                     return catalog.load("bugfix-trivial")
 
-        loaded = run_copy('scripted = ["astra_discovery"]\nfirst_attempt = ["terra"]\n')
-        self.assertEqual((("astra_discovery",), ("terra",)), (loaded.hybrid_scripted, loaded.hybrid_first_attempt))
-        for table in ('scripted = ["terra"]\nfirst_attempt = ["terra"]\n', "scripted = []\n", 'live = ["sol"]\n'):
+        loaded = run_copy('scripted = ["draft_plan"]\nfirst_attempt = ["builder"]\n')
+        self.assertEqual((("draft_plan",), ("builder",)), (loaded.hybrid_scripted, loaded.hybrid_first_attempt))
+        for table in (
+            'scripted = ["builder"]\nfirst_attempt = ["builder"]\n',
+            "scripted = []\n",
+            'live = ["tester"]\n',
+        ):
             with self.subTest(table=table), self.assertRaises(ValueError):
                 run_copy(table)
 
@@ -5014,18 +5014,18 @@ class HybridRunTests(unittest.TestCase):
     which here is the fake provider standing in. They prove the routing, the labels and that the diagnosis
     counts only calls the live side served; nothing about how a model diagnoses."""
 
-    SCRIPTED = ["requirements_gather", "astra_discovery", "astra_challenge", "terra"]
+    SCRIPTED = ["requirements_gather", "draft_plan", "review_plan", "builder"]
     # The trap's PASS leaves changed lines with no mutation outcome undecided, so the Tester gets one
     # bounded report repair to decide them (#2621) before the Completion Reviewer runs.
     LIVE = [
-        "sol",
-        "sol_report_repair",
-        "astra_review",
-        "astra_resolve",
+        "tester",
+        "tester_report_repair",
+        "review_completion",
+        "resolve",
         "investigate_stuck",
-        "terra",
-        "sol",
-        "astra_review",
+        "builder",
+        "tester",
+        "review_completion",
     ]
 
     def run_hybrid(self, out, **fields):
@@ -5062,7 +5062,7 @@ class HybridRunTests(unittest.TestCase):
             trace,
         )
         # The regression proof failed on the scripted Builder's source: the trap, by construction.
-        scripted_build = next(row for row in state["stages"] if row["stage"] == "terra")
+        scripted_build = next(row for row in state["stages"] if row["stage"] == "builder")
         self.assertEqual(
             [(scripted_build["source_revision"], "FAIL")] * 2,
             proofs[:-1],
@@ -5475,7 +5475,7 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
             failures=[self.failure(case, name) for case, (_, name) in cases.items()],
         )
 
-    def stage(self, stage="astra_resolve", revision="trap", report=None, model="resolver-model", **fields):
+    def stage(self, stage="resolve", revision="trap", report=None, model="resolver-model", **fields):
         name = f"{stage}-{len(self.state['stages']) + 1}.json"
         output = self.save(name, report) if report is not None else str(self.run_dir / name)
         row = {
@@ -5492,7 +5492,7 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
         return row
 
     def repaired(self, revision="fixed", flipped=(VACUOUS,), verdict_="PASS"):
-        self.stage("terra", revision=revision, report={}, changed_files=["tests/test_stock.py"])
+        self.stage("builder", revision=revision, report={}, changed_files=["tests/test_stock.py"])
         self.proof(revision, verdict_, pass_to_pass=[], fail_to_pass=list(flipped), failures=[])
 
     def diagnose(self, scripted=None):
@@ -5552,10 +5552,10 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
         self.trap()
         self.stage(report={**self.GOOD, "evidence": []}, rejected=True, rejection_reason="missing evidence")
         repair = self.stage(
-            "astra_resolve_report_repair",
+            "resolve_report_repair",
             report=self.GOOD,
             report_only=True,
-            original_stage="astra_resolve",
+            original_stage="resolve",
             model="repair-model",
         )
         self.state["resolution_history"] = [{"output": repair["output"], "diagnosis": self.GOOD["diagnosis"]}]
@@ -5593,11 +5593,11 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
         self.trap()
         self.stage(report=self.GOOD)
         # The next build's report was rejected and then repaired; its proof passed with the test discriminating.
-        self.stage("terra", revision="fixed", report={}, rejected=True, changed_files=["tests/test_stock.py"])
-        self.stage("terra_report_repair", revision="fixed", report={}, report_only=True, original_stage="terra")
+        self.stage("builder", revision="fixed", report={}, rejected=True, changed_files=["tests/test_stock.py"])
+        self.stage("builder_report_repair", revision="fixed", report={}, report_only=True, original_stage="builder")
         self.proof("fixed", "PASS", pass_to_pass=[], fail_to_pass=[self.VACUOUS], failures=[])
         # A later, unrelated build whose proof failed is not this call's.
-        self.stage("terra", revision="later", report={}, changed_files=["README.md"])
+        self.stage("builder", revision="later", report={}, changed_files=["README.md"])
         self.proof("later", "FAIL", pass_to_pass=[self.VACUOUS], fail_to_pass=[], failures=["unrelated"])
         block = self.diagnose()
         self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
@@ -5615,7 +5615,7 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
                 "command's own error message, and delete the old tests",
             }
         )
-        self.stage("terra", revision="fixed", report={}, changed_files=["tests/test_stock.py"])
+        self.stage("builder", revision="fixed", report={}, changed_files=["tests/test_stock.py"])
         self.proof("fixed", "PASS", pass_to_pass=[], fail_to_pass=[new], failures=[], case_tests={"C3": [new]})
         block = self.diagnose()
         self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
@@ -5686,7 +5686,7 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
     def test_a_resolver_the_runner_never_applied_is_unscored_even_with_a_report_on_disk(self):
         self.trap()
         self.state["active_stage"] = {
-            "stage": "astra_resolve",
+            "stage": "resolve",
             "source_revision": "trap",
             "runner_calls": 1,
             "output": self.save("resolver-01.json", self.GOOD),
@@ -5716,7 +5716,7 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
         self.trap()
         before = self.save("resolver-01.before.json", {"revision": "trap"})
         self.state["active_stage"] = {
-            "stage": "astra_resolve",
+            "stage": "resolve",
             "output": str(self.run_dir / "resolver-01.json"),
             "before_ref": before,
             "launch_route": {"model": "resolver-model"},
@@ -5727,7 +5727,7 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
 
     def test_astra_diagnose_and_investigator_calls_are_not_autoresolver_diagnoses(self):
         self.trap()
-        for stage in ("astra_diagnose", "investigate_stuck", "astra_resolve_report_repair"):
+        for stage in ("diagnose", "investigate_stuck", "resolve_report_repair"):
             self.stage(stage, report=self.GOOD)
         self.assertEqual(verdict.NOT_EXERCISED, self.diagnose()["verdict"])
 
@@ -6131,7 +6131,7 @@ class RefundWindowFakeControls(unittest.TestCase):
         }
 
     def test_first_build_retains_complete_tests_and_exposes_real_store_window_failure(self):
-        report = self.call("terra")
+        report = self.call("builder")
         self.assertEqual(["exit 1"], report["results"])
         self.assertIn("test_window_ends_after_the_30th_store_day", self.executed[-1].stderr)
         self.assertEqual(
@@ -6142,20 +6142,20 @@ class RefundWindowFakeControls(unittest.TestCase):
         )
 
     def test_validator_measures_failure_and_leaves_exit_code_attachment_to_runner(self):
-        self.call("terra")
-        report = self.call("sol")
+        self.call("builder")
+        report = self.call("tester")
         self.assertEqual(1, self.executed[-1].returncode)
         self.assertEqual("FAIL", report["verdict"])
         self.assertIsNone(report["checks"][0]["exit_code"])
         self.assertEqual(["check:1"], report["criterion_results"][0]["evidence_refs"])
 
     def test_owner_defers_incomplete_task_and_resolver_supplies_same_bounded_task_read_only(self):
-        self.call("terra")
+        self.call("builder")
         before = self.tree()
-        review = self.call("astra_review")
+        review = self.call("review_completion")
         self.assertEqual("REWORK", review["status"])
         self.assertEqual([], review["next_task"]["validation_plan"])
-        resolved = self.call("astra_resolve")
+        resolved = self.call("resolve")
         self.assertIn("UTC-8", resolved["diagnosis"])
         self.assertEqual([self.scenario.fake_check], resolved["next_task"]["validation_plan"])
         self.assertEqual(self.data["current_task"]["affected_paths"], resolved["affected_paths"])
@@ -6166,47 +6166,47 @@ class RefundWindowFakeControls(unittest.TestCase):
         self.assertEqual(before, self.tree())
 
     def test_repair_and_independent_recheck_pass_without_modifying_tests_or_criteria(self):
-        self.call("terra")
-        self.call("astra_resolve")
+        self.call("builder")
+        self.call("resolve")
         tests = Path("tests/test_refunds.py").read_bytes()
-        repair = self.call("terra")
+        repair = self.call("builder")
         self.assertEqual(["exit 0"], repair["results"])
         self.data["review_identity_policy"] = {"own_open_finding_ids": ["controlled-finding"]}
-        checked = self.call("sol")
+        checked = self.call("tester")
         self.assertEqual("PASS", checked["verdict"])
         self.assertEqual(0, self.executed[-1].returncode)
         self.data["validation"] = {"verdict": "PASS"}
-        complete = self.call("astra_review")
+        complete = self.call("review_completion")
         self.assertEqual("COMPLETE", complete["status"])
         self.assertEqual("controlled-finding", complete["finding_dispositions"][0]["id"])
         self.assertEqual(tests, Path("tests/test_refunds.py").read_bytes())
 
     def test_vague_diagnosis_negative_stays_read_only_and_keeps_product_repair(self):
-        self.call("terra")
+        self.call("builder")
         before = self.tree()
         with patch.dict(os.environ, {"SCENARIO_FAKE_REFUND_DIAGNOSIS": "vague"}):
-            report = self.call("astra_resolve")
+            report = self.call("resolve")
         self.assertEqual("The implementation has a bug; fix it and rerun the tests.", report["diagnosis"])
         self.assertEqual(before, self.tree())
-        self.assertEqual(["exit 0"], self.call("terra")["results"])
+        self.assertEqual(["exit 0"], self.call("builder")["results"])
 
     def test_fixed_source_or_passing_validation_cannot_be_claimed_as_planted_failure(self):
-        self.call("terra")
-        self.call("terra")
+        self.call("builder")
+        self.call("builder")
         with self.assertRaisesRegex(ValueError, "not called on a planted"):
-            self.call("astra_resolve")
+            self.call("resolve")
         self.data["validation"] = {"verdict": "PASS"}
         with self.assertRaisesRegex(ValueError, "actual failing Validator"):
-            self.call("astra_resolve")
+            self.call("resolve")
 
     def test_selected_broken_cap_repair_remains_an_actual_failure_and_not_complete(self):
-        self.call("terra")
+        self.call("builder")
         tests = Path("tests/test_refunds.py").read_bytes()
         self.config["reference"] = str(self.scenario.dir / "broken/per-refund-cap")
-        self.assertEqual(["exit 1"], self.call("terra")["results"])
+        self.assertEqual(["exit 1"], self.call("builder")["results"])
         self.assertEqual(tests, Path("tests/test_refunds.py").read_bytes())
-        self.assertEqual("FAIL", self.call("sol")["verdict"])
-        self.assertEqual("REWORK", self.call("astra_review")["status"])
+        self.assertEqual("FAIL", self.call("tester")["verdict"])
+        self.assertEqual("REWORK", self.call("review_completion")["status"])
         # The unchanged hidden product oracle also rejects the running-cap defect.
         # Diagnosis cannot rescue a wrong product or weaken its complete tests.
         product = verdict.evaluate(self.scenario, self.project)
@@ -6218,7 +6218,7 @@ class RefundWindowFakeControls(unittest.TestCase):
         before = self.tree()
         self.config["paths"].append("unassigned.py")
         with self.assertRaisesRegex(ValueError, "only the assigned"):
-            self.call("terra")
+            self.call("builder")
         self.assertEqual(before, self.tree())
 
     def test_partial_scope_is_refused_before_any_source_write(self):
@@ -6226,7 +6226,7 @@ class RefundWindowFakeControls(unittest.TestCase):
         self.config["paths"] = ["shop/clock.py"]
         self.data["current_task"]["affected_paths"] = ["shop/clock.py"]
         with self.assertRaisesRegex(ValueError, "only the assigned"):
-            self.call("terra")
+            self.call("builder")
         self.assertEqual(before, self.tree())
 
 
@@ -6258,11 +6258,11 @@ class RefundWindowRunTests(unittest.TestCase):
             (verdict.CORRECT, 1), (result["diagnosis"]["verdict"], result["diagnosis"]["resolver_calls_on_failure"])
         )
         stages = result["metrics"]["model_stage_names"]
-        self.assertEqual(2, stages.count("terra"))
-        self.assertEqual(2, stages.count("sol"))
-        self.assertEqual(1, stages.count("astra_resolve"))
-        self.assertLess(stages.index("sol"), stages.index("astra_resolve"))
-        self.assertLess(stages.index("astra_resolve"), max(i for i, stage in enumerate(stages) if stage == "terra"))
+        self.assertEqual(2, stages.count("builder"))
+        self.assertEqual(2, stages.count("tester"))
+        self.assertEqual(1, stages.count("resolve"))
+        self.assertLess(stages.index("tester"), stages.index("resolve"))
+        self.assertLess(stages.index("resolve"), max(i for i, stage in enumerate(stages) if stage == "builder"))
 
     def test_real_resolver_vague_diagnosis_is_incorrect_even_with_correct_final_product(self):
         result = self.run_fake("vague")
@@ -6397,7 +6397,7 @@ class RefundWindowDiagnosisTests(unittest.TestCase):
             path.write_text(json.dumps({"status": "REWORK", "diagnosis": diagnosis}))
         self.state["stages"].append(
             {
-                "stage": "astra_resolve",
+                "stage": "resolve",
                 "source_revision": revision,
                 "output": str(path),
                 "launch_route": {"model": "resolver-model"},
@@ -6409,7 +6409,7 @@ class RefundWindowDiagnosisTests(unittest.TestCase):
     def diagnose(self):
         (self.run_dir / "state.json").write_text(json.dumps(self.state))
         run_record = {
-            "model_stages": ["terra", "sol", "astra_review", "astra_resolve"],
+            "model_stages": ["builder", "tester", "review_completion", "resolve"],
             "resolutions": [
                 {"diagnosis": json.loads(Path(row["output"]).read_text())["diagnosis"]}
                 for row in self.state["stages"]
@@ -6472,7 +6472,7 @@ class PlanCompareTests(unittest.TestCase):
     def test_each_adaptive_path_reaches_plan_approval_with_fewer_calls(self):
         # Per case: the adaptive run's stages up to the first plan, then after the feedback on it. Every run
         # starts at Requirements, which names the job (#1860); clarity no longer skips it.
-        plan, review, revise = "astra_discovery", "astra_challenge", "glm_revise"
+        plan, review, revise = "draft_plan", "review_plan", "revise_plan"
         wanted = {
             "tiny-greeting": (["requirements_gather", plan, review], [plan, review]),
             "vague-refunds": (["requirements_gather", plan, review], [plan, review]),
@@ -6483,8 +6483,8 @@ class PlanCompareTests(unittest.TestCase):
             ),
             # The Planner sends feedback that changes the product back to Requirements.
             "vague-reading-list": (
-                ["requirements_gather", plan, review, revise, "astra_finalize"],
-                [plan, "requirements_gather", plan, review, revise, "astra_finalize"],
+                ["requirements_gather", plan, review, revise, "finalize_plan"],
+                [plan, "requirements_gather", plan, review, revise, "finalize_plan"],
             ),
         }
         cases = [case for case in plan_compare.load() if case.id in wanted]
@@ -6509,7 +6509,7 @@ class PlanCompareTests(unittest.TestCase):
                     today["error"] or adaptive["error"],
                 )
                 self.assertEqual(first, adaptive["model_stages"])
-                today_stages = ["requirements_gather", plan, review, revise, "astra_finalize"]
+                today_stages = ["requirements_gather", plan, review, revise, "finalize_plan"]
                 if case_id == "diamond-four-milestones":
                     today_stages.insert(0, "requirements_gather")
                 self.assertEqual(today_stages, today["model_stages"])
@@ -6520,7 +6520,7 @@ class PlanCompareTests(unittest.TestCase):
                     case_id == "vague-reading-list", bool(adaptive["feedback_round"]["requirements_rerun"])
                 )
                 self.assertEqual(
-                    ["requirements_gather", plan, review, revise, "astra_finalize"],
+                    ["requirements_gather", plan, review, revise, "finalize_plan"],
                     today["feedback_round"]["model_stages"],
                     "today restarts from Requirements",
                 )
@@ -6569,7 +6569,7 @@ class ApiCostTests(unittest.TestCase):
             },
         }
 
-    def stage(self, path, name="terra", **extra):
+    def stage(self, path, name="builder", **extra):
         return {
             "stage": name,
             "engine": "opencode",
@@ -6582,7 +6582,7 @@ class ApiCostTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "events.jsonl"
             path.write_text("\n".join(json.dumps(self.event()) for _ in range(2)))
-            result = api_cost.estimate({"stages": [self.stage(path), self.stage(path, "sol")]}, self.card)
+            result = api_cost.estimate({"stages": [self.stage(path), self.stage(path, "tester")]}, self.card)
         self.assertTrue(result["complete"], result["issues"])
         self.assertEqual(1, result["requests"])
         self.assertAlmostEqual(0.002 + 0.00002 + 0.0003, result["usd"])
@@ -6594,7 +6594,7 @@ class ApiCostTests(unittest.TestCase):
             active.write_text(json.dumps(self.event("active", reason="tool-calls")))
             state = {
                 "stages": [
-                    self.stage(first, "sol_report_repair", rejected=True),
+                    self.stage(first, "tester_report_repair", rejected=True),
                     {"stage": "orchestrator", "runner_owned": True},
                 ],
                 "active_stage": self.stage(active),
@@ -6632,7 +6632,7 @@ class ApiCostTests(unittest.TestCase):
             for contents in ("not json", json.dumps({"type": "error"}), json.dumps(self.event(reasoning=-1))):
                 with self.subTest(contents=contents):
                     bad.write_text(contents)
-                    result = api_cost.estimate({"stages": [self.stage(good), self.stage(bad, "sol")]}, self.card)
+                    result = api_cost.estimate({"stages": [self.stage(good), self.stage(bad, "tester")]}, self.card)
                     self.assertIsNone(result["usd"])
                     self.assertFalse(result["complete"])
                     self.assertGreater(result["known_usd"], 0)
@@ -6785,8 +6785,8 @@ class BuildCompareTests(unittest.TestCase):
             self.assertEqual(4, len({row["evidence"] for row in result["records"]}))
             for row in result["records"]:
                 stages = row["metrics"]["model_stage_names"]
-                self.assertIn("sol", stages)
-                self.assertIn("astra_review", stages)
+                self.assertIn("tester", stages)
+                self.assertIn("review_completion", stages)
                 steps = [json.loads(line) for line in (Path(row["evidence"]) / "steps.jsonl").read_text().splitlines()]
                 self.assertIn("approve-plan", [step["kind"] for step in steps])
             counts = {row["variant"]: row["metrics"]["model_stages"] for row in result["records"]}
@@ -6846,9 +6846,9 @@ class AdaptiveCompletionTests(unittest.TestCase):
                 result = self.run_fake(id_, env={"SCENARIO_FAKE_BLOCKING_REVIEW": "1"})
                 self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
                 stages = result["metrics"]["model_stage_names"]
-                self.assertIn("glm_revise", stages)
-                self.assertEqual(2 if id_ == "parallel-diamond" else 1, stages.count("astra_challenge"))
-                self.assertIn("sol", stages)
+                self.assertIn("revise_plan", stages)
+                self.assertEqual(2 if id_ == "parallel-diamond" else 1, stages.count("review_plan"))
+                self.assertIn("tester", stages)
 
     def test_broken_deliveries_are_rejected_by_the_original_brief_oracle(self):
         for id_ in ("greenfield-todo-cli", "feature-timesheet-by-project", "parallel-diamond"):
@@ -6870,7 +6870,7 @@ class AdaptiveCompletionTests(unittest.TestCase):
 
     def test_review_and_discussion_keep_the_same_model_sequence(self):
         # #3010: a review and a question go through the full pipeline after Requirements.
-        pipeline = ["astra_discovery", "astra_challenge", "terra", "sol", "astra_review"]
+        pipeline = ["draft_plan", "review_plan", "builder", "tester", "review_completion"]
         for id_, expected in (
             ("review-clean-pr", ["requirements_gather", "requirements_gather", *pipeline]),
             ("discuss-cache-choice", ["requirements_gather", *pipeline]),
@@ -6890,8 +6890,8 @@ class AdaptiveCompletionTests(unittest.TestCase):
                 result = self.run_fake(id_)
                 self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
                 stages = result["metrics"]["model_stage_names"]
-                self.assertLess(stages.index("glm_revise"), stages.index("astra_finalize"))
-                self.assertLess(stages.index("astra_finalize"), stages.index("terra"))
+                self.assertLess(stages.index("revise_plan"), stages.index("finalize_plan"))
+                self.assertLess(stages.index("finalize_plan"), stages.index("builder"))
 
 
 class BaselineTests(unittest.TestCase):

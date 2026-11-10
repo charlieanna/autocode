@@ -50,9 +50,9 @@ class PausedApprovalCliTests(unittest.TestCase):
         human.queue(
             state,
             "goal_approval",
-            {"stage": "astra_finalize"},
+            {"stage": "finalize_plan"},
             status="AWAITING_GOAL_APPROVAL",
-            next_stage="astra_challenge",
+            next_stage="review_plan",
         )
         submitted = subprocess.run(
             [

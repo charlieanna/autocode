@@ -61,9 +61,7 @@ class CommandOnlyFinalCLI(unittest.TestCase):
     def reviews(self):
         """The Plan Reviewer's attempts and their corrections and repairs, in order."""
         return [
-            row
-            for row in self.driver.state()["stages"]
-            if row["stage"] in ("astra_challenge", "astra_challenge_report_repair")
+            row for row in self.driver.state()["stages"] if row["stage"] in ("review_plan", "review_plan_report_repair")
         ]
 
     def assert_rejected_as_command(self, row):
@@ -76,7 +74,7 @@ class CommandOnlyFinalCLI(unittest.TestCase):
         return next(event["thread_id"] for event in events if event.get("type") == "thread.started")
 
     def test_one_command_final_is_corrected_in_the_reviewers_own_session(self):
-        view = self.drive("astra_challenge:1")
+        view = self.drive("review_plan:1")
         self.assertEqual("TASK_COMPLETE", view.get("status"), view.get("stop_reason"))
         first, correction = self.reviews()
         self.assert_rejected_as_command(first)
@@ -89,13 +87,13 @@ class CommandOnlyFinalCLI(unittest.TestCase):
         self.assertEqual(0, self.driver.state()["report_repair_history"][-1]["attempts"])
 
     def test_a_reviewer_that_keeps_returning_a_command_stops_at_the_existing_bound(self):
-        view = self.drive("astra_challenge")
+        view = self.drive("review_plan")
         self.assertFalse(view["done"])
         self.assertEqual("PAUSED_REPEATED_FAILURE", view.get("status"), view.get("stop_reason"))
         self.assertIn(cmd_only.ERROR, view["stop_reason"])
         rows = self.reviews()
         # The original attempt, its one correction in the same session, then the two full repairs.
-        self.assertEqual(["astra_challenge"] + ["astra_challenge_report_repair"] * 3, [row["stage"] for row in rows])
+        self.assertEqual(["review_plan"] + ["review_plan_report_repair"] * 3, [row["stage"] for row in rows])
         self.assertEqual([False, True, False, False], ["resume" in row["command"] for row in rows])
         for row in rows:
             self.assert_rejected_as_command(row)
@@ -105,7 +103,7 @@ class CommandOnlyFinalCLI(unittest.TestCase):
         self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
 
     def test_a_tool_without_sessions_gets_the_targeted_full_repair(self):
-        view = self.drive("astra_challenge:1", tool=True)
+        view = self.drive("review_plan:1", tool=True)
         self.assertEqual("TASK_COMPLETE", view.get("status"), view.get("stop_reason"))
         first, repair = self.reviews()
         self.assert_rejected_as_command(first)

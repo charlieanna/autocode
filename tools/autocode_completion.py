@@ -200,7 +200,7 @@ def logical_completion_ready(
     if (
         require_independent
         and state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled")
-        and cast(dict, state.get("validation", {})).get("reviewer_role") != "sol"
+        and cast(dict, state.get("validation", {})).get("reviewer_role") != "tester"
     ):
         return False
     if require_independent and state.get("settings", {}).get("workflow", {}).get("mode") == "glm_final_audit_v2":

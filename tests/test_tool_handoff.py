@@ -32,7 +32,7 @@ class ToolHandoffTests(unittest.TestCase):
             "task": "Inspect the integer result.",
             "workspace": "/workspace",
             "stuck_investigation": {
-                "stage": "terra",
+                "stage": "builder",
                 "status": "PAUSED_PROVIDER_TIMEOUT",
                 "reason": "timeout",
                 "identity": "current",

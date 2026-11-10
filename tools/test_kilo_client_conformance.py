@@ -33,7 +33,7 @@ class ClientConformanceTests(unittest.TestCase):
             peer_identity=Mock(),
             current_binding=lambda: dict(binding),
             receipt=root / "receipt.json",
-            agent="autocode_sol",
+            agent="autocode_tester",
             foreign_environment={},
         )
         owner._root = {"pid": 100, "birth_identity": 1000.0}

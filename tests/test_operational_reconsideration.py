@@ -23,7 +23,7 @@ class ReconsiderationTests(unittest.TestCase):
     def setUp(self):
         fixtures.OperationalRecoveryTests.setUp(self)
         self.state["stages"][0].update(
-            stage="astra_discovery_report_repair", original_stage="astra_discovery", report_only=True, exit_code=0
+            stage="draft_plan_report_repair", original_stage="draft_plan", report_only=True, exit_code=0
         )
 
     def publish(self, status="PAUSED_PLANNING_BUDGET"):
@@ -80,7 +80,7 @@ class ReconsiderationTests(unittest.TestCase):
             "mixed": lambda: self.state["pending_questions"].append({"id": "material", "question": "Choose scope"}),
             "stale_settings": lambda: self.state["settings"]["roles"]["task_planner"].update(model="changed"),
             "unsealed_contract": lambda: self.state["goal_contract"]["body"].update(intended_outcome="unsealed change"),
-            "active": lambda: self.state.update(active_stage={"stage": "astra_challenge"}),
+            "active": lambda: self.state.update(active_stage={"stage": "review_plan"}),
             "repair": lambda: self.state.update(pending_report_repair={"attempts": 1}),
             "uncertain": lambda: self.state.update(uncertain_artifacts=["unknown"]),
             "pause_intent": lambda: self.state.update(pause_intent={"at": "now"}),
@@ -95,7 +95,7 @@ class ReconsiderationTests(unittest.TestCase):
         public = human.current(self.state)
         human.supersede_operational(self.state, "fixture replaced by real permission request")
         human.queue(
-            self.state, "permission", {"stage": "astra_challenge"}, request={**public["request"], "kind": "permission"}
+            self.state, "permission", {"stage": "review_plan"}, request={**public["request"], "kind": "permission"}
         )
         runner.write_json(self.run / "state.json", self.state)
         self.assertEqual("permission", human.current(self.state)["scope"])
@@ -165,15 +165,15 @@ class ReconsiderationCLITests(unittest.TestCase):
         contract["hash"] = s.digest({k: contract[k] for k in ("task_id", "revision", "body")})
         self.state.pop(human.PUBLIC, None)
         self.state.pop("user_request", None)
-        self.state.update(status="PAUSED_PLANNING_BUDGET", next_stage="astra_challenge", pending_questions=[])
+        self.state.update(status="PAUSED_PLANNING_BUDGET", next_stage="review_plan", pending_questions=[])
         # The job recognizer runs first; take the Planner's discovery stage by name.
-        discovery = next(row for row in self.state["stages"] if row["stage"] == "astra_discovery")
-        discovery.update(stage="astra_discovery_report_repair", original_stage="astra_discovery", report_only=True)
+        discovery = next(row for row in self.state["stages"] if row["stage"] == "draft_plan")
+        discovery.update(stage="draft_plan_report_repair", original_stage="draft_plan", report_only=True)
         autocode_configure.configure_codex_joint(self.state["settings"], SimpleNamespace(), planning=planning)
         self.state["planning"] = {
             "astra_calls": 2,
             "reports": {
-                "astra_discovery": {"output": discovery["output"], "report": {"summary": "accepted repaired discovery"}}
+                "draft_plan": {"output": discovery["output"], "report": {"summary": "accepted repaired discovery"}}
             },
         }
         if explicit:

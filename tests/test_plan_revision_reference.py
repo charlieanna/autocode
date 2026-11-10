@@ -33,12 +33,12 @@ class RevisionReferenceTests(unittest.TestCase):
     def test_sparse_revision_keeps_exact_criteria_trace_and_other_fields(self):
         original = copy.deepcopy(self.state)
         report = self.report(technical_approach=["Check before writing"])
-        result = retention.expand(self.state, "glm_revise", report)
+        result = retention.expand(self.state, "revise_plan", report)
         expected = {**self.state["goal_contract"]["body"], "technical_approach": ["Check before writing"]}
         self.assertEqual(expected, result["contract"])
         self.assertEqual(retention.validated_trace(self.state), result["requirement_trace"])
         self.assertEqual(report["responses"], result["responses"])
-        revision.revision_guard(self.state, result["contract"], [], "glm_revise")
+        revision.revision_guard(self.state, result["contract"], [], "revise_plan")
         self.assertEqual(original, self.state)
         self.assertLess(len(json.dumps(report)), len(json.dumps(result)))
         result["contract"]["acceptance_criteria"][0]["criterion"] = "mutated"
@@ -56,8 +56,8 @@ class RevisionReferenceTests(unittest.TestCase):
             {**good, "acceptance_criteria": []},
         ):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
-                retention.expand(self.state, "glm_revise", {**self.report(), "contract": bad})
-        for stage in ("astra_finalize", "astra_discovery", "plan_revise", "terra"):
+                retention.expand(self.state, "revise_plan", {**self.report(), "contract": bad})
+        for stage in ("finalize_plan", "draft_plan", "plan_revise", "builder"):
             with self.subTest(stage=stage), self.assertRaises(ValueError):
                 retention.expand(self.state, stage, self.report())
 
@@ -68,32 +68,32 @@ class RevisionReferenceTests(unittest.TestCase):
         canary = "private-model-text-/private/path-r99-" + "a" * 64
         cases = (
             ("wrong_stage", canary, token, saved, report),
-            ("current_reference_unavailable", "glm_revise", None, saved, report),
+            ("current_reference_unavailable", "revise_plan", None, saved, report),
             (
                 "reference_mismatch",
-                "glm_revise",
+                "revise_plan",
                 token,
                 saved,
                 {**report, "contract": {**report["contract"], "revise_contract": canary}},
             ),
-            ("saved_contract_unavailable", "glm_revise", token, canary, report),
+            ("saved_contract_unavailable", "revise_plan", token, canary, report),
             (
                 "unexpected_reference_fields",
-                "glm_revise",
+                "revise_plan",
                 token,
                 saved,
                 {**report, "contract": {**report["contract"], canary: canary}},
             ),
             (
                 "changes_not_object",
-                "glm_revise",
+                "revise_plan",
                 token,
                 saved,
                 {**report, "contract": {**report["contract"], "changes": [canary]}},
             ),
             (
                 "unexpected_change_fields",
-                "glm_revise",
+                "revise_plan",
                 token,
                 saved,
                 {**report, "contract": {**report["contract"], "changes": {canary: canary}}},
@@ -117,11 +117,11 @@ class RevisionReferenceTests(unittest.TestCase):
     def test_refusal_order_preserves_short_circuiting_and_never_rebinds_a_reference(self):
         report = {"contract": {"revise_contract": "r0:stale", "changes": None, "extra": True}}
         for stage, current, saved, reason in (
-            ("astra_finalize", None, None, "wrong_stage"),
-            ("glm_revise", None, None, "current_reference_unavailable"),
-            ("glm_revise", "r1:current", None, "reference_mismatch"),
-            ("glm_revise", "r0:stale", None, "saved_contract_unavailable"),
-            ("glm_revise", "r0:stale", {}, "unexpected_reference_fields"),
+            ("finalize_plan", None, None, "wrong_stage"),
+            ("revise_plan", None, None, "current_reference_unavailable"),
+            ("revise_plan", "r1:current", None, "reference_mismatch"),
+            ("revise_plan", "r0:stale", None, "saved_contract_unavailable"),
+            ("revise_plan", "r0:stale", {}, "unexpected_reference_fields"),
         ):
             with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
                 references.expand(report, stage, current, saved, None)
@@ -130,11 +130,11 @@ class RevisionReferenceTests(unittest.TestCase):
             value = self.report()
             value["contract"]["revise_contract"] = foreign
             with self.subTest(foreign=foreign), self.assertRaisesRegex(ValueError, "reference_mismatch"):
-                references.expand(value, "glm_revise", current, {}, [])
+                references.expand(value, "revise_plan", current, {}, [])
         # The same current reference still expands to the unchanged predecessor.
         self.assertEqual(
             self.state["goal_contract"]["body"],
-            references.expand(self.report(), "glm_revise", current, self.state["goal_contract"]["body"], [])[
+            references.expand(self.report(), "revise_plan", current, self.state["goal_contract"]["body"], [])[
                 "contract"
             ],
         )
@@ -142,19 +142,19 @@ class RevisionReferenceTests(unittest.TestCase):
     def test_trace_reuse_is_explicit_and_requires_the_exact_validated_predecessor(self):
         report = self.report()
         report["contract"].pop("retain_requirement_trace")
-        self.assertEqual([], retention.expand(self.state, "glm_revise", report)["requirement_trace"])
+        self.assertEqual([], retention.expand(self.state, "revise_plan", report)["requirement_trace"])
         for change in (False, "true", 1):
             bad = self.report()
             bad["contract"]["retain_requirement_trace"] = change
             with self.subTest(change=change), self.assertRaisesRegex(ValueError, "validated trace"):
-                retention.expand(self.state, "glm_revise", bad)
+                retention.expand(self.state, "revise_plan", bad)
         report = self.report()
         report["requirement_trace"] = [{"requirement_id": "invented"}]
         with self.assertRaisesRegex(ValueError, "validated trace"):
-            retention.expand(self.state, "glm_revise", report)
-        self.state["planning"]["reports"]["glm_revise"]["report"]["contract"] = {}
+            retention.expand(self.state, "revise_plan", report)
+        self.state["planning"]["reports"]["revise_plan"]["report"]["contract"] = {}
         with self.assertRaisesRegex(ValueError, "validated trace"):
-            retention.expand(self.state, "glm_revise", self.report())
+            retention.expand(self.state, "revise_plan", self.report())
 
     def test_criteria_delta_still_requires_authority_and_current_trace_coverage(self):
         report = self.report()
@@ -163,9 +163,9 @@ class RevisionReferenceTests(unittest.TestCase):
             "upsert": [],
             "remove": ["AC8"],
         }
-        result = retention.expand(self.state, "glm_revise", report)
+        result = retention.expand(self.state, "revise_plan", report)
         with self.assertRaises(ValueError):
-            revision.revision_guard(self.state, result["contract"], [], "glm_revise")
+            revision.revision_guard(self.state, result["contract"], [], "revise_plan")
         errors = coverage.coverage_errors(
             [{"id": "R1"}],
             {row["requirement_id"]: row for row in result["requirement_trace"]},
@@ -213,12 +213,12 @@ class RevisionReferenceTests(unittest.TestCase):
             self.assertIn("requirement's own text is not evidence, even copied exactly", error)
 
     def test_new_schema_and_repairs_offer_reference_but_old_pins_do_not(self):
-        old = copy.deepcopy(planner.SCHEMAS["glm_revise"])
-        schema = retention.model_schema(old, self.state, "glm_revise")
+        old = copy.deepcopy(planner.SCHEMAS["revise_plan"])
+        schema = retention.model_schema(old, self.state, "revise_plan")
         self.assertTrue(references.offered(schema))
         self.assertFalse(references.offered(old))
-        self.assertIn("REVISE ONLY CHANGED FIELDS", planner.repair_rules("glm_revise", schema))
-        self.assertNotIn("REVISE ONLY CHANGED FIELDS", planner.repair_rules("glm_revise", old))
+        self.assertIn("REVISE ONLY CHANGED FIELDS", planner.repair_rules("revise_plan", schema))
+        self.assertNotIn("REVISE ONLY CHANGED FIELDS", planner.repair_rules("revise_plan", old))
         reference = schema["properties"]["contract"]["anyOf"][0]
         self.assertEqual([retention.token(self.state)], reference["properties"]["revise_contract"]["enum"])
         self.assertFalse(reference["properties"]["changes"]["additionalProperties"])
@@ -226,4 +226,4 @@ class RevisionReferenceTests(unittest.TestCase):
             references.FIELDS & old["properties"]["contract"]["properties"].keys(),
             set(reference["properties"]["changes"]["properties"]),
         )
-        self.assertEqual(old, planner.SCHEMAS["glm_revise"])
+        self.assertEqual(old, planner.SCHEMAS["revise_plan"])

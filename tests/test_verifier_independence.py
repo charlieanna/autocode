@@ -20,7 +20,7 @@ HAIKU = "claude-haiku-4-5-20251001"
 
 class VerifierIndependenceTests(unittest.TestCase):
     def test_the_builder_is_checked_by_the_tester_and_completion_reviewer(self):
-        self.assertEqual(("sol", "completion"), independence.verifiers("terra"))
+        self.assertEqual(("tester", "completion"), independence.verifiers("builder"))
         self.assertEqual(("plan_reviewer",), independence.verifiers("planner"))
         self.assertEqual((), independence.verifiers("task_planner"))
 
@@ -36,7 +36,7 @@ class VerifierIndependenceTests(unittest.TestCase):
 
     def test_violations_name_every_pair_in_order(self):
         problems = independence.violations(
-            settings(terra=GLM, sol=GLM_OLDER, completion=GLM, glm=MIMO, plan_reviewer=MIMO)
+            settings(builder=GLM, tester=GLM_OLDER, completion=GLM, planner=MIMO, plan_reviewer=MIMO)
         )
         self.assertEqual(
             [
@@ -48,15 +48,15 @@ class VerifierIndependenceTests(unittest.TestCase):
         )
 
     def test_missing_routes_and_single_model_mode_have_no_violations(self):
-        self.assertEqual([], independence.violations(settings(terra=GLM)))
+        self.assertEqual([], independence.violations(settings(builder=GLM)))
         self.assertEqual([], independence.violations(None))
-        same = settings(terra=GLM, sol=GLM)
+        same = settings(builder=GLM, tester=GLM)
         self.assertNotEqual([], independence.violations(same))
         self.assertEqual([], independence.violations({**same, "single_model_mode": True}))
 
     def test_every_kind_of_job_is_checked_the_same(self):
         # Every task takes the same path (#3010): a review or discussion builds and is checked too.
-        same = settings(terra=GLM, sol=GLM, completion=GLM, glm=MIMO, plan_reviewer=MIMO)
+        same = settings(builder=GLM, tester=GLM, completion=GLM, planner=MIMO, plan_reviewer=MIMO)
         self.assertEqual(3, len(independence.clashes(same)))
         self.assertEqual(3, len(independence.violations(same)))
 
@@ -75,7 +75,7 @@ class VerifierIndependenceTests(unittest.TestCase):
         self.assertEqual(f"identical model {gateway}", independence.clash(gateway, "anthropic/claude-opus-5.5"))
         self.assertEqual(
             ["Builder/Tester: identical model " + gateway],
-            independence.violations(settings(terra=gateway, sol="anthropic/claude-opus-5.5")),
+            independence.violations(settings(builder=gateway, tester="anthropic/claude-opus-5.5")),
         )
         self.assertIsNone(independence.clash(gateway, GLM))
         self.assertFalse(independence.shares("custom/gpt-6-sol", "gpt-6-sol"))
@@ -103,12 +103,12 @@ class ClaudeFamilyTests(unittest.TestCase):
 
     def test_a_claude_model_beside_another_vendor_passes_the_guard(self):
         chosen = settings(
-            terra=HAIKU, sol="openai/gpt-6-sol", completion="openai/gpt-6-sol", glm=GLM, plan_reviewer=OPUS
+            builder=HAIKU, tester="openai/gpt-6-sol", completion="openai/gpt-6-sol", planner=GLM, plan_reviewer=OPUS
         )
         self.assertEqual([], independence.violations({**chosen, "provider": "opencode"}))
 
     def test_claude_checking_claude_is_refused_on_an_engine_that_reaches_other_vendors(self):
-        same = settings(terra=HAIKU, sol=SONNET, completion=OPUS, glm=SONNET, plan_reviewer=OPUS)
+        same = settings(builder=HAIKU, tester=SONNET, completion=OPUS, planner=SONNET, plan_reviewer=OPUS)
         self.assertEqual(
             [
                 f"Builder/Tester: same family claude ({HAIKU} / {SONNET})",
@@ -120,12 +120,12 @@ class ClaudeFamilyTests(unittest.TestCase):
 
     def test_the_claude_engine_reaches_only_claude_so_its_default_routes_keep_working(self):
         defaults = {
-            **settings(terra=HAIKU, sol=SONNET, completion=OPUS, glm=SONNET, plan_reviewer=OPUS),
+            **settings(builder=HAIKU, tester=SONNET, completion=OPUS, planner=SONNET, plan_reviewer=OPUS),
             "provider": "claude",
         }
         self.assertEqual([], independence.violations(defaults))
         # The exemption is for different Claude models, not for one model grading itself.
-        itself = {**defaults, "roles": {**defaults["roles"], "sol": {"model": HAIKU}}}
+        itself = {**defaults, "roles": {**defaults["roles"], "tester": {"model": HAIKU}}}
         self.assertEqual([f"Builder/Tester: identical model {HAIKU}"], independence.violations(itself))
 
 

@@ -46,7 +46,7 @@ DEFAULTS = {
 # The roles that check the Builder's work, and the rule they follow, are
 # autocode_verifier_independence's: the dispatch guard pauses on exactly the clashes
 # the stronger attempt moves checkers away from (#612).
-CHECKERS = independence.verifiers("terra")
+CHECKERS = independence.verifiers("builder")
 # A parallel Builder cannot move the parent's checkers, so when they run its stronger model
 # it stops with this result. The parent integrates the other Builders and makes the stronger
 # attempt itself, serially, where swap_checkers applies (user 2026-09-29).
@@ -177,13 +177,13 @@ def lane(state: RunState):
         # An operator may pin a new route while a revised contract is reviewed.
         # A prior milestone's retry baseline must never undo that instruction.
         roles = state["settings"]["roles"]
-        for role, route in {"terra": previous["initial_route"], **previous.get("checker_routes", {})}.items():
+        for role, route in {"builder": previous["initial_route"], **previous.get("checker_routes", {})}.items():
             if not roles.get(role, {}).get("model_pinned"):
                 roles[role] = copy.deepcopy(route)
             state.setdefault("sessions", {}).pop(role, None)
     state["builder_retry_key"] = ident
     return lanes.setdefault(
-        ident, {"initial_route": copy.deepcopy(state["settings"]["roles"]["terra"]), "failures": [], "action": None}
+        ident, {"initial_route": copy.deepcopy(state["settings"]["roles"]["builder"]), "failures": [], "action": None}
     )
 
 
@@ -203,7 +203,7 @@ def escalation_routes(state: RunState) -> list[dict]:
     def pair(route):
         return route.get("model"), route.get("reasoning_effort")
 
-    result = [{"terra": pair(current["initial_route"]), **{role: pair(route) for role, route in checkers.items()}}]
+    result = [{"builder": pair(current["initial_route"]), **{role: pair(route) for role, route in checkers.items()}}]
     for decision in state.get("builder_retry_decisions") or ():
         if (
             not isinstance(decision, dict)
@@ -211,7 +211,7 @@ def escalation_routes(state: RunState) -> list[dict]:
             or decision.get("milestone_key") != key(state)
         ):
             continue
-        moved = {"terra": (decision.get("selected_model"), decision.get("selected_effort"))}
+        moved = {"builder": (decision.get("selected_model"), decision.get("selected_effort"))}
         for role, route in checkers.items():
             effort = route.get("reasoning_effort")
             replacement = (decision.get("checker_models") or {}).get(role)
@@ -237,7 +237,7 @@ def withdraw_unreachable(state: RunState, model, *, detail, evidence) -> bool:
         return False
     config = state["settings"].get("builder_retry") or {}
     current = (state.get("builder_retries") or {}).get(key(state))
-    route = (state["settings"].get("roles") or {}).get("terra") or {}
+    route = (state["settings"].get("roles") or {}).get("builder") or {}
     origin = config.get("strong_origin")
     if (
         not isinstance(current, dict)
@@ -308,11 +308,11 @@ def _climb_within_cap(state: RunState) -> None:
         row
         for row in state.get("stages") or ()
         if isinstance(row, dict)
-        and row.get("stage") == "terra"
+        and row.get("stage") == "builder"
         and not row.get("report_only")
         and not row.get("dry_run")
     ]
-    route = state["settings"]["roles"]["terra"]
+    route = state["settings"]["roles"]["builder"]
     launched = (attempts[-1].get("launch_route") or {}) if attempts else {}
     if not attempts or all(launched.get(key) == route.get(key) for key in ("model", "reasoning_effort")):
         return
@@ -357,7 +357,7 @@ def adopt(state: RunState, worker):
 def _take_deferred(state: RunState, current):
     """Make the stronger attempt a parallel worker deferred, now that this run builds serially."""
     config = state["settings"]["builder_retry"]
-    route = state["settings"]["roles"]["terra"]
+    route = state["settings"]["roles"]["builder"]
     # The route to restore after this milestone is the one this run has now, not the worker's copy.
     current["initial_route"] = copy.deepcopy(route)
     action, checkers, stop_reason = _escalate(state, current, config, route)
@@ -489,7 +489,7 @@ def _escalate(state: RunState, current, config, route):
     problem = tool and _tool_swap_problem(state, config, model)
     if problem:
         return "pause", {}, CHECKER_STUCK.format(model=model, why=problem)
-    if not permission.allows(state["settings"], "terra", model, config["strong_reasoning_effort"]):
+    if not permission.allows(state["settings"], "builder", model, config["strong_reasoning_effort"]):
         return "pause", {}, "The stronger Builder route is outside this run's saved accounts or supported levels"
     replacement = config.get("checker_model") or DEFAULTS["checker_model"]
     for checker in colliding_checkers(state, model):
@@ -503,9 +503,9 @@ def _escalate(state: RunState, current, config, route):
 
 
 def _decide(state: RunState, current, action, evidence, reason, checkers, stop_reason, novelty=None):
-    route = state["settings"]["roles"]["terra"]
+    route = state["settings"]["roles"]["builder"]
     current["action"] = action
-    state.setdefault("sessions", {}).pop("terra", None)
+    state.setdefault("sessions", {}).pop("builder", None)
     state.setdefault("builder_retry_decisions", []).append(
         {
             "at": s.now(),
@@ -530,7 +530,7 @@ def _decide(state: RunState, current, action, evidence, reason, checkers, stop_r
             stop_reason,
             {
                 "milestone_key": key(state),
-                "stage": "terra",
+                "stage": "builder",
                 "failure": evidence,
                 "attempt": len(current["failures"]),
                 **({"novelty": novelty} if novelty else {}),
@@ -573,7 +573,7 @@ def failure(state: RunState, evidence, reason, *, classification="execution"):
         if previous is not None:
             return previous["action"]
         action = {"plan": "replan", "operational": "recover", "unknown": "investigate"}[classification]
-        route = state["settings"]["roles"]["terra"]
+        route = state["settings"]["roles"]["builder"]
         current = state.get("builder_retries", {}).get(ident) or {}
         decisions.append(
             {
@@ -631,7 +631,7 @@ def failure(state: RunState, evidence, reason, *, classification="execution"):
         action = current["action"] if current["action"] in ("pause", "defer") else "retry"
     checkers, stop_reason = {}, EXHAUSTED
     if action == "escalate":
-        action, checkers, stop_reason = _escalate(state, current, config, state["settings"]["roles"]["terra"])
+        action, checkers, stop_reason = _escalate(state, current, config, state["settings"]["roles"]["builder"])
     if novelty == "repeat" and action == "pause":
         stop_reason += REPEATED
     if novelty in NOVELTY_NOTES:

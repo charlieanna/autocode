@@ -104,12 +104,12 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             "sessions": {},
             "stages": [],
             "history": [],
-            "next_stage": "terra",
+            "next_stage": "builder",
             "acceptance_criteria": [],
             "settings": {
                 "engine": "codex",
                 "roles": {
-                    role: {"model": role, "reasoning_effort": "high"} for role in ("task_planner", "terra", "sol")
+                    role: {"model": role, "reasoning_effort": "high"} for role in ("task_planner", "builder", "tester")
                 },
                 "transport_identity": {"auth_mode": "fixture"},
                 "headroom": {"enabled": False},
@@ -223,7 +223,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.save()
         if approve:
             lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
-            self.state.update(next_stage="terra", phase="EXECUTING")
+            self.state.update(next_stage="builder", phase="EXECUTING")
             self.save()
 
     def request(self, scope, *, options=None):
@@ -237,7 +237,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             if scope == "goal_change"
             else "No goal, scope, criterion or behavior change",
         }
-        human.queue(self.state, scope, {"stage": "terra"}, request=request, next_stage="terra")
+        human.queue(self.state, scope, {"stage": "builder"}, request=request, next_stage="builder")
         self.save()
 
     def provider_question(self, **kwargs):
@@ -291,7 +291,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         after = self.run.answer(question["id"], "CLI", resolver_token=need["resolver_token"])
         self.assertEqual("continue", after["needs"]["kind"])
         self.assertIsNone(after.get("approved_contract"))
-        self.assertEqual("astra_discovery", after["next_stage"])
+        self.assertEqual("draft_plan", after["next_stage"])
         with self.assertRaises(taskrun.TaskRunError):
             self.run.answer(question["id"], "CLI", resolver_token=need["resolver_token"])
         self.provider.assert_not_called()
@@ -311,7 +311,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         after = self.run.answer(question["id"], question["options"][0], resolver_token=need["resolver_token"])
         self.assertEqual("continue", after["needs"]["kind"])
         self.assertEqual(self.protected(before), self.protected(after))
-        self.assertEqual("terra", after["next_stage"])
+        self.assertEqual("builder", after["next_stage"])
         self.provider.assert_not_called()
 
     def test_clarification_accepts_the_documented_proposed_default(self):
@@ -356,8 +356,8 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
                 "options": [row["option"] for row in rows],
                 "proposed_delta": json.dumps({"operational_options": rows}),
             },
-            origin={"stage": "terra"},
-            next_stage="terra",
+            origin={"stage": "builder"},
+            next_stage="builder",
         )
         self.save()
         before = self.shown("answer", scope="permission")
@@ -384,7 +384,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             status="PAUSED_COMPONENT_PLAN",
             stop_reason="Caller root and generated ownership disagree",
             task="Implement the gateway component of a larger system: HTTP service. Own only the directory components/gateway/; do not create or edit any file outside it.",
-            next_stage="astra_discovery",
+            next_stage="draft_plan",
         )
         self.state["settings"].setdefault("regression", {})["test_root"] = "components/backend"
         self.save()
@@ -409,26 +409,22 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         after = self.run.answer(question["id"], question["options"][1], resolver_token=need["resolver_token"])
         self.assertEqual("continue", after["needs"]["kind"])
         self.assertIsNone(after.get("approved_contract"))
-        self.assertEqual("astra_discovery", after["next_stage"])
+        self.assertEqual("draft_plan", after["next_stage"])
         self.assertEqual(before["evidence"], after["evidence"])
         self.provider.assert_not_called()
 
     def test_intake_answer_records_intent_without_approving_execution(self):
         self.state.pop("goal_contract", None)
-        self.state.update(
-            conversation_id="matrix-intake", intake_input_hash="human-message", next_stage="astra_discovery"
-        )
+        self.state.update(conversation_id="matrix-intake", intake_input_hash="human-message", next_stage="draft_plan")
         question = goal_fixtures.body(questions=True)["open_blocking_questions"][0]
-        human.queue(
-            self.state, "intake", {"stage": "resolver_intake"}, questions=[question], next_stage="astra_discovery"
-        )
+        human.queue(self.state, "intake", {"stage": "resolver_intake"}, questions=[question], next_stage="draft_plan")
         self.save()
         before = self.shown("answer", scope="intake")
         after = self.run.answer(question["id"], "CLI", resolver_token=before["needs"]["resolver_token"])
         self.assertEqual("continue", after["needs"]["kind"])
         self.assertIsNone(after.get("approved_contract"))
         self.assertIsNone(after.get("displayed_plan"))
-        self.assertEqual("astra_discovery", after["next_stage"])
+        self.assertEqual("draft_plan", after["next_stage"])
         self.provider.assert_not_called()
 
     def test_planning_budget_feedback_releases_only_a_new_draft(self):
@@ -443,11 +439,11 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertEqual("continue", after["needs"]["kind"])
         self.assertEqual("RUNNING", after["status"])
         self.assertIsNone(after.get("approved_contract"))
-        self.assertEqual("astra_discovery", after["next_stage"])
+        self.assertEqual("draft_plan", after["next_stage"])
         self.provider.assert_not_called()
 
     def test_continue_reaches_a_natural_question_boundary(self):
-        self.state.update(next_stage="astra_discovery", phase="DISCOVERING")
+        self.state.update(next_stage="draft_plan", phase="DISCOVERING")
         self.ready()
         before = self.shown("continue")
         self.assertEqual("nothing needed from you", before["progress"]["needs_you"])
@@ -462,7 +458,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
 
     def test_resume_reaches_a_natural_question_boundary(self):
         self.state.update(
-            status="PAUSED_REQUESTED", stop_reason="Operator inspected a requested pause", next_stage="astra_discovery"
+            status="PAUSED_REQUESTED", stop_reason="Operator inspected a requested pause", next_stage="draft_plan"
         )
         self.save()
         before = self.shown("resume")
@@ -480,7 +476,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             status="PAUSED_NO_PROGRESS",
             stop_reason="Repeated unchanged implementation batches require review",
             no_progress_batches=3,
-            next_stage="astra_discovery",
+            next_stage="draft_plan",
             phase="DISCOVERING",
         )
         self.save()
@@ -521,7 +517,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             status="PAUSED_ITERATION_LIMIT",
             stop_reason="Saved iteration ceiling reached",
             iteration=6,
-            next_stage="astra_discovery",
+            next_stage="draft_plan",
             phase="DISCOVERING",
         )
         error = support.Paused(self.state["status"], self.state["stop_reason"])
@@ -566,7 +562,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             status="PAUSED_TIME_LIMIT",
             stop_reason="Saved active-time limit reached at stage boundary",
             active_seconds=75.5,
-            next_stage="terra",
+            next_stage="builder",
         )
         error = support.Paused(self.state["status"], self.state["stop_reason"])
         self.assertTrue(
@@ -634,7 +630,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         human.queue(
             self.state,
             "human_review",
-            {"stage": "astra_review"},
+            {"stage": "review_completion"},
             request={"kind": "human_review", "criteria": ["C1"], "decision_needed": "Review the current greeting"},
             evidence={"review_token": self.state["displayed_review"]},
         )
@@ -650,7 +646,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         after = self.run.approve_review("C1", before["needs"]["token"])
         self.assertEqual("continue", after["needs"]["kind"])
         self.assertEqual(before["approved_contract"], after["approved_contract"])
-        self.assertEqual("astra_review", after["next_stage"])
+        self.assertEqual("review_completion", after["next_stage"])
         accepted = next(row for row in after["evidence"]["acceptance"] if row["id"] == "C1")
         self.assertTrue(accepted["human_reviewed"])
         self.provider.assert_not_called()
@@ -671,12 +667,12 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             evidence = self.directory / "diagnosed-blocker.json"
             support.atomic_json(evidence, {"diagnosis": "The criterion conflicts with the approved scope"})
             self.state["stages"].append(
-                {"stage": "astra_resolve", "output": str(evidence), "exit_code": 0, "changed_files": []}
+                {"stage": "resolve", "output": str(evidence), "exit_code": 0, "changed_files": []}
             )
             human.queue(
                 self.state,
                 "blocker",
-                {"stage": "astra_resolve"},
+                {"stage": "resolve"},
                 request={
                     "kind": "blocker",
                     "decision_needed": "Provide corrective information or leave paused",
@@ -730,7 +726,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             status="PAUSED_JOB_FAILURE",
             stop_reason="The Design Reviewer stopped",
             next_stage="check_design",
-            workflow={"kind": "build", "then": "astra_discovery", "design_document": "docs/greet.md"},
+            workflow={"kind": "build", "then": "draft_plan", "design_document": "docs/greet.md"},
         )
         self.state["job_failure"] = {
             "reason": "The Design Reviewer stopped",
@@ -842,7 +838,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertEqual("continue", after["needs"]["kind"])
         self.assertEqual(before["approved_contract"], after["approved_contract"])
         self.assertEqual("delivered", after["dependency"]["status"])
-        self.assertEqual("terra", after["next_stage"])
+        self.assertEqual("builder", after["next_stage"])
         self.provider.assert_not_called()
 
 

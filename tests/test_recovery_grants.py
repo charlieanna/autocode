@@ -17,7 +17,7 @@ class RecoveryGrantTests(unittest.TestCase):
             "source_revision": "source",
             "automatic_recoveries_since_resume": 3,
             "consecutive_timeout_recoveries": 3,
-            "automatic_timeout_recoveries": [{"stage": "terra", "attempt_id": "one"}],
+            "automatic_timeout_recoveries": [{"stage": "builder", "attempt_id": "one"}],
             "resolver": {
                 "human_escalations": {
                     "issued": {"identity": {"proposal": {"origin": {"pause_status": "PAUSED_TIMEOUT_RECOVERY"}}}}

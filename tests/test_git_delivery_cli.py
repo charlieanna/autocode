@@ -45,8 +45,8 @@ class GitDeliveryCLI(unittest.TestCase):
 def _criteria(""",
         )
         script = script.replace(
-            '    elif stage in ("sol", "astra_checkpoint"):',
-            '    elif stage in ("sol", "astra_checkpoint"):\n        if subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() == '
+            '    elif stage in ("tester", "review_checkpoint"):',
+            '    elif stage in ("tester", "review_checkpoint"):\n        if subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() == '
             + repr(base)
             + ':\n            raise RuntimeError("Delivery criterion cannot pass before the controller commit")',
         )

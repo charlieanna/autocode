@@ -64,7 +64,7 @@ class GuardCandidateTests(unittest.TestCase):
             json.dumps({"head": "base", "revision": "rev", "files": {"guard_test.go": util.file_hash(self.path)}})
         )
         self.record = {
-            "stage": "terra",
+            "stage": "builder",
             "task_id": "task",
             "changed_files": [],
             "before_ref": str(snapshot),
@@ -103,7 +103,7 @@ class GuardCandidateTests(unittest.TestCase):
             patch.object(coordination, "context", return_value={"member": "member"}),
             patch.object(failure.source_scope, "snapshot", return_value={"revision": "rev"}),
         ):
-            failure.dispatch_guard(self.state, "terra", self.root)
+            failure.dispatch_guard(self.state, "builder", self.root)
         self.assertNotIn("builder_failure_hold", self.state)
         self.assertNotIn("validation", self.state)
 

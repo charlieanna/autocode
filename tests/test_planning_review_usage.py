@@ -15,7 +15,7 @@ def inherited(*, activated=False, limit=3, origin="runner_default"):
         "astra_calls": 1,
         "review_charges": ["review-B"],
         "turn_event_id": "turn-1",
-        "inherited_review": {"cycle": 1, "astra_calls": 1, "reports": ["astra_challenge", "glm_revise"]},
+        "inherited_review": {"cycle": 1, "astra_calls": 1, "reports": ["review_plan", "revise_plan"]},
         "review_call_limit": limit,
         "review_call_limit_origin": origin,
         "reports": {},
@@ -24,7 +24,7 @@ def inherited(*, activated=False, limit=3, origin="runner_default"):
         planning.update(astra_calls=3, review_depth_reduced=True, review_calls_before_policy=2)
     return {
         "status": "PAUSED_PLANNING_BUDGET" if activated else "RUNNING",
-        "next_stage": "astra_finalize",
+        "next_stage": "finalize_plan",
         "workspace": "/tmp/project",
         "run_dir": "/tmp/run",
         "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
@@ -32,8 +32,8 @@ def inherited(*, activated=False, limit=3, origin="runner_default"):
         "planning": planning,
         "planning_history": [first, last],
         "stages": [
-            {"stage": "astra_challenge", "planning_review_charge": "review-A", "exit_code": 0},
-            {"stage": "astra_challenge", "planning_review_charge": "review-B", "exit_code": 0},
+            {"stage": "review_plan", "planning_review_charge": "review-A", "exit_code": 0},
+            {"stage": "review_plan", "planning_review_charge": "review-B", "exit_code": 0},
         ],
     }
 
@@ -92,7 +92,7 @@ class InheritedReviewUsageTests(unittest.TestCase):
         usage.reconcile(state, at="now")
         state["planning"]["review_charges"].append("review-C")
         state["planning"]["astra_calls"] += 1
-        state["stages"].append({"stage": "astra_finalize", "planning_review_charge": "review-C", "exit_code": 0})
+        state["stages"].append({"stage": "finalize_plan", "planning_review_charge": "review-C", "exit_code": 0})
         self.assertEqual(3, usage.effective_calls(state))
         self.assertFalse(usage.can_resume(state))
         self.assertFalse(usage.reconcile(state, at="later"))
@@ -147,7 +147,7 @@ class InheritedReviewUsageTests(unittest.TestCase):
                 elif case == "unknown_activation":
                     planning["review_calls_before_policy"] = 1
                 elif case == "busy":
-                    state["active_stage"] = {"stage": "astra_finalize"}
+                    state["active_stage"] = {"stage": "finalize_plan"}
                 before = copy.deepcopy(state)
                 self.assertFalse(usage.can_resume(state))
                 if case != "busy":

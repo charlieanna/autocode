@@ -76,7 +76,7 @@ def public_view():
                 "attempts": [
                     {
                         "identity": "attempt",
-                        "stage": "terra",
+                        "stage": "builder",
                         "model": "model",
                         "engine": "custom",
                         "duration_seconds": 1.5,
@@ -154,7 +154,7 @@ class ChangedCodeReportTests(unittest.TestCase):
             "reason_kind": "defensive_unreachable",
             "reason": "Parser excludes this defensive state.",
             "evidence": ["owned/tester-check.log"],
-            "reviewer": {"stage": "sol", "role": "sol", "output": "owned/tester.json"},
+            "reviewer": {"stage": "tester", "role": "tester", "output": "owned/tester.json"},
         }
         assessment = changed_code.assess(
             inventory,
@@ -472,7 +472,7 @@ class EvidenceDocumentTests(unittest.TestCase):
 
     def test_routed_checkpoint_reports_the_testing_job_and_retains_failure_disclosures(self):
         view = public_view()
-        view["usage"]["accounting"]["attempts"][0]["stage"] = "astra_checkpoint"
+        view["usage"]["accounting"]["attempts"][0]["stage"] = "review_checkpoint"
         view["evidence"]["check_replay"]["checks"][0].update(exit_code=1, results={"failed": 2})
         view["evidence"]["regression_proof"] = {
             "verdict": "FAIL",
@@ -542,7 +542,7 @@ def approved_state():
         "workflow": {"kind": "build"},
         "base_commit": "base",
         "contract_history": [
-            {"revision": 1, "hash": "a", "origin": "astra_finalize", "created_at": "2026-10-15T07:00:00+00:00"}
+            {"revision": 1, "hash": "a", "origin": "finalize_plan", "created_at": "2026-10-15T07:00:00+00:00"}
         ],
         "goal_contract": {
             "revision": 2,
@@ -911,7 +911,7 @@ class ApprovalReportTests(unittest.TestCase):
 
 
 PLAN_PATH = "/repo/plans/refunds.md"
-PLAN_REVIEW = {"stage": "astra_challenge", "events": "/run/a/plan-challenge-01.jsonl", "events_sha256": "1" * 64}
+PLAN_REVIEW = {"stage": "review_plan", "events": "/run/a/plan-challenge-01.jsonl", "events_sha256": "1" * 64}
 GOAL_HASH_LINE = "Plan goal hash: {} (what `autocode plan --check FILE` prints for a file holding exactly this plan)."
 
 
@@ -932,7 +932,7 @@ def plan_file_state(approved_body=None, *, cited=True):
         "at": "2026-10-16T08:00:00+00:00",
         "token": f"r3:{contract['hash']}",
     }
-    contract.update(approval_status="approved", approval_event=approval, origin="astra_finalize")
+    contract.update(approval_status="approved", approval_event=approval, origin="finalize_plan")
     draft = {"task_id": "task", "revision": 2, "hash": "2" * 64, "body": loaded, "approval_status": "draft"}
     draft.update(approval_event=None, origin="user_cli_edit")
     if cited:
@@ -1501,7 +1501,7 @@ class EvidenceFileTests(unittest.TestCase):
                 },
                 "test_cases",
             ),
-            "active_stage": ({"stage": "sol", "engine": "custom", "model": "changed-model"}, "attempts"),
+            "active_stage": ({"stage": "tester", "engine": "custom", "model": "changed-model"}, "attempts"),
             "orchestration_batch": ({"workers": [{"milestone_id": "M1", "status": "RUNNING"}]}, "usage"),
         }
         for key, (replacement, section) in mutations.items():
@@ -1581,7 +1581,7 @@ class EvidenceFileTests(unittest.TestCase):
             "run_dir": str(self.root),
             "stages": [
                 {
-                    "stage": "terra",
+                    "stage": "builder",
                     "engine": "opencode",
                     "attempt_id": "attempt",
                     "model": "model",

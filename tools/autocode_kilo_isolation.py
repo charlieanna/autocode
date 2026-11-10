@@ -1240,7 +1240,7 @@ class KiloRoleIsolation:
 
     def require_image_profile(self, profile):
         _require(
-            self._role == "sol" and profile == self._profile and profile["mode"] == rules.MODE,
+            self._role == "tester" and profile == self._profile and profile["mode"] == rules.MODE,
             "image extension differs from original Claude reviewer",
         )
         self._check(self._state)

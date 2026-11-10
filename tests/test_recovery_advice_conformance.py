@@ -29,7 +29,7 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
 
     def base_checkpoint(self, *, options=()):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
-        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_review"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_completion"
         self.launch(["Build greeting", "--chat", *options], 2, answers="CLI\nyes\n")
         run, paused = self.saved()
         self.launch(["--run-dir", str(run), "--abandon-stage", runner.attempt_id(paused["active_stage"])], 0)
@@ -49,7 +49,7 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         self.run, stopped = self.base_checkpoint()
         stopped.update(automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3)
         stopped["automatic_timeout_recoveries"] = [
-            {"stage": "terra", "timeout_reason": "idle watchdog"} for _ in range(3)
+            {"stage": "builder", "timeout_reason": "idle watchdog"} for _ in range(3)
         ]
         return self.publish(
             stopped, "PAUSED_TIMEOUT_RECOVERY", "Automatic recovery budget exhausted; no further provider will launch."
@@ -120,7 +120,7 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
     def test_attempt_exhaustion_advertises_only_accepted_actions(self):
         state = self.attempt_exhausted_checkpoint()
         state.setdefault("automatic_permission_recoveries", []).extend(
-            {"stage": "terra", "instruction": "workspace paths only"} for _ in range(3)
+            {"stage": "builder", "instruction": "workspace paths only"} for _ in range(3)
         )
         runner.write_json(self.run / "state.json", state)
         flags, published = self.advertised_commands(state)
@@ -259,7 +259,7 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         provider.write_text(
             source.replace(
                 "\n" + output,
-                '\nif stage == "astra_resolve" and os.environ.get("AUTOCODE_FIXTURE_CRITERIA_CHANGE"):\n'
+                '\nif stage == "resolve" and os.environ.get("AUTOCODE_FIXTURE_CRITERIA_CHANGE"):\n'
                 '    result["acceptance_criteria"][0]["id"] = "C999"\n' + output,
             )
         )
@@ -285,7 +285,7 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         self.launch(["--run-dir", str(self.run), "--resume-paused", "--no-chat"], 0)
         after = self.saved()[1]
         launched = [json.loads(line)["stage"] for line in probe.read_text().splitlines()]
-        self.assertEqual(["astra_resolve", "terra", "sol", "astra_review"], launched)
+        self.assertEqual(["resolve", "builder", "tester", "review_completion"], launched)
         self.assertEqual("TASK_COMPLETE", after["status"])
         grants = after.get("failure_retry_authorizations") or []
         self.assertTrue(grants, "the automatic retry is recorded as its own grant")

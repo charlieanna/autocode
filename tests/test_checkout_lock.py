@@ -272,7 +272,7 @@ class DurableSinkTests(unittest.TestCase):
                 value = {
                     "status": "RUNNING",
                     "iteration": 1,
-                    "next_stage": "terra",
+                    "next_stage": "builder",
                     "current_task": {"id": "owned-task", "objective": "fixture"},
                 }
                 if stopped:

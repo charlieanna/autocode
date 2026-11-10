@@ -91,7 +91,7 @@ class ReportDeliveryCLI(unittest.TestCase):
     def discovery_reports(self):
         reports = []
         for row in self.driver.state().get("stages") or []:
-            if row.get("stage") not in ("astra_discovery", "astra_discovery_report_repair"):
+            if row.get("stage") not in ("draft_plan", "draft_plan_report_repair"):
                 continue
             path = Path(row.get("output") or "")
             if path.is_file():

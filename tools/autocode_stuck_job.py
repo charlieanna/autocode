@@ -129,7 +129,7 @@ BOUNDARY_LIMITS = frozenset(
 )
 PLANNING = roles.ALL_PLANNING_STAGES
 # Diagnosticians are never themselves investigated.
-NEVER = (STAGE, "astra_diagnose", "astra_resolve")
+NEVER = (STAGE, "diagnose", "resolve")
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
 SCHEMA = {
@@ -335,7 +335,7 @@ def annotate(state: RunState, status: str, reason: str) -> str:
 # The run's own direct routes a default Investigator may use, most independent judge first. Never the Resolver's
 # Astra (user 2026-09-28: too expensive) and never a kilo/ gateway route (user 2026-10-21: direct logins only), so a
 # gateway model needs --investigator-model.
-CANDIDATE_ROLES = ("plan_reviewer", "planner", "requirements", "completion", "sol", "terra")
+CANDIDATE_ROLES = ("plan_reviewer", "planner", "requirements", "completion", "tester", "builder")
 GATEWAY_PREFIX = "kilo/"
 
 
@@ -647,7 +647,7 @@ def apply(
                 request["reason"] + "\nInvestigator: " + value["diagnosis"] + question,
             )
             return None
-        state.update({"status": "RUNNING", "next_stage": "terra", "phase": request.get("phase") or "EXECUTING"})
+        state.update({"status": "RUNNING", "next_stage": "builder", "phase": request.get("phase") or "EXECUTING"})
         return {
             **request,
             "diagnosis": {
@@ -718,7 +718,7 @@ def grant_one_attempt(state: RunState, request: dict) -> None:
         planning = state.setdefault("planning", {})
         used = max(int(planning.get("review_call_limit", 2)), int(planning.get("astra_calls", 0)))
         # One review round: a challenge still owes its finalize.
-        planning["review_call_limit"] = used + (2 if stage == "astra_challenge" else 1)
+        planning["review_call_limit"] = used + (2 if stage == "review_plan" else 1)
         if planning.get("review_call_limit_origin") is None:
             # This new allowance is core-issued. Carry it with its spent calls
             # across same-turn replanning, without relabeling an explicit limit.

@@ -19,7 +19,7 @@ def identity(path, sha="a" * 64, version="7.8.12"):
 
 class RecoveryRelocation(unittest.TestCase):
     def setUp(self):
-        self.roles = {"terra": {"engine": "opencode", "model": "plan/glm", "reasoning_effort": "low"}}
+        self.roles = {"builder": {"engine": "opencode", "model": "plan/glm", "reasoning_effort": "low"}}
         self.state = {
             "goal_contract": {"hash": "h", "revision": 4},
             "current_task": {"id": "task-1"},
@@ -65,7 +65,7 @@ class RecoveryRelocation(unittest.TestCase):
 
     def test_another_setting_changed_with_the_move_is_still_a_changed_setting(self):
         self.move(identity("/two/tools/providers/configs/kilocode.toml"))
-        self.state["settings"]["roles"]["terra"]["model"] = "plan/other"
+        self.state["settings"]["roles"]["builder"]["model"] = "plan/other"
         self.assertFalse(recovery._holds(self.saved, self.state, "rev"))
 
     def test_the_holding_check_leaves_the_state_unchanged(self):

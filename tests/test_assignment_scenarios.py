@@ -204,7 +204,7 @@ class AssignmentScenarios(unittest.TestCase):
         with self.assertRaises(s.Paused) as caught:
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 decision,
                 {"output": str(self.run / "claim.json"), "source_revision": s.snapshot(self.root)["revision"]},
                 self.root,
@@ -221,7 +221,7 @@ class AssignmentScenarios(unittest.TestCase):
         self.assertEqual(WELCOME, (self.root / "src/greeting.py").read_text())
         self.assertEqual(TEST_SOURCE, (self.root / "tests/test_greeting.py").read_text())
         self.assertEqual(CONFIG, (self.root / "config/app.txt").read_text())
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
         self.assertTrue(self.state["implementation"]["builder_reports"])
 
@@ -298,7 +298,7 @@ class AssignmentScenarios(unittest.TestCase):
         self.assertTrue(report["untestable"])
         events = [json.loads(line) for line in (run / "activity.jsonl").read_text().splitlines()]
         finished = [event["stage"] for event in events if event.get("event") == "stage_finished"]
-        self.assertEqual(1, finished.count("terra"))
+        self.assertEqual(1, finished.count("builder"))
         self.assertEqual(1, finished.count("investigate_stuck"))
         self.assertNotIn("investigate_stuck_report_repair", finished)
 
@@ -360,10 +360,10 @@ class AssignmentScenarios(unittest.TestCase):
         }
         runner.apply_result(
             self.state,
-            "sol",
+            "tester",
             value,
             {
-                "role": "sol",
+                "role": "tester",
                 "events": str(evidence),
                 "output": str(evidence),
                 "source_revision": s.snapshot(self.root)["revision"],
@@ -392,8 +392,8 @@ class AssignmentScenarios(unittest.TestCase):
         greeting = next(row for row in workers if row["milestone_id"] == "M1")
         child = s.read(Path(greeting["run_dir"]) / "state.json")
         self.assertEqual(
-            ["terra", "terra_report_repair"],
-            [row["stage"] for row in child["stages"] if row["stage"].startswith("terra")],
+            ["builder", "builder_report_repair"],
+            [row["stage"] for row in child["stages"] if row["stage"].startswith("builder")],
         )
         self.assertEqual(WELCOME, (self.root / "src/greeting.py").read_text())
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
@@ -443,7 +443,7 @@ class AssignmentScenarios(unittest.TestCase):
         workspaces = [row["workspace"] for row in batch["workers"]]
         self.assertEqual(2, len(set(workspaces)))
         children = [s.read(Path(row["run_dir"]) / "state.json") for row in batch["workers"]]
-        self.assertNotEqual(children[0]["sessions"]["terra"], children[1]["sessions"]["terra"])
+        self.assertNotEqual(children[0]["sessions"]["builder"], children[1]["sessions"]["builder"])
         self.assertEqual(WELCOME, (self.root / "src/greeting.py").read_text())
         self.assertEqual("independent note\n", (self.root / "docs/other.txt").read_text())
 
@@ -473,7 +473,7 @@ class AssignmentScenarios(unittest.TestCase):
         self.assertEqual([], d.select(self.state))
         self.install_builder("overlap_write")
         self.build()
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertIsNone(self.state.get("orchestration_batch"))
         self.assertEqual(HELLO, (self.root / "src/greeting.py").read_text())
         # Even a forced batch cannot merge overlapping writes blindly.
@@ -521,7 +521,7 @@ class AssignmentScenarios(unittest.TestCase):
         ]
         prose = " ".join(Path(path).read_text() for path in reports)
         self.assertIn("Implementation substantially complete.", prose)
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
         self.claim_complete()
 
@@ -529,30 +529,30 @@ class AssignmentScenarios(unittest.TestCase):
         self.seed()
         self.greeting_contract()
         self.state["settings"]["orchestration"]["enabled"] = False
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         self.install_builder("escape_tests")
         schema = self.run / "schema.json"
         s.atomic_json(
             schema,
-            s.model_output_schema(g.role_schema(s.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "terra")),
+            s.model_output_schema(g.role_schema(s.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "builder")),
         )
-        prompt, metrics = stage_context.context_packet(self.state, "terra", self.run / "state.json")
+        prompt, metrics = stage_context.context_packet(self.state, "builder", self.run / "state.json")
         self.state["pending_context_metrics"] = metrics
         value, record = runner.run_role(
-            role="terra",
+            role="builder",
             prompt=prompt,
             sandbox="workspace-write",
             workspace=self.root,
             run_dir=self.run,
             state=self.state,
             schema=schema,
-            model="terra",
+            model="builder",
             allow_write=True,
             dry_run=False,
         )
         self.assertEqual(["src/greeting.py", "tests/test_greeting.py"], sorted(record["changed_files"]))
         with self.assertRaises(s.Paused) as caught:
-            runner.apply_result(self.state, "terra", value, record, self.root, self.run)
+            runner.apply_result(self.state, "builder", value, record, self.root, self.run)
         self.assertEqual("PAUSED_ASSIGNMENT_SCOPE", caught.exception.status)
         self.assertIn("tests/test_greeting.py", str(caught.exception))
         self.assertNotIn("implementation", self.state)
@@ -567,28 +567,28 @@ class AssignmentScenarios(unittest.TestCase):
         self.seed()
         self.greeting_contract()
         self.state["settings"]["orchestration"]["enabled"] = False
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         self.install_builder("correct")
         schema = self.run / "schema.json"
         s.atomic_json(
             schema,
-            s.model_output_schema(g.role_schema(s.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "terra")),
+            s.model_output_schema(g.role_schema(s.read(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "builder")),
         )
-        prompt, metrics = stage_context.context_packet(self.state, "terra", self.run / "state.json")
+        prompt, metrics = stage_context.context_packet(self.state, "builder", self.run / "state.json")
         self.state["pending_context_metrics"] = metrics
         value, record = runner.run_role(
-            role="terra",
+            role="builder",
             prompt=prompt,
             sandbox="workspace-write",
             workspace=self.root,
             run_dir=self.run,
             state=self.state,
             schema=schema,
-            model="terra",
+            model="builder",
             allow_write=True,
             dry_run=False,
         )
-        runner.apply_result(self.state, "terra", value, record, self.root, self.run)
+        runner.apply_result(self.state, "builder", value, record, self.root, self.run)
         self.assertEqual(["src/greeting.py"], self.state["changed_files"])
         self.assertEqual(WELCOME, (self.root / "src/greeting.py").read_text())
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
@@ -600,10 +600,10 @@ class AssignmentScenarios(unittest.TestCase):
         if not hasattr(self, "environment"):
             self.install_builder(scenario)
         os.environ["AUTOCODE_SCENARIO"] = scenario
-        self.state.update(status="RUNNING", phase="EXECUTING", next_stage="terra")
+        self.state.update(status="RUNNING", phase="EXECUTING", next_stage="builder")
         self.state.pop("stop_reason", None)
         try:
-            runner.autopilot.dispatch_unit(runner, self.state, "terra", self.root, self.run)
+            runner.autopilot.dispatch_unit(runner, self.state, "builder", self.root, self.run)
         except s.Paused as caught:
             return str(caught)
         return None
@@ -619,7 +619,7 @@ class AssignmentScenarios(unittest.TestCase):
         self.assertEqual(TEST_SOURCE, (self.root / "tests/test_greeting.py").read_text())
         self.assertIsNone(self.serial_attempt("no_change"))
         self.assertEqual(["src/greeting.py"], self.state["changed_files"])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual(TEST_SOURCE, (self.root / "tests/test_greeting.py").read_text())
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
 
@@ -628,7 +628,7 @@ class AssignmentScenarios(unittest.TestCase):
         (self.root / "src/greeting.py").write_text(HELLO)
         self.assertIsNone(self.serial_attempt("correct"))
         self.assertEqual(["src/greeting.py"], self.state["changed_files"])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual(TEST_SOURCE, (self.root / "tests/test_greeting.py").read_text())
 
     def test_serial_retry_proceeds_after_deleted_committed_file_is_restored(self):
@@ -636,7 +636,7 @@ class AssignmentScenarios(unittest.TestCase):
         self.assertEqual(NOTE, (self.root / "notes/unrelated.txt").read_text())
         self.assertIsNone(self.serial_attempt("correct"))
         self.assertEqual(["src/greeting.py"], self.state["changed_files"])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual(NOTE, (self.root / "notes/unrelated.txt").read_text())
 
     def test_serial_retry_stays_blocked_when_escape_was_not_provably_clean_at_start(self):
@@ -650,7 +650,7 @@ class AssignmentScenarios(unittest.TestCase):
         self.assertRegex(self.serial_attempt("correct"), "outside the assigned paths.*tests/test_greeting.py")
         self.assertEqual(retained, (self.root / "tests/test_greeting.py").read_text())
         self.assertNotIn("implementation", self.state)
-        self.assertNotEqual("sol", self.state["next_stage"])
+        self.assertNotEqual("tester", self.state["next_stage"])
 
     def test_serial_retry_proceeds_once_the_escape_is_restored(self):
         self.serial_greeting("escape_tests")
@@ -658,7 +658,7 @@ class AssignmentScenarios(unittest.TestCase):
         (self.root / "src/greeting.py").write_text(HELLO)
         self.assertIsNone(self.serial_attempt("correct"))
         self.assertEqual(["src/greeting.py"], self.state["changed_files"])
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
 
     def test_empty_starting_tree_retains_new_file_for_validation(self):
         # This scenario requires a genuinely empty starting tree, unlike the
@@ -708,7 +708,7 @@ class AssignmentScenarios(unittest.TestCase):
         )
         self.assertFalse((self.root / "unrelated.txt").exists())
         self.assertIsNone(self.serial_attempt("no_change"))
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertEqual(["src/new.py"], self.state["changed_files"])
         self.assertEqual(["src/new.py"], self.state["implementation"]["changed_files"])
         self.assertFalse(self.state["retained_candidate_handoffs"][-1]["previously_validated"])
@@ -716,9 +716,9 @@ class AssignmentScenarios(unittest.TestCase):
 
     def test_serial_retry_pauses_when_the_starting_snapshot_is_missing(self):
         self.serial_greeting("escape_tests")
-        first = next(row for row in self.state["stages"] if row.get("stage") == "terra")
+        first = next(row for row in self.state["stages"] if row.get("stage") == "builder")
         Path(first["before_ref"]).unlink()
         (self.root / "tests/test_greeting.py").write_text(TEST_SOURCE)
         (self.root / "src/greeting.py").write_text(HELLO)
         self.assertRegex(self.serial_attempt("correct"), "starting snapshot is missing")
-        self.assertNotEqual("sol", self.state["next_stage"])
+        self.assertNotEqual("tester", self.state["next_stage"])

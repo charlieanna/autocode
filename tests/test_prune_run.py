@@ -151,7 +151,7 @@ class PruneTests(unittest.TestCase):
                 self.assertEqual(2, stop.exception.code)
 
     def test_a_live_stage_refuses_the_prune(self):
-        write(self.run, "state.json", json.dumps({**self.state, "active_stage": {"stage": "terra"}}))
+        write(self.run, "state.json", json.dumps({**self.state, "active_stage": {"stage": "builder"}}))
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
             code = prune_run.cli([str(self.run), "--yes"])
@@ -189,7 +189,7 @@ class PruneTests(unittest.TestCase):
         self.assertGreater(data["freed_bytes"], 0)
 
     def test_cli_json_output_refused_when_stage_active(self):
-        write(self.run, "state.json", json.dumps({**self.state, "active_stage": {"stage": "terra"}}))
+        write(self.run, "state.json", json.dumps({**self.state, "active_stage": {"stage": "builder"}}))
         stdout, stderr = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             code = prune_run.cli([str(self.run), "--json"])

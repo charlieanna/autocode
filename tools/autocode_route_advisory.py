@@ -23,17 +23,17 @@ def _chains(settings):
     if roles.planning_flow(settings) == "v2":
         return (
             ("requirements", "requirements", "planner", "plan"),
-            ("requirements", "requirements", "terra", "terra"),
-            ("planner", "plan", "terra", "terra"),
+            ("requirements", "requirements", "builder", "builder"),
+            ("planner", "plan", "builder", "builder"),
         )
     if settings.get("joint_planning"):
         return (
-            ("requirements", "requirements_gather", "task_planner", "astra_plan"),
-            ("requirements", "requirements_gather", "terra", "terra"),
-            ("planner", "glm_revise", "terra", "terra"),
-            ("task_planner", "astra_plan", "terra", "terra"),
+            ("requirements", "requirements_gather", "task_planner", "plan_task"),
+            ("requirements", "requirements_gather", "builder", "builder"),
+            ("planner", "revise_plan", "builder", "builder"),
+            ("task_planner", "plan_task", "builder", "builder"),
         )
-    return (("task_planner", "astra_plan", "terra", "terra"),)
+    return (("task_planner", "plan_task", "builder", "builder"),)
 
 
 def warnings(previous, selected):
@@ -57,7 +57,7 @@ def warnings(previous, selected):
             consumer_job = roles.screen_name(consumer_stage)
             messages.append(
                 f"Model-route advisory: selected {producer_job} -> {consumer_job} routes now share a model family "
-                f"({new_p} / {new_c}; --{producer}-model / --{consumer}-model). "
+                f"({new_p} / {new_c}; --{producer.replace('_', '-')}-model / --{consumer.replace('_', '-')}-model). "
                 "This producer/consumer link has no independence blocker; "
                 "existing verifier checks still apply. Saved artifacts retain their original authorship."
             )

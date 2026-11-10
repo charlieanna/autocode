@@ -63,7 +63,7 @@ def check(project, scenario, run=None):
     status = str(run.get("status") or "")
     trace = project.parent / "rework-trace.jsonl"
     rows = [json.loads(line) for line in trace.read_text().splitlines()] if trace.is_file() else []
-    testers = [row for row in rows if row["stage"] == "sol"]
+    testers = [row for row in rows if row["stage"] == "tester"]
     checks.append(
         Check(
             "same_check_failed_twice",
@@ -73,12 +73,14 @@ def check(project, scenario, run=None):
         )
     )
     stages = [
-        stage for stage in run.get("model_stages") or [] if stage in ("terra", "sol", "astra_review", "astra_resolve")
+        stage
+        for stage in run.get("model_stages") or []
+        if stage in ("builder", "tester", "review_completion", "resolve")
     ]
     checks.append(
         Check(
             "stopped_without_another_attempt",
-            stages == ["terra", "sol", "astra_review"] * 2,
+            stages == ["builder", "tester", "review_completion"] * 2,
             f"stages after planning: {stages}",
         )
     )

@@ -36,7 +36,7 @@ class BuilderRetryLimitsTests(unittest.TestCase):
         self.resume_with(run, "--retry-builder", "M2", "--pause-after-stage")
         parent = self.saved()[1]
         child = json.loads(paths["M2"].read_text())
-        attempts = [record for record in child["stages"] if record.get("stage") == "terra"]
+        attempts = [record for record in child["stages"] if record.get("stage") == "builder"]
         self.assertEqual(
             [(1800, 3600), (5400, 7200)], [(r["tool_timeout_seconds"], r["stage_timeout_seconds"]) for r in attempts]
         )

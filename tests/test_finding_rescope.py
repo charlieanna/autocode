@@ -107,10 +107,10 @@ class Run:
             "sessions": {},
             "stages": [],
             "history": [],
-            "next_stage": "terra",
+            "next_stage": "builder",
             "acceptance_criteria": [],
             "settings": {
-                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "terra", "sol")},
+                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "builder", "tester")},
                 "transport_identity": LOCAL,
                 "headroom": {"enabled": False},
                 "context_soft_tokens": 10000,
@@ -421,7 +421,7 @@ class CarriedMilestoneTests(unittest.TestCase):
         output = self.run / f"astra-{len(self.state['stages'])}.json"
         output.write_text(json.dumps(decision))
         record = {"output": str(output), "source_revision": support.snapshot(self.root)["revision"]}
-        runner.apply_result(self.state, "astra_review", decision, record, self.root, self.run)
+        runner.apply_result(self.state, "review_completion", decision, record, self.root, self.run)
 
     def revise(self, *new_milestones):
         draft = copy.deepcopy(self.state["goal_contract"]["body"])
@@ -619,7 +619,7 @@ class PlanTests(unittest.TestCase):
             self.row(
                 "M2",
                 ["AC10", "AC15"],
-                source="sol",
+                source="tester",
                 pending_resolution={
                     "report": "r",
                     "reason": "Finding scope lacks fully passing verification",

@@ -15,27 +15,26 @@ ACTIVITIES = {
     "requirements_gather": "Gathering requirements",
     "requirements": "Gathering requirements",
     "requirements_planner": "Gathering requirements",
-    "astra_discovery": "Planning",
+    "draft_plan": "Planning",
     "plan": "Planning",
-    "glm_revise": "Revising the plan",
+    "revise_plan": "Revising the plan",
     "plan_revise": "Revising the plan",
     "requirements_revision": "Revising the plan",
-    "astra_plan": "Assigning implementation",
-    "astra_challenge": "Challenging the plan",
+    "plan_task": "Assigning implementation",
+    "review_plan": "Challenging the plan",
     "plan_review": "Challenging the plan",
     "plan_reviewer": "Challenging the plan",
-    "astra_finalize": "Finalizing the plan",
+    "finalize_plan": "Finalizing the plan",
     "plan_finalize": "Finalizing the plan",
     "plan_finalizer": "Finalizing the plan",
-    "terra": "Implementing",
     "builder": "Implementing",
-    "sol": "Reviewing implementation",
+    "tester": "Reviewing implementation",
     "validator": "Reviewing implementation",
-    "astra_review": "Deciding complete or rework",
+    "review_completion": "Deciding complete or rework",
     "decision_owner": "Deciding complete or rework",
-    "astra_checkpoint": "Auditing results",
-    "astra_resolve": "Diagnosing a failure",
-    "astra_diagnose": "Diagnosing a failure",
+    "review_checkpoint": "Auditing results",
+    "resolve": "Diagnosing a failure",
+    "diagnose": "Diagnosing a failure",
     "resolver": "Runner decision (no model call)",
     "orchestrator": "Coordinating Builders",
     "investigate_stuck": "Investigating",
@@ -44,8 +43,8 @@ ACTIVITIES = {
 ALIASES = {
     "planner": "planner",
     "task_planner": "planner",
-    "terra": "builder",
-    "sol": "tester",
+    "builder": "builder",
+    "tester": "tester",
     "completion owner": "completion",
     "plan reviewer": "plan_reviewer",
     "requirements gatherer": "requirements",
@@ -56,7 +55,7 @@ ALIASES = {
     "architect": "design_reviewer",
 }
 # Actual V2 stages are in the canonical catalogue; only legacy aliases belong here.
-STAGE_ALIASES = {"astra_diagnose": "astra_resolve", "resolver": "astra_resolve"}
+STAGE_ALIASES = {"diagnose": "resolve", "resolver": "resolve"}
 
 
 def role_name(stage, workflow_mode=None):
@@ -83,8 +82,8 @@ CATALOGUE: dict[str, Any] = {
     },
     "modes": {
         mode: {
-            "astra_checkpoint": {
-                "role": role_name("astra_checkpoint", mode),
+            "review_checkpoint": {
+                "role": role_name("review_checkpoint", mode),
                 "activity": "Independent validation"
                 if mode in roles.VALIDATION_ROUTING_MODES
                 else "Final completion audit",

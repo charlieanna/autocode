@@ -54,7 +54,7 @@ class InvestigatorRouteCLI(unittest.TestCase):
         )
         self.assertEqual("gpt-6-sol", need["route"]["stopped_model"])
         self.assertTrue(need["job_retry_token"].startswith("jr:"))
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assertEqual(1, len(self.trace("investigate_stuck")))
         self.assertFalse((self.project / "main.py").exists())
         return run, view
@@ -91,7 +91,7 @@ class InvestigatorRouteCLI(unittest.TestCase):
             packet = row["handoff"]["builder_failure"]
             self.assertEqual(first["failure_id"], packet["failure_id"])
             self.assertEqual(first["binding"], packet["binding"])
-        self.assertEqual(2, len(self.trace("terra")))
+        self.assertEqual(2, len(self.trace("builder")))
         oracle = subprocess.run(
             [sys.executable, "main.py"],
             cwd=self.project,
@@ -178,7 +178,7 @@ class InvestigatorRouteCLI(unittest.TestCase):
             rows[1]["handoff"]["builder_failure"]["binding"],
         )
         self.assertEqual(self.approved_token, self.status()["contract_token"])
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
 
     def test_unchanged_exact_retry_keeps_original_model_and_incident(self):
         run, held = self.stopped()
@@ -190,7 +190,7 @@ class InvestigatorRouteCLI(unittest.TestCase):
             rows[0]["handoff"]["builder_failure"]["binding"],
             rows[1]["handoff"]["builder_failure"]["binding"],
         )
-        self.assertEqual(1, len(self.trace("terra")))
+        self.assertEqual(1, len(self.trace("builder")))
         self.assertEqual(self.approved_token, self.status()["contract_token"])
 
     def test_pin_and_mixed_flags_are_refused_before_saving_or_launching(self):
@@ -226,7 +226,7 @@ class InvestigatorRouteCLI(unittest.TestCase):
                     "route-stuck_investigator=gpt-6-luna",
                     "--job-retry-token",
                     token,
-                    "--sol-model",
+                    "--tester-model",
                     "gpt-6-astra",
                 ),
                 "this invocation also changes the configuration its exact retry is bound to, so nothing is saved",
@@ -273,11 +273,11 @@ class InvestigatorRoutePolicyTests(unittest.TestCase):
                 "engine": "codex",
                 "roles": {
                     "stuck_investigator": copy.deepcopy(route),
-                    "sol": {"model": "gpt-6-astra"},
+                    "tester": {"model": "gpt-6-astra"},
                 },
                 "stuck_investigation": {"route": copy.deepcopy(route)},
             },
-            "sessions": {"stuck_investigator": "old", "sol": "keep"},
+            "sessions": {"stuck_investigator": "old", "tester": "keep"},
             "stages": [],
         }
         config = job_failure.configuration(state)
@@ -322,7 +322,7 @@ class InvestigatorRoutePolicyTests(unittest.TestCase):
             state["settings"]["roles"]["stuck_investigator"],
             state["settings"]["stuck_investigation"]["route"],
         )
-        self.assertEqual({"sol": "keep"}, state["sessions"])
+        self.assertEqual({"tester": "keep"}, state["sessions"])
         self.assertEqual(before, quota_route.unassigned(state, state["settings"]))
         self.assertEqual(("gpt-6-sol", "gpt-6-luna"), (event["from"], event["to"]))
         state["settings"]["stuck_investigation"]["route"]["reasoning_effort"] = "low"
@@ -431,12 +431,12 @@ class InvestigatorRoutePolicyTests(unittest.TestCase):
         state["next_stage"] = "investigate_stuck"
         state["job_retry_authorization"] = {"stage": "investigate_stuck", "token": "jr:bound", "consumed": False}
         self.assertTrue(quota_route.job_pause_current(state))
-        for key, value in (("consumed", True), ("token", "jr:old"), ("stage", "sol")):
+        for key, value in (("consumed", True), ("token", "jr:old"), ("stage", "tester")):
             changed = copy.deepcopy(state)
             changed["job_retry_authorization"][key] = value
             self.assertFalse(quota_route.job_pause_current(changed))
         for key, value in (
-            ("next_stage", "sol"),
+            ("next_stage", "tester"),
             ("active_stage", {"stage": "model_preflight"}),
             ("recovery_context", {"kind": "job_failure", "attempt_id": "another"}),
         ):

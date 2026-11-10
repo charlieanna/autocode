@@ -219,7 +219,7 @@ class BrowserEvidenceTests(unittest.TestCase):
         checks = [dict(command=self.event["command"], exit_code=0, evidence_ref="event:item_17")]
         state = dict(
             validation=dict(verdict="FAIL", findings=[dict(finding="clipped freshness")], checks=checks),
-            stages=[dict(stage="sol", events="older.jsonl"), dict(stage="sol", events="latest.jsonl")],
+            stages=[dict(stage="tester", events="older.jsonl"), dict(stage="tester", events="latest.jsonl")],
         )
 
         def events(path):
@@ -236,7 +236,9 @@ class BrowserEvidenceTests(unittest.TestCase):
             reader.assert_called_once_with("latest.jsonl")
             state["stages"].append(
                 dict(
-                    stage="sol_report_repair", events="repair.jsonl", applied_original_events="archived/original.jsonl"
+                    stage="tester_report_repair",
+                    events="repair.jsonl",
+                    applied_original_events="archived/original.jsonl",
                 )
             )
             reader.reset_mock()

@@ -79,7 +79,7 @@ class EscalationScenarioTests(unittest.TestCase):
         )
         outcome = view["recovery"]["outcome"]
         self.assertEqual("could_not_finish", outcome["result"])
-        self.assertEqual("terra", outcome["evidence"]["stage"])
+        self.assertEqual("builder", outcome["evidence"]["stage"])
         self.assertEqual(3, outcome["evidence"]["attempt"])
         self.assertEqual("resume", view["needs"]["kind"], view["needs"])
         self.assertIn("Escalations: 1 (1 paused).", said)

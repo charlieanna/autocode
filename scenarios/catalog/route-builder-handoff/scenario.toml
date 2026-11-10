@@ -4,7 +4,7 @@ category = "greenfield"
 # launches on the named route, and leaves Validator/Completion on their own routes.
 
 [run]
-requires_stages = ["terra", "sol"]
+requires_stages = ["builder", "tester"]
 
 [fake]
 check = "python3 -m unittest test_greet.py"

@@ -36,15 +36,15 @@ class RevisionGuardTests(unittest.TestCase):
         dropped = body()
         dropped["required_behaviors"] = ["Print a greeting"]
         with self.assertRaisesRegex(ValueError, "without a user-backed"):
-            lifecycle.install_draft(current, dropped, origin="glm_revise")
+            lifecycle.install_draft(current, dropped, origin="revise_plan")
         excluded = body()
         excluded["scope_exclusions"] = ["Web service"]
         with self.assertRaisesRegex(ValueError, "Do not touch auth|without a user-backed"):
-            lifecycle.install_draft(current, excluded, origin="glm_revise")
+            lifecycle.install_draft(current, excluded, origin="revise_plan")
         wider = body()
         wider["permission_boundaries"] = ["May write outside the workspace and call external services"]
         with self.assertRaisesRegex(ValueError, "without a user-backed"):
-            lifecycle.install_draft(current, wider, origin="glm_revise")
+            lifecycle.install_draft(current, wider, origin="revise_plan")
         self.assertEqual(
             ["Print Hello, NAME for a nonempty name"], current["goal_contract"]["body"]["required_behaviors"]
         )
@@ -76,7 +76,7 @@ class RevisionGuardTests(unittest.TestCase):
                 "replacement": revised["acceptance_criteria"][0]["criterion"],
             },
         ]
-        lifecycle.install_draft(current, revised, origin="glm_revise", changes=changes)
+        lifecycle.install_draft(current, revised, origin="revise_plan", changes=changes)
         self.assertEqual([old, "C1"], [row["item"] for row in current["goal_contract"]["declared_changes"]])
 
     def test_a_reference_to_two_items_is_not_guessed(self):
@@ -108,7 +108,7 @@ class RevisionGuardTests(unittest.TestCase):
         current, original, change = self.install_criterion_quoting_a_behavior()
         revised = copy.deepcopy(original)
         revised["acceptance_criteria"][0]["criterion"] = change["replacement"]
-        lifecycle.install_draft(current, revised, origin="glm_revise", changes=[change])
+        lifecycle.install_draft(current, revised, origin="revise_plan", changes=[change])
         self.assertEqual("C1", current["goal_contract"]["declared_changes"][0]["item"])
         self.assertEqual(
             ["Print Hello, NAME for a nonempty name"], current["goal_contract"]["body"]["required_behaviors"]
@@ -119,7 +119,7 @@ class RevisionGuardTests(unittest.TestCase):
         revised = copy.deepcopy(original)
         revised["required_behaviors"] = [change["replacement"]]
         with self.assertRaises(ValueError):
-            lifecycle.install_draft(current, revised, origin="glm_revise", changes=[change])
+            lifecycle.install_draft(current, revised, origin="revise_plan", changes=[change])
 
     def test_an_id_beside_another_items_text_is_not_guessed(self):
         import autocode_contract_revision as revision
@@ -154,7 +154,7 @@ class RevisionGuardTests(unittest.TestCase):
         revised["acceptance_criteria"][0].update(
             criterion="Output is NAME\tCOUNT", verification_method="Run it and compare with a real\ttab"
         )
-        lifecycle.install_draft(current, revised, origin="glm_revise")
+        lifecycle.install_draft(current, revised, origin="revise_plan")
         saved = current["goal_contract"]["body"]
         # The contract keeps the text the user approved, not the respelling.
         self.assertEqual(["Print the fields separated by a literal \\t"], saved["required_behaviors"])
@@ -173,14 +173,14 @@ class RevisionGuardTests(unittest.TestCase):
                 criterion="Output is NAME\\tCOUNT", verification_method="Run it and compare with a real\\ttab"
             )
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "without a user-backed"):
-                lifecycle.install_draft(current, revised, origin="glm_revise")
+                lifecycle.install_draft(current, revised, origin="revise_plan")
         changed = body()
         changed["required_behaviors"] = ["Print the fields separated by a literal \\t"]
         changed["acceptance_criteria"][0].update(
             criterion="Output is NAME\tCOUNT and a header", verification_method="Run it and compare with a real\\ttab"
         )
         with self.assertRaisesRegex(ValueError, "without a user-backed"):
-            lifecycle.install_draft(current, changed, origin="glm_revise")
+            lifecycle.install_draft(current, changed, origin="revise_plan")
 
     def test_user_edit_and_backed_reword_are_allowed(self):
         current = state()
@@ -197,7 +197,7 @@ class RevisionGuardTests(unittest.TestCase):
             lifecycle.install_draft(
                 current,
                 reworded,
-                origin="glm_revise",
+                origin="revise_plan",
                 changes=[
                     {
                         "item": "Print Hello, NAME for a nonempty name",
@@ -212,7 +212,7 @@ class RevisionGuardTests(unittest.TestCase):
         lifecycle.install_draft(
             current,
             reworded,
-            origin="glm_revise",
+            origin="revise_plan",
             changes=[
                 {
                     "item": "Print Hello, NAME for a nonempty name",
@@ -232,7 +232,7 @@ class RevisionGuardTests(unittest.TestCase):
         lifecycle.install_draft(current, original, origin="glm_draft")
         revised = copy.deepcopy(original)
         revised["technical_approach"] = ["Use a smaller parser and run its tests"]
-        lifecycle.install_draft(current, revised, origin="glm_revise", changes=[])
+        lifecycle.install_draft(current, revised, origin="revise_plan", changes=[])
         self.assertEqual(original["required_behaviors"], current["goal_contract"]["body"]["required_behaviors"])
         self.assertEqual(original["acceptance_criteria"], current["goal_contract"]["body"]["acceptance_criteria"])
         current["answers"]["Q1"] = {"id": "Q1", "text": "Use the shorter wording"}
@@ -240,7 +240,7 @@ class RevisionGuardTests(unittest.TestCase):
             lifecycle.install_draft(
                 current,
                 revised,
-                origin="glm_revise",
+                origin="revise_plan",
                 changes=[
                     {
                         "item": original["required_behaviors"][0],
@@ -280,7 +280,7 @@ class TraceTests(unittest.TestCase):
                     {"requirement_trace": [{"requirement_id": "R1", "disposition": "covered", "evidence": evidence}]},
                     draft,
                 )
-        prompt, _ = planning.context(current, "glm_revise", Path("/run/state.json"))
+        prompt, _ = planning.context(current, "revise_plan", Path("/run/state.json"))
         self.assertIn("AC1 verifies this", prompt)
         self.assertIn("copy required_behaviors", prompt)
         self.assertIn("Reviewer\nconcerns and agent proposals are not saved user authorization", prompt)
@@ -315,7 +315,7 @@ class TraceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no trace"):
             autopilot.apply_planning(
                 current,
-                "astra_discovery",
+                "draft_plan",
                 {
                     "contract": draft,
                     "summary": "plan",
@@ -329,7 +329,7 @@ class TraceTests(unittest.TestCase):
             )
         autopilot.apply_planning(
             current,
-            "astra_discovery",
+            "draft_plan",
             {
                 "contract": draft,
                 "summary": "plan",
@@ -383,13 +383,13 @@ class TraceTests(unittest.TestCase):
             ],
         }
         with self.assertRaisesRegex(ValueError, "blocking question"):
-            autopilot.apply_planning(current, "astra_discovery", payload, {"output": "draft.json"})
+            autopilot.apply_planning(current, "draft_plan", payload, {"output": "draft.json"})
         asked = copy.deepcopy(payload)
         asked["contract"] = body(questions=True)
         asked["contract"]["milestones"] = []
         asked["contract"]["technical_approach"] = []
         asked["contract"]["constraints"] = draft["constraints"]
-        autopilot.apply_planning(current, "astra_discovery", asked, {"output": "draft.json"})
+        autopilot.apply_planning(current, "draft_plan", asked, {"output": "draft.json"})
         self.assertTrue(current["goal_contract"]["body"]["open_blocking_questions"])
 
     def test_unrecorded_conflict_resolution_names_what_the_repair_may_resolve(self):
@@ -447,7 +447,7 @@ class TraceTests(unittest.TestCase):
                     current, "requirements_gather", dict(report, conflicts=conflicts), {"output": "req.json"}
                 )
                 with self.assertRaisesRegex(ValueError, expected):
-                    autopilot.apply_planning(current, "astra_discovery", payload, {"output": "draft.json"})
+                    autopilot.apply_planning(current, "draft_plan", payload, {"output": "draft.json"})
 
 
 class ProxyGapTests(unittest.TestCase):
@@ -651,9 +651,9 @@ class PlanEvidenceTests(unittest.TestCase):
                 "requirement_trace": [],
             }
             with self.assertRaisesRegex(ValueError, "code_refs"):
-                autopilot.apply_planning(current, "astra_discovery", payload, {"output": "draft.json"})
+                autopilot.apply_planning(current, "draft_plan", payload, {"output": "draft.json"})
             payload["code_refs"] = ["api.py:1"]
-            autopilot.apply_planning(current, "astra_discovery", payload, {"output": "draft.json"})
+            autopilot.apply_planning(current, "draft_plan", payload, {"output": "draft.json"})
         hidden = body()
         hidden["milestones"] = [
             {

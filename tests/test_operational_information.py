@@ -29,7 +29,7 @@ class OperationalInformationCLITests(unittest.TestCase):
     def checkpoint(self, status, reason, edit=None, **fields):
         """A run AutoResolver stopped with a published operational_exhaustion request."""
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
-        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_review"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_completion"
         self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
         run, paused = self.saved()
         self.launch(["--run-dir", str(run), "--abandon-stage", runner.attempt_id(paused["active_stage"])], 0)
@@ -49,7 +49,7 @@ class OperationalInformationCLITests(unittest.TestCase):
 
     def issue_checkpoint(self, edit=None, **fields):
         """#486's run: two operational recoveries, then PAUSED_RESOLVER_OPERATIONAL."""
-        recoveries = [{"stage": "terra", "instruction": "workspace paths only"} for _ in range(2)]
+        recoveries = [{"stage": "builder", "instruction": "workspace paths only"} for _ in range(2)]
         return self.checkpoint(
             "PAUSED_RESOLVER_OPERATIONAL",
             "AutoResolver exhausted its operational recoveries",
@@ -107,7 +107,7 @@ class OperationalInformationCLITests(unittest.TestCase):
                 next(
                     row
                     for row in reversed(state["stages"])
-                    if row.get("stage") == "terra" and not row.get("report_only")
+                    if row.get("stage") == "builder" and not row.get("report_only")
                 )
             )
             original["rejection_reason"] = "Report is missing summary"
@@ -119,8 +119,8 @@ class OperationalInformationCLITests(unittest.TestCase):
                 "error": "Report is missing summary",
                 "original": original,
             }
-            state.update(next_stage="terra")
-            state.setdefault("sessions", {})["terra"] = "spent-builder-session"
+            state.update(next_stage="builder")
+            state.setdefault("sessions", {})["builder"] = "spent-builder-session"
 
         return edit
 
@@ -342,7 +342,9 @@ class OperationalInformationCLITests(unittest.TestCase):
                 "Automatic recovery budget exhausted; no further provider will launch.",
                 automatic_recoveries_since_resume=3,
                 consecutive_timeout_recoveries=3,
-                automatic_timeout_recoveries=[{"stage": "terra", "timeout_reason": "idle watchdog"} for _ in range(3)],
+                automatic_timeout_recoveries=[
+                    {"stage": "builder", "timeout_reason": "idle watchdog"} for _ in range(3)
+                ],
             )
         )
 
@@ -385,8 +387,8 @@ class OperationalInformationCLITests(unittest.TestCase):
 
             configure.configure_codex_joint(state["settings"], SimpleNamespace(), planning=runner.planning)
             original = dict(
-                next(row for row in state["stages"] if row["stage"] == "terra"),
-                stage="astra_finalize",
+                next(row for row in state["stages"] if row["stage"] == "builder"),
+                stage="finalize_plan",
                 role="task_planner",
             )
             revision = support.snapshot(self.project)["revision"]
@@ -399,7 +401,7 @@ class OperationalInformationCLITests(unittest.TestCase):
                 )
                 runner.failures.record(state, record, ValueError("invalid source trace"), support.now())
                 state["stages"].append(record)
-            state.update(next_stage="astra_finalize")
+            state.update(next_stage="finalize_plan")
             state["settings"]["report_repair"] = {"max_attempts": 2}
             state["pending_report_repair"] = {"attempts": 2, "original": record}
 
@@ -443,7 +445,13 @@ class OperationalInformationCLITests(unittest.TestCase):
             validation = state.setdefault("validation", {})
             validation.update(contract_hash=contract, source_revision=revision)
             state["findings_ledger"] = [
-                {"id": "F-1", "source": "sol", "status": "open", "blocking": True, "not_rechecked_in": "validator.json"}
+                {
+                    "id": "F-1",
+                    "source": "tester",
+                    "status": "open",
+                    "blocking": True,
+                    "not_rechecked_in": "validator.json",
+                }
             ]
             frontier = {
                 "contract_hash": contract,
@@ -465,7 +473,7 @@ class OperationalInformationCLITests(unittest.TestCase):
                 {"attempt": {"task_id": task, "after_validation": f"earlier-{n}"}, "frontier": frontier, "at": "x"}
                 for n in (1, 2)
             ]
-            state.update(next_stage="sol")
+            state.update(next_stage="tester")
 
         view = self.checkpoint("PAUSED_RESOLVER", "Validation-only rounds made no progress on F-1", stalled)
         self.env.pop("AUTOCODE_FIXTURE_QUOTA_STAGE")
@@ -496,7 +504,7 @@ class OperationalInformationCLITests(unittest.TestCase):
         # The content filter refused the Tester's model; it would likely refuse again (#464/#465).
         self.env.update(
             AUTOCODE_FIXTURE_MODE="no-human",
-            AUTOCODE_FIXTURE_QUOTA_STAGE="sol",
+            AUTOCODE_FIXTURE_QUOTA_STAGE="tester",
             AUTOCODE_FIXTURE_QUOTA_MODEL="gpt-5.6-sol",
             AUTOCODE_FIXTURE_QUOTA_MESSAGE="The response was blocked by the provider's content filter",
         )
@@ -509,11 +517,13 @@ class OperationalInformationCLITests(unittest.TestCase):
         view = self.status()
         self.assertEqual("held", view["information_review"]["status"])
         self.assertIn(f"--abandon-stage {attempt} ", view["stop_reason"])
-        self.assertIn(", then autocode resume --sol-model MODEL", view["stop_reason"])
-        self.assertEqual(f"--abandon-stage {attempt} then --resume-paused --sol-model MODEL", view["needs"]["action"])
+        self.assertIn(", then autocode resume --tester-model MODEL", view["stop_reason"])
+        self.assertEqual(
+            f"--abandon-stage {attempt} then --resume-paused --tester-model MODEL", view["needs"]["action"]
+        )
         # The commands it names are accepted and run the Tester on another model.
         self.assertEqual(0, self.invoke("--abandon-stage", attempt)[0])
-        code, launched, output = self.invoke("resume", "--sol-model", "gpt-6-luna")
+        code, launched, output = self.invoke("resume", "--tester-model", "gpt-6-luna")
         self.assertTrue(launched, output)
         self.assertIn("Tester: started; model=gpt-6-luna", output)
         self.assertNotIn("Tester: started; model=gpt-5.6-sol", output)
@@ -525,7 +535,9 @@ class OperationalInformationCLITests(unittest.TestCase):
                 "Automatic recovery budget exhausted; no further provider will launch.",
                 automatic_recoveries_since_resume=3,
                 consecutive_timeout_recoveries=3,
-                automatic_timeout_recoveries=[{"stage": "terra", "timeout_reason": "idle watchdog"} for _ in range(3)],
+                automatic_timeout_recoveries=[
+                    {"stage": "builder", "timeout_reason": "idle watchdog"} for _ in range(3)
+                ],
             ),
             "The provider was slow; it is healthy again",
         )
@@ -579,7 +591,7 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertTrue(launched, output)
         _, resumed = self.saved()
         ran = [row["stage"] for row in resumed["stages"][len(answered["stages"]) :] if not row.get("runner_owned")]
-        self.assertEqual("sol", ran[0], ran)
+        self.assertEqual("tester", ran[0], ran)
         self.assertEqual(1, len(self.evaluations()))
         # Information granted nothing: recovery history, counts, limits and approval are those of the stop.
         for key in (

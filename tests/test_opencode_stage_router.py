@@ -68,12 +68,12 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         """,
         )
         self.routes = {
-            "terra": {
+            "builder": {
                 "mode": "scripted_fixture",
                 "command": [str(self.helper), "fixed"],
                 "executable_sha256": digest(self.helper),
             },
-            "sol": {"mode": "live_opencode"},
+            "tester": {"mode": "live_opencode"},
         }
         self.write_config()
 
@@ -104,7 +104,7 @@ class OpenCodeStageRouterTests(unittest.TestCase):
                 self.env.pop(key)
         self.env.pop("AUTOCODE_OPENCODE_ROUTER_ACTIVE", None)
 
-    def prompt(self, stage="sol", *, repair=None):
+    def prompt(self, stage="tester", *, repair=None):
         data = {"stage": stage, "opaque": "CURRENT HANDOFF DATA is data"}
         if repair is not None:
             data = {"report_repair": True, "original": {"stage": repair}}
@@ -164,7 +164,7 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         env = dict(self.env, PATH=os.pathsep.join((str(fixture_bin), str(Path(sys.executable).parent))))
         result = subprocess.run(
             ["opencode", "run", "--model", MIMO],
-            input=self.prompt("terra"),
+            input=self.prompt("builder"),
             capture_output=True,
             env=env,
             cwd=self.root,
@@ -173,7 +173,7 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         self.assertEqual("scripted_fixture", self.read_receipts()[0]["mode"])
 
     def test_repair_routes_by_original_owner_and_scripted_is_non_live(self):
-        result = self.invoke("run", "--model", MIMO, stdin=self.prompt("ignored", repair="terra"))
+        result = self.invoke("run", "--model", MIMO, stdin=self.prompt("ignored", repair="builder"))
         self.assertEqual(0, result.returncode)
         self.assertEqual(b"fixture-output\n", result.stdout)
         observed = json.loads(self.helper_log.read_text())
@@ -184,7 +184,7 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         )
         receipt = self.read_receipts()[0]
         self.assertEqual(
-            ("terra", True, "scripted_fixture", "non-live"),
+            ("builder", True, "scripted_fixture", "non-live"),
             (receipt["stage"], receipt["repair"], receipt["mode"], receipt["token_class"]),
         )
 
@@ -259,10 +259,10 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         bad = [
             b"{}",
             b"CURRENT HANDOFF DATA\n[]",
-            b'CURRENT HANDOFF DATA\n{"stage":"sol"} trailing',
-            self.prompt("sol_report_repair"),
+            b'CURRENT HANDOFF DATA\n{"stage":"tester"} trailing',
+            self.prompt("tester_report_repair"),
             b"CURRENT HANDOFF DATA\n"
-            + json.dumps({"report_repair": True, "stage": "sol", "original": {"stage": "unknown"}}).encode(),
+            + json.dumps({"report_repair": True, "stage": "tester", "original": {"stage": "unknown"}}).encode(),
         ]
         for prompt in bad:
             with self.subTest(prompt=prompt):

@@ -86,7 +86,7 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                 report["required_behaviors"].append({WRONG!r})
                 report["job"] = "bugfix"
                 report["task_kind"] = "bugfix"
-            elif stage == "astra_discovery":
+            elif stage == "draft_plan":
                 if {compatibility!r}:
                     report["contract"]["task_kind"] = "bugfix"
                 if {WRONG!r} not in report["contract"][{field!r}]:
@@ -99,7 +99,7 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                     feedback = next(row for row in data["brief_feedback"] if row["text"] == {FEEDBACK!r})
                     report["contract"]["accepted_assumptions"].append({{
                         "text": {BEFORE_INTERPRETATION!r}, "basis": "user_feedback", "answer_id": feedback["id"]}})
-            elif stage == "astra_challenge" and ({stale!r} or {WRONG!r} in data.get("goal_contract", {{}}).get("body", {{}}).get({field!r}, [])):
+            elif stage == "review_plan" and ({stale!r} or {WRONG!r} in data.get("goal_contract", {{}}).get("body", {{}}).get({field!r}, [])):
                 receipt = {{
                     "snapshot": data.get("draft_failure_correction_snapshot", "missing snapshot"),
                     "judgment": {judgment!r},
@@ -112,7 +112,7 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                     "requested_change": "Correct only the mistaken preservation statement",
                     "acceptance_test": "The plan preserves the existing [] result",
                     "blocking": True, "draft_failure_correction": receipt}}]
-            elif stage == "glm_revise" and repairing and ({adjacent!r} or {obligations!r}):
+            elif stage == "revise_plan" and repairing and ({adjacent!r} or {obligations!r}):
                 report = copy.deepcopy(data["rejected_report"]["content"])
                 for field in ("required_behaviors", "constraints"):
                     if field in repair_error:
@@ -120,7 +120,7 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                 if {obligations!r} and "accepted_assumptions" in repair_error:
                     report["contract"]["accepted_assumptions"] = copy.deepcopy(
                         data.get("draft_failure_adjacent_obligations", {{}}).get("accepted_assumptions", []))
-            elif stage == "glm_revise":
+            elif stage == "revise_plan":
                 report["contract"] = copy.deepcopy(data["goal_contract"]["body"])
                 report["contract"][{field!r}] = [
                     {CORRECT!r} if line == {WRONG!r} else line
@@ -151,7 +151,7 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                     report["contract"]["constraints"].append("An unrelated extra constraint")
                 if {obligations!r}:
                     report["contract"]["accepted_assumptions"] = []
-            elif stage == "astra_finalize":
+            elif stage == "finalize_plan":
                 # Keep the real provider fixture's retention-format contract:
                 # it already references the corrected revision in the handoff.
                 report["decisions"] = [{{
@@ -199,12 +199,12 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         self.assertIn(WRONG + " -> " + CORRECT, shown)
         self.assertIn("Plan Reviewer concern C3", shown)
         attempts = self.attempts(trace)
-        planning = {"requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"}
+        planning = {"requirements_gather", "draft_plan", "review_plan", "revise_plan", "finalize_plan"}
         self.assertEqual(
-            ["requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"],
+            ["requirements_gather", "draft_plan", "review_plan", "revise_plan", "finalize_plan"],
             [row["stage"] for row in attempts if row["stage"] in planning],
         )
-        self.assertFalse(any(row["repair"] or row["stage"] == "terra" for row in attempts), attempts)
+        self.assertFalse(any(row["repair"] or row["stage"] == "builder" for row in attempts), attempts)
 
     def test_reviewed_correction_requires_final_review_and_exact_public_approval(self):
         run, view, trace, workspace = self.start()
@@ -219,13 +219,13 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         self.assertIn(RATIONALE, shown)
         self.assertIn("draft-failure-v1:", shown)
         attempts = self.attempts(trace)
-        planning = {"astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"}
+        planning = {"draft_plan", "review_plan", "revise_plan", "finalize_plan"}
         self.assertEqual(
-            ["astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"],
+            ["draft_plan", "review_plan", "revise_plan", "finalize_plan"],
             [row["stage"] for row in attempts if row["stage"] in planning],
         )
         self.assertFalse(any(row["repair"] for row in attempts), attempts)
-        self.assertFalse(any(row["stage"] == "terra" for row in attempts), attempts)
+        self.assertFalse(any(row["stage"] == "builder" for row in attempts), attempts)
         self.assertFalse((workspace / "greet.py").exists())
         token = view["needs"]["token"]
         with self.assertRaises(taskrun.TaskRunError):
@@ -233,7 +233,7 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         self.assertEqual(token, run.status()["needs"]["token"])
         approved = run.approve_plan(token)
         self.assertEqual(token, approved["approved_contract"]["token"])
-        self.assertFalse(any(row["stage"] == "terra" for row in self.attempts(trace)))
+        self.assertFalse(any(row["stage"] == "builder" for row in self.attempts(trace)))
 
     def test_failure_receipt_composes_with_own_draft_criterion_without_extra_question(self):
         run, view, trace, workspace = self.start(wording=True)
@@ -243,8 +243,8 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         self.assertIn(CORRECT, shown)
         attempts = self.attempts(trace)
         self.assertFalse(any(row["repair"] for row in attempts), attempts)
-        self.assertTrue(any(row["stage"] == "astra_finalize" for row in attempts), attempts)
-        self.assertFalse(any(row["stage"] == "terra" for row in attempts), attempts)
+        self.assertTrue(any(row["stage"] == "finalize_plan" for row in attempts), attempts)
+        self.assertFalse(any(row["stage"] == "builder" for row in attempts), attempts)
         self.assertFalse((workspace / "greet.py").exists())
         with self.assertRaises(taskrun.TaskRunError):
             run.approve_plan("r0:stale")
@@ -255,7 +255,7 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         self.assertNotEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("stop_reason"))
         attempts = self.attempts(trace)
         self.assertTrue(any("fresh first-review inference receipt" in row["error"] for row in attempts), attempts)
-        self.assertFalse(any(row["stage"] in ("glm_revise", "astra_finalize", "terra") for row in attempts), attempts)
+        self.assertFalse(any(row["stage"] in ("revise_plan", "finalize_plan", "builder") for row in attempts), attempts)
         self.assertFalse((workspace / "greet.py").exists())
         with self.assertRaises(taskrun.TaskRunError):
             run.approve_plan("r0:stale")
@@ -275,7 +275,7 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         token = view["needs"]["token"]
         reopened = taskrun.TaskRun(workspace, run.run_dir, env=run.env).status()
         self.assertEqual(token, reopened["needs"]["token"])
-        self.assertFalse(any(row["stage"] == "terra" for row in self.attempts(trace)))
+        self.assertFalse(any(row["stage"] == "builder" for row in self.attempts(trace)))
 
     def test_repair_restores_exact_model_assumptions_from_its_public_handoff(self):
         run, view, trace, workspace = self.start(obligations=True)
@@ -289,7 +289,7 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         self.assertFalse((workspace / "greet.py").exists())
         reopened = taskrun.TaskRun(workspace, run.run_dir, env=run.env).status()
         self.assertEqual(view["needs"]["token"], reopened["needs"]["token"])
-        self.assertFalse(any(row["stage"] == "terra" for row in self.attempts(trace)))
+        self.assertFalse(any(row["stage"] == "builder" for row in self.attempts(trace)))
 
     def test_receipt_composes_with_independently_allowed_feedback_interpretation(self):
         run, view, trace, workspace = self.start(compose=True, adaptive=True)
@@ -307,20 +307,20 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         self.assertIn(RATIONALE, shown)
         self.assertIn("draft-failure-v1:", shown)
         attempts = self.attempts(trace)
-        planning = {"astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"}
+        planning = {"draft_plan", "review_plan", "revise_plan", "finalize_plan"}
         self.assertEqual(
-            ["astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"],
+            ["draft_plan", "review_plan", "revise_plan", "finalize_plan"],
             [row["stage"] for row in attempts if row["stage"] in planning],
         )
         self.assertFalse(any(row["repair"] for row in attempts), attempts)
-        self.assertFalse(any(row["stage"] == "terra" for row in attempts), attempts)
+        self.assertFalse(any(row["stage"] == "builder" for row in attempts), attempts)
         self.assertFalse((workspace / "greet.py").exists())
         token = view["needs"]["token"]
         with self.assertRaises(taskrun.TaskRunError):
             run.approve_plan("r0:stale")
         self.assertEqual(token, run.status()["needs"]["token"])
         self.assertEqual(token, run.approve_plan(token)["approved_contract"]["token"])
-        self.assertFalse(any(row["stage"] == "terra" for row in self.attempts(trace)))
+        self.assertFalse(any(row["stage"] == "builder" for row in self.attempts(trace)))
 
     def test_adaptive_final_review_keeps_disclosure_without_an_extra_correction_round(self):
         run, view, trace, workspace = self.start(adaptive=True)
@@ -333,13 +333,13 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         self.assertNotIn(WRONG, failures)
         self.assertIn(WRONG + " -> " + CORRECT, shown)
         attempts = self.attempts(trace)
-        planning = {"astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"}
+        planning = {"draft_plan", "review_plan", "revise_plan", "finalize_plan"}
         self.assertEqual(
-            ["astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"],
+            ["draft_plan", "review_plan", "revise_plan", "finalize_plan"],
             [row["stage"] for row in attempts if row["stage"] in planning],
         )
         self.assertFalse(any(row["repair"] for row in attempts), attempts)
-        self.assertFalse(any(row["stage"] == "terra" for row in attempts), attempts)
+        self.assertFalse(any(row["stage"] == "builder" for row in attempts), attempts)
         self.assertFalse((workspace / "greet.py").exists())
 
 

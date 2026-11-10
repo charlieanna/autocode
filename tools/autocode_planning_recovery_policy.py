@@ -14,7 +14,7 @@ def active(state: RunState, stage):
     Admission and evidence binding remain owned by the existing recovery path.
     This selector only narrows tools; it cannot grant a call or accept a report.
     """
-    if stage not in ("astra_challenge", "astra_finalize"):
+    if stage not in ("review_plan", "finalize_plan"):
         return False
     recovery = state.get("recovery_context") or {}
     if recovery.get("stage") == stage and recovery.get("next_stage", stage) == stage:

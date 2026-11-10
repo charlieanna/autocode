@@ -292,7 +292,7 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(state["turns"][-1]["say"], packet["task"])
         self.assertEqual(["docs/design/cache.md"], packet["previous_turn"]["wrote"])
         self.assertEqual([], packet["requirement_coverage_checklist"])
-        planned, _ = autoplanner.context(state, "astra_discovery", Path("/fixture/state.json"))
+        planned, _ = autoplanner.context(state, "draft_plan", Path("/fixture/state.json"))
         planning_packet = json.loads(planned.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(state["goal_contract"], planning_packet["goal_contract"])
         self.assertIn("Never return stale data.", prompt)

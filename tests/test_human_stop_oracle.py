@@ -78,7 +78,7 @@ class HumanStopOracleTests(unittest.TestCase):
                 self.assertFalse(self.checks(run)["reports_not_reproduced_or_asks_the_reporter"].ok)
 
     def test_build_dispatch_and_plan_approval_are_still_rejected(self):
-        for stage in ("terra", "orchestrator", "astra_plan"):
+        for stage in ("builder", "orchestrator", "plan_task"):
             run = self.stopped()
             run["stages"].append(stage)
             with self.subTest(stage=stage):

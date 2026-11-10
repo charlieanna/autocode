@@ -45,7 +45,7 @@ def wedge_state(source_revision="base-revision"):
         "resolution_request": {
             "contract_hash": "contract-hash",
             "task_id": "task-1",
-            "source_stage": "astra_review",
+            "source_stage": "review_completion",
             "provenance": "completion_review_decision",
             "source_revision": source_revision,
         },
@@ -92,7 +92,7 @@ def wedge_state(source_revision="base-revision"):
             },
         },
         "settings": {"regression": {}},
-        "next_stage": "sol",
+        "next_stage": "tester",
         "validation": {},
         "user_events": [],
         "task_archive": [],

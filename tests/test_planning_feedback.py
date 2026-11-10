@@ -13,7 +13,7 @@ class PlanningBoundaryTests(unittest.TestCase):
                 {
                     "status": "RUNNING",
                     "phase": "PLANNING",
-                    "next_stage": "astra_challenge",
+                    "next_stage": "review_plan",
                     "goal_contract": {"approval_status": "draft"},
                 }
             )
@@ -23,7 +23,7 @@ class PlanningBoundaryTests(unittest.TestCase):
         state = {
             "status": "RUNNING",
             "phase": "PLANNING",
-            "next_stage": "astra_challenge",
+            "next_stage": "review_plan",
             "goal_contract": {"approval_status": "draft", "approval_event": None},
         }
         self.assertTrue(feedback.between_stages(state))
@@ -31,15 +31,15 @@ class PlanningBoundaryTests(unittest.TestCase):
         for change in (
             {"status": "PAUSED_TIME_LIMIT"},
             {"phase": "EXECUTING"},
-            {"next_stage": "terra"},
+            {"next_stage": "builder"},
             {"next_stage": None},
             {"goal_contract": None},
             {"goal_contract": {"approval_status": "approved"}},
             {"goal_contract": {"approval_event": {"token": "approved"}}},
-            {"active_stage": {"stage": "astra_challenge"}},
+            {"active_stage": {"stage": "review_plan"}},
             {"active_runner_check": {"id": "check"}},
             {"uncertain_artifacts": ["saved-report"]},
-            {"pending_report_repair": {"stage": "astra_challenge"}},
+            {"pending_report_repair": {"stage": "review_plan"}},
             {"pending_questions": [{"id": "Q1"}]},
             {"user_request": {"kind": "human_review"}},
         ):

@@ -187,7 +187,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         workflow.guard(current)
         # spec-first: the Tester writes the tests before the Builder, for a parallel batch's whole wave (#1200)
         acceptance_tests.route(current, wave=lambda: dispatch.select(current))
-        if current.get("next_stage") in ("terra", "sol", "orchestrator", "completion"):
+        if current.get("next_stage") in ("builder", "tester", "orchestrator", "completion"):
             dispatch.enforce_cross_model_verification(current)
         repairing_before_upgrade = (
             args.resume_paused and current.get("pending_report_repair") and milestones.owns_pause(run_dir)
@@ -219,7 +219,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         if (
             not repairing_before_upgrade
             and not classifying
-            and (not milestones.enabled(current) or current.get("next_stage") in ("terra", "orchestrator"))
+            and (not milestones.enabled(current) or current.get("next_stage") in ("builder", "orchestrator"))
             and limits["no_progress_batches"]
             and current.get("no_progress_batches", 0) >= limits["no_progress_batches"]
         ):
@@ -286,7 +286,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         autopilot.builder_failure.dispatch_guard(current, stage, workspace)
         # Admission parity with autopilot.dispatch_unit: a paused Builder
         # retry lane blocks the serial writer launch here as well.
-        if stage == "terra":
+        if stage == "builder":
             autopilot.builder_policy.guard(current)
         try:
             if native is not None:

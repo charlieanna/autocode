@@ -44,7 +44,7 @@ class ReviewRecheckTests(unittest.TestCase):
             mock.patch.object(regression.source_scope, "snapshot", return_value={"revision": "rev"}),
             mock.patch.object(regression, "prove", side_effect=prove),
         ):
-            regression.before_review(state, "astra_review", Path("/w"), Path("/r"))
+            regression.before_review(state, "review_completion", Path("/w"), Path("/r"))
         return len(proved)
 
     def failed_once(self):

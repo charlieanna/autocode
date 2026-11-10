@@ -190,12 +190,12 @@ class Checkout(unittest.TestCase):
 
     def test_each_tester_and_completion_reviewer_dispatch_checks_and_no_other(self):
         self.project.write({f"{GREET}/greet.py": "print('changed')\n", f"{OTHER}/other.py": "VALUE = 2\n"})
-        for stage in (None, "terra", "astra_plan", "review_change", "review_design", "check_design"):
+        for stage in (None, "builder", "plan_task", "review_change", "review_design", "check_design"):
             with self.subTest(stage=stage):
                 state = self.state()
                 regression.before_review(state, stage, self.project.root, self.run_dir)
                 self.assertEqual([], runner_rows(state))
-        for stage in ("sol", "astra_checkpoint", "astra_review"):
+        for stage in ("tester", "review_checkpoint", "review_completion"):
             with self.subTest(stage=stage):
                 state = self.state()
                 self.assertFalse(regression.required(state))
@@ -218,19 +218,19 @@ class Checkout(unittest.TestCase):
             }
         )
         state = self.state()
-        regression.before_review(state, "sol", root, self.run_dir)
+        regression.before_review(state, "tester", root, self.run_dir)
         (row,) = runner_rows(state)
         self.assertEqual({f"{OTHER}/other.py": "modified"}, row["paths"])
         self.assertEqual("open", row["status"])
         (root / OTHER / "other.py").write_text(original)
         shutil.rmtree(root / ".autocode")
-        regression.before_review(state, "astra_review", root, self.run_dir)
+        regression.before_review(state, "review_completion", root, self.run_dir)
         self.assertEqual("resolved", row["status"])
 
     def test_a_mode_change_alone_counts(self):
         (self.project.root / OTHER / "other.py").chmod(0o755)
         state = self.state()
-        regression.before_review(state, "sol", self.project.root, self.run_dir)
+        regression.before_review(state, "tester", self.project.root, self.run_dir)
         (row,) = runner_rows(state)
         self.assertEqual({f"{OTHER}/other.py": "modified"}, row["paths"])
 
@@ -238,10 +238,10 @@ class Checkout(unittest.TestCase):
         # The check reads changed_files with the approved plan's source paths, as the proof does.
         self.project.write({f"{GREET}/greet.py": "print('changed')\n", "build/out.txt": "built\n"})
         undeclared = approve(self.state(), [f"{GREET}/greet.py"])
-        regression.before_review(undeclared, "sol", self.project.root, self.run_dir)
+        regression.before_review(undeclared, "tester", self.project.root, self.run_dir)
         self.assertEqual([], runner_rows(undeclared))
         declared = approve(self.state(), [f"{GREET}/greet.py", "build/out.txt"])
-        regression.before_review(declared, "sol", self.project.root, self.run_dir)
+        regression.before_review(declared, "tester", self.project.root, self.run_dir)
         (row,) = runner_rows(declared)
         self.assertEqual({"build/out.txt": "added"}, row["paths"])
 
@@ -286,7 +286,7 @@ class RunnerFiles(unittest.TestCase):
         self.project.write({f"{GREET}/greet.py": "print('changed')\n"})
 
     def check(self):
-        regression.before_review(self.state, "sol", self.project.root, self.run_dir)
+        regression.before_review(self.state, "tester", self.project.root, self.run_dir)
         return runner_rows(self.state)
 
     def test_a_report_with_a_saved_hash_is_compared_and_path_only_files_are_left_out_unread(self):
@@ -372,7 +372,7 @@ class Launch(unittest.TestCase):
         return state
 
     def check(self, state, root):
-        regression.before_review(state, "sol", root, self.run_dir)
+        regression.before_review(state, "tester", root, self.run_dir)
         return runner_rows(state)
 
     def test_every_new_package_run_records_what_its_checkout_held(self):

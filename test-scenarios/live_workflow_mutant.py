@@ -256,13 +256,13 @@ def drive(project: Path, env: dict, max_steps: int = 40) -> Path | None:
             call(base_cmd(project, run_dir) + ["--resume-paused", *SPLIT_MODELS], env, 1800)
             continue
         if status == "PAUSED_PROVIDER_UNCERTAIN":
-            att = attempt_id_for(d, "astra") or attempt_id_for(d, "sol") or "001/astra_discovery-01"
+            att = attempt_id_for(d, "astra") or attempt_id_for(d, "tester") or "001/astra_discovery-01"
             log(f"  recover PROVIDER_UNCERTAIN via --abandon-stage {att}")
             call(base_cmd(project, run_dir) + ["--abandon-stage", att], env, 180)
             call(base_cmd(project, run_dir) + ["--resume-paused", *SPLIT_MODELS], env, 1800)
             continue
         if status == "PAUSED_STALE_VALIDATION":
-            att = attempt_id_for(d, "sol") or "001/sol-01"
+            att = attempt_id_for(d, "tester") or "001/sol-01"
             log(f"  recover STALE_VALIDATION via --abandon-stage {att}")
             call(base_cmd(project, run_dir) + ["--abandon-stage", att], env, 180)
             call(base_cmd(project, run_dir) + ["--resume-paused", "--max-iterations", "5", *SPLIT_MODELS], env, 1800)

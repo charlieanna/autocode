@@ -170,7 +170,7 @@ def send_back(state: RunState, record, error) -> bool:
 
     False, leaving the state as it was, for any other error, or when the draft cannot be installed.
     """
-    if record.get("stage") not in ("sol", "astra_checkpoint"):
+    if record.get("stage") not in ("tester", "review_checkpoint"):
         return False
     try:
         from . import autocode_goal_lifecycle as lifecycle

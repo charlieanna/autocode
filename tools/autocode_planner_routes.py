@@ -119,8 +119,8 @@ RUNNER_NONVISUAL_ROLES = (
     "planner",
     "plan_reviewer",
     "task_planner",
-    "terra",
-    "sol",
+    "builder",
+    "tester",
     "completion",
     "resolver",
 )
@@ -129,8 +129,8 @@ RUNNER_POLICY_ROLES = {
     "planner": "planner",
     "plan_reviewer": "plan_reviewer",
     "task_planner": "architect",
-    "terra": "builder",
-    "sol": "validation",
+    "builder": "builder",
+    "tester": "validation",
     "completion": "completion",
     "resolver": "resolver",
 }
@@ -217,7 +217,7 @@ def configure_runner_profile(settings, args):
     enforce_fresh_runner_role_models(models, efforts)
     strong = getattr(args, "builder_strong_model", None)
     if strong is not None:
-        enforce_fresh_runner_role_models({"terra": strong})
+        enforce_fresh_runner_role_models({"builder": strong})
     configured = deepcopy(settings)
     for role, policy_role in RUNNER_POLICY_ROLES.items():
         prior = configured.setdefault("roles", {}).get(role, {})
@@ -231,8 +231,8 @@ def configure_runner_profile(settings, args):
     configured["roles"]["plan_reviewer"]["model_pinned"] = True
     configured["conversation_profile"] = "continuous-v1"
     configured.setdefault("builder_retry", {}).update(
-        strong_model=strong or configured["roles"]["terra"]["model"],
-        strong_reasoning_effort=configured["roles"]["terra"]["reasoning_effort"],
+        strong_model=strong or configured["roles"]["builder"]["model"],
+        strong_reasoning_effort=configured["roles"]["builder"]["reasoning_effort"],
     )
     configured["builder_retry"]["strong_origin"] = "user_explicit" if strong is not None else "runner"
     limits = configured.setdefault("limits", {})

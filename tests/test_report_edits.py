@@ -30,7 +30,7 @@ class ReportEditsTests(unittest.TestCase):
         self.source.write_text(json.dumps(original))
         self.schema.write_text(json.dumps(schema))
         descriptor = {**self.descriptor, "content": original, "sha256": file_hash(self.source)}
-        for stage in ("sol", "astra_review", "astra_checkpoint"):
+        for stage in ("tester", "review_completion", "review_checkpoint"):
             with self.subTest(stage=stage):
                 offered = edits.prepare(self.schema, descriptor, stage)
                 self.assertNotEqual(self.schema, offered)
@@ -168,7 +168,7 @@ class ReportEditsTests(unittest.TestCase):
         original = self.source.read_bytes()
         variants = (
             ("hash", {**self.patch["repair_report"], "sha256": "0" * 64}, {}),
-            ("stage", self.patch["repair_report"], {"stage": "terra_report_repair"}),
+            ("stage", self.patch["repair_report"], {"stage": "builder_report_repair"}),
             ("ordinary", self.patch["repair_report"], {"report_only": False}),
             ("unoffered", self.patch["repair_report"], {"schema": str(self.schema)}),
             ("extra", {**self.patch["repair_report"], "extra": "not a report"}, {}),
@@ -217,7 +217,7 @@ class ReportEditsTests(unittest.TestCase):
     def test_bare_patch_requires_the_exact_offered_json_protocol(self):
         original = json.loads(self.offered.read_text())
         variants = []
-        for field, value in (("format", "text"), ("stage", "terra")):
+        for field, value in (("format", "text"), ("stage", "builder")):
             schema = copy.deepcopy(original)
             schema[edits.META][field] = value
             variants.append(schema)
@@ -273,7 +273,7 @@ class ReportEditsTests(unittest.TestCase):
             "additionalProperties": False,
         }
         self.schema.write_text(json.dumps(schema))
-        offered = edits.prepare(self.schema, self.descriptor, "astra_review")
+        offered = edits.prepare(self.schema, self.descriptor, "review_completion")
         state = {"acceptance_criteria": [{"id": "C1", "criterion": criterion}]}
         correct = {"acceptance_criteria": [{"id": "C1", "status": "verified", "criterion": criterion}]}
         for label, report, error in (
@@ -290,8 +290,8 @@ class ReportEditsTests(unittest.TestCase):
             with self.subTest(label=label):
                 record = {
                     **self.record,
-                    "stage": "astra_review_report_repair",
-                    "original_stage": "astra_review",
+                    "stage": "review_completion_report_repair",
+                    "original_stage": "review_completion",
                     "schema": str(offered),
                     "output": str(self.root / (label + ".json")),
                 }
@@ -373,8 +373,8 @@ class ReportEditsTests(unittest.TestCase):
         self.source.write_text(json.dumps(rejected))
         self.schema.write_text(json.dumps(schema))
         source = {**self.descriptor, "content": rejected, "sha256": file_hash(self.source)}
-        offered = edits.prepare(self.schema, source, "sol")
-        record = {**self.record, "stage": "sol_report_repair", "schema": str(offered)}
+        offered = edits.prepare(self.schema, source, "tester")
+        record = {**self.record, "stage": "tester_report_repair", "schema": str(offered)}
         patch = {
             "repair_report": {
                 "sha256": source["sha256"],
@@ -388,7 +388,7 @@ class ReportEditsTests(unittest.TestCase):
         self.assertEqual(rejected, json.loads(self.source.read_text()))
 
     def test_array_remove_instructions_keep_original_indices_and_avoid_recopying(self):
-        instruction = edits.instruction("sol", self.descriptor)
+        instruction = edits.instruction("tester", self.descriptor)
         self.assertIn("original array indices", instruction)
         self.assertIn("remove the item instead of rewriting the array", instruction)
 
@@ -436,8 +436,8 @@ class ReportEditsTests(unittest.TestCase):
         }
         self.schema.write_text(json.dumps(schema))
         descriptor = {**self.descriptor, "content": base, "sha256": file_hash(self.source)}
-        offered = edits.prepare(self.schema, descriptor, "astra_discovery")
-        record = {**self.record, "stage": "astra_discovery_report_repair", "schema": str(offered)}
+        offered = edits.prepare(self.schema, descriptor, "draft_plan")
+        record = {**self.record, "stage": "draft_plan_report_repair", "schema": str(offered)}
         patch = {
             "repair_report": {
                 "sha256": descriptor["sha256"],
@@ -455,7 +455,7 @@ class ReportEditsTests(unittest.TestCase):
         fixed = runner.load_stage_report(record)
         state = {"goal_contract": {"body": previous, "approval_status": "approved", "revision": 1}}
         with self.assertRaisesRegex(ValueError, "without a user-backed contract change"):
-            goals.revision_guard(state, fixed["contract"], [], "astra_discovery")
+            goals.revision_guard(state, fixed["contract"], [], "draft_plan")
         patch["repair_report"]["edits"][1] = {
             "op": "remove",
             "path": ["contract", "required_behaviors", 0],
@@ -463,14 +463,14 @@ class ReportEditsTests(unittest.TestCase):
         }
         remove_record = {
             **self.record,
-            "stage": "astra_discovery_report_repair",
+            "stage": "draft_plan_report_repair",
             "schema": str(offered),
             "output": str(self.root / "remove-behavior-repair.json"),
         }
         Path(remove_record["output"]).write_text(json.dumps(patch))
         fixed = runner.load_stage_report(remove_record)
         with self.assertRaisesRegex(ValueError, "without a user-backed contract change"):
-            goals.revision_guard(state, fixed["contract"], [], "astra_discovery")
+            goals.revision_guard(state, fixed["contract"], [], "draft_plan")
         self.assertEqual(base, json.loads(self.source.read_text()))
 
     def test_full_response_stays_compatible_and_semantically_invalid_patch_still_fails(self):
@@ -500,7 +500,7 @@ class ReportEditsTests(unittest.TestCase):
                 elif kind == "source":
                     self.source.write_text("{}")
                 elif kind == "stage":
-                    record["stage"] = "terra_report_repair"
+                    record["stage"] = "builder_report_repair"
                 elif kind == "ordinary":
                     record["report_only"] = False
                 else:
@@ -557,7 +557,7 @@ class ReportEditsTests(unittest.TestCase):
             {**self.descriptor, "content": []},
         ]:
             self.assertEqual(self.schema, edits.prepare(self.schema, source, "requirements_gather"))
-        self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "terra"))
+        self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "builder"))
 
     def test_legacy_or_conflicting_schemas_keep_the_original_protocol(self):
         for schema in [
@@ -567,7 +567,7 @@ class ReportEditsTests(unittest.TestCase):
             {"type": "object", "properties": {"repair_report": {"type": "string"}}},
         ]:
             self.schema.write_text(json.dumps(schema))
-            self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "glm_revise"))
+            self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "revise_plan"))
 
 
 class MalformedReportEditsTests(unittest.TestCase):
@@ -600,9 +600,9 @@ class MalformedReportEditsTests(unittest.TestCase):
             "required": ["contract", "code_refs", "summary", "access_blockers"],
         }
         self.schema.write_text(json.dumps(self.original_schema))
-        self.offered = edits.prepare(self.schema, self.descriptor, "glm_revise")
+        self.offered = edits.prepare(self.schema, self.descriptor, "revise_plan")
         self.record = {
-            "stage": "glm_revise_report_repair",
+            "stage": "revise_plan_report_repair",
             "report_only": True,
             "schema": str(self.offered),
             "output": str(self.root / "repair.json"),
@@ -622,7 +622,7 @@ class MalformedReportEditsTests(unittest.TestCase):
 
     def test_missing_outer_wrapper_and_field_use_small_patch_without_recopying(self):
         self.assertNotEqual(self.schema, self.offered)
-        self.assertIn("BOUNDED JSON TEXT REPAIR", edits.instruction("glm_revise", self.descriptor))
+        self.assertIn("BOUNDED JSON TEXT REPAIR", edits.instruction("revise_plan", self.descriptor))
         Path(self.record["output"]).write_text(json.dumps(self.patch))
         fixed = runner.load_stage_report(self.record)
         self.assertEqual({"acceptance_criteria": [], "retain_requirement_trace": True}, fixed["contract"])
@@ -647,7 +647,7 @@ class MalformedReportEditsTests(unittest.TestCase):
         }
         self.schema.write_text(json.dumps(schema))
         invalid = json.dumps(original).replace('"summary": "done"', '"summary": "done".replace("unused","")')
-        for stage in ("sol", "astra_review", "astra_checkpoint"):
+        for stage in ("tester", "review_completion", "review_checkpoint"):
             for prefix, suffix in (("", ""), ("All checks complete.\n```json\n", "\n```")):
                 with self.subTest(stage=stage, fenced=bool(prefix)):
                     text = prefix + invalid + suffix
@@ -700,7 +700,7 @@ class MalformedReportEditsTests(unittest.TestCase):
                 elif fault == "ordinary":
                     record["report_only"] = False
                 elif fault == "stage":
-                    record["stage"] = "sol_report_repair"
+                    record["stage"] = "tester_report_repair"
                 elif fault == "unoffered":
                     record["schema"] = str(self.schema)
                 elif fault == "schema":
@@ -772,8 +772,8 @@ class MalformedReportEditsTests(unittest.TestCase):
             {"content": []},
             {"content": "{" + "x" * text_edits.MAX_REPORT_BYTES},
         ):
-            self.assertEqual(self.schema, edits.prepare(self.schema, {**self.descriptor, **change}, "glm_revise"))
-        self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "terra"))
+            self.assertEqual(self.schema, edits.prepare(self.schema, {**self.descriptor, **change}, "revise_plan"))
+        self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "builder"))
 
 
 class DiscoveryFixtureSchemaTests(unittest.TestCase):
@@ -812,12 +812,12 @@ class DiscoveryFixtureSchemaTests(unittest.TestCase):
             "truncated": False,
             "content": rejected,
         }
-        offered_schema = edits.prepare(schema_file, descriptor, "astra_discovery")
+        offered_schema = edits.prepare(schema_file, descriptor, "draft_plan")
 
         output_file = root / "repair.json"
         data = {
             "report_repair": True,
-            "original": {"stage": "astra_discovery"},
+            "original": {"stage": "draft_plan"},
             "rejected_report": {
                 "path": str(source),
                 "sha256": file_hash(source),

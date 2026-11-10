@@ -45,7 +45,7 @@ def recover(runner, state: RunState, run_dir, workspace, kind):
             return False
         if extension["evidence"].get("source") == "accepted_corrective_plan":
             try:
-                repair_provenance.witness(candidate, "astra_discovery", output)
+                repair_provenance.witness(candidate, "draft_plan", output)
             except (ValueError, OSError, KeyError, TypeError):
                 return False
         if kind == "planning_review_call_limit":

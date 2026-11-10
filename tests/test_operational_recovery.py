@@ -23,13 +23,13 @@ class OperationalRecoveryTests(unittest.TestCase):
         approve_fixture(self.state, runner.goals)
         self.state["goal_contract"].update(approval_status="draft", approval_event=None)
         self.state["settings"]["joint_planning"] = True
-        self.state.update(next_stage="astra_challenge", status="PAUSED_PLANNING_BUDGET")
+        self.state.update(next_stage="review_plan", status="PAUSED_PLANNING_BUDGET")
         discovery = self.run / "discovery.json"
         s.atomic_json(discovery, {"summary": "accepted draft"})
-        self.state["stages"] = [{"stage": "astra_discovery", "output": str(discovery)}]
+        self.state["stages"] = [{"stage": "draft_plan", "output": str(discovery)}]
         self.state["planning"] = {
             "astra_calls": 2,
-            "reports": {"astra_discovery": {"output": str(discovery), "report": {"summary": "accepted draft"}}},
+            "reports": {"draft_plan": {"output": str(discovery), "report": {"summary": "accepted draft"}}},
         }
         self.origins = [self.timeout(1), self.timeout(2)]
 
@@ -42,7 +42,7 @@ class OperationalRecoveryTests(unittest.TestCase):
         events = directory / "events.jsonl"
         events.write_text(json.dumps({"type": "step_start"}) + "\n")
         record = {
-            "stage": "astra_challenge",
+            "stage": "review_plan",
             "role": "task_planner",
             "iteration": number,
             "output": str(directory / "report.json"),
@@ -68,7 +68,7 @@ class OperationalRecoveryTests(unittest.TestCase):
     def boundary(self):
         return resolver.operational_boundary(runner, self.state, self.run, self.root)
 
-    def charge(self, stage="astra_challenge", number=3):
+    def charge(self, stage="review_plan", number=3):
         record = {"stage": stage, "iteration": number, "output": str(self.run / f"attempt-{number}.json")}
         planning.charge(self.state, stage, record, self.root)
         return record
@@ -93,7 +93,7 @@ class OperationalRecoveryTests(unittest.TestCase):
 
     def test_accepted_repaired_discovery_still_owns_its_planning_cycle(self):
         self.state["stages"][0].update(
-            stage="astra_discovery_report_repair", original_stage="astra_discovery", report_only=True, exit_code=0
+            stage="draft_plan_report_repair", original_stage="draft_plan", report_only=True, exit_code=0
         )
         original = copy.deepcopy(self.state["planning"]["reports"])
         self.assertTrue(self.boundary())
@@ -106,17 +106,17 @@ class OperationalRecoveryTests(unittest.TestCase):
     def test_other_or_rejected_repair_cannot_impersonate_discovery(self):
         original = copy.deepcopy(self.state)
         for changes in (
-            {"stage": "terra_report_repair", "original_stage": "astra_discovery", "report_only": True},
-            {"stage": "astra_discovery_report_repair", "original_stage": "astra_discovery", "report_only": False},
+            {"stage": "builder_report_repair", "original_stage": "draft_plan", "report_only": True},
+            {"stage": "draft_plan_report_repair", "original_stage": "draft_plan", "report_only": False},
             {
-                "stage": "astra_discovery_report_repair",
-                "original_stage": "astra_discovery",
+                "stage": "draft_plan_report_repair",
+                "original_stage": "draft_plan",
                 "report_only": True,
                 "rejected": True,
             },
             {
-                "stage": "astra_discovery_report_repair",
-                "original_stage": "astra_discovery",
+                "stage": "draft_plan_report_repair",
+                "original_stage": "draft_plan",
                 "report_only": True,
                 "abandoned": True,
             },
@@ -128,7 +128,7 @@ class OperationalRecoveryTests(unittest.TestCase):
                 self.assertEqual(2, self.state["planning"]["astra_calls"])
 
     def test_provider_rate_limit_is_resolver_owned_without_switching_billing(self):
-        self.state.update(status="PAUSED_RATE_LIMIT", next_stage="astra_discovery")
+        self.state.update(status="PAUSED_RATE_LIMIT", next_stage="draft_plan")
         roles = copy.deepcopy(self.state["settings"]["roles"])
         error = s.Paused("PAUSED_RATE_LIMIT", "Provider returned an actual rate limit")
         self.assertTrue(resolver.record_operational_exhaustion(runner, self.state, self.run, error))
@@ -144,7 +144,7 @@ class OperationalRecoveryTests(unittest.TestCase):
     def test_saved_legacy_rate_limit_is_reconciled_before_any_new_provider_call(self):
         self.state.update(
             status="PAUSED_RATE_LIMIT",
-            next_stage="astra_discovery",
+            next_stage="draft_plan",
             stop_reason="Provider returned an actual rate limit",
         )
         s.atomic_json(self.run / "state.json", self.state)
@@ -170,13 +170,13 @@ class OperationalRecoveryTests(unittest.TestCase):
         record = self.charge()
         self.state["stages"].append(record)
         s.atomic_json(Path(record["output"]), {"summary": "challenge complete"})
-        self.state["planning"]["reports"]["astra_challenge"] = {"output": record["output"], "report": {"concerns": []}}
+        self.state["planning"]["reports"]["review_plan"] = {"output": record["output"], "report": {"concerns": []}}
         with self.assertRaises(s.Paused) as caught:
             self.boundary()
         self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", caught.exception.status)
-        self.state["next_stage"] = "astra_finalize"
+        self.state["next_stage"] = "finalize_plan"
         self.assertTrue(self.boundary())
-        final = self.charge("astra_finalize", 4)
+        final = self.charge("finalize_plan", 4)
         self.assertNotEqual(record["planning_recovery_grant"], final["planning_recovery_grant"])
         self.assertEqual(4, self.state["planning"]["astra_calls"])
         self.assertEqual(2, self.state["planning"]["recovery_review_calls_used"])
@@ -205,7 +205,7 @@ class OperationalRecoveryTests(unittest.TestCase):
             "contract": lambda: self.state["goal_contract"].update(hash="different"),
             "route": lambda: self.state["settings"]["roles"]["task_planner"].update(model="different"),
             "log": lambda: Path(self.origins[0]["events"]).write_text('{"type":"turn.completed"}\n'),
-            "input": lambda: Path(self.state["planning"]["reports"]["astra_discovery"]["output"]).write_text("{}"),
+            "input": lambda: Path(self.state["planning"]["reports"]["draft_plan"]["output"]).write_text("{}"),
             "cycle": lambda: self.state.update(planning_history=[{}]),
             "before": lambda: Path(self.origins[0]["before_ref"]).write_text("{}"),
             "after": lambda: Path(self.origins[0]["after_ref"]).write_text("{}"),
@@ -220,7 +220,7 @@ class OperationalRecoveryTests(unittest.TestCase):
                 Path(self.origins[0]["before_ref"]),
                 Path(self.origins[0]["after_ref"]),
                 Path(self.state["planning"]["recovery_review_grants"][0]["receipt_output"]),
-                Path(self.state["planning"]["reports"]["astra_discovery"]["output"]),
+                Path(self.state["planning"]["reports"]["draft_plan"]["output"]),
             )
         }
         for name, mutate in mutations.items():
@@ -243,7 +243,7 @@ class OperationalRecoveryTests(unittest.TestCase):
             ("automatic_recovery", False),
             ("timed_out", False),
             ("changed_files", ["source.py"]),
-            ("stage", "sol"),
+            ("stage", "tester"),
             ("pid", os.getpid()),
         ):
             with self.subTest(key=key):
@@ -350,7 +350,7 @@ class OperationalRecoveryTests(unittest.TestCase):
         for number in (3, 4):
             self.state["stages"].append(
                 {
-                    "stage": "astra_challenge",
+                    "stage": "review_plan",
                     "iteration": number,
                     "exit_code": 0,
                     "output": str(self.run / f"reported-{number}.json"),
@@ -412,7 +412,7 @@ class OperationalRecoveryTests(unittest.TestCase):
     def test_context_exposes_recovery_and_read_only_remediation(self):
         self.state["recovery_context"] = {"timeout_kind": "idle", "events": self.origins[0]["events"]}
         self.boundary()
-        prompt, _ = planning.context(self.state, "astra_challenge", self.run / "state.json")
+        prompt, _ = planning.context(self.state, "review_plan", self.run / "state.json")
         self.assertIn("resolver_remediation", prompt)
         handoff = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual("idle", handoff["recovery_context"]["timeout_kind"])
@@ -426,11 +426,11 @@ class OperationalRecoveryTests(unittest.TestCase):
             "code_refs": [f"module{i}.py" for i in range(8)],
             "contract": {"prior": "exact draft"},
         }
-        self.state["planning"]["reports"]["astra_discovery"]["report"] = copy.deepcopy(evidence)
-        self.state["recovery_context"] = {"stage": "astra_challenge", "next_stage": "astra_challenge"}
-        prompt, _ = planning.context(self.state, "astra_challenge", self.run / "state.json")
+        self.state["planning"]["reports"]["draft_plan"]["report"] = copy.deepcopy(evidence)
+        self.state["recovery_context"] = {"stage": "review_plan", "next_stage": "review_plan"}
+        prompt, _ = planning.context(self.state, "review_plan", self.run / "state.json")
         packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
-        self.assertEqual(evidence, packet["planning"]["reports"]["astra_discovery"]["report"])
+        self.assertEqual(evidence, packet["planning"]["reports"]["draft_plan"]["report"])
         self.assertTrue(packet["resolver_remediation"]["report_only"])
         with (
             patch.object(runner.processes, "preflight"),
@@ -472,14 +472,14 @@ class OperationalRecoveryTests(unittest.TestCase):
 
     def test_ordinary_timeout_context_also_avoids_repeated_exploration(self):
         self.state["planning"]["astra_calls"] = 1
-        self.state["recovery_context"] = {"stage": "astra_challenge", "timeout_kind": "idle"}
+        self.state["recovery_context"] = {"stage": "review_plan", "timeout_kind": "idle"}
         self.assertFalse(self.boundary())
-        prompt, _ = planning.context(self.state, "astra_challenge", self.run / "state.json")
+        prompt, _ = planning.context(self.state, "review_plan", self.run / "state.json")
         self.assertIn("resolver_remediation", prompt)
         self.assertIn("do not repeat exploratory tools", prompt)
 
     def test_diagnostic_receipts_preserve_budget_and_exhaustion_stages_human_request(self):
-        recovery = {"stage": "astra_challenge", "events": self.origins[0]["events"], "timeout_kind": "idle"}
+        recovery = {"stage": "review_plan", "events": self.origins[0]["events"], "timeout_kind": "idle"}
         before = copy.deepcopy(self.state)
         self.assertFalse(resolver.observe_operational_recovery(runner, self.state, self.run, self.root, recovery))
         self.assertEqual(before, self.state)

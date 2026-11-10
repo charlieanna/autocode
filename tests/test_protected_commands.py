@@ -14,7 +14,13 @@ import autocode_util as util
 
 def pending_gate_report(state, run_dir):
     run_dir.mkdir(parents=True, exist_ok=True)
-    original = {"stage": "sol", "exit_code": 0, "finished_at": "saved", "source_revision": "source", "task_id": "task"}
+    original = {
+        "stage": "tester",
+        "exit_code": 0,
+        "finished_at": "saved",
+        "source_revision": "source",
+        "task_id": "task",
+    }
     pins = {}
     for key in ("events", "output", "before_ref", "after_ref", "schema"):
         path = run_dir / (key + ".json")
@@ -59,7 +65,7 @@ class CommandRecoveryTests(unittest.TestCase):
             {
                 "workspace": str(root),
                 "status": "PAUSED_INTERVENTION",
-                "next_stage": "sol",
+                "next_stage": "tester",
                 "goal_contract": contract,
                 "user_events": [event],
                 "settings": {"protected_tests": record},
@@ -86,9 +92,9 @@ class CommandRecoveryTests(unittest.TestCase):
     def test_nonapproved_active_and_uncertain_calls_cannot_revise(self):
         for change in (
             {"status": "RUNNING"},
-            {"next_stage": "terra"},
-            {"active_stage": {"stage": "sol"}},
-            {"pending_report_repair": {"stage": "sol"}},
+            {"next_stage": "builder"},
+            {"active_stage": {"stage": "tester"}},
+            {"pending_report_repair": {"stage": "tester"}},
             {"uncertain_artifacts": ["call"]},
         ):
             state, record, _ = self.fixture()

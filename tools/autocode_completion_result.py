@@ -30,10 +30,10 @@ def before_review(state: RunState, stage, workspace, run_dir):
         import autocode_source_scope as source_scope
         from autocode_util import Paused
     regression.before_review(state, stage, workspace, run_dir)
-    if stage not in ("sol", "astra_checkpoint", "astra_review"):
+    if stage not in ("tester", "review_checkpoint", "review_completion"):
         return
     _reconcile_proof_finding(state, workspace)
-    if stage == "astra_review":
+    if stage == "review_completion":
         _reconcile_preservation_review(state, workspace, run_dir)
     try:
         if delivery.requirement((state.get("goal_contract") or {}).get("body") or {}) is None:
@@ -78,11 +78,11 @@ def _reconcile_preservation_review(state: RunState, workspace, run_dir):
     contract = state.get("goal_contract") or {}
     if (
         state.get("status") != "RUNNING"
-        or state.get("next_stage") != "astra_review"
+        or state.get("next_stage") != "review_completion"
         or state.get(human.PUBLIC)
         or state.get("pending_questions")
         or proposal.get("scope") != "blocker"
-        or origin.get("stage") != "astra_review"
+        or origin.get("stage") != "review_completion"
         or not goals.approved(state)
         or not regression.preserve_only(state)
         or not task.get("id")
@@ -102,7 +102,7 @@ def _reconcile_preservation_review(state: RunState, workspace, run_dir):
             row
             for row in reversed(state.get("stages", []))
             if (
-                row.get("stage") == "astra_review"
+                row.get("stage") == "review_completion"
                 and row.get("output") == origin.get("output")
                 and row.get("task_id") == task.get("id")
                 and row.get("contract_hash") == contract.get("hash")
@@ -230,14 +230,14 @@ def _send_back_unproven(state: RunState, current, record, regression_complete):
     except ImportError:
         import autocode_proof_findings as proof_findings
     if (
-        record.get("stage") != "astra_review"
+        record.get("stage") != "review_completion"
         or not _proof_routing(state)
         or not proof_findings.open_rows(state)
         or regression_complete(state, current["revision"], all_due=False)
     ):
         return None
     return {
-        "next_stage": "astra_review",
+        "next_stage": "review_completion",
         "iteration": state.get("iteration", 0) + 1,
         **proof_findings.send_back(state, current["revision"]),
     }

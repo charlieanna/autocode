@@ -114,7 +114,7 @@ def revalidate_on_resume(state: RunState, workspace, *, review_stage):
     the old validation. Proof receipts, regression_proofs and the baseline stay intact.
     """
     if (
-        state.get("next_stage") not in ("sol", "astra_checkpoint", "astra_review")
+        state.get("next_stage") not in ("tester", "review_checkpoint", "review_completion")
         or state.get("status") != "RUNNING"
         or not goals.approved(state)
         or (state.get(resolver_human.PUBLIC) or {}).get("scope") in ("operational_exhaustion", "blocker")
@@ -146,7 +146,7 @@ def revalidate_on_resume(state: RunState, workspace, *, review_stage):
     if proof.get("source_revision") and proof["source_revision"] != revision:
         archived["regression_proof"] = state.pop("regression_proof")
     state.setdefault("validation_archive", []).append(archived)
-    for role in ("sol", "task_planner"):
+    for role in ("tester", "task_planner"):
         old = state.setdefault("sessions", {}).pop(role, None)
         if old:
             state.setdefault("session_rotations", []).append(

@@ -28,7 +28,7 @@ class PermissionProgressTests(unittest.TestCase):
                 "proposal": {
                     "scope": "permission",
                     "request": {"decision_needed": f"Paraphrase {i}"},
-                    "origin": {"stage": "astra_review", "output": f"review-{i}"},
+                    "origin": {"stage": "review_completion", "output": f"review-{i}"},
                 },
             }
             key = digest(identity)

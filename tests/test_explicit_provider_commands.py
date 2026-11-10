@@ -45,7 +45,7 @@ class AbsoluteProviderExecutableTests(unittest.TestCase):
             for adapter in (opencode, provider):
                 with self.subTest(adapter=getattr(adapter, "__name__", "command")):
                     launched, child, _ = adapter.launch(
-                        "terra", workspace, root, None, "provider/model", None, True, env=explicit
+                        "builder", workspace, root, None, "provider/model", None, True, env=explicit
                     )
                     actual = subprocess.run(
                         launched, cwd=workspace, env=child, capture_output=True, text=True, timeout=10
@@ -136,7 +136,7 @@ class AbsoluteProviderExecutableTests(unittest.TestCase):
             settings = provider.local_settings(root, env=explicit)
             self.assertEqual(str(executable), settings["executable"])
             self.assertEqual("1.0", settings["version"])
-            launched, child, _ = provider.launch("terra", root, root, None, "model", None, True, env=explicit)
+            launched, child, _ = provider.launch("builder", root, root, None, "model", None, True, env=explicit)
             self.assertEqual([str(executable)], launched)
             self.assertEqual(explicit, child)
 

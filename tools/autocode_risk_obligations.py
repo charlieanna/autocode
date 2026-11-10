@@ -264,7 +264,7 @@ def prepare_body(state: RunState, body, origin, record=None):
     if supplied is None and previous is not None:
         result[KEY] = copy.deepcopy(previous)
         return result
-    if origin in {"astra_finalize", "plan_finalize", "adaptive_review_approval"}:
+    if origin in {"finalize_plan", "plan_finalize", "adaptive_review_approval"}:
         validate_body(state, result)
         if supplied is not None and (record or {}).get("stage") != supplied["review"]["stage"]:
             raise ValueError("Original-risk observations do not belong to this Plan Reviewer execution")

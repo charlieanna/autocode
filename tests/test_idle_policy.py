@@ -32,7 +32,7 @@ class IdlePolicyTests(unittest.TestCase):
     def test_report_only_planning_stages_get_their_floor_over_the_runner_default(self):
         # 2026-10-20 trial: every GLM 5.3 Planner call took 300-340 s; three were killed at 308-310 s.
         glm = "zai-coding-plan/glm-5.3"
-        for stage in ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+        for stage in ("requirements_gather", "draft_plan", "review_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 self.assertEqual(
                     (600, idle_policy.PLANNING_FLOOR_ORIGIN),
@@ -48,7 +48,15 @@ class IdlePolicyTests(unittest.TestCase):
 
     def test_the_planning_floor_leaves_every_other_launch_and_limit_alone(self):
         glm = "zai-coding-plan/glm-5.3"
-        for stage in ("terra", "sol", "astra_review", "astra_checkpoint", "review_change", "investigate_bug", None):
+        for stage in (
+            "builder",
+            "tester",
+            "review_completion",
+            "review_checkpoint",
+            "review_change",
+            "investigate_bug",
+            None,
+        ):
             with self.subTest(stage=stage):
                 self.assertEqual(
                     (300, "runner_default"), idle_policy.effective(300, "runner_default", glm, stage=stage)
@@ -61,11 +69,11 @@ class IdlePolicyTests(unittest.TestCase):
             (300, None),
         ):
             with self.subTest(limit=limit, origin=origin):
-                self.assertEqual((limit, origin), idle_policy.effective(limit, origin, glm, stage="astra_discovery"))
+                self.assertEqual((limit, origin), idle_policy.effective(limit, origin, glm, stage="draft_plan"))
         # A MiMo Planner gets the higher of the two floors, under MiMo's label.
         self.assertEqual(
             (900, "runner default for MiMo routes"),
-            idle_policy.effective(300, "runner_default", MIMO, stage="astra_discovery"),
+            idle_policy.effective(300, "runner_default", MIMO, stage="draft_plan"),
         )
 
 

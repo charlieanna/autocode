@@ -20,6 +20,19 @@ from goal_fixtures import (
     write_greeting_source,
 )
 
+# The stages that run on the per-task Planner's route (autocode_names.TASK_PLANNER_STAGES). This fake is
+# copied out of tools/ to run, so it names them itself.
+TASK_PLANNER_STAGES = {
+    "draft_plan",
+    "review_plan",
+    "finalize_plan",
+    "plan_task",
+    "review_completion",
+    "review_checkpoint",
+    "resolve",
+    "diagnose",
+}
+
 if sys.argv[1:] == ["login", "status"]:
     print("Logged in using ChatGPT (offline fixture)")
     raise SystemExit(0)
@@ -153,7 +166,7 @@ if data.get("report_repair"):
     record_launch(data["original"]["stage"] + "_report_repair")
     # This branch only reformats a saved report; never executes the original task.
     loss_cache = os.environ.get("AUTOCODE_FIXTURE_REPORT_LOSS")
-    if loss_cache and data["original"].get("stage") == "sol":
+    if loss_cache and data["original"].get("stage") == "tester":
         result = json.loads(Path(loss_cache).read_text())
     elif data["original"].get("truncated_output"):
         result = json.loads(data["rejected_report"]["content"]["partial_text"] + "}")
@@ -161,15 +174,15 @@ if data.get("report_repair"):
         result = json.loads(Path(data["original"]["output"]).read_text())
     if os.environ.get("AUTOCODE_FIXTURE_INVALID_INVESTIGATOR") and data["original"].get("stage") == "investigate_stuck":
         result["diagnosis"] = "Offline fixture: retain the interrupted report repair and pause."
-    if "summary" not in result and data["original"].get("stage", "").startswith(("terra", "astra_discovery")):
+    if "summary" not in result and data["original"].get("stage", "").startswith(("builder", "draft_plan")):
         result["summary"] = "Repaired fixture report"
     if os.environ.get("AUTOCODE_FIXTURE_MODE") == "human-pending":
         original_stage = data["original"].get("stage")
-        if original_stage == "astra_review":
+        if original_stage == "review_completion":
             for row in result["acceptance_criteria"]:
                 if not row["evidence"].strip():
                     row["evidence"] = "Current Validator executed CLI checks; human acceptance is still pending"
-        elif original_stage == "sol" and not result["checks"]:
+        elif original_stage == "tester" and not result["checks"]:
             original_events = [json.loads(line) for line in Path(data["original"]["events"]).read_text().splitlines()]
             result["checks"] = [
                 {
@@ -180,7 +193,7 @@ if data.get("report_repair"):
                 for event in original_events
                 if event.get("type") == "item.completed" and event.get("item", {}).get("type") == "command_execution"
             ]
-        if original_stage == "sol" and os.environ.get("AUTOCODE_FIXTURE_INCOMPLETE_HUMAN_PROOF"):
+        if original_stage == "tester" and os.environ.get("AUTOCODE_FIXTURE_INCOMPLETE_HUMAN_PROOF"):
             # A report-only repair cites the original execution and shapes the human gap (#1851).
             result["criterion_results"][0]["evidence_refs"] = ["event:check"]
             result["end_to_end_result"].update(
@@ -203,7 +216,7 @@ if data.get("report_repair"):
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
     raise SystemExit(0)
 stage = data["stage"]
-if stage == "terra" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
+if stage == "builder" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
     import time
 
     barrier = Path(os.environ["AUTOCODE_CONSUMER_BARRIER"])
@@ -373,7 +386,7 @@ elif stage == "requirements_gather":
         # Vague: the review allowance counts per planning cycle as before. A report
         # repair's prompt has no rule, but its schema still asks for clarity.
         result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
-elif stage == "astra_discovery":
+elif stage == "draft_plan":
     draft = body(questions=not data["saved_answers"], human=mode in ("standard", "human-pending"), task_kind=task_kind)
     if os.environ.get("AUTOCODE_FIXTURE_TECHNICAL_FLOW_PENDING"):
         draft["end_to_end_flow"].append("Install the CLI entry point and invoke it from another working directory")
@@ -435,7 +448,7 @@ elif stage == "astra_discovery":
             remediation_records=[],
             progressive_proposal=dict(NO_PROPOSAL),
         )
-elif stage == "astra_challenge":
+elif stage == "review_plan":
     result = {
         "summary": "Check whitespace-only input",
         "obligation_decisions": [],
@@ -451,7 +464,7 @@ elif stage == "astra_challenge":
             }
         ],
     }
-elif stage == "glm_revise":
+elif stage == "revise_plan":
     draft = {
         key: value
         for key, value in contract["body"].items()
@@ -484,7 +497,7 @@ elif stage == "glm_revise":
             }
         ],
     }
-elif stage == "astra_finalize":
+elif stage == "finalize_plan":
     draft = {
         key: value
         for key, value in contract["body"].items()
@@ -535,9 +548,9 @@ elif stage == "astra_finalize":
     }
     if mode == "planning-invalid":
         result["decisions"] = []
-elif stage.startswith("astra") and stage != "astra_checkpoint":
+elif stage.removesuffix("_report_repair") in TASK_PLANNER_STAGES and stage != "review_checkpoint":
     rework = data.get("validation", {}).get("verdict") == "FAIL"
-    complete = stage == "astra_review" and not rework
+    complete = stage == "review_completion" and not rework
     advance = mode == "milestones" and complete and data["current_task"]["milestone_id"] == "M1"
     if advance:
         complete = False
@@ -595,7 +608,7 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
         )
     if mode == "stalled" and ((data.get("milestone_checkpoint") or {}).get("current") or {}).get("needs_replan"):
         result["next_objective"] = "Isolate empty input with a focused reproduction before repair"
-    if mode == "human-pending" and stage == "astra_review" and not data.get("human_reviews"):
+    if mode == "human-pending" and stage == "review_completion" and not data.get("human_reviews"):
         result.update(status="CONTINUE", next_objective="Obtain human acceptance of the validated artifact")
         result["acceptance_criteria"][0]["status"] = "unverified"
         if os.environ.get("AUTOCODE_FIXTURE_EMPTY_HUMAN_EVIDENCE"):
@@ -609,7 +622,7 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
         )
     redundant = os.environ.get("AUTOCODE_FIXTURE_REDUNDANT_COMPLETION")
     if (
-        stage == "astra_review"
+        stage == "review_completion"
         and complete
         and redundant
         and (redundant == "always" or not data.get("checkpoint_reason"))
@@ -622,12 +635,12 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
             acceptance_criteria=["C1"],
             validation_plan=["Run greet.py with Ada and an empty name"],
         )
-    if stage == "astra_resolve":
+    if stage == "resolve":
         result["diagnosis"] = "Empty names are accepted by the CLI; add input validation and retest both cases."
-    if stage == "astra_review" and rework and os.environ.get("AUTOCODE_FIXTURE_INCOMPLETE_REWORK"):
+    if stage == "review_completion" and rework and os.environ.get("AUTOCODE_FIXTURE_INCOMPLETE_REWORK"):
         # Exercise Resolver routing with a valid rejection that still needs a repair plan.
         result["next_task"]["validation_plan"] = []
-elif stage == "terra":
+elif stage == "builder":
     # Each implement attempt must produce a real tree delta; the runner
     # measures changed files from the workspace snapshot, not the report.
     batch = str(uuid.uuid4())
@@ -747,12 +760,12 @@ else:
         "finding_dispositions": (
             [
                 {
-                    "id": open_finding_id("sol", "Empty names are accepted"),
+                    "id": open_finding_id("tester", "Empty names are accepted"),
                     "disposition": "resolved",
                     "evidence": "event:check",
                 }
             ]
-            if passed and open_finding_id("sol", "Empty names are accepted")
+            if passed and open_finding_id("tester", "Empty names are accepted")
             else []
         ),
     }
@@ -799,7 +812,7 @@ else:
             result.update(checks=[], checks_run=[])
             result["criterion_results"][0]["evidence_refs"] = ["greet.py"]
             result["end_to_end_result"]["evidence_refs"] = ["greet.py"]
-    if stage == "astra_checkpoint":
+    if stage == "review_checkpoint":
         result = {
             "validation": result,
             "consult_sol": {"requested": False, "question": "", "reason": ""},
@@ -832,7 +845,7 @@ else:
                 "affected_paths": ["greet.py", "test_greeting.py"],
             },
         }
-if stage == "astra_review" and os.environ.get("AUTOCODE_FIXTURE_PERMISSION_LOOP"):
+if stage == "review_completion" and os.environ.get("AUTOCODE_FIXTURE_PERMISSION_LOOP"):
     number = len(data.get("saved_answers") or {})
     result.update(
         status="BLOCKED",
@@ -848,7 +861,7 @@ if stage == "astra_review" and os.environ.get("AUTOCODE_FIXTURE_PERMISSION_LOOP"
     )
 if os.environ.get("AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE") == stage:
     result.pop("summary", None)
-if stage == "terra" and (data.get("workflow") or {}).get("mode") == "glm_final_audit_v2":
+if stage == "builder" and (data.get("workflow") or {}).get("mode") == "glm_final_audit_v2":
     valid = subprocess.run([sys.executable, "greet.py", "Ada"], capture_output=True, text=True)
     invalid = subprocess.run([sys.executable, "greet.py", ""], capture_output=True, text=True)
     passed = valid.returncode == 0 and valid.stdout == "Hello, Ada\n" and invalid.returncode == 2
@@ -918,10 +931,10 @@ if stage == "terra" and (data.get("workflow") or {}).get("mode") == "glm_final_a
     }
 validation_schema = schema.get("properties", {})
 validation_report = result
-if stage == "astra_checkpoint":
+if stage == "review_checkpoint":
     validation_schema = validation_schema.get("validation", {}).get("properties", {})
     validation_report = result.get("validation", {})
-if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in validation_schema:
+if stage in ("tester", "review_checkpoint") and "changed_code_exceptions" in validation_schema:
     # A report repair's schema may allow no reasons (maxItems 0); a schema-following Tester then gives none.
     cap = validation_schema["changed_code_exceptions"].get("maxItems")
     reasons = list(
@@ -943,14 +956,14 @@ if "--output-schema" in sys.argv:
     source_verdict(result)
 # Legacy direct fixture launches may omit --output-schema; a sealed source_trace
 # still needs a Completion Reviewer verdict (#595 / #1201).
-elif stage == "astra_review" and ((contract.get("body") or {}).get("source_trace") is not None):
+elif stage == "review_completion" and ((contract.get("body") or {}).get("source_trace") is not None):
     result.setdefault(
         "source_verdict",
         {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
     )
 # New final reviews are verdicts on the exact current plan; old saved schemas
 # continue to use the full fixture report. Keep deliberate invalid-task faults.
-if stage == "astra_finalize" and "retain_contract" in schema.get("properties", {}).get("contract", {}).get(
+if stage == "finalize_plan" and "retain_contract" in schema.get("properties", {}).get("contract", {}).get(
     "properties", {}
 ):
     draft = result["contract"]

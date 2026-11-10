@@ -99,7 +99,7 @@ class LaunchLimitTests(unittest.TestCase):
 
     def test_every_other_launch_keeps_the_runs_limit(self):
         run = self.run_state()
-        for stage, kwargs in (("astra_discovery", {}), ("terra", {}), ("investigate_stuck", {"report_only": True})):
+        for stage, kwargs in (("draft_plan", {}), ("builder", {}), ("investigate_stuck", {"report_only": True})):
             with self.subTest(stage=stage, **kwargs):
                 self.assertEqual(120, job_deadline.launch_limit(run, stage, 120, **kwargs))
         for authorization in ({"consumed": True}, {"token": "jr:old"}, {"stage": "review_change"}):

@@ -206,7 +206,7 @@ class NativeImageConfigTests(unittest.TestCase):
                 "provider": "opencode",
                 "transport_identity": identity,
                 "roles": {
-                    "sol": {
+                    "tester": {
                         "engine": "opencode",
                         "provider": "opencode",
                         "model": self.profile["model"],
@@ -253,7 +253,7 @@ class NativeImageConfigTests(unittest.TestCase):
             self.state,
             self.root,
             self.run,
-            "sol",
+            "tester",
             sdk_path=self.profile["sdk_path"],
             sdk_manifest_sha256=self.profile["sdk_manifest_sha256"],
             transport_identity_sha256=self.profile["transport_identity_sha256"],
@@ -261,7 +261,7 @@ class NativeImageConfigTests(unittest.TestCase):
         )
         self.schema = self.run / "schema.json"
         self.schema.write_text('{"type":"object"}')
-        self.base = self.run / "sol"
+        self.base = self.run / "tester"
         self.prompt = "Review original source\nCURRENT HANDOFF DATA\n" + json.dumps(
             {"source_revision": self.snapshot["revision"]}
         )
@@ -292,7 +292,7 @@ class NativeImageConfigTests(unittest.TestCase):
             path.chmod(0o500 if key == "shell" else 0o400)
             boundary[key], boundary[key + "_sha256"] = str(path), util.file_hash(path)
         actual = {
-            "name": "autocode_sol",
+            "name": "autocode_tester",
             "tools": {"bash": True, "read": False},
             "permission": [
                 {"permission": "*", "pattern": "*", "action": "deny"},
@@ -301,7 +301,7 @@ class NativeImageConfigTests(unittest.TestCase):
             ],
         }
         config["shell"] = boundary["shell"]
-        config["agent"]["autocode_sol"]["permission"] = containment.shell_permissions(actual["permission"])
+        config["agent"]["autocode_tester"]["permission"] = containment.shell_permissions(actual["permission"])
         child = {**environment, "OPENCODE_CONFIG_CONTENT": json.dumps(config), "SHELL": boundary["shell"]}
         proof = control / "conformance.json"
         proof.write_text(
@@ -340,8 +340,8 @@ class NativeImageConfigTests(unittest.TestCase):
             result = launch.prepare(
                 engine="opencode",
                 adapter=opencode,
-                role="sol",
-                route_role="sol",
+                role="tester",
+                route_role="tester",
                 workspace=self.root,
                 run_dir=self.run,
                 session=None,
@@ -446,7 +446,7 @@ class NativeImageConfigTests(unittest.TestCase):
         import autocode as runner
 
         packet, result = self.prepare()
-        self.state.update(version=2, iteration=1, next_stage="sol")
+        self.state.update(version=2, iteration=1, next_stage="tester")
         self.native.guard = Mock()
         self.native.role_isolation = Mock(return_value=self.owner)
         self.native.context.factory.prepare_launch = Mock(return_value=object())
@@ -480,7 +480,7 @@ class NativeImageConfigTests(unittest.TestCase):
                 stack.enter_context(patch.object(module, name, value))
             with self.assertRaisesRegex(util.Paused, "controlled stop before child launch"):
                 runner.run_role(
-                    role="sol",
+                    role="tester",
                     prompt=self.prompt,
                     sandbox="read-only",
                     workspace=self.root,
@@ -501,7 +501,7 @@ class NativeImageConfigTests(unittest.TestCase):
         body = {
             "grants": [],
             "boundary": boundary,
-            "record_identity": {"stage": "sol", "role": "sol"},
+            "record_identity": {"stage": "tester", "role": "tester"},
             "command_sha256": util.digest(context["command"]),
             "environment_sha256": util.digest(environment),
             "native_isolation": context["native_isolation"],

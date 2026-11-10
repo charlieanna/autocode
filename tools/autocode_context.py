@@ -9,7 +9,9 @@ HISTORY_FIELDS = ("brief_feedback", "saved_answers")
 
 def proof_receipts(source, result, moved):
     """Keep every receipt outcome inline; archive its bulky execution details whole."""
-    if result.get("stage") not in ("sol", "astra_review", "astra_checkpoint") or result.get("context_artifact"):
+    if result.get("stage") not in ("tester", "review_completion", "review_checkpoint") or result.get(
+        "context_artifact"
+    ):
         return
     proof = result.get("regression_proof")
     original = source.get("regression_proof")

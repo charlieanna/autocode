@@ -143,8 +143,8 @@ class PausedSourceEditTests(unittest.TestCase):
         s.atomic_json(base.with_suffix(".json"), value)
         s.atomic_json(base.with_suffix(".schema.json"), {"type": "object"})
         return {
-            "role": "sol",
-            "stage": "sol",
+            "role": "tester",
+            "stage": "tester",
             "iteration": 2,
             "exit_code": 0,
             "duration_seconds": 1,
@@ -163,7 +163,7 @@ class PausedSourceEditTests(unittest.TestCase):
         self.state.update(
             status="PAUSED_INVALID_OUTPUT",
             phase="PAUSED_OR_BLOCKED",
-            next_stage="astra_review",
+            next_stage="review_completion",
             stop_reason="Completion report could not be produced",
         )
         old, new = self.edit_test_file()
@@ -178,7 +178,7 @@ class PausedSourceEditTests(unittest.TestCase):
 
         calls, provider = self.provider([self.validator])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual(["sol", "astra_review"], [call["stage"] for call in calls])
+        self.assertEqual(["tester", "review_completion"], [call["stage"] for call in calls])
         self.assertEqual(new, self.state["validation"]["source_revision"])
 
         self.assertEqual(0, self.invoke("--accept-completion"))
@@ -199,10 +199,10 @@ class PausedSourceEditTests(unittest.TestCase):
             regression_baseline={"path": "original-baseline.json"},
             status="PAUSED_INVALID_OUTPUT",
             phase="PAUSED_OR_BLOCKED",
-            next_stage="astra_review",
+            next_stage="review_completion",
             stop_reason="Completion report rejected",
             active_seconds=7,
-            sessions={"sol": "old-validator", "task_planner": "old-completion", "terra": "builder"},
+            sessions={"tester": "old-validator", "task_planner": "old-completion", "builder": "builder"},
         )
         retained = {
             key: copy.deepcopy(self.state[key])
@@ -220,15 +220,15 @@ class PausedSourceEditTests(unittest.TestCase):
         retained["settings"] = copy.deepcopy(self.state["settings"])
 
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual(["sol"], [call["stage"] for call in calls])
+        self.assertEqual(["tester"], [call["stage"] for call in calls])
         self.assertNotIn("validation", self.state)
         self.assertNotIn("regression_proof", self.state)
         archived = self.state["validation_archive"][-1]
         self.assertEqual(old_validation, archived["validation"])
         self.assertEqual(proof, archived["regression_proof"])
         self.assertTrue(receipt.is_file())
-        self.assertEqual("builder", self.state["sessions"]["terra"])
-        self.assertNotIn("sol", self.state["sessions"])
+        self.assertEqual("builder", self.state["sessions"]["builder"])
+        self.assertNotIn("tester", self.state["sessions"])
         self.assertNotIn("task_planner", self.state["sessions"])
         self.assertGreaterEqual(self.state["active_seconds"], 7)
         for key, value in retained.items():
@@ -243,28 +243,28 @@ class PausedSourceEditTests(unittest.TestCase):
         self.state.update(
             status="PAUSED_INVALID_OUTPUT",
             phase="PAUSED_OR_BLOCKED",
-            next_stage="astra_review",
-            sessions={"sol": "validator", "task_planner": "completion"},
+            next_stage="review_completion",
+            sessions={"tester": "validator", "task_planner": "completion"},
         )
         calls, provider = self.provider([])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual(["astra_review"], [call["stage"] for call in calls])
+        self.assertEqual(["review_completion"], [call["stage"] for call in calls])
         self.assertEqual(validation, self.state["validation"])
-        self.assertEqual({"sol": "validator", "task_planner": "completion"}, self.state["sessions"])
+        self.assertEqual({"tester": "validator", "task_planner": "completion"}, self.state["sessions"])
         self.assertNotIn("validation_archive", self.state)
 
     def test_resume_revalidates_using_the_approved_combined_checkpoint_route(self):
         self.approve()
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
         self.validation()
-        self.state.update(status="PAUSED_INVALID_OUTPUT", phase="PAUSED_OR_BLOCKED", next_stage="astra_review")
+        self.state.update(status="PAUSED_INVALID_OUTPUT", phase="PAUSED_OR_BLOCKED", next_stage="review_completion")
         runner.workflow.activate(self.state, approval_source="test_operator")
         routing = copy.deepcopy(self.state["settings"]["workflow"])
-        self.state["next_stage"] = "astra_review"
+        self.state["next_stage"] = "review_completion"
         self.edit_test_file()
         calls, provider = self.provider([])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual(["astra_checkpoint"], [call["stage"] for call in calls])
+        self.assertEqual(["review_checkpoint"], [call["stage"] for call in calls])
         self.assertEqual(routing, self.state["settings"]["workflow"])
         self.assertNotIn("validation", self.state)
 
@@ -314,12 +314,12 @@ class PausedSourceEditTests(unittest.TestCase):
     def queue_validator_report_repair(self):
         self.state["settings"]["report_repair"] = {"max_attempts": 2}
         # run_role saves the provider session before the runner reads (and here rejects) the report.
-        self.state.setdefault("sessions", {})["sol"] = "sol-session"
+        self.state.setdefault("sessions", {})["tester"] = "sol-session"
         with self.assertRaises(runner.ReportRepairQueued):
             runner.reject_completed_stage(
                 self.state, self.run, self.completed_validator_attempt(), ValueError("Missing summary")
             )
-        self.state["next_stage"] = "sol"
+        self.state["next_stage"] = "tester"
         return copy.deepcopy(self.state["pending_report_repair"])
 
     def test_resume_archives_a_report_repair_left_stale_by_a_paused_source_edit(self):
@@ -349,12 +349,12 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertIn(
             f"Discarded stale sol report repair from source {old[:12]}; the workspace is now at {new[:12]}", self.stdout
         )
-        self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
+        self.assertEqual([("tester", False)], [(call["stage"], call["report_only"]) for call in calls])
         self.assertNotIn("pending_report_repair", self.state)
         self.assertEqual(pending, self.state["report_repair_archive"][-1]["repair"])
         self.assertTrue(all(Path(path).is_file() for path in pending["pins"]))
         # The fresh attempt does not resume the session that judged the old source.
-        self.assertNotIn("sol", self.state["sessions"])
+        self.assertNotIn("tester", self.state["sessions"])
         self.assertEqual("sol-session", self.state["session_rotations"][-1]["old_session"])
 
     def exhausted_report_repair_published_after_a_source_edit(self):
@@ -393,7 +393,7 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertEqual("pending", escalation["status"])  # answered or withdrawn only by its own actions
         self.assertEqual(pending["original"], self.state["pending_report_repair"]["original"])
         self.assertNotIn("report_repair_archive", self.state)
-        self.assertEqual("sol-session", self.state["sessions"]["sol"])
+        self.assertEqual("sol-session", self.state["sessions"]["tester"])
 
     def test_resume_of_an_interrupted_stale_report_repair_starts_the_stage_afresh(self):
         self.approve()
@@ -404,20 +404,20 @@ class PausedSourceEditTests(unittest.TestCase):
 
         calls, provider = self.provider([])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
+        self.assertEqual([("tester", False)], [(call["stage"], call["report_only"]) for call in calls])
         self.assertEqual(pending, self.state["report_repair_archive"][-1]["repair"])
 
     def test_explicit_resume_archives_a_repair_whose_owning_stage_is_no_longer_next(self):
         self.approve()
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
         pending = self.queue_validator_report_repair()
-        self.state.update(status="PAUSED_STALE_REPORT_ROUTE", next_stage="astra_review")
+        self.state.update(status="PAUSED_STALE_REPORT_ROUTE", next_stage="review_completion")
 
         message = runner.archive_stale_report_repair(self.state, self.run, self.root)
 
-        self.assertIn("astra_review is now next", message)
+        self.assertIn("review_completion is now next", message)
         self.assertNotIn("pending_report_repair", self.state)
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertEqual(pending, self.state["report_repair_archive"][-1]["repair"])
 
     def test_resume_keeps_a_report_repair_whose_pinned_evidence_changed(self):
@@ -443,10 +443,10 @@ class PausedSourceEditTests(unittest.TestCase):
         old, new = self.edit_test_file()
         self.assertEqual((old, new), runner.stale_report_repair(self.state, self.root))
         changes = {
-            "an attempt is still active": {"active_stage": {"stage": "sol"}},
+            "an attempt is still active": {"active_stage": {"stage": "tester"}},
             "uncertain artifacts await reconciliation": {"uncertain_artifacts": [{"path": "x"}]},
             "the goal changed": {"goal_contract": {**self.state["goal_contract"], "hash": "another-goal"}},
-            "another stage is next": {"next_stage": "astra_review"},
+            "another stage is next": {"next_stage": "review_completion"},
             "a person is asked": {"status": "WAITING_FOR_USER"},
             "an AutoResolver request is published": {resolver_human.PUBLIC: {"scope": "operational_exhaustion"}},
             "an AutoResolver request is queued": {resolver_human.PRIVATE: {"scope": "blocker"}},
@@ -460,20 +460,23 @@ class PausedSourceEditTests(unittest.TestCase):
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
         record = self.completed_validator_attempt()
         old, new = self.edit_test_file()
-        self.state.update(status="PAUSED_INTERRUPTED", phase="PAUSED_OR_BLOCKED", next_stage="sol", active_stage=record)
+        self.state.update(
+            status="PAUSED_INTERRUPTED", phase="PAUSED_OR_BLOCKED", next_stage="tester", active_stage=record
+        )
 
         calls, provider = self.provider([])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
         self.assertEqual([], calls)
         self.assertIn(
-            f"sol ran on source {old[:12]}, the workspace is now at {new[:12]}; its result is not applied", self.stderr
+            f"tester ran on source {old[:12]}, the workspace is now at {new[:12]}; its result is not applied",
+            self.stderr,
         )
         self.assertIn("--abandon-stage 002/sol-01", self.stderr)
         self.assertNotIn("validation", self.state)
 
         self.assertEqual(0, self.invoke("--abandon-stage", "002/sol-01"))
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
+        self.assertEqual([("tester", False)], [(call["stage"], call["report_only"]) for call in calls])
 
     def assert_recovered_result_set_aside(self, record, foreign_field):
         recovered = json.loads(Path(record["output"]).read_text())
@@ -481,10 +484,12 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertNotEqual(expected[foreign_field], recovered[foreign_field])
         retained = {key: Path(record[key]).read_bytes() for key in ("output", "events", "before_ref", "after_ref")}
         current = s.snapshot(self.root)["revision"]
-        self.state.update(status="PAUSED_INTERRUPTED", phase="PAUSED_OR_BLOCKED", next_stage="sol", active_stage=record)
+        self.state.update(
+            status="PAUSED_INTERRUPTED", phase="PAUSED_OR_BLOCKED", next_stage="tester", active_stage=record
+        )
         calls, provider = self.provider([])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
+        self.assertEqual([("tester", False)], [(call["stage"], call["report_only"]) for call in calls])
 
         # Explicit resume discards the foreign report and starts a fresh attempt. Intercept that
         # attempt before it can answer: the old PASS must not appear as current validation.
@@ -514,7 +519,7 @@ class PausedSourceEditTests(unittest.TestCase):
         # checks, bind the result to the current approved contract/task, and retain the archive.
         fresh_calls, provider = self.provider([self.validator])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual(["sol", "astra_review"], [call["stage"] for call in fresh_calls])
+        self.assertEqual(["tester", "review_completion"], [call["stage"] for call in fresh_calls])
         self.assertEqual(0, self.invoke("--status", "--inspect-evidence"))
         view = json.loads(self.stdout)["view"]
         verification = view["verification"]

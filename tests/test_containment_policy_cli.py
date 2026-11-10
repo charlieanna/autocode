@@ -66,7 +66,7 @@ class UncontainedToolsFlow(unittest.TestCase):
         self.assertEqual(("user_cli", FLAG), (accepted[0]["actor"], accepted[0]["flag"]))
         self.assertTrue(accepted[0]["at"] and accepted[0]["reason"])
         launched = {record["stage"]: record for record in state["stages"] if record.get("engine") == "opencode"}
-        for stage in ("terra", "sol", "astra_review"):
+        for stage in ("builder", "tester", "review_completion"):
             self.assertIs(True, launched[stage]["uncontained_tools"], stage)
             self.assertIsNone(launched[stage]["tool_containment"])
             self.assertIn("--allow-uncontained-tools", launched[stage]["isolation"])
@@ -131,7 +131,7 @@ class UncontainedToolsFlow(unittest.TestCase):
         accepted = [event for event in state["user_events"] if event["kind"] == "uncontained_tools_accepted"]
         self.assertEqual(1, len(accepted))
         self.assertRegex(accepted[0]["reason"], r"this machine (is \w+|has OpenCode 1\.18\.31)")
-        terra = [record for record in state["stages"] if record["stage"] == "terra"]
+        terra = [record for record in state["stages"] if record["stage"] == "builder"]
         self.assertTrue(terra and all(record.get("uncontained_tools") is True for record in terra))
         self.assertEqual("uncontained_user_accepted", self.status_view(run)["tool_containment"])
 

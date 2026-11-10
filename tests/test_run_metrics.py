@@ -39,9 +39,9 @@ def view():
             "complete": True,
             "breakdown": {
                 "by_stage": [
-                    stage("terra", "Builder", 0.5, runs=2),
-                    stage("astra_review", "Completion Reviewer", 1.0),
-                    stage("sol", "Tester", 0.5),
+                    stage("builder", "Builder", 0.5, runs=2),
+                    stage("review_completion", "Completion Reviewer", 1.0),
+                    stage("tester", "Tester", 0.5),
                     stage("regression_proof", "Regression Proof", 0.0),
                 ]
             },
@@ -56,10 +56,10 @@ def view():
                     "output_tokens": quantity(50),
                 },
                 "attempts": [
-                    attempt("terra", "Builder", 0.2, rejected=True),
-                    attempt("terra", "Builder", 0.3),
-                    attempt("sol", "Tester", 0.5),
-                    attempt("astra_review", "Completion Reviewer", 1.0),
+                    attempt("builder", "Builder", 0.2, rejected=True),
+                    attempt("builder", "Builder", 0.3),
+                    attempt("tester", "Tester", 0.5),
+                    attempt("review_completion", "Completion Reviewer", 1.0),
                     attempt("regression_proof", "Regression Proof", 0.0, runner_owned=True),
                 ],
             }
@@ -131,7 +131,7 @@ class RunMetricsTests(unittest.TestCase):
 
     def test_a_failed_attempt_with_unknown_cost_is_counted_but_not_called_complete(self):
         unknown = view()
-        unknown["usage"]["accounting"]["attempts"][0] = attempt("terra", "Builder", None, exit_code=1)
+        unknown["usage"]["accounting"]["attempts"][0] = attempt("builder", "Builder", None, exit_code=1)
         waste = run_metrics.project(unknown)["waste"]
         self.assertEqual((1, 0.0, False), (waste["failed_attempts"], waste["failed_usd"], waste["failed_usd_complete"]))
 

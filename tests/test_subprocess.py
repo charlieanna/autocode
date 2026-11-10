@@ -149,16 +149,18 @@ class SubprocessFlow(unittest.TestCase):
         execution = [
             r["stage"]
             for r in state["stages"]
-            if r["stage"] not in ("recognize_workflow", "astra_discovery") and not r.get("runner_owned")
+            if r["stage"] not in ("recognize_workflow", "draft_plan") and not r.get("runner_owned")
         ]
-        self.assertEqual(["astra_plan", "terra", "sol", "astra_review", "terra", "sol", "astra_review"], execution)
+        self.assertEqual(
+            ["plan_task", "builder", "tester", "review_completion", "builder", "tester", "review_completion"], execution
+        )
         self.assertEqual({"M1", "M2"}, {r["id"] for r in state["milestone_progress"].values() if r["accepted"]})
         first = next(r for r in state["milestone_progress"].values() if r["id"] == "M1")
         self.assertEqual("NOT_VERIFIED", first["accepted_validation"]["criterion_results"][1]["status"])
         unchanged = (run / "state.json").read_bytes()
         status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
         self.assertTrue(status["milestone_checkpoint"]["enabled"])
-        self.assertGreater(status["milestone_checkpoint"]["seconds_by_role"]["sol"], 0)
+        self.assertGreater(status["milestone_checkpoint"]["seconds_by_role"]["tester"], 0)
         self.assertEqual(unchanged, (run / "state.json").read_bytes())
 
     def test_changing_code_with_repeated_failed_checks_exhausts_builder_policy(self):
@@ -174,7 +176,7 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual("could_not_finish", view["recovery"]["outcome"]["result"])
         self.assertEqual(3, view["recovery"]["outcome"]["evidence"]["attempt"])
         attempts = view["usage"]["accounting"]["attempts"]
-        builders = [row for row in attempts if row["stage"] == "terra"]
+        builders = [row for row in attempts if row["stage"] == "builder"]
         self.assertEqual(["gpt-5.6-terra", "gpt-5.6-terra", "gpt-6-sol"], [row["model"] for row in builders])
         self.assertIsNone(view["next_command"], "an exhausted run must not offer another attempt")
         self.assertTrue(all(not action.get("next_command") for action in view["recovery"]["actions"]))
@@ -208,7 +210,7 @@ class SubprocessFlow(unittest.TestCase):
         _, migrated = self.saved()
         self.assertEqual(state["goal_contract"], migrated["goal_contract"])
         self.assertEqual(len(state["stages"]), len(migrated["stages"]))
-        self.assertEqual("sol", migrated["next_stage"])
+        self.assertEqual("tester", migrated["next_stage"])
         self.assertNotIn("workflow", migrated["settings"])
         self.launch([*args, "--resume-paused"], 0)
         self.assertEqual("TASK_COMPLETE", self.saved()[1]["status"])
@@ -219,8 +221,8 @@ class SubprocessFlow(unittest.TestCase):
         run, state = self.saved()
         self.assertEqual("COMPLETE", state["phase"])
         self.assertEqual(["CONTINUE", "REWORK", "COMPLETE"], [d["report"]["status"] for d in state["decisions"]])
-        self.assertEqual(2, sum(r["stage"] == "terra" for r in state["stages"]))
-        self.assertEqual(2, sum(r["stage"] == "sol" for r in state["stages"]))
+        self.assertEqual(2, sum(r["stage"] == "builder" for r in state["stages"]))
+        self.assertEqual(2, sum(r["stage"] == "tester" for r in state["stages"]))
         self.assertEqual(["FAIL"], [row["validation"]["verdict"] for row in state["validation_archive"]])
         self.assertIn("Keep Unicode support", state["goal_contract"]["body"]["constraints"])
         self.assertEqual(1, sum(e["kind"] == "goal_approval" for e in state["user_events"]))
@@ -228,7 +230,7 @@ class SubprocessFlow(unittest.TestCase):
         # proof finding (the first attempt's untested lines, #2474) share one ledger, were linked to the
         # correction task, and were closed by the reviewers' next reports and the passing proof.
         ledger = state["findings_ledger"]
-        self.assertEqual({"sol", "task_planner", "runner"}, {row["source"] for row in ledger})
+        self.assertEqual({"tester", "task_planner", "runner"}, {row["source"] for row in ledger})
         self.assertTrue(all(row["status"] == "resolved" and row["resolved_in"] for row in ledger))
         rework_task = [
             t for t in [*state.get("task_archive", []), state["current_task"]] if t.get("decision") == "REWORK"
@@ -236,25 +238,25 @@ class SubprocessFlow(unittest.TestCase):
         self.assertTrue(all(row["assigned_task"] == rework_task["id"] for row in ledger))
         self.assertEqual(sorted(row["id"] for row in ledger), sorted(rework_task["findings"]))
         rework_prompt = Path(
-            next(r for r in state["stages"] if r["stage"] == "terra" and r.get("task_id") == rework_task["id"])[
+            next(r for r in state["stages"] if r["stage"] == "builder" and r.get("task_id") == rework_task["id"])[
                 "prompt"
             ]
         ).read_text()
         handoff = json.loads(rework_prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
-        self.assertEqual({"sol", "task_planner", "runner"}, {row["source"] for row in handoff["open_findings"]})
+        self.assertEqual({"tester", "task_planner", "runner"}, {row["source"] for row in handoff["open_findings"]})
         self.assertIn("Acceptance evidence:", result.stdout)
         self.assertIn("End-to-end flow: PASS", result.stdout)
         executed = [
             row
             for row in state["stages"]
-            if row["stage"] not in ("recognize_workflow", "astra_discovery") and not row.get("runner_owned")
+            if row["stage"] not in ("recognize_workflow", "draft_plan") and not row.get("runner_owned")
         ]
         for record in executed:
             prompt = Path(record["prompt"]).read_text()
             data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
             self.assertEqual(state["goal_contract"], data["goal_contract"])
             self.assertEqual(str(self.project), data["workspace"])
-            if record["stage"] == "sol":
+            if record["stage"] == "tester":
                 self.assertEqual(data["current_task"]["id"], data["implementation"]["task_id"])
                 self.assertIn("commands_run", data["implementation"])
                 self.assertEqual(data["source_revision"], data["implementation"]["source_revision"])
@@ -310,7 +312,7 @@ class SubprocessFlow(unittest.TestCase):
         )
         self.assertEqual(0, registered.returncode, registered.stdout + registered.stderr)
         self.assertEqual(str(run.resolve()), json.loads(registered.stdout)["runs"][0]["run_dir"])
-        self.assertEqual(["astra_discovery"], [json.loads(line)["stage"] for line in probe.read_text().splitlines()])
+        self.assertEqual(["draft_plan"], [json.loads(line)["stage"] for line in probe.read_text().splitlines()])
 
     def test_read_only_commands_do_not_create_or_register_storage(self):
         run = self.project / ".autocode/runs/read-only"
@@ -324,7 +326,7 @@ class SubprocessFlow(unittest.TestCase):
             "sessions": {},
             "history": [],
             "stages": [],
-            "next_stage": "astra_plan",
+            "next_stage": "plan_task",
         }
         state_path = run / "state.json"
         state_path.write_text(json.dumps(state))
@@ -381,7 +383,8 @@ class SubprocessFlow(unittest.TestCase):
         self.launch([*args, "--resume-paused"], 0)
         _, final = self.saved()
         self.assertEqual(
-            ["sol", "astra_review"], [r["stage"] for r in final["stages"][stage_count:] if not r.get("runner_owned")]
+            ["tester", "review_completion"],
+            [r["stage"] for r in final["stages"][stage_count:] if not r.get("runner_owned")],
         )
         evidence = Path(next(iter(final["validation"]["evidence_hashes"])))
         # Deliberate external corruption bypasses the normal read-only event log guard.
@@ -411,11 +414,11 @@ class SubprocessFlow(unittest.TestCase):
 
     def check_abandoned_completion_recovery(self, *, legacy=False):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
-        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_review"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "review_completion"
         self.launch(["Build a greeting tool", "--chat"], 2, answers="CLI\nyes\n")
         run, interrupted = self.saved()
         self.assertEqual("PASS", interrupted["validation"]["verdict"])
-        self.assertEqual("astra_review", interrupted["active_stage"]["stage"])
+        self.assertEqual("review_completion", interrupted["active_stage"]["stage"])
         source = (self.project / "greet.py").read_bytes()
         contract = interrupted["goal_contract"]
         args = ["--run-dir", str(run), "--no-chat"]
@@ -425,7 +428,7 @@ class SubprocessFlow(unittest.TestCase):
         self.launch([*args, "--abandon-stage", status["attempt_id"]], 0)
         _, abandoned = self.saved()
         self.assertEqual("PAUSED_STAGE_ABANDONED", abandoned["status"])
-        self.assertEqual("sol", abandoned["next_stage"])
+        self.assertEqual("tester", abandoned["next_stage"])
         self.assertNotIn("validation", abandoned)
         self.assertEqual(interrupted["validation"], abandoned["validation_archive"][-1]["validation"])
         self.assertTrue(abandoned["stages"][-1]["abandoned"])
@@ -435,14 +438,14 @@ class SubprocessFlow(unittest.TestCase):
             from .test_autocode import runner, s
 
             # Recreate the durable state written by the old completion router.
-            abandoned.update(status="PAUSED_REPEATED_FAILURE", next_stage="astra_review")
+            abandoned.update(status="PAUSED_REPEATED_FAILURE", next_stage="review_completion")
             error = s.Paused(
                 "PAUSED_COMPLETION_GATE",
                 "Completion rejected: missing, stale, failed or unverified independent evidence",
             )
             for attempt in range(3):
                 record = {
-                    "stage": "astra_review",
+                    "stage": "review_completion",
                     "role": "task_planner",
                     "iteration": 1,
                     "output": str(run / f"failed-completion-{attempt}.json"),
@@ -470,10 +473,10 @@ class SubprocessFlow(unittest.TestCase):
         _, final = self.saved()
         self.assertEqual("TASK_COMPLETE", final["status"])
         self.assertEqual(
-            ["sol", "astra_review"], [r["stage"] for r in final["stages"][count:] if not r.get("runner_owned")]
+            ["tester", "review_completion"], [r["stage"] for r in final["stages"][count:] if not r.get("runner_owned")]
         )
         self.assertEqual("PASS", final["validation"]["verdict"])
-        self.assertEqual(1, sum(r["stage"] == "terra" for r in final["stages"]))
+        self.assertEqual(1, sum(r["stage"] == "builder" for r in final["stages"]))
         self.assertEqual(contract, final["goal_contract"])
         self.assertEqual(source, (self.project / "greet.py").read_bytes())
         if legacy:
@@ -522,20 +525,20 @@ class SubprocessFlow(unittest.TestCase):
         assert_operational_wait(self, state, "PAUSED_ITERATION_LIMIT")
         self.assertEqual("REWORK", state["last_decision"]["report"]["status"])
         task_id = state["current_task"]["id"]
-        self.assertEqual(1, sum(r["stage"] == "terra" for r in state["stages"]))
+        self.assertEqual(1, sum(r["stage"] == "builder" for r in state["stages"]))
         self.launch(["--run-dir", str(run), "--resume-paused", "--max-iterations", "3"], 0)
         _, final = self.saved()
         self.assertEqual("COMPLETE", final["phase"])
         self.assertEqual(task_id, final["current_task"]["id"])
-        self.assertEqual(2, sum(r["stage"] == "terra" for r in final["stages"]))
+        self.assertEqual(2, sum(r["stage"] == "builder" for r in final["stages"]))
 
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
         project, launch = self.project, self.launch
-        launch(["Build a useful greeting tool", "--reasoning-effort", "high", "--terra-provider", "ZAI"], 2)
+        launch(["Build a useful greeting tool", "--reasoning-effort", "high", "--builder-provider", "ZAI"], 2)
         expected_models = {
             "task_planner": "gpt-5.6-sol",
-            "terra": "gpt-5.6-terra",
-            "sol": "gpt-5.6-sol",
+            "builder": "gpt-5.6-terra",
+            "tester": "gpt-5.6-sol",
             "completion": "gpt-5.6-sol",
         }
         run = next((project / ".autocode/runs").iterdir())
@@ -573,7 +576,7 @@ class SubprocessFlow(unittest.TestCase):
             expected_models, {role: settings["model"] for role, settings in final["settings"]["roles"].items()}
         )
         self.assertEqual(before, (project / "greet.py").read_bytes())
-        self.assertEqual(1, sum(r["stage"] == "terra" for r in final["stages"]))
+        self.assertEqual(1, sum(r["stage"] == "builder" for r in final["stages"]))
         self.assertEqual(["Optional web UI"], final["deferred_backlog"])
         launch(args, 0)
         self.assertEqual(len(final["stages"]), len(state()["stages"]))
@@ -585,12 +588,12 @@ class SubprocessFlow(unittest.TestCase):
             command = record["command"]
             # Judges may write operational evidence; their source changes are
             # rejected by the independent post-stage snapshot guard.
-            writable_stages = {"terra", "sol", "astra_review", "astra_checkpoint"}
+            writable_stages = {"builder", "tester", "review_completion", "review_checkpoint"}
             expected = "workspace-write" if record["stage"] in writable_stages else "read-only"
             self.assertEqual(expected, command[command.index("--sandbox") + 1])
             self.assertEqual(expected_models[record["role"]], command[command.index("--model") + 1])
             self.assertNotIn("--last", command)
-            if record["role"] == "terra":
+            if record["role"] == "builder":
                 self.assertIn('model_provider="ZAI"', command)
             else:
                 self.assertFalse(any(str(item).startswith("model_provider=") for item in command))

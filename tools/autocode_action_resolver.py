@@ -279,7 +279,7 @@ def answer_quota_question(runner, args, state: RunState, run_dir, workspace):
         if parallel:
             row, stopped_worker = parallel
             worker_quota.validate_model(model, stopped_worker, dispatch._model_family)
-            attempt = {**stopped_worker, "stage": "terra", "pause_status": row["status"]}
+            attempt = {**stopped_worker, "stage": "builder", "pause_status": row["status"]}
         else:
             attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status)
             if not attempt or not attempt["active"] or attempt["role"] != role:

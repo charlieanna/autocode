@@ -29,7 +29,7 @@ class PlanningAttacks(AdversarialCase):
         plans = self.trace("scaffolding_plan")
         self.assertNotIn("tests/__init__.py", plans[0]["assigned"])
         self.assertIn("tests/__init__.py", plans[-1]["assigned"])
-        self.assertFalse(self.trace("stage_enter", "terra"), "No Builder before approval")
+        self.assertFalse(self.trace("stage_enter", "builder"), "No Builder before approval")
         self.approve()
         self.assertEqual("TASK_COMPLETE", self.finish()["status"])
         self.assertTrue((self.project / "tests/__init__.py").is_file())
@@ -42,7 +42,7 @@ class PlanningAttacks(AdversarialCase):
         self.assertLessEqual(len(plans), 4, "Plan repair must remain bounded")
         self.assertTrue(all("tests/__init__.py" not in row["assigned"] for row in plans))
         self.assertNotEqual("approve_plan", (view.get("needs") or {}).get("kind"))
-        self.assertFalse(self.trace("stage_enter", "terra"))
+        self.assertFalse(self.trace("stage_enter", "builder"))
         self.assertFalse(view["done"])
 
 
@@ -79,9 +79,9 @@ class PlanningMetadataRecovery(AdversarialCase):
         self.set_fault("planning", "recover_planning_metadata")
         self.start_to_approval()
         self.assertTrue(self.trace("omitted_trace_id"), self.root)
-        self.assertTrue(self.trace("mislabeled_addition", "glm_revise"), self.root)
+        self.assertTrue(self.trace("mislabeled_addition", "revise_plan"), self.root)
         self.assertEqual([], self.trace("metadata_rejection"), "Mechanical metadata needs no model repair")
-        self.assertFalse(self.trace("stage_enter", "terra"), "Approval is still required")
+        self.assertFalse(self.trace("stage_enter", "builder"), "Approval is still required")
         displayed = self.driver.call("show-goal", "--show-goal", action=True)
         self.assertIn("C1", displayed.stdout)
         self.assertIn("C2", displayed.stdout)
@@ -92,10 +92,10 @@ class PlanningMetadataRecovery(AdversarialCase):
         self.set_fault("planning", "metadata_with_proof_downgrade")
         view = self.driver.drive(self.scenario.brief)
         self.assertFalse(view["done"], self.root)
-        self.assertFalse(self.trace("stage_enter", "terra"))
+        self.assertFalse(self.trace("stage_enter", "builder"))
         self.assertFalse(any(step["kind"] == "approve-plan" for step in self.driver.steps))
-        self.assertTrue(self.trace("mislabeled_addition", "glm_revise"), self.root)
-        rejected = self.trace("metadata_rejection", "glm_revise")
+        self.assertTrue(self.trace("mislabeled_addition", "revise_plan"), self.root)
+        rejected = self.trace("metadata_rejection", "revise_plan")
         self.assertTrue(any("drops or changes 'C1'" in row["error"] for row in rejected), self.root)
 
 
@@ -120,10 +120,10 @@ class DraftProofPlanning(AdversarialCase):
         self.set_fault("planning", "reject_draft_proof_downgrade")
         view = self.driver.drive(self.scenario.brief)
         self.assertFalse(view["done"], self.root)
-        self.assertFalse(self.trace("stage_enter", "terra"))
+        self.assertFalse(self.trace("stage_enter", "builder"))
         self.assertFalse(any(step["kind"] == "approve-plan" for step in self.driver.steps))
-        self.assertTrue(self.trace("stage_enter", "glm_revise"), self.root)
-        rejected = self.trace("proof_rejection_observed", "glm_revise")
+        self.assertTrue(self.trace("stage_enter", "revise_plan"), self.root)
+        rejected = self.trace("proof_rejection_observed", "revise_plan")
         self.assertTrue(any("without a user-backed" in row["error"] for row in rejected), self.root)
 
 
@@ -136,7 +136,7 @@ class DraftExamplePlanning(AdversarialCase):
     def test_wrong_model_written_count_is_corrected_before_approval_and_finishes_without_questions(self):
         self.set_fault("planning", "repair_draft_example")
         view = self.start_to_approval()
-        self.assertFalse(self.trace("stage_enter", "terra"), "No Builder before approving the corrected plan")
+        self.assertFalse(self.trace("stage_enter", "builder"), "No Builder before approving the corrected plan")
         displayed = self.driver.call("show-goal", "--show-goal", action=True)
         self.assertIn("Reviewed draft example corrections:", displayed.stdout)
         self.assertIn("C_COUNT", displayed.stdout)
@@ -145,7 +145,7 @@ class DraftExamplePlanning(AdversarialCase):
         self.approve(view)
         self.assertEqual("TASK_COMPLETE", self.finish()["status"], self.root)
         self.assertEqual(1, sum(step["kind"] == "approve-plan" for step in self.driver.steps))
-        self.assertEqual(1, len(self.trace("stage_enter", "terra")))
+        self.assertEqual(1, len(self.trace("stage_enter", "builder")))
         self.assertFalse(self.trace("stage_enter", "investigate_stuck"), self.root)
 
     def test_example_receipt_cannot_also_change_an_input_and_dispatch_a_builder(self):
@@ -156,7 +156,7 @@ class DraftExamplePlanning(AdversarialCase):
         # Do not auto-answer KEEP and feed the same adversarial proposal back forever.
         view = self.driver.until_stopped(say_at="needs:answer")
         self.assertFalse(view["done"], self.root)
-        self.assertFalse(self.trace("stage_enter", "terra"))
+        self.assertFalse(self.trace("stage_enter", "builder"))
         self.assertFalse(any(step["kind"] == "approve-plan" for step in self.driver.steps))
         self.assertEqual("answer", view["needs"]["kind"])
         questions = view["needs"]["questions"]
@@ -168,4 +168,4 @@ class DraftExamplePlanning(AdversarialCase):
         self.assertIn("C_COUNT", question["question"])
         self.assertEqual("Keep the approved wording", question["proposed_default"])
         self.assertEqual([], self.driver.answers, "The fixture must leave this decision to the person")
-        self.assertEqual(1, len(self.trace("stage_enter", "glm_revise")), self.root)
+        self.assertEqual(1, len(self.trace("stage_enter", "revise_plan")), self.root)

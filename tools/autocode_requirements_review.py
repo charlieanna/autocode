@@ -41,7 +41,7 @@ except ImportError:
 
 SETTING = "spec_first"
 STAGE = "requirements_gather"
-NEXT = "astra_discovery"
+NEXT = "draft_plan"
 PREFIX = "requirements-review-"
 APPROVE = "plan"
 # The review question shows at most this many entries per list; the full handoff stays in the run.

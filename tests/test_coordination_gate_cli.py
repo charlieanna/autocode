@@ -21,7 +21,7 @@ class CoordinatedGateCliTests(unittest.TestCase):
         self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
         self.run_flow()
         calls = [json.loads(line) for line in (self.intake / ".autocode/provider-calls.jsonl").read_text().splitlines()]
-        replies = [row for row in calls if row.get("name") == "conversation" and row["stage"] == "astra_finalize"]
+        replies = [row for row in calls if row.get("name") == "conversation" and row["stage"] == "finalize_plan"]
         self.assertEqual(1, len(replies), "one interpretation, no duplicate reviewer dispatch")
         self.assertEqual("confirm", replies[0]["intent"])
         self.assertTrue(any("Plan Reviewer:" in line for line in self.lines))

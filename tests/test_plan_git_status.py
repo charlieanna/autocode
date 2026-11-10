@@ -287,7 +287,7 @@ class TaskAuthorTests(unittest.TestCase):
             "history": [],
             "acceptance_criteria": [],
             "settings": {
-                "roles": {r: {"model": f"model-{r}"} for r in ("task_planner", "terra", "sol")},
+                "roles": {r: {"model": f"model-{r}"} for r in ("task_planner", "builder", "tester")},
                 "context_soft_tokens": 1000,
                 "headroom": {"enabled": False},
             },
@@ -354,40 +354,40 @@ class TaskAuthorTests(unittest.TestCase):
         self.assertEqual(before, self.state)
 
     def test_the_completion_reviewers_continue_is_refused(self):
-        self.assert_refused("astra_review", self.decision("CONTINUE", STEP, "review-01.json"), "review-01.json")
+        self.assert_refused("review_completion", self.decision("CONTINUE", STEP, "review-01.json"), "review-01.json")
         self.assert_refused(
-            "astra_review",
+            "review_completion",
             self.decision("CONTINUE", "python3 -m unittest -v", "review-01.json", requirement=REQUIREMENT),
             "review-01.json",
             where="next_task.requirements `Give AC6",
         )
         self.apply(
-            "astra_review", self.decision("CONTINUE", "python3 -m unittest -v", "review-02.json"), "review-02.json"
+            "review_completion", self.decision("CONTINUE", "python3 -m unittest -v", "review-02.json"), "review-02.json"
         )
         self.assertIn("python3 -m unittest -v", self.state["current_task"]["validation_plan"])
 
     def test_the_completion_reviewers_rework_is_refused_not_handed_to_the_resolver(self):
         # A refused direct assignment would otherwise send the task on to the Resolver (rework_policy.route).
-        self.assert_refused("astra_review", self.decision("REWORK", STEP, "review-01.json"), "review-01.json")
+        self.assert_refused("review_completion", self.decision("REWORK", STEP, "review-01.json"), "review-01.json")
         self.assertNotIn("resolution_request", self.state)
         self.apply(
-            "astra_review", self.decision("REWORK", "python3 -m unittest -v", "review-02.json"), "review-02.json"
+            "review_completion", self.decision("REWORK", "python3 -m unittest -v", "review-02.json"), "review-02.json"
         )
-        self.assertEqual("astra_resolve", self.state["next_stage"])
+        self.assertEqual("resolve", self.state["next_stage"])
 
     def test_the_resolvers_repair_task_is_refused(self):
         self.apply(
-            "astra_review", self.decision("REWORK", "python3 -m unittest -v", "review-01.json"), "review-01.json"
+            "review_completion", self.decision("REWORK", "python3 -m unittest -v", "review-01.json"), "review-01.json"
         )
         diagnosis = {
             **self.decision("REWORK", STEP, "resolve-01.json"),
             "findings": [],
             "diagnosis": "The blank check runs after the greeting is printed",
         }
-        self.assert_refused("astra_resolve", diagnosis, "resolve-01.json")
+        self.assert_refused("resolve", diagnosis, "resolve-01.json")
         diagnosis["next_task"]["validation_plan"][-1] = "python3 -m unittest -v"
-        self.apply("astra_resolve", diagnosis, "resolve-01.json")
-        self.assertEqual("terra", self.state["next_stage"])
+        self.apply("resolve", diagnosis, "resolve-01.json")
+        self.assertEqual("builder", self.state["next_stage"])
 
 
 class PromptTests(unittest.TestCase):
@@ -398,7 +398,7 @@ class PromptTests(unittest.TestCase):
 
         return ModelRequest(
             "task_planner",
-            "astra_review",
+            "review_completion",
             "Review it.\nCURRENT HANDOFF DATA\n{}",
             {},
             goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "task_planner"),
@@ -410,11 +410,11 @@ class PromptTests(unittest.TestCase):
 
         self.assertIn(RULE, autoplanner.EVIDENCE_FACTS)
         with patch.object(autoreview, "execution_request", return_value=self.upstream()):
-            review = autoreview.prepare({"settings": {}}, "astra_review", "/run/state.json", None)
+            review = autoreview.prepare({"settings": {}}, "review_completion", "/run/state.json", None)
         self.assertIn(RULE, review.prompt.split("CURRENT HANDOFF DATA\n", 1)[0])
         # Under reviewer routing the checkpoint's decision is applied as the Completion Reviewer's.
         with patch.object(autoreview, "execution_request", return_value=self.upstream()):
-            checkpoint = autoreview.prepare({"settings": {}}, "astra_checkpoint", "/run/state.json", None)
+            checkpoint = autoreview.prepare({"settings": {}}, "review_checkpoint", "/run/state.json", None)
         self.assertIn(RULE, checkpoint.prompt.split("CURRENT HANDOFF DATA\n", 1)[0])
         state = {
             "workspace": "/ws",
@@ -425,7 +425,7 @@ class PromptTests(unittest.TestCase):
             patch.object(autoresolver, "guard"),
             patch.object(autoresolver, "execution_request", return_value=self.upstream()),
         ):
-            resolve = autoresolver.prepare(state, "astra_resolve", "/run/state.json", None)
+            resolve = autoresolver.prepare(state, "resolve", "/run/state.json", None)
         self.assertIn(RULE, resolve.prompt.split("CURRENT HANDOFF DATA\n", 1)[0])
 
 

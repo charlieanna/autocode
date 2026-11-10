@@ -42,7 +42,7 @@ STAGE = job.STAGE
 
 def _evidence(state: RunState, workspace):
     try:
-        if state.get("status") != "PAUSED_PLANNING_BUDGET" or state.get("next_stage") != "astra_challenge":
+        if state.get("status") != "PAUSED_PLANNING_BUDGET" or state.get("next_stage") != "review_plan":
             return None
         if any(
             state.get(key)
@@ -207,7 +207,7 @@ def reconcile(state: RunState, workspace, *, at, run_tests, evidence_dir=None) -
         run_tests=run_tests,
         evidence_dir=evidence_dir or Path(evidence["record"]["output"]).parent / "acceptance-recovery",
     )
-    if state.get("status") != "RUNNING" or state.get("next_stage") not in ("terra", "orchestrator"):
+    if state.get("status") != "RUNNING" or state.get("next_stage") not in ("builder", "orchestrator"):
         raise ValueError("The retained acceptance report did not pass fresh runner checks; recovery was not committed")
     state.setdefault("reconciliation_notes", []).append(
         {

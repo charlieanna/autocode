@@ -337,7 +337,7 @@ def guard(state: RunState, stage, role) -> None:
             basis=f"the last {roles.screen_name(last.get('stage'), state)} attempt",
             model=model,
             effort=effort,
-            writer=stage == "terra",
+            writer=stage == "builder",
         )
         return
     attempts = job_attempts(state, stage)

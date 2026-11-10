@@ -33,7 +33,7 @@ def attempt(stage, output, *, finished="2026-11-08T00:00:00+00:00", **extra):
         "duration_seconds": 10,
         "finished_at": finished,
         "metrics": {"provider_tokens": {"input_tokens": 20, "output_tokens": 10}},
-        "role": "planner" if "astra_discovery" in stage else "task_planner",
+        "role": "planner" if "draft_plan" in stage else "task_planner",
         "iteration": 1,
         "schema": "planner.schema.json",
         "contract_hash": "owner-contract",
@@ -59,7 +59,7 @@ def fixture(*, repaired=False):
         "task_id": "task",
         "task": "Keep the scoped behavior",
         "status": "RUNNING",
-        "next_stage": "astra_challenge",
+        "next_stage": "review_plan",
         "goal_contract": old,
         "user_events": [approval],
         "turns": [{"event_id": "turn"}],
@@ -77,14 +77,14 @@ def fixture(*, repaired=False):
         "failure_history": {"historical-builder": {"count": 2}},
     }
     cycle.new_cycle(state)
-    for stage in ("astra_challenge", "astra_finalize"):
+    for stage in ("review_plan", "finalize_plan"):
         row = attempt(stage, stage)
         autoplanner.charge(state, stage, row)
         state["stages"].append(row)
     state["planning"]["final_token"] = token
     state["planning"]["adaptive"] = {"size": "small", "challenges": 1, "review_limit": 2}
     state["stages"].append(
-        attempt("terra", "old-timeout", timed_out=True, exit_code=1, finished="2026-11-08T00:01:30+00:00")
+        attempt("builder", "old-timeout", timed_out=True, exit_code=1, finished="2026-11-08T00:01:30+00:00")
     )
     state["status"] = "PAUSED_COMPLETION_GATE"
     with patch.object(goals.s, "now", return_value="2026-11-08T00:02:00+00:00"):
@@ -93,17 +93,17 @@ def fixture(*, repaired=False):
     body["technical_approach"] = ["Correct the implementation and preserve its original contract"]
     state["goal_contract"] = contract(body, 2)
     cycle.new_cycle(state)
-    draft = attempt("astra_discovery", "corrected-draft", finished="2026-11-08T00:03:00+00:00")
+    draft = attempt("draft_plan", "corrected-draft", finished="2026-11-08T00:03:00+00:00")
     state["stages"].append(draft)
     output = draft["output"]
     if repaired:
         draft["rejected"] = True
         repair = attempt(
-            "astra_discovery_report_repair",
+            "draft_plan_report_repair",
             "accepted-repair",
             finished="2026-11-08T00:03:30+00:00",
             report_only=True,
-            original_stage="astra_discovery",
+            original_stage="draft_plan",
             applied_original_events=draft["events"],
         )
         state["stages"].append(repair)
@@ -116,8 +116,8 @@ def fixture(*, repaired=False):
             }
         ]
         output = repair["output"]
-    state["planning"]["reports"] = {"astra_discovery": {"report": {"contract": copy.deepcopy(body)}, "output": output}}
-    state.update(status="RUNNING", phase="PLANNING", next_stage="astra_challenge")
+    state["planning"]["reports"] = {"draft_plan": {"report": {"contract": copy.deepcopy(body)}, "output": output}}
+    state.update(status="RUNNING", phase="PLANNING", next_stage="review_plan")
     state["history"] = copy.deepcopy(state["stages"])
     return state
 
@@ -144,9 +144,9 @@ class CorrectiveBudgetTests(unittest.TestCase):
                 another = fixture(repaired=repaired)
                 another["resolver"] = copy.deepcopy(state["resolver"])
                 self.denied(another)
-                autoplanner.charge(state, "astra_challenge", attempt("astra_challenge", "new-challenge"))
-                state["next_stage"] = "astra_finalize"
-                autoplanner.charge(state, "astra_finalize", attempt("astra_finalize", "new-final"))
+                autoplanner.charge(state, "review_plan", attempt("review_plan", "new-challenge"))
+                state["next_stage"] = "finalize_plan"
+                autoplanner.charge(state, "finalize_plan", attempt("finalize_plan", "new-final"))
                 self.assertEqual(4, state["planning"]["astra_calls"])
                 self.assertFalse(goals.approved(state))
 
@@ -211,11 +211,11 @@ class CorrectiveBudgetTests(unittest.TestCase):
         state["planning"]["turn_event_id"] = "later-turn"
         self.denied(state)
         state = fixture()
-        report = copy.deepcopy(state["planning"]["reports"]["astra_discovery"])
+        report = copy.deepcopy(state["planning"]["reports"]["draft_plan"])
         cycle.new_cycle(state)
         report["output"] = "later-machine-draft"
-        state["planning"]["reports"]["astra_discovery"] = report
-        state["stages"].append(attempt("astra_discovery", report["output"], finished="2026-11-08T00:03:30+00:00"))
+        state["planning"]["reports"]["draft_plan"] = report
+        state["stages"].append(attempt("draft_plan", report["output"], finished="2026-11-08T00:03:30+00:00"))
         self.denied(state)
 
     def test_rewording_revision_numbers_old_drafts_and_foreign_tasks_do_not_fund_review(self):
@@ -224,21 +224,21 @@ class CorrectiveBudgetTests(unittest.TestCase):
                 state = fixture()
                 if change == "same_body":
                     state["goal_contract"] = contract(state["contract_history"][0]["body"], 2)
-                    state["planning"]["reports"]["astra_discovery"]["report"]["contract"] = copy.deepcopy(
+                    state["planning"]["reports"]["draft_plan"]["report"]["contract"] = copy.deepcopy(
                         state["goal_contract"]["body"]
                     )
                 elif change == "wrong_body":
-                    state["planning"]["reports"]["astra_discovery"]["report"]["contract"] = {}
+                    state["planning"]["reports"]["draft_plan"]["report"]["contract"] = {}
                 elif change == "old_output":
-                    state["planning_history"][0]["reports"]["astra_discovery"] = copy.deepcopy(
-                        state["planning"]["reports"]["astra_discovery"]
+                    state["planning_history"][0]["reports"]["draft_plan"] = copy.deepcopy(
+                        state["planning"]["reports"]["draft_plan"]
                     )
                 elif change == "foreign_task":
                     state["task_id"] = "foreign"
                 elif change == "stale_draft":
                     state["stages"][-1]["finished_at"] = "2026-11-07T23:00:00+00:00"
                 else:
-                    state["planning"]["reports"]["astra_challenge"] = {"output": "previous-review"}
+                    state["planning"]["reports"]["review_plan"] = {"output": "previous-review"}
                 self.denied(state)
 
     def test_only_the_exact_previously_approved_source_trace_may_be_inherited(self):
@@ -254,7 +254,7 @@ class CorrectiveBudgetTests(unittest.TestCase):
                     state["brief_feedback"][0]["contract_token"] = token
                     current_body = copy.deepcopy(state["goal_contract"]["body"])
                     current_body["source_trace"] = copy.deepcopy(previous["body"]["source_trace"])
-                    report_body = state["planning"]["reports"]["astra_discovery"]["report"]["contract"]
+                    report_body = state["planning"]["reports"]["draft_plan"]["report"]["contract"]
                     if supplied == "none":
                         report_body["source_trace"] = None
                     elif supplied == "foreign":
@@ -285,7 +285,7 @@ class CorrectiveBudgetTests(unittest.TestCase):
                         else [" Keep  the original boundary "]
                     )
                     state["goal_contract"] = contract(body, 2)
-                    state["planning"]["reports"]["astra_discovery"]["report"]["contract"] = copy.deepcopy(body)
+                    state["planning"]["reports"]["draft_plan"]["report"]["contract"] = copy.deepcopy(body)
                     if changed:
                         self.assertTrue(budgets.recover(state, kind=budgets.PLANNING_KIND, now=NOW))
                     else:
@@ -309,7 +309,7 @@ class CorrectiveBudgetTests(unittest.TestCase):
         for change in (
             {"consecutive_timeouts": 2},
             {"failure_history": {"current": {"count": 3}}},
-            {"stuck_investigation": {"stage": "astra_challenge"}},
+            {"stuck_investigation": {"stage": "review_plan"}},
             {"applied_interventions": [{"kind": "stop"}]},
         ):
             self.denied({**fixture(), **change})
@@ -464,7 +464,7 @@ class CorrectiveBudgetTests(unittest.TestCase):
                 original.update(output=str(original_output), events=str(original_events))
                 repair["applied_original_events"] = str(original_events)
                 repair["output"] = str(output)
-                state["planning"]["reports"]["astra_discovery"]["output"] = str(output)
+                state["planning"]["reports"]["draft_plan"]["output"] = str(output)
                 state["report_repair_history"][0].update(
                     repair=copy.deepcopy(repair), output_hash=digest, original_output=str(original_output)
                 )

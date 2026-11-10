@@ -62,7 +62,7 @@ class RiskFixture:
             for row in obligations.inventory(state)
         ]
 
-    def record(self, state, proposals, *, stage="astra_finalize", raw=None):
+    def record(self, state, proposals, *, stage="finalize_plan", raw=None):
         directory = Path(state["workspace"]).parent / "review"
         directory.mkdir(exist_ok=True)
         stem = str(len(state["stages"]) + 1)
@@ -86,7 +86,7 @@ class RiskFixture:
         state["stages"].append(record)
         return record
 
-    def bind(self, state, *, proposals=None, draft=None, stage="astra_finalize", changes=()):
+    def bind(self, state, *, proposals=None, draft=None, stage="finalize_plan", changes=()):
         proposals = self.proposals(state) if proposals is None else proposals
         record = self.record(state, proposals, stage=stage)
         reviewed = obligations.reviewed_body(state, draft or self.draft(), proposals, record, changes=changes)
@@ -258,7 +258,7 @@ class RiskObligationsTests(RiskFixture, unittest.TestCase):
     def test_planner_cannot_originate_a_wrapper_with_reviewer_shaped_files(self):
         state = self.state()
         with self.assertRaisesRegex(ValueError, "independent Plan Reviewer"):
-            self.bind(state, stage="glm_revise")
+            self.bind(state, stage="revise_plan")
 
     def test_raw_reviewer_report_must_contain_the_actual_proposals(self):
         state = self.state()
@@ -344,12 +344,12 @@ class RiskObligationsTests(RiskFixture, unittest.TestCase):
     def test_planner_omission_carries_deep_copy_but_authoring_or_editing_refuses(self):
         state = self.state()
         reviewed, _ = self.install(state)
-        carried = obligations.prepare_body(state, self.draft(), "glm_revise")
+        carried = obligations.prepare_body(state, self.draft(), "revise_plan")
         self.assertEqual(reviewed["risk_acceptance"], carried["risk_acceptance"])
         self.assertIsNot(reviewed["risk_acceptance"], carried["risk_acceptance"])
-        carried["risk_acceptance"]["review"]["stage"] = "terra"
+        carried["risk_acceptance"]["review"]["stage"] = "builder"
         with self.assertRaisesRegex(ValueError, "cannot replace"):
-            obligations.prepare_body(state, carried, "glm_revise")
+            obligations.prepare_body(state, carried, "revise_plan")
         with self.assertRaisesRegex(ValueError, "before approval"):
             obligations.validate_body(state, self.draft(), ready=True)
 
@@ -357,7 +357,7 @@ class RiskObligationsTests(RiskFixture, unittest.TestCase):
         state = self.state(both=True, task=QUEUE)
         reviewed, _ = self.install(state)
         self.feedback(state, OUTBOX)
-        carried = obligations.prepare_body(state, self.draft(), "glm_revise")
+        carried = obligations.prepare_body(state, self.draft(), "revise_plan")
         obligations.validate_body(state, carried)
         with self.assertRaises(ValueError):
             obligations.validate_body(state, carried, ready=True)

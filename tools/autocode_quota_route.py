@@ -82,7 +82,7 @@ _STOPPED = {
 }
 KIND = "route_assignment"
 # Roles a person can route by flag on resume (autocode_args: --<role>-model).
-ROLES = ("task_planner", "terra", "sol", "completion", "planner", "requirements", "resolver", "plan_reviewer")
+ROLES = ("task_planner", "builder", "tester", "completion", "planner", "requirements", "resolver", "plan_reviewer")
 # Workflow-job models are changed by an answer with the exact job token, never a
 # resume flag. The stuck-stage Investigator answer also saves its preparation pin.
 JOB_ROLES = ("architect", "stuck_investigator", "acceptance_tester")
@@ -880,7 +880,7 @@ def _carry(state: RunState, role: str, stopped: str | None, model: str) -> None:
     would silently switch the role back to it.
     """
     lane = (state.get("builder_retries") or {}).get(state.get("builder_retry_key")) or {}
-    saved = lane.get("initial_route") if role == "terra" else (lane.get("checker_routes") or {}).get(role)
+    saved = lane.get("initial_route") if role == "builder" else (lane.get("checker_routes") or {}).get(role)
     if isinstance(saved, dict) and stopped and saved.get("model") == stopped:
         saved["model"] = model
 

@@ -45,7 +45,7 @@ def _routes(trace: Path) -> list[str | None]:
 def report_for(stage, data, common, config, run_check, requirements):
     here = Path(__file__).with_name
     trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).parent / "escalation-trace.jsonl"
-    if stage == "terra":
+    if stage == "builder":
         routes, model = _routes(trace), _model()
         stronger = bool(routes) and model != routes[0]
         with trace.open("a") as handle:

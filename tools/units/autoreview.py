@@ -91,9 +91,9 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         # that session never leaks into validation. The Builder's model stays a different one (cross-model).
         state["phase"] = "EXECUTING"
         roles = state["settings"]["roles"]
-        roles.setdefault("acceptance_tester", deepcopy(roles["sol"]))
-        role_transport.inherit(state.get("settings"), "acceptance_tester", "sol")
-        return job_request(state, acceptance_tests_job, "sol", "acceptance_tester")
+        roles.setdefault("acceptance_tester", deepcopy(roles["tester"]))
+        role_transport.inherit(state.get("settings"), "acceptance_tester", "tester")
+        return job_request(state, acceptance_tests_job, "tester", "acceptance_tester")
     if stage == design_check_job.STAGE:
         # The Design Reviewer inherits the Plan Reviewer's model (the planner's own when
         # there is none), with effort capped at ARCHITECT_MAX_EFFORT, on a route of
@@ -104,7 +104,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         source = "plan_reviewer" if "plan_reviewer" in roles else "task_planner"
         role_transport.inherit(state.get("settings"), "architect", source)
         return job_request(state, JOBS[stage], "task_planner", "architect")
-    if stage not in ("sol", "astra_review", "astra_checkpoint"):
+    if stage not in ("tester", "review_completion", "review_checkpoint"):
         raise ValueError(f"Autoreview cannot run {stage}")
     request = execution_request(state, stage, state_path, schema_dir)
     authority = task_authority.instruction(state.get("investigation"))
@@ -115,7 +115,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
             prompt=prompt,
             metrics={**request.metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4},
         )
-    if stage == "astra_review":
+    if stage == "review_completion":
         try:
             from .. import autocode_progressive_state as progressive_state
         except ImportError:
@@ -160,7 +160,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
             prompt=prompt,
             metrics={**request.metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4},
         )
-    if stage == "astra_checkpoint":
+    if stage == "review_checkpoint":
         # Under reviewer routing this decision is applied as the Completion Reviewer's, next_task included.
         prompt = request.prompt.replace(
             "\nCURRENT HANDOFF DATA\n",
@@ -176,7 +176,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
             prompt=prompt,
             metrics={**request.metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4},
         )
-    if stage == "sol" and cast(dict, state.get("current_task", {})).get("milestone_ids"):
+    if stage == "tester" and cast(dict, state.get("current_task", {})).get("milestone_ids"):
         request.schema["properties"]["milestone_results"] = {
             "type": "array",
             "items": goals.obj(

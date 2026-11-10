@@ -23,8 +23,8 @@ CLAUDE = SimpleNamespace(
         "requirements": SONNET,
         "planner": SONNET,
         "plan_reviewer": OPUS,
-        "terra": HAIKU,
-        "sol": SONNET,
+        "builder": HAIKU,
+        "tester": SONNET,
         "completion": OPUS,
         "task_planner": OPUS,
     },
@@ -33,7 +33,7 @@ CLAUDE = SimpleNamespace(
 )
 # An OpenCode-like tool: its options come from discovery's candidates, never from a guess.
 LISTED = SimpleNamespace(
-    DEFAULT_MODELS={role: "zai-coding-plan/glm-5.3" for role in choices.ORDER} | {"sol": "openai/gpt-6-sol"},
+    DEFAULT_MODELS={role: "zai-coding-plan/glm-5.3" for role in choices.ORDER} | {"tester": "openai/gpt-6-sol"},
     DEFAULT_REASONING_EFFORTS={role: "medium" for role in choices.ORDER},
     auth_logins=lambda *a, **kw: [],
 )
@@ -87,11 +87,11 @@ class StageChoiceTests(unittest.TestCase):
     def test_every_stage_says_what_it_does_and_what_suits_it_and_names_its_flags(self):
         current = choices.view("claude", **self.kw)
         self.assertEqual(list(choices.ORDER), [stage["id"] for stage in current["stages"]])
-        builder = self.stage(current, "terra")
+        builder = self.stage(current, "builder")
         self.assertEqual("Builder", builder["label"])
         self.assertIn("Writes the code", builder["does"])
         self.assertIn("cheaper model at medium", builder["advice"])
-        self.assertEqual(("--terra-model", "--terra-reasoning-effort"), (builder["flag"], builder["effort_flag"]))
+        self.assertEqual(("--builder-model", "--builder-reasoning-effort"), (builder["flag"], builder["effort_flag"]))
         self.assertEqual({"model": HAIKU, "effort": "medium", "offered": True}, builder["default"])
         self.assertIsNone(builder["chosen"])
         self.assertIsNone(builder["reset"])
@@ -114,7 +114,7 @@ class StageChoiceTests(unittest.TestCase):
 
     def test_a_listed_tool_offers_what_its_accounts_serve_with_each_models_own_levels(self):
         current = choices.view("opencode", **self.kw)
-        options = {row["model"]: row for row in self.stage(current, "terra")["options"]}
+        options = {row["model"]: row for row in self.stage(current, "builder")["options"]}
         self.assertNotIn("opencode/no-tools", options, "a model that cannot call tools cannot run a stage")
         glm = options["zai-coding-plan/glm-5.3"]
         self.assertEqual(
@@ -123,24 +123,25 @@ class StageChoiceTests(unittest.TestCase):
         )
         self.assertEqual([choices.OWN_DEFAULT], options["opencode/plain"]["effort_choices"])
         # GLM 5.3 declares no medium, so its default level is the nearest one it does declare.
-        self.assertEqual("high", self.stage(current, "terra")["default"]["effort"])
+        self.assertEqual("high", self.stage(current, "builder")["default"]["effort"])
 
     def test_a_configured_provider_without_billing_routes_offers_its_declared_models(self):
         current = choices.view("gocode", **self.kw)
-        builder = self.stage(current, "terra")
+        builder = self.stage(current, "builder")
         self.assertEqual({"configured/fast", "configured/strong"}, {row["model"] for row in builder["options"]})
         self.assertTrue(all(row["account"] is None and row["billing"] is None for row in builder["options"]))
 
     def test_a_checker_is_never_offered_the_model_whose_work_it_checks(self):
         current = choices.view("opencode", **self.kw)
-        tester = {row["model"]: row["unavailable"] for row in self.stage(current, "sol")["options"]}
+        tester = {row["model"]: row["unavailable"] for row in self.stage(current, "tester")["options"]}
         self.assertIn("the Tester checks the Builder's work", tester["zai-coding-plan/glm-5.3"])
         self.assertIsNone(tester["openai/gpt-6-sol"])
-        builder = {row["model"]: row["unavailable"] for row in self.stage(current, "terra")["options"]}
+        builder = {row["model"]: row["unavailable"] for row in self.stage(current, "builder")["options"]}
         self.assertIn("change the Tester too", builder["openai/gpt-6-sol"])
         # On Claude Code two different Claude models may check each other; one model never checks itself.
         claude = {
-            row["model"]: row["unavailable"] for row in self.stage(choices.view("claude", **self.kw), "sol")["options"]
+            row["model"]: row["unavailable"]
+            for row in self.stage(choices.view("claude", **self.kw), "tester")["options"]
         }
         self.assertIsNone(claude[OPUS])
         self.assertIn("runs " + HAIKU, claude[HAIKU])
@@ -152,61 +153,61 @@ class StageChoiceTests(unittest.TestCase):
         self.assertEqual([choices.OWN_DEFAULT], choices.effort_choices({"levels": []}))
 
     def test_a_builder_both_checkers_share_names_both_so_changing_one_is_not_a_dead_end(self):
-        both = {"sol": OPUS, "completion": OPUS}
+        both = {"tester": OPUS, "completion": OPUS}
         self.assertEqual(
             f"the Tester and the Completion Reviewer check this stage's work and run {OPUS}; change both too",
-            choices.unavailable("terra", OPUS, both, backend="claude"),
+            choices.unavailable("builder", OPUS, both, backend="claude"),
         )
-        family = {"sol": "zai-coding-plan/glm-5.1", "completion": "zai/glm-5.3"}
+        family = {"tester": "zai-coding-plan/glm-5.1", "completion": "zai/glm-5.3"}
         self.assertEqual(
             "the Tester (runs zai-coding-plan/glm-5.1) and the Completion Reviewer (runs zai/glm-5.3) check this "
             "stage's work; change both too",
-            choices.unavailable("terra", "zai-coding-plan/glm-5.3", family, backend="opencode"),
+            choices.unavailable("builder", "zai-coding-plan/glm-5.3", family, backend="opencode"),
         )
 
     def test_a_choice_is_saved_per_backend_and_offered_back_with_its_reset(self):
         # Claude Code's Tester runs Sonnet by default, so a Sonnet Builder moves the Tester in the same change.
-        current = choices.choose("claude", {"terra": (SONNET, "high"), "sol": (OPUS, "high")}, **self.kw)
-        builder = self.stage(current, "terra")
+        current = choices.choose("claude", {"builder": (SONNET, "high"), "tester": (OPUS, "high")}, **self.kw)
+        builder = self.stage(current, "builder")
         self.assertEqual({"model": SONNET, "effort": "high"}, builder["chosen"])
         self.assertEqual(
-            ["stages", "reset", "terra", "--backend", "claude", "--json"], builder["reset"]["next_command"]
+            ["stages", "reset", "builder", "--backend", "claude", "--json"], builder["reset"]["next_command"]
         )
         unavailable = {row["model"]: row["unavailable"] for row in builder["options"]}
         self.assertEqual({HAIKU: None, SONNET: None}, {model: why for model, why in unavailable.items() if not why})
         self.assertIn(
             "the Tester and the Completion Reviewer check this stage's work and run " + OPUS, unavailable[OPUS]
         )
-        saved = {"terra": {"model": SONNET, "effort": "high"}, "sol": {"model": OPUS, "effort": "high"}}
+        saved = {"builder": {"model": SONNET, "effort": "high"}, "tester": {"model": OPUS, "effort": "high"}}
         self.assertEqual({"claude": saved}, choices.load(self.file))
         choices.choose("opencode", {"task_planner": ("opencode/plain", choices.OWN_DEFAULT)}, **self.kw)
         self.assertEqual(
             {"model": "opencode/plain", "effort": None}, choices.load(self.file)["opencode"]["task_planner"]
         )
         self.assertEqual(saved, choices.load(self.file)["claude"], "another backend is untouched")
-        choices.reset("claude", "terra", **self.kw)
-        self.assertEqual({"sol"}, set(choices.load(self.file)["claude"]))
+        choices.reset("claude", "builder", **self.kw)
+        self.assertEqual({"tester"}, set(choices.load(self.file)["claude"]))
         choices.reset("claude", **self.kw)
         self.assertEqual({"opencode"}, set(choices.load(self.file)))
 
     def test_a_choice_the_backend_does_not_offer_is_refused_and_nothing_is_saved(self):
         for picks, error in (
-            ({"terra": ("claude-imaginary", "high")}, "does not offer claude-imaginary"),
-            ({"terra": (HAIKU, "extreme")}, "takes low, medium, high, xhigh, max, not extreme"),
-            ({"terra": (OPUS, "high")}, "the Completion Reviewer checks this stage's work and runs " + OPUS),
-            ({"sol": (HAIKU, "high")}, "the Tester cannot run " + HAIKU),
-            ({"builder": (OPUS, "high")}, "builder is not a stage"),
+            ({"builder": ("claude-imaginary", "high")}, "does not offer claude-imaginary"),
+            ({"builder": (HAIKU, "extreme")}, "takes low, medium, high, xhigh, max, not extreme"),
+            ({"builder": (OPUS, "high")}, "the Completion Reviewer checks this stage's work and runs " + OPUS),
+            ({"tester": (HAIKU, "high")}, "the Tester cannot run " + HAIKU),
+            ({"reviewer": (OPUS, "high")}, "reviewer is not a stage"),
         ):
             with self.subTest(picks=picks), self.assertRaisesRegex(ValueError, error):
                 choices.choose("claude", picks, **self.kw)
         self.assertFalse(self.file.exists())
 
     def test_a_builder_and_its_checkers_can_swap_models_in_one_change(self):
-        choices.choose("claude", {"terra": (SONNET, "medium"), "sol": (OPUS, "high")}, **self.kw)
-        swap = {"terra": (OPUS, "low"), "sol": (SONNET, "high"), "completion": (HAIKU, "medium")}
+        choices.choose("claude", {"builder": (SONNET, "medium"), "tester": (OPUS, "high")}, **self.kw)
+        swap = {"builder": (OPUS, "low"), "tester": (SONNET, "high"), "completion": (HAIKU, "medium")}
         current = choices.choose("claude", swap, **self.kw)
-        self.assertEqual(OPUS, self.stage(current, "terra")["chosen"]["model"])
-        self.assertEqual(SONNET, self.stage(current, "sol")["chosen"]["model"])
+        self.assertEqual(OPUS, self.stage(current, "builder")["chosen"]["model"])
+        self.assertEqual(SONNET, self.stage(current, "tester")["chosen"]["model"])
 
     def test_an_unreadable_listing_offers_nothing_and_says_why(self):
         def broken(provider, workspace):
@@ -214,15 +215,15 @@ class StageChoiceTests(unittest.TestCase):
 
         current = choices.view("opencode", **{**self.kw, "discover": broken})
         self.assertEqual("cannot verify opencode login", current["options_stop"])
-        self.assertEqual([], self.stage(current, "terra")["options"])
+        self.assertEqual([], self.stage(current, "builder")["options"])
         with self.assertRaisesRegex(ValueError, "cannot list OpenCode's models"):
             choices.choose(
-                "opencode", {"terra": ("zai-coding-plan/glm-5.3", "high")}, **{**self.kw, "discover": broken}
+                "opencode", {"builder": ("zai-coding-plan/glm-5.3", "high")}, **{**self.kw, "discover": broken}
             )
 
     def test_a_saved_file_round_trips_and_a_broken_one_is_refused_by_name(self):
         every = {
-            "claude": {"terra": {"model": HAIKU, "effort": "low"}, "task_planner": {"model": OPUS, "effort": None}}
+            "claude": {"builder": {"model": HAIKU, "effort": "low"}, "task_planner": {"model": OPUS, "effort": None}}
         }
         choices.save(every, self.file)
         self.assertEqual(every, choices.load(self.file))
@@ -239,29 +240,31 @@ class StageChoiceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, error):
                 choices.load(self.file)
         with self.assertRaisesRegex(ValueError, "must be a table of stages"):
-            choices.reset("claude", "terra", **self.kw)
+            choices.reset("claude", "builder", **self.kw)
         choices.reset("claude", **self.kw)
         self.assertEqual({}, choices.load(self.file), "reset repairs an unreadable file")
-        with self.assertRaisesRegex(ValueError, "builder is not a stage"):
-            choices.reset("claude", "builder", **self.kw)
+        with self.assertRaisesRegex(ValueError, "reviewer is not a stage"):
+            choices.reset("claude", "reviewer", **self.kw)
 
     def test_a_failed_write_leaves_the_saved_file_as_it_was(self):
-        choices.save({"claude": {"terra": {"model": HAIKU, "effort": "low"}}}, self.file)
+        choices.save({"claude": {"builder": {"model": HAIKU, "effort": "low"}}}, self.file)
         with mock.patch.object(choices.os, "replace", side_effect=OSError("disk full")):
             with self.assertRaisesRegex(OSError, "disk full"):
-                choices.save({"claude": {"terra": {"model": OPUS, "effort": "low"}}}, self.file)
-        self.assertEqual(HAIKU, choices.load(self.file)["claude"]["terra"]["model"])
+                choices.save({"claude": {"builder": {"model": OPUS, "effort": "low"}}}, self.file)
+        self.assertEqual(HAIKU, choices.load(self.file)["claude"]["builder"]["model"])
         self.assertEqual(["stages.toml"], sorted(path.name for path in self.file.parent.iterdir()))
 
     def test_a_tool_that_cannot_list_its_models_offers_nothing(self):
         silent = SimpleNamespace(DEFAULT_MODELS={}, available_models=lambda workspace=None: None)
         current = choices.view("mine", **{**self.kw, "resolve": lambda name: silent})
         self.assertEqual("mine cannot list its models", current["options_stop"])
-        self.assertEqual({"model": None, "effort": None, "offered": False}, self.stage(current, "terra")["default"])
+        self.assertEqual({"model": None, "effort": None, "offered": False}, self.stage(current, "builder")["default"])
 
     def test_codex_offers_its_bare_gpt_names_and_its_defaults_match_the_engines(self):
         current = choices.view("codex", **self.kw)
-        self.assertEqual(list(choices.CODEX_MODELS), [row["model"] for row in self.stage(current, "terra")["options"]])
+        self.assertEqual(
+            list(choices.CODEX_MODELS), [row["model"] for row in self.stage(current, "builder")["options"]]
+        )
         for role, model in autocode_configure.DEFAULT_ROLE_MODELS.items():
             self.assertEqual(model, self.stage(current, role)["default"]["model"], role)
         # Codex joint planning copies the astra route into the Requirements and Planner stages, and gives a
@@ -283,8 +286,8 @@ class ApplyTests(unittest.TestCase):
         choices.save(
             {
                 "claude": {
-                    "terra": {"model": SONNET, "effort": "high"},
-                    "sol": {"model": OPUS, "effort": "xhigh"},
+                    "builder": {"model": SONNET, "effort": "high"},
+                    "tester": {"model": OPUS, "effort": "xhigh"},
                     "task_planner": {"model": OPUS, "effort": None},
                 }
             },
@@ -293,42 +296,42 @@ class ApplyTests(unittest.TestCase):
 
     def args(self, **given):
         names = [f"{role}_{kind}" for role in choices.ORDER for kind in ("model", "reasoning_effort")]
-        base = dict.fromkeys(names + ["single_model", "reasoning_effort", "replay_recording", "sol_provider"])
+        base = dict.fromkeys(names + ["single_model", "reasoning_effort", "replay_recording", "tester_provider"])
         return argparse.Namespace(**(base | given))
 
     def test_a_new_run_takes_the_saved_model_and_level_of_each_chosen_stage(self):
         args, said = self.args(), []
         self.assertEqual(
-            ["terra", "sol", "task_planner"], choices.apply(args, "claude", file=self.file, say=said.append)
+            ["builder", "tester", "task_planner"], choices.apply(args, "claude", file=self.file, say=said.append)
         )
-        self.assertEqual((SONNET, "high"), (args.terra_model, args.terra_reasoning_effort))
-        self.assertEqual((OPUS, "xhigh"), (args.sol_model, args.sol_reasoning_effort))
+        self.assertEqual((SONNET, "high"), (args.builder_model, args.builder_reasoning_effort))
+        self.assertEqual((OPUS, "xhigh"), (args.tester_model, args.tester_reasoning_effort))
         self.assertEqual((OPUS, None), (args.task_planner_model, args.task_planner_reasoning_effort))
         self.assertIsNone(args.planner_model, "a stage nobody chose keeps the backend's default")
         self.assertEqual([f"Stage choices from {self.file}: Builder, Tester, Resolver and per-task Planner"], said)
         # The levels it supplied, which the run records as the person's ceiling (owner decision 2026-11-05).
-        self.assertEqual(("terra", "sol"), args.stage_choice_efforts)
+        self.assertEqual(("builder", "tester"), args.stage_choice_efforts)
 
     def test_a_flag_or_project_setting_wins_and_whole_run_choices_take_nothing(self):
-        args = self.args(terra_model=HAIKU, sol_reasoning_effort="low")
+        args = self.args(builder_model=HAIKU, tester_reasoning_effort="low")
         choices.apply(args, "claude", file=self.file)
         self.assertEqual(
-            (HAIKU, None), (args.terra_model, args.terra_reasoning_effort), "a typed model keeps its level"
+            (HAIKU, None), (args.builder_model, args.builder_reasoning_effort), "a typed model keeps its level"
         )
-        self.assertEqual((OPUS, "low"), (args.sol_model, args.sol_reasoning_effort))
+        self.assertEqual((OPUS, "low"), (args.tester_model, args.tester_reasoning_effort))
         self.assertEqual((), args.stage_choice_efforts, "a typed level is not a stage choice")
         shared = self.args(reasoning_effort="max")
         choices.apply(shared, "claude", file=self.file)
-        self.assertEqual((SONNET, None), (shared.terra_model, shared.terra_reasoning_effort))
+        self.assertEqual((SONNET, None), (shared.builder_model, shared.builder_reasoning_effort))
         for given in ({"single_model": HAIKU}, {"replay_recording": "/r"}, {}):
             args = self.args(**given)
             backend = "opencode" if not given else "claude"
             with self.subTest(given=given):
                 self.assertEqual([], choices.apply(args, backend, file=self.file))
-                self.assertIsNone(args.terra_model)
-        routed = self.args(sol_provider="kilocode")
+                self.assertIsNone(args.builder_model)
+        routed = self.args(tester_provider="kilocode")
         choices.apply(routed, "claude", file=self.file)
-        self.assertIsNone(routed.sol_model, "a stage another tool serves keeps that tool's route")
+        self.assertIsNone(routed.tester_model, "a stage another tool serves keeps that tool's route")
 
     def test_a_broken_file_stops_a_new_run_by_name(self):
         self.file.write_text("[claude\n")
@@ -366,10 +369,10 @@ class StagesCommandTests(unittest.TestCase):
             "set", "builder", "--model", SONNET, "--effort", "high", "--backend", "claude", "--json"
         )
         self.assertEqual(0, code)
-        builder = next(stage for stage in json.loads(out)["stages"] if stage["id"] == "terra")
+        builder = next(stage for stage in json.loads(out)["stages"] if stage["id"] == "builder")
         self.assertEqual({"model": SONNET, "effort": "high"}, builder["chosen"])
         self.assertEqual(
-            ["stages", "set", "terra", "--backend", "claude", "--json", "--model", "MODEL", "--effort", "EFFORT"],
+            ["stages", "set", "builder", "--backend", "claude", "--json", "--model", "MODEL", "--effort", "EFFORT"],
             builder["set"]["next_command"],
         )
         # The view's own argument array, filled from its options, is taken as given.
@@ -384,7 +387,7 @@ class StagesCommandTests(unittest.TestCase):
         self.assertIn(f"Tester: {OPUS} at high (your choice)", out)
         self.assertIn(f"Planner: {SONNET} at medium (default)", out)
         self.assertEqual(0, self.run_cli("reset", "builder", "--backend", "claude")[0])
-        self.assertEqual({"sol"}, set(choices.load()["claude"]))
+        self.assertEqual({"tester"}, set(choices.load()["claude"]))
 
     def test_set_without_a_model_or_level_and_choose_without_a_terminal_ask_nothing(self):
         self.assertEqual(2, self.run_cli("set", "builder", "--backend", "claude")[0])
@@ -409,8 +412,8 @@ class StagesCommandTests(unittest.TestCase):
         saved = choices.load()["claude"]
         self.assertEqual({"model": SONNET, "effort": "medium"}, saved["requirements"])
         self.assertEqual(OPUS, saved["plan_reviewer"]["model"])
-        self.assertEqual({"model": SONNET, "effort": "high"}, saved["terra"])
-        self.assertNotEqual(SONNET, saved["sol"]["model"])
+        self.assertEqual({"model": SONNET, "effort": "high"}, saved["builder"])
+        self.assertNotEqual(SONNET, saved["tester"]["model"])
         self.assertEqual("low", saved["task_planner"]["effort"])
         shown = "\n".join(said)
         self.assertIn("Advice: A fast, cheaper model at medium", shown)

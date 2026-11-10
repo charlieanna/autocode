@@ -24,18 +24,18 @@ class RunRowsTests(unittest.TestCase):
     def test_every_launched_stage_is_one_run_row_in_launch_order_with_its_count(self):
         state = {
             "stages": [
-                *launched("requirements_gather", "astra_discovery", "astra_challenge", "terra"),
+                *launched("requirements_gather", "draft_plan", "review_plan", "builder"),
                 {"stage": "regression_proof"},  # a runner check, not a stage with a job
-                {"stage": "sol"},
-                {"stage": "sol_report_repair", "report_only": True},  # a repair is not a launch of its own
-                {"stage": "terra", "effort_choice": LOWERED},
+                {"stage": "tester"},
+                {"stage": "tester_report_repair", "report_only": True},  # a repair is not a launch of its own
+                {"stage": "builder", "effort_choice": LOWERED},
                 {"stage": "resolver"},  # the runner's own recovery step
             ],
-            "active_stage": {"stage": "sol"},
+            "active_stage": {"stage": "tester"},
         }
         shown = stage_decisions.view(state)
         self.assertEqual(
-            ["requirements_gather", "astra_discovery", "astra_challenge", "terra", "sol"],
+            ["requirements_gather", "draft_plan", "review_plan", "builder", "tester"],
             [row["stage"] for row in shown],
         )
         self.assertEqual([1, 1, 1, 2, 2], [row["launches"] for row in shown])
@@ -43,7 +43,7 @@ class RunRowsTests(unittest.TestCase):
         builder = shown[3]
         self.assertEqual(
             {
-                "stage": "terra",
+                "stage": "builder",
                 "job": "builder",
                 "label": "Builder",
                 "decision": "run",
@@ -64,16 +64,16 @@ class RunRowsTests(unittest.TestCase):
 class SkipRowsTests(unittest.TestCase):
     def test_an_early_approval_skips_the_revision_and_the_final_review_after_the_first_review(self):
         state = {
-            "stages": launched("requirements_gather", "astra_discovery", "astra_challenge"),
-            "planning": {"adaptive": {"approved_at": "astra_challenge#1", "challenges": 1}},
+            "stages": launched("requirements_gather", "draft_plan", "review_plan"),
+            "planning": {"adaptive": {"approved_at": "review_plan#1", "challenges": 1}},
         }
         self.assertEqual(
             [
                 ("requirements_gather", "run"),
-                ("astra_discovery", "run"),
-                ("astra_challenge", "run"),
-                ("glm_revise", "skip"),
-                ("astra_finalize", "skip"),
+                ("draft_plan", "run"),
+                ("review_plan", "run"),
+                ("revise_plan", "skip"),
+                ("finalize_plan", "skip"),
             ],
             rows(state),
         )
@@ -81,23 +81,21 @@ class SkipRowsTests(unittest.TestCase):
         self.assertEqual("Planner", revise["label"])
         self.assertEqual("no revision: the Plan Reviewer raised no blocking concern", revise["reason"])
         self.assertEqual("no final review: the Plan Reviewer approved the plan at its review 1", final["reason"])
-        self.assertEqual(["astra_challenge", "person:approve_goal"], final["covered_by"])
+        self.assertEqual(["review_plan", "person:approve_goal"], final["covered_by"])
         self.assertEqual(0, final["launches"])
 
     def test_an_approval_after_a_revision_skips_only_the_final_review(self):
         state = {
-            "stages": launched(
-                "requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_challenge"
-            ),
-            "planning": {"adaptive": {"approved_at": "astra_challenge#2", "challenges": 2}},
+            "stages": launched("requirements_gather", "draft_plan", "review_plan", "revise_plan", "review_plan"),
+            "planning": {"adaptive": {"approved_at": "review_plan#2", "challenges": 2}},
         }
         self.assertEqual(
             [
                 ("requirements_gather", "run"),
-                ("astra_discovery", "run"),
-                ("astra_challenge", "run"),
-                ("glm_revise", "run"),
-                ("astra_finalize", "skip"),
+                ("draft_plan", "run"),
+                ("review_plan", "run"),
+                ("revise_plan", "run"),
+                ("finalize_plan", "skip"),
             ],
             rows(state),
         )
@@ -105,7 +103,7 @@ class SkipRowsTests(unittest.TestCase):
 
     def test_without_an_early_approval_nothing_is_skipped(self):
         state = {
-            "stages": launched("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise"),
+            "stages": launched("requirements_gather", "draft_plan", "review_plan", "revise_plan"),
             "planning": {"adaptive": {"approved_at": None, "challenges": 1}},
         }
         self.assertNotIn("skip", {decision for _, decision in rows(state)})
@@ -119,11 +117,11 @@ class SkipRowsTests(unittest.TestCase):
         self.assertEqual(
             [
                 ("requirements_gather", "run"),
-                ("astra_discovery", "skip"),
-                ("astra_challenge", "skip"),
-                ("terra", "skip"),
-                ("sol", "skip"),
-                ("astra_review", "skip"),
+                ("draft_plan", "skip"),
+                ("review_plan", "skip"),
+                ("builder", "skip"),
+                ("tester", "skip"),
+                ("review_completion", "skip"),
             ],
             rows(state),
         )
@@ -136,12 +134,12 @@ class SkipRowsTests(unittest.TestCase):
     def test_an_answer_skips_nothing_until_the_run_finished_on_it_and_never_a_stage_that_launched(self):
         answer = {"answer": "Because ...", "answered_by": "requirements_gather"}
         # A follow-up turn that asked for a change is planning after the earlier turn's answer.
-        working = {"status": "RUNNING", "stages": launched("requirements_gather", "astra_discovery"), "answer": answer}
-        self.assertEqual([("requirements_gather", "run"), ("astra_discovery", "run")], rows(working))
+        working = {"status": "RUNNING", "stages": launched("requirements_gather", "draft_plan"), "answer": answer}
+        self.assertEqual([("requirements_gather", "run"), ("draft_plan", "run")], rows(working))
         built = {
             "status": "TASK_COMPLETE",
             "stages": launched(
-                "requirements_gather", "astra_discovery", "astra_challenge", "terra", "sol", "astra_review"
+                "requirements_gather", "draft_plan", "review_plan", "builder", "tester", "review_completion"
             ),
             "answer": answer,
         }
@@ -150,16 +148,16 @@ class SkipRowsTests(unittest.TestCase):
         self.assertEqual([("answer_question", "run")], rows(legacy))
 
     def test_a_saved_compact_bug_fix_shows_the_omitted_planner_draft_with_its_coverage(self):
-        covered = ["runner:compact_draft", "astra_challenge", "person:approve_goal", "runner:regression_proof"]
+        covered = ["runner:compact_draft", "review_plan", "person:approve_goal", "runner:regression_proof"]
         state = {
-            "stages": launched("requirements_gather", "investigate_bug", "astra_challenge"),
+            "stages": launched("requirements_gather", "investigate_bug", "review_plan"),
             "workflow": {
                 "stage_policy": {
                     "version": 1,
                     "path": "compact",
                     "decisions": [
                         {
-                            "stage": "astra_discovery",
+                            "stage": "draft_plan",
                             "decision": "omitted",
                             "reason": "the runner drafted",
                             "covered_by": covered,
@@ -172,25 +170,25 @@ class SkipRowsTests(unittest.TestCase):
             [
                 ("requirements_gather", "run"),
                 ("investigate_bug", "run"),
-                ("astra_discovery", "skip"),
-                ("astra_challenge", "run"),
+                ("draft_plan", "skip"),
+                ("review_plan", "run"),
             ],
             rows(state),
         )
         self.assertEqual(covered, stage_decisions.view(state)[2]["covered_by"])
         included = {
             **state,
-            "workflow": {"stage_policy": {"decisions": [{"stage": "astra_discovery", "decision": "included"}]}},
+            "workflow": {"stage_policy": {"decisions": [{"stage": "draft_plan", "decision": "included"}]}},
         }
-        self.assertNotIn("astra_discovery", [stage for stage, _ in rows(included)])
+        self.assertNotIn("draft_plan", [stage for stage, _ in rows(included)])
 
 
 class StatusViewTests(unittest.TestCase):
     def test_the_status_view_carries_the_record(self):
         state = {
             "status": "AWAITING_GOAL_APPROVAL",
-            "stages": launched("requirements_gather", "astra_discovery", "astra_challenge"),
-            "planning": {"adaptive": {"approved_at": "astra_challenge#1"}},
+            "stages": launched("requirements_gather", "draft_plan", "review_plan"),
+            "planning": {"adaptive": {"approved_at": "review_plan#1"}},
         }
         self.assertEqual(stage_decisions.view(state), run_view.view(state)["stage_decisions"])
         self.assertEqual([], run_view.view({"status": "RUNNING"})["stage_decisions"])

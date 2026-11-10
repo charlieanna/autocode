@@ -41,7 +41,7 @@ def load_handoff(run_dir):
     design_url(handoff["figma_file"])
     refs = handoff["artifacts"]
     required = (
-        ("brief", "terra", "sol", "task_planner")
+        ("brief", "builder", "tester", "task_planner")
         if version == 1
         else (
             "requirements_draft",
@@ -61,7 +61,7 @@ def load_handoff(run_dir):
         if util.file_hash(path) != ref["sha256"]:
             raise ValueError("UI handoff changed after acceptance; rerun its review")
     execution = (
-        (("terra", "COMPLETE"), ("sol", "PASS"), ("task_planner", "ACCEPT"))
+        (("builder", "COMPLETE"), ("tester", "PASS"), ("task_planner", "ACCEPT"))
         if version == 1
         else (("builder", "COMPLETE"), ("validator", "PASS"), ("decision_owner", "ACCEPT"))
     )
@@ -97,7 +97,7 @@ def instructions(settings, *, stage=None, current_task=None):
         if settings.get("figma_review", "automatic") == "automatic"
         else prompts.get("fragments/figma/instructions-02.md")
     )
-    if current_task and stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+    if current_task and stage in ("builder", "tester", "review_completion", "review_checkpoint"):
         return (
             "\nFIGMA DESIGN INPUT\nReference: "
             + target

@@ -70,9 +70,9 @@ class VerificationCommandRecovery(unittest.TestCase):
             if current["status"].startswith("PAUSED_"):
                 args.append("--resume-paused")
             self.launch(args, 2)
-            if self.status(run)["next_stage"] == "sol":
+            if self.status(run)["next_stage"] == "tester":
                 break
-        self.assertEqual("sol", self.status(run)["next_stage"])
+        self.assertEqual("tester", self.status(run)["next_stage"])
         return run
 
     @property
@@ -150,7 +150,7 @@ class VerificationCommandRecovery(unittest.TestCase):
         )
         after = self.status(run)
         final = self.saved()[1]
-        self.assertEqual("astra_review", after["next_stage"])
+        self.assertEqual("review_completion", after["next_stage"])
         self.assertEqual(before["contract_token"], after["contract_token"])
         for key in ("roles", "limits", "builder_retry"):
             self.assertEqual(before["settings"][key], after["settings"][key])
@@ -165,7 +165,7 @@ class VerificationCommandRecovery(unittest.TestCase):
         self.assertEqual(self.gate, final["regression_proof"]["commands"]["suite"])
         fresh = final["stages"][len(seeded["stages"]) :]
         providers = [row for row in fresh if not row.get("runner_owned")]
-        self.assertEqual(["sol"], [row["stage"] for row in providers])
+        self.assertEqual(["tester"], [row["stage"] for row in providers])
         self.assertTrue(any(row.get("runner_owned") and row["stage"] == "regression_proof" for row in fresh))
         self.assertFalse(providers[0].get("report_only") or providers[0].get("rejected"))
         self.assertTrue(any(row["kind"] == "report_repair_retired" for row in after["view"]["recoveries"]))
@@ -174,7 +174,7 @@ class VerificationCommandRecovery(unittest.TestCase):
         run = self.stopped_before_validation()
         self.launch(["--run-dir", str(run), "--resume-paused", "--pause-after-stage", "--no-chat"], 2)
         self.assertEqual("PASS", self.saved()[1]["regression_proof"]["verdict"])
-        self.assertEqual("astra_review", self.status(run)["next_stage"])
+        self.assertEqual("review_completion", self.status(run)["next_stage"])
         failing = f'{shlex.quote(sys.executable)} -c "raise SystemExit(7)"'
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat", "--test-command", failing], 2)
         final = self.saved()[1]
@@ -212,7 +212,7 @@ class VerificationCommandGuards(unittest.TestCase):
     def state(self):
         return {
             "status": "PAUSED_REQUESTED",
-            "next_stage": "sol",
+            "next_stage": "tester",
             "settings": {"regression": {"test_command": "old suite", "test_timeout": 7200}},
             "goal_contract": {"hash": "approved"},
             "regression_proof": {"verdict": "PASS", "source_revision": "current"},
@@ -223,7 +223,7 @@ class VerificationCommandGuards(unittest.TestCase):
         for key in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts"):
             with self.subTest(key=key):
                 state = self.state()
-                state[key] = {"stage": "sol"}
+                state[key] = {"stage": "tester"}
                 before = copy.deepcopy(state)
                 args = SimpleNamespace(test_command="new suite", resume_paused=True)
                 with self.assertRaises(ValueError):
@@ -238,7 +238,7 @@ class VerificationCommandGuards(unittest.TestCase):
         settings = configuration.configure_resume(state, state["settings"], args)
         self.assertEqual("go test ./...", settings["regression"]["test_command"])
         self.assertEqual("verification_commands_changed", state["user_events"][-1]["kind"])
-        for status, stage in (("PAUSED_ACCEPTANCE_TESTS", "terra"), ("PAUSED_REQUESTED", "write_acceptance_tests")):
+        for status, stage in (("PAUSED_ACCEPTANCE_TESTS", "builder"), ("PAUSED_REQUESTED", "write_acceptance_tests")):
             with self.subTest(status=status, stage=stage):
                 state = self.state()
                 state.update(status=status, next_stage=stage)
@@ -273,7 +273,7 @@ class VerificationCommandBlockerHold(unittest.TestCase):
         "proposed_default": "",
     }
 
-    def proposal(self, stage="astra_review", **changes):
+    def proposal(self, stage="review_completion", **changes):
         proposal = {
             "version": human.VERSION,
             "scope": "blocker",
@@ -290,7 +290,7 @@ class VerificationCommandBlockerHold(unittest.TestCase):
             "evidence": {},
             "status": "WAITING_FOR_USER",
             "phase": "RESOLVING",
-            "next_stage": "astra_review",
+            "next_stage": "review_completion",
             "previous_status": "RUNNING",
         }
         proposal.update(changes)
@@ -300,7 +300,7 @@ class VerificationCommandBlockerHold(unittest.TestCase):
         return {
             "status": "RESOLVER_PENDING",
             "phase": "RESOLVING",
-            "next_stage": "astra_review",
+            "next_stage": "review_completion",
             "settings": {"regression": {"test_command": "old suite", "test_timeout": 7200}},
             "goal_contract": {"hash": "approved"},
             "regression_proof": {"verdict": "PASS", "source_revision": "current"},
@@ -358,7 +358,7 @@ class VerificationCommandBlockerHold(unittest.TestCase):
         self.assertEqual("new suite", settings["regression"]["test_command"])
         self.assertEqual(7200, settings["regression"]["test_timeout"])
         self.assertEqual("PAUSED_RESOLVER", state["status"])
-        self.assertEqual("sol", state["next_stage"])
+        self.assertEqual("tester", state["next_stage"])
         self.assertNotIn(human.PRIVATE, state)
         self.assertEqual({"verdict": "PASS", "source_revision": "current"}, state["regression_proof"])
         (archived,) = state["validation_archive"]
@@ -376,7 +376,7 @@ class VerificationCommandBlockerHold(unittest.TestCase):
         (key,) = state["resolver"]["human_escalations"]
         self.resume(state)
         self.assertEqual("PAUSED_RESOLVER", state["status"])
-        self.assertEqual("sol", state["next_stage"])
+        self.assertEqual("tester", state["next_stage"])
         self.assertEqual([], state["pending_questions"])
         self.assertNotIn("user_request", state)
         self.assertNotIn(human.PUBLIC, state)
@@ -396,7 +396,7 @@ class VerificationCommandBlockerHold(unittest.TestCase):
         self.assertTrue(state["status"].startswith("PAUSED_"))
 
     def test_tester_stage_follows_the_workflow_mode(self):
-        for mode, stage in (("glm_first_v1", "astra_checkpoint"), ("glm_final_audit_v2", "terra"), (None, "sol")):
+        for mode, stage in (("glm_first_v1", "review_checkpoint"), ("glm_final_audit_v2", "builder"), (None, "tester")):
             for build in (self.queued, self.published):
                 with self.subTest(mode=mode, hold=build.__name__):
                     state = build()
@@ -406,7 +406,7 @@ class VerificationCommandBlockerHold(unittest.TestCase):
                     self.assertEqual(stage, state["next_stage"])
 
     def test_pause_status_comes_from_the_hold_when_it_names_one(self):
-        state = self.queued(origin={"stage": "astra_review", "pause_status": "PAUSED_COMPLETION_GATE"})
+        state = self.queued(origin={"stage": "review_completion", "pause_status": "PAUSED_COMPLETION_GATE"})
         self.resume(state)
         self.assertEqual("PAUSED_COMPLETION_GATE", state["status"])
         state = self.queued(previous_status="PAUSED_REQUESTED")
@@ -414,9 +414,9 @@ class VerificationCommandBlockerHold(unittest.TestCase):
         self.assertEqual("PAUSED_REQUESTED", state["status"])
 
     def test_resolver_origin_blocker_is_accepted_too(self):
-        state = self.queued(stage="astra_resolve")
+        state = self.queued(stage="resolve")
         self.resume(state)
-        self.assertEqual("sol", state["next_stage"])
+        self.assertEqual("tester", state["next_stage"])
         self.assertNotIn(human.PRIVATE, state)
 
     def test_an_unchanged_command_leaves_the_hold_alone(self):
@@ -432,7 +432,7 @@ class VerificationCommandBlockerHold(unittest.TestCase):
             for key in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts"):
                 with self.subTest(hold=build.__name__, key=key):
                     state = build()
-                    state[key] = {"stage": "astra_review"}
+                    state[key] = {"stage": "review_completion"}
                     self.assertRefused(state)
 
     def test_a_hold_is_changed_only_under_resume_paused(self):
@@ -446,8 +446,8 @@ class VerificationCommandBlockerHold(unittest.TestCase):
                 with self.subTest(scope=scope, hold=build.__name__):
                     self.assertRefused(build(scope=scope))
         for build in (self.queued, self.published):
-            with self.subTest(origin="terra", hold=build.__name__):
-                self.assertRefused(build(stage="terra"))
+            with self.subTest(origin="builder", hold=build.__name__):
+                self.assertRefused(build(stage="builder"))
 
     def test_a_hold_with_no_authentic_blocker_still_refuses(self):
         state = self.base()
@@ -471,7 +471,7 @@ class VerificationCommandBlockerHold(unittest.TestCase):
 
     def test_a_pause_that_is_not_a_checkpoint_or_a_hold_still_refuses(self):
         state = self.base()
-        state.update(status="PAUSED_REQUESTED", next_stage="astra_review")
+        state.update(status="PAUSED_REQUESTED", next_stage="review_completion")
         self.assertRefused(state)
 
 
@@ -594,7 +594,7 @@ class VerificationProofCache(unittest.TestCase):
             "base_commit": project.base,
             "settings": {"regression": {"python": self.python, "test_timeout": 15}},
         }
-        regression.before_review(state, "sol", project.root, project.evidence)
+        regression.before_review(state, "tester", project.root, project.evidence)
         first = copy.deepcopy(state["regression_proof"])
         self.assertEqual("PASS", first["verdict"], first)
         old_receipt = Path(first["path"]).read_bytes()
@@ -602,7 +602,7 @@ class VerificationProofCache(unittest.TestCase):
         baseline = copy.deepcopy(state["regression_baseline"])
 
         (project.root / "docs/bugs/removed.json").unlink()
-        regression.before_review(state, "astra_review", project.root, project.evidence)
+        regression.before_review(state, "review_completion", project.root, project.evidence)
         current = state["regression_proof"]
         self.assertEqual("PASS", current["verdict"], current)
         self.assertNotEqual(first["source_revision"], current["source_revision"])
@@ -611,7 +611,7 @@ class VerificationProofCache(unittest.TestCase):
         self.assertEqual(baseline, state["regression_baseline"])
         self.assertEqual(old_receipt, Path(first["path"]).read_bytes())
         self.assertEqual(current["path"], regression.handoff(state)["path"])
-        regression.before_review(state, "astra_review", project.root, project.evidence)
+        regression.before_review(state, "review_completion", project.root, project.evidence)
         self.assertEqual(current["path"], state["regression_proof"]["path"])
         self.assertEqual(2, len(state["regression_proofs"]))
 

@@ -378,7 +378,7 @@ def native_cleanup_need(state: RunState):
 
 
 def _builder_members(state: RunState, cause):
-    if cause != "PAUSED_BUILDER_RETRY_LIMIT" or state.get("next_stage") != "terra":
+    if cause != "PAUSED_BUILDER_RETRY_LIMIT" or state.get("next_stage") != "builder":
         return []
     if any(state.get(key) for key in ("active_stage", "active_runner_check", "pending_report_repair", "parent_run")):
         return []
@@ -405,7 +405,7 @@ def _parallel_members(state: RunState):
     workers = _rows(batch.get("workers"))
     if any(row.get("status") in ("RUNNING", "PENDING") for row in workers):
         return []
-    # A member stopped on its model (quota or its provider's content filter) is asked route-terra, never
+    # A member stopped on its model (quota or its provider's content filter) is asked route-builder, never
     # offered a retry on the same model while that question is open (#465). Once a person answered it
     # without a model (information, or leaving it paused), its own control is the one way on (#541,
     # autocode_member_stop): a quota-stopped member reruns unchanged, a refused one is asked again.

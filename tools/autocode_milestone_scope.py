@@ -62,7 +62,7 @@ def fresh_validation(state: RunState, current):
     contract = state.get("goal_contract") or {}
     pins = val.get("evidence_hashes", {})
     return bool(
-        val.get("reviewer_role") == "sol"
+        val.get("reviewer_role") == "tester"
         and pins
         and val.get("contract_hash") == contract.get("hash")
         and val.get("contract_revision") == contract.get("revision")

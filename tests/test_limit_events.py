@@ -11,7 +11,7 @@ def settings(limits, origins=None):
 
 class LimitEventTests(unittest.TestCase):
     def test_a_changed_explicit_limit_is_recorded_with_its_flag_and_both_values(self):
-        state = {"next_stage": "terra", "user_events": [{"kind": "answer", "at": "t0"}]}
+        state = {"next_stage": "builder", "user_events": [{"kind": "answer", "at": "t0"}]}
         previous = settings({"iteration_ceiling": 1, "max_seconds": 600}, {"iteration_ceiling": "user_explicit"})
         selected = settings(
             {"iteration_ceiling": 5, "max_seconds": 600, "max_cost_usd": 2.5},
@@ -28,7 +28,7 @@ class LimitEventTests(unittest.TestCase):
                     "flag": "--max-iterations",
                     "previous": 1,
                     "value": 5,
-                    "stage": "terra",
+                    "stage": "builder",
                 },
                 {
                     "kind": "limit_change",
@@ -38,7 +38,7 @@ class LimitEventTests(unittest.TestCase):
                     "flag": "--max-cost-usd",
                     "previous": None,
                     "value": 2.5,
-                    "stage": "terra",
+                    "stage": "builder",
                 },
             ],
             appended,
@@ -46,14 +46,14 @@ class LimitEventTests(unittest.TestCase):
         self.assertEqual([{"kind": "answer", "at": "t0"}, *appended], state["user_events"])
 
     def test_an_unchanged_or_runner_chosen_limit_records_nothing(self):
-        state = {"next_stage": "terra"}
+        state = {"next_stage": "builder"}
         previous = settings({"iteration_ceiling": 5, "max_seconds": 600}, {"iteration_ceiling": "user_explicit"})
         same = settings({"iteration_ceiling": 5, "max_seconds": 900}, {"iteration_ceiling": "user_explicit"})
         self.assertEqual([], limit_events.record(state, previous, same, at="t1"))
         self.assertNotIn("user_events", state)
 
     def test_removing_the_ceiling_is_recorded_under_its_own_flag(self):
-        state = {"next_stage": "terra"}
+        state = {"next_stage": "builder"}
         previous = settings({"iteration_ceiling": 5}, {"iteration_ceiling": "user_explicit"})
         unlimited = settings({"iteration_ceiling": None}, {"iteration_ceiling": "user_explicit"})
         [event] = limit_events.record(state, previous, unlimited, at="t1")

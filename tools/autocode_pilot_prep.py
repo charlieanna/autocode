@@ -37,19 +37,22 @@ from pathlib import Path
 
 try:
     from . import autocode_input_preflight as input_preflight
+    from . import autocode_names as names
     from . import autocode_taskrun as taskrun
     from . import autocode_verify as verify
 except ImportError:  # executed as a script, with tools/ on sys.path
     import autocode_input_preflight as input_preflight
+    import autocode_names as names
     import autocode_taskrun as taskrun
     import autocode_verify as verify
 
+# Each is also taken by its old spelling (autocode_names) and forwarded by this one.
 MODEL_FLAGS = (
-    "--astra-model",
-    "--terra-model",
-    "--sol-model",
+    "--task-planner-model",
+    "--builder-model",
+    "--tester-model",
     "--completion-model",
-    "--glm-model",
+    "--planner-model",
     "--plan-reviewer-model",
     "--single-model",
 )
@@ -71,7 +74,7 @@ def parse_args(argv):
         "--joint-planning", action="store_true", help="planning option forwarded whenever the run starts or advances"
     )
     for flag in MODEL_FLAGS:
-        parser.add_argument(flag, help="model option forwarded whenever the run starts or advances")
+        parser.add_argument(*names.spellings(flag), help="model option forwarded whenever the run starts or advances")
     parser.add_argument(
         "--timeout", type=float, default=300.0, help="per-invocation CLI timeout for the task run (seconds)"
     )

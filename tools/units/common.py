@@ -79,15 +79,15 @@ def execution_request(state: "RunState", stage, state_path, schema_dir, *, repor
             ),
             role,
         )
-        if stage == "astra_checkpoint":
+        if stage == "review_checkpoint":
             schema = workflow.checkpoint_schema(schema_dir)
-        elif stage == "terra" and workflow.final_only(state):
+        elif stage == "builder" and workflow.final_only(state):
             schema = workflow.implementation_schema(schema_dir)
     # Match the runner's deterministic wire projection without changing the saved report schema.
     # Resolver jobs borrow review context but have a different final report shape/stage.
     response_schema = support.review_generation_schema(schema, state, report_stage or stage)
     prompt, metrics = stage_context.context_packet(state, stage, state_path, response_schema=response_schema)
-    if stage == "terra":
+    if stage == "builder":
         prompt = test_examples.builder_prompt(
             prompt,
             state["workspace"],
@@ -95,11 +95,11 @@ def execution_request(state: "RunState", stage, state_path, schema_dir, *, repor
             notes=test_cases.builder_note(state) + acceptance_tests.builder_note(state) + assignment.BUILD_OUTPUT_NOTE,
         )
         metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
-    if stage == "sol":
+    if stage == "tester":
         prompt = prompt.replace(
             "\nCURRENT HANDOFF DATA\n",
             check_replay.VALIDATOR_NOTE + "\nCURRENT HANDOFF DATA\n",
             1,
         )
         metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
-    return ModelRequest(role, autoplanner.route_for(state, stage, role), prompt, metrics, schema, role == "terra")
+    return ModelRequest(role, autoplanner.route_for(state, stage, role), prompt, metrics, schema, role == "builder")

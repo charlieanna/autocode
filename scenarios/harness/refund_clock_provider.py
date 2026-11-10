@@ -136,7 +136,7 @@ def source_for_attempt(config, attempt):
 def tester_producer(config):
     trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).parent / "refund-trace.jsonl"
     previous = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
-    attempt = sum(row["stage"] == "terra" for row in previous)
+    attempt = sum(row["stage"] == "builder" for row in previous)
     if not attempt:
         return {}  # No Builder has authored files for this Tester.
     return {**config, "reference": str(source_for_attempt(config, attempt))}
@@ -153,8 +153,8 @@ def report_for(stage, data, common, config, run_check, requirements):
         {"id": ident, "disposition": "resolved", "evidence": "event:check"}
         for ident in (data.get("review_identity_policy") or {}).get("own_open_finding_ids", [])
     ]
-    if stage == "terra":
-        attempt = 1 + sum(row["stage"] == "terra" for row in previous)
+    if stage == "builder":
+        attempt = 1 + sum(row["stage"] == "builder" for row in previous)
         _apply(source_for_attempt(config, attempt), config["paths"])
         code = run_check()
         result = {
@@ -169,7 +169,7 @@ def report_for(stage, data, common, config, run_check, requirements):
             "untested_behavior": [],
             "recommended_checks": [config["check"]],
         }
-    elif stage == "sol":
+    elif stage == "tester":
         # The project's tests pass on the first build, so PASS; the named-test proof is the runner's.
         code = run_check()
         status = "PASS" if code == 0 else "FAIL"
@@ -220,7 +220,7 @@ def report_for(stage, data, common, config, run_check, requirements):
             "next_objective": "Make the tests regression_proof names exist and pass" if failed else "",
             "plan": ["Repair the refund window", "Let the runner prove the named tests again"] if failed else [],
             "affected_paths": list(task["affected_paths"]) if failed else [],
-            "findings": [finding] if failed and stage == "astra_review" else [],
+            "findings": [finding] if failed and stage == "review_completion" else [],
             "finding_dispositions": dispositions if not failed else [],
             "next_task": {
                 "kind": "implement" if failed else "none",
@@ -231,7 +231,7 @@ def report_for(stage, data, common, config, run_check, requirements):
                 "findings": [],
             },
         }
-        if stage == "astra_resolve":
+        if stage == "resolve":
             clock = Path.cwd() / "shop" / "clock.py"
             diagnosis, paths = diagnose(clock.read_text() if clock.is_file() else "", failures)
             result["diagnosis"] = diagnosis

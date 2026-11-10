@@ -34,8 +34,8 @@ except ImportError:
 ALIASES = {
     "planner": "planner",
     "plan-reviewer": "plan_reviewer",
-    "builder": "terra",
-    "tester": "sol",
+    "builder": "builder",
+    "tester": "tester",
     "completion-reviewer": "completion",
     "resolver": "task_planner",
     "task-planner": "task_planner",

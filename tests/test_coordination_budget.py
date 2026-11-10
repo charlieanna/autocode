@@ -28,8 +28,8 @@ class PlanningSpendTests(unittest.TestCase):
                 "complete": not unknown,
                 "breakdown": {
                     "by_stage": [
-                        {"stage": "astra_discovery", "spent_usd": planning, "complete": not unknown},
-                        {"stage": "terra", "spent_usd": build, "complete": True},
+                        {"stage": "draft_plan", "spent_usd": planning, "complete": not unknown},
+                        {"stage": "builder", "spent_usd": build, "complete": True},
                     ]
                 },
             },
@@ -50,7 +50,7 @@ class PlanningSpendTests(unittest.TestCase):
         for current in (None, "one"):
             with self.subTest(current=current), self.assertRaisesRegex(store.CoordinationError, "planning allowance"):
                 budget.envelope(anchor, history, current)
-        history[0]["next_stage"] = "terra"
+        history[0]["next_stage"] = "builder"
         history[0]["approved_contract"] = {"token": "exact-reviewed-plan"}
         self.assertEqual(25, float(budget.envelope(anchor, history, "one")["options"][1]))
 
@@ -125,7 +125,7 @@ class SharedBudgetTests(unittest.TestCase):
                 "needs": {"kind": "answer", "command_inputs": [row]},
                 "recovery": {"cause": "PAUSED_COST_LIMIT", "token": "checkpoint"},
                 "cost": {"cap_usd": 2.2, "spent_usd": 2.0, "complete": True},
-                "routes": {"terra": "chosen-builder", "sol": "independent-tester"},
+                "routes": {"builder": "chosen-builder", "tester": "independent-tester"},
             },
             "history": {
                 "workspace": other["workspace"],

@@ -81,9 +81,9 @@ class OriginalBoundedReworkTransport(unittest.TestCase):
         )
         # Install the complete controlled role distinction BEFORE approval.
         for role, model in (
-            ("sol", "controlled/independent-sol-high"),
-            ("astra_review", "controlled/completion-high"),
-            ("astra_resolve", "controlled/independent-mimo-high"),
+            ("tester", "controlled/independent-sol-high"),
+            ("review_completion", "controlled/completion-high"),
+            ("resolve", "controlled/independent-mimo-high"),
         ):
             self.state["settings"]["roles"][role] = {
                 "engine": "opencode",
@@ -245,7 +245,7 @@ pathlib.Path(sys.argv[2]).write_text(''.join(json.dumps(row)+'\\n' for row in ro
                 "diagnostic": "Synthetic original independent response; no passing image or functional claim",
             }
         )
-        record = self.readonly_step("sol", report, snapshot, context=context)
+        record = self.readonly_step("tester", report, snapshot, context=context)
         accepted = {
             **report,
             "output": record["output"],
@@ -275,15 +275,15 @@ pathlib.Path(sys.argv[2]).write_text(''.join(json.dumps(row)+'\\n' for row in ro
         before_ref = self.run / "repair.before.json"
         util.atomic_json(before_ref, snapshot)
         self.record = {
-            "stage": "terra",
-            "role": "terra",
+            "stage": "builder",
+            "role": "builder",
             "engine": "opencode",
             "command": self.command,
             "task_id": self.state["current_task"]["id"],
             "contract_hash": self.state["goal_contract"]["hash"],
             "contract_revision": self.state["goal_contract"]["revision"],
             "source_revision": snapshot["revision"],
-            "launch_route": deepcopy(self.state["settings"]["roles"]["terra"]),
+            "launch_route": deepcopy(self.state["settings"]["roles"]["builder"]),
             "before_ref": str(before_ref),
             "events": str(self.run / "repair.jsonl"),
             "output": str(self.run / "repair.json"),
@@ -415,7 +415,7 @@ pathlib.Path(sys.argv[2]).write_text(''.join(json.dumps(row)+'\\n' for row in ro
     def test_actual_rejection_resolver_assignment_and_same_owner_repair_stay_nonterminal(self):
         original_contract, original_settings = deepcopy(self.state["goal_contract"]), deepcopy(self.state["settings"])
         self.state.update(
-            version=3, iteration=1, task="controlled bounded repair", status="RUNNING", next_stage="terra"
+            version=3, iteration=1, task="controlled bounded repair", status="RUNNING", next_stage="builder"
         )
         self.state["acceptance_criteria"] = [
             {
@@ -457,13 +457,13 @@ pathlib.Path(sys.argv[2]).write_text(''.join(json.dumps(row)+'\\n' for row in ro
                 "user_request": {"kind": "none"},
             }
         )
-        completion = self.readonly_step("astra_review", decision, snapshot)
+        completion = self.readonly_step("review_completion", decision, snapshot)
         autopilot.queue_resolution(self.state, decision, completion)
-        self.assertEqual(self.state["next_stage"], "astra_resolve")
+        self.assertEqual(self.state["next_stage"], "resolve")
         self.factory.require_resolver_request(self.state, snapshot=snapshot)
         resolved = {**deepcopy(decision), "diagnosis": "Synthetic independent bounded defect diagnosis"}
-        resolver = self.readonly_step("astra_resolve", resolved, snapshot)
-        self.assertNotEqual(resolver["launch_route"]["model"], self.state["settings"]["roles"]["sol"]["model"])
+        resolver = self.readonly_step("resolve", resolved, snapshot)
+        self.assertNotEqual(resolver["launch_route"]["model"], self.state["settings"]["roles"]["tester"]["model"])
         kind = self.factory.assign_task(lifecycle.assign_task, self.state, resolved, snapshot, resolver)
         self.assertEqual(kind, "implement")
         autopilot.finish_resolution(self.state, resolved, resolver)

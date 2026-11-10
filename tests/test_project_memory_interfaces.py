@@ -22,7 +22,7 @@ def record(command="python3 -m unittest discover -s tests -t ."):
         "framework": "unittest",
         "test_command": command,
         "conventions": [{"question": "How should future tests be named?", "answer": "Use descriptive behavior names."}],
-        "routes": [{"role": "terra", "engine": "codex", "provider": None, "model": "observed-model"}],
+        "routes": [{"role": "builder", "engine": "codex", "provider": None, "model": "observed-model"}],
         "human_pause_states": ["WAITING_FOR_USER"],
     }
 
@@ -71,7 +71,7 @@ class ProjectMemoryInterfacesTests(unittest.TestCase):
         args, _ = self.parse("Build it")
         self.assertIsNone(args.engine)
         self.assertIsNone(args.provider)
-        self.assertIsNone(args.terra_model)
+        self.assertIsNone(args.builder_model)
         self.assertIsNone(args.single_model)
         self.assertEqual(set(), args._explicit_budget_flags)
         self.assertIsNone(args.max_seconds)

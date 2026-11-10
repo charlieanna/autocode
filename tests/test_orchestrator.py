@@ -17,7 +17,7 @@ class SharedOrchestrator(unittest.TestCase):
         def apply(current, stage, result):
             self.assertEqual(stage.upper(), result)
             if stage == "task_planner":
-                current["next_stage"] = "terra"
+                current["next_stage"] = "builder"
             else:
                 current.update(status="COMPLETE", next_stage=None)
 
@@ -27,17 +27,17 @@ class SharedOrchestrator(unittest.TestCase):
             apply=apply,
             persist=lambda current: persisted.append((current["status"], current["next_stage"])),
         )
-        self.assertEqual(["task_planner", "terra"], state["seen"])
-        self.assertEqual([("RUNNING", "terra"), ("COMPLETE", None)], persisted)
+        self.assertEqual(["task_planner", "builder"], state["seen"])
+        self.assertEqual([("RUNNING", "builder"), ("COMPLETE", None)], persisted)
 
     def test_skip_restarts_from_updated_checkpoint_without_applying(self):
-        state = {"status": "RUNNING", "next_stage": "terra"}
+        state = {"status": "RUNNING", "next_stage": "builder"}
         calls = []
 
         def before(current):
             calls.append("before")
             if len(calls) == 1:
-                current["next_stage"] = "sol"
+                current["next_stage"] = "tester"
                 return orchestrator.SKIP
 
         def dispatch(current, stage):
@@ -46,7 +46,7 @@ class SharedOrchestrator(unittest.TestCase):
             return "done"
 
         orchestrator.drive(state, dispatch, before=before)
-        self.assertEqual(["before", "before", "sol"], calls)
+        self.assertEqual(["before", "before", "tester"], calls)
 
     def test_running_state_requires_a_saved_next_stage(self):
         with self.assertRaisesRegex(ValueError, "no next stage"):

@@ -189,7 +189,7 @@ def verify_existing(record):
 
 def capture(record, value):
     """Seal normalized, unrepaired modern reports at the report-loader boundary."""
-    if record.get("stage") not in ("sol", "astra_review") or _repaired(record):
+    if record.get("stage") not in ("tester", "review_completion") or _repaired(record):
         return value
     if not isinstance(value, dict) or not all(
         value.get(key) for key in ("contract_hash", "contract_revision", "task_id")
@@ -237,7 +237,7 @@ def _eligible(state: RunState, decision, record, previous_criteria, prior_reques
     spec = decision.get("next_task") or {}
     milestones = body.get("milestones") or []
     stages = state.get("stages", [])
-    builders = [row for row in stages if row.get("stage") == "terra"]
+    builders = [row for row in stages if row.get("stage") == "builder"]
     retry = settings.get("builder_retry") or {}
     ordinary = retry.get("ordinary_retries")
     if (
@@ -259,7 +259,7 @@ def _eligible(state: RunState, decision, record, previous_criteria, prior_reques
         or state.get("report_repair_history")
         or state.get("builder_retry_decisions")
         or any(
-            row.get("stage") == "astra_resolve" or _repaired(row) or row.get("timed_out") or row.get("interrupted")
+            row.get("stage") == "resolve" or _repaired(row) or row.get("timed_out") or row.get("interrupted")
             for row in stages
         )
         or any(row.get("needs_replan") for row in state.get("milestone_progress", {}).values())
@@ -268,7 +268,7 @@ def _eligible(state: RunState, decision, record, previous_criteria, prior_reques
         or builders[0].get("batch_id")
         or builders[0].get("task_id") != task.get("id")
         or builders[0].get("exit_code") != 0
-        or builders[0].get("role") != "terra"
+        or builders[0].get("role") != "builder"
         or _repaired(record)
         or record.get("timed_out")
         or record.get("interrupted")
@@ -362,7 +362,7 @@ def guard_pending_human(state: RunState):
 def route(runtime, state: RunState, decision, record, queue, retry_policy, *, run_dir):
     """Preserve human holds; queue other repairs and replace only a proven first repair."""
     _require(
-        record.get("stage") in (None, "astra_review") and decision.get("status") == "REWORK",
+        record.get("stage") in (None, "review_completion") and decision.get("status") == "REWORK",
         "Repair routing requires a Completion REWORK report",
     )
     task = state.get("current_task") or {}
@@ -379,7 +379,7 @@ def route(runtime, state: RunState, decision, record, queue, retry_policy, *, ru
     validators = [
         row
         for row in state.get("stages", [])
-        if row.get("stage") == "sol" and not row.get("rejected") and row.get("output") == validation.get("output")
+        if row.get("stage") == "tester" and not row.get("rejected") and row.get("output") == validation.get("output")
     ]
     accepted: Any = validators[0] if len(validators) == 1 else None
     report = _verify(accepted, workspace, root) if accepted is not None else None
@@ -430,14 +430,14 @@ def route(runtime, state: RunState, decision, record, queue, retry_policy, *, ru
     # Queue admission must not turn a concurrent edit into fresh authoritative pins.
     _verify(record, workspace, root, decision)
     _verify(accepted, workspace, root)
-    builders = [row for row in state["stages"] if row.get("stage") == "terra"]
+    builders = [row for row in state["stages"] if row.get("stage") == "builder"]
     builder = builders[0]
     roles = state["settings"].get("roles", {})
-    builder_model = (builder.get("launch_route") or roles.get("terra") or {}).get("model")
-    validator_model = (accepted.get("launch_route") or roles.get("sol") or {}).get("model")
+    builder_model = (builder.get("launch_route") or roles.get("builder") or {}).get("model")
+    validator_model = (accepted.get("launch_route") or roles.get("tester") or {}).get("model")
     if (
-        accepted.get("role") != "sol"
-        or validation.get("reviewer_role") != "sol"
+        accepted.get("role") != "tester"
+        or validation.get("reviewer_role") != "tester"
         or accepted.get("changed_files")
         or accepted.get("report_only")
         or type(accepted.get("exit_code")) is not int
@@ -508,7 +508,7 @@ def route(runtime, state: RunState, decision, record, queue, retry_policy, *, ru
             candidate,
             error,
             current,
-            origin={"stage": "astra_review", "output": record["output"]},
+            origin={"stage": "review_completion", "output": record["output"]},
             ask_user=runtime.lifecycle.wait_for_user,
         )
         runtime.goals.record_decision(candidate, decision)
@@ -526,7 +526,7 @@ def route(runtime, state: RunState, decision, record, queue, retry_policy, *, ru
             "contract_revision": cast(dict, state["goal_contract"])["revision"],
             "source_revision": record["source_revision"],
             "source_output": record["output"],
-            "source_stage": "astra_review",
+            "source_stage": "review_completion",
             "provenance": "completion_direct_assignment",
             "report_digest": record["rework_evidence"]["report_digest"],
             "evidence_hashes": {

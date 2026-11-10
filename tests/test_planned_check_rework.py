@@ -36,7 +36,7 @@ class SendBackTests(unittest.TestCase):
             "iteration": 2,
             "status": "RUNNING",
             "phase": "REPORT_REPAIR",
-            "next_stage": "sol",
+            "next_stage": "tester",
             "current_task": {"id": "T1"},
             "goal_contract": {"hash": "h", "revision": 2},
             "pending_report_repair": {"attempts": 1},
@@ -44,8 +44,8 @@ class SendBackTests(unittest.TestCase):
 
     def record(self, **fields):
         return {
-            "stage": "sol_report_repair",
-            "original_stage": "sol",
+            "stage": "tester_report_repair",
+            "original_stage": "tester",
             "source_revision": "s1",
             "output": "/r.json",
             **fields,
@@ -55,7 +55,7 @@ class SendBackTests(unittest.TestCase):
         state = self.state()
         self.assertTrue(planned.send_back(state, self.record(), refusal()))
         self.assertEqual(
-            ("RUNNING", "EXECUTING", "terra", 3),
+            ("RUNNING", "EXECUTING", "builder", 3),
             tuple(state[k] for k in ("status", "phase", "next_stage", "iteration")),
         )
         self.assertNotIn("pending_report_repair", state)
@@ -94,7 +94,7 @@ class SendBackTests(unittest.TestCase):
             ),
             "an original gate": (self.record(), refusal(kind=protected_commands.OriginalGateFailure)),
             "a plain report error": (self.record(), ValueError("Missing summary")),
-            "a Builder report": (self.record(stage="terra", original_stage=None), refusal()),
+            "a Builder report": (self.record(stage="builder", original_stage=None), refusal()),
             "no source": (self.record(source_revision=None), refusal()),
             "no command": (self.record(), refusal(command=None)),
         }
@@ -122,12 +122,12 @@ class RejectionTests(unittest.TestCase):
     stage_record = test_report_repair.RepairTests.stage_record
 
     def test_a_refused_tester_pass_goes_to_the_builder_instead_of_pausing(self):
-        self.state.update(current_task={"id": "T1"}, goal_contract={"hash": "h", "revision": 1}, next_stage="sol")
+        self.state.update(current_task={"id": "T1"}, goal_contract={"hash": "h", "revision": 1}, next_stage="tester")
         self.state["settings"]["report_repair"] = {"max_attempts": 2}
-        record = self.stage_record(stage="sol", role="sol")
+        record = self.stage_record(stage="tester", role="tester")
         with self.assertRaises(runner.ReportRepairQueued):
             runner.reject_completed_stage(self.state, self.run, record, refusal())
-        self.assertEqual(("RUNNING", "terra"), (self.state["status"], self.state["next_stage"]))
+        self.assertEqual(("RUNNING", "builder"), (self.state["status"], self.state["next_stage"]))
         self.assertEqual(record["source_revision"], self.state[planned.KEY][0]["source_revision"])
 
 

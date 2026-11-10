@@ -74,7 +74,7 @@ class TimeoutArchivedCompletionTests(unittest.TestCase):
             "base_commit": self.head(),
             "status": "PAUSED_COMPLETION_GATE",
             "phase": "PAUSED_OR_BLOCKED",
-            "next_stage": "astra_review",
+            "next_stage": "review_completion",
             "iteration": 1,
             "settings": {},
             "stages": [],
@@ -145,7 +145,7 @@ class TimeoutArchivedCompletionTests(unittest.TestCase):
         gap = assessment["obligations"][0]
         return {
             "verdict": "PASS",
-            "reviewer_role": "sol",
+            "reviewer_role": "tester",
             "source_revision": revision,
             "criteria_revision": state["criteria_revision"],
             "contract_revision": 3,
@@ -171,7 +171,7 @@ class TimeoutArchivedCompletionTests(unittest.TestCase):
         revision, assessment = self.prove(state)
         validation = self.archived_validation(state, revision, assessment)
         stopped = {
-            "stage": "astra_review",
+            "stage": "review_completion",
             "role": "task_planner",
             "iteration": 1,
             "output": str(self.proof_dir / "completion-review-01.json"),
@@ -189,18 +189,18 @@ class TimeoutArchivedCompletionTests(unittest.TestCase):
         context = {
             "attempt_id": records.attempt_id(stopped),
             "role": "task_planner",
-            "stage": "astra_review",
+            "stage": "review_completion",
             "source_revision": revision,
             "task_id": "task-1",
             "changed_files": [],
-            "next_stage": "astra_review",
+            "next_stage": "review_completion",
         }
         state.update(
             {
                 "stages": [
                     stopped,
                     {
-                        "stage": "astra_review",
+                        "stage": "review_completion",
                         "role": "task_planner",
                         "iteration": 1,
                         "output": str(self.proof_dir / "completion-review-02.json"),
@@ -236,7 +236,7 @@ class TimeoutArchivedCompletionTests(unittest.TestCase):
         self.assertEqual(validation, saved["validation"])
         self.assertEqual([], saved["validation_archive"])
         self.assertEqual("PAUSED_COMPLETION_GATE", saved["status"])
-        self.assertEqual("astra_review", saved["next_stage"])
+        self.assertEqual("review_completion", saved["next_stage"])
         self.assertEqual(2, len(saved["stages"]), "no attempt is added or erased")
         self.assertEqual(
             "Restored the current pinned validation that a stopped completion review had retired",
@@ -257,13 +257,13 @@ class TimeoutArchivedCompletionTests(unittest.TestCase):
 
         breakings = {
             "run is not paused": lambda s: s.update(status="RUNNING"),
-            "next stage is not the completion review": lambda s: s.update(next_stage="sol"),
+            "next stage is not the completion review": lambda s: s.update(next_stage="tester"),
             "validation is already present": lambda s: s.update(validation=copy.deepcopy(archived(s))),
-            "recovery names another stage": lambda s: s["recovery_context"].update(stage="terra"),
-            "recovery names another role": lambda s: s["recovery_context"].update(role="terra"),
+            "recovery names another stage": lambda s: s["recovery_context"].update(stage="builder"),
+            "recovery names another role": lambda s: s["recovery_context"].update(role="builder"),
             "the timed-out attempt wrote files": lambda s: s["recovery_context"].update(changed_files=["calc.py"]),
             "another task is current": lambda s: s.update(current_task={"id": "another-task"}),
-            "a stage is still in flight": lambda s: s.update(active_stage={"stage": "astra_review"}),
+            "a stage is still in flight": lambda s: s.update(active_stage={"stage": "review_completion"}),
             "a check is still in flight": lambda s: s.update(active_runner_check={"stage": "regression_proof"}),
             "a report repair is pending": lambda s: s.update(pending_report_repair={"attempts": 1}),
             "an artifact is uncertain": lambda s: s.update(uncertain_artifacts=["partial"]),
@@ -288,8 +288,8 @@ class TimeoutArchivedCompletionTests(unittest.TestCase):
             ],
             "later work was accepted": lambda s: s["stages"].append(
                 {
-                    "stage": "terra",
-                    "role": "terra",
+                    "stage": "builder",
+                    "role": "builder",
                     "iteration": 2,
                     "source_revision": s["recovery_context"]["source_revision"],
                 }

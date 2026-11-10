@@ -48,7 +48,7 @@ class PlanningRecoveryCLITests(unittest.TestCase):
         before = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat", "--pause-after-stage"], 2)
         view = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
-        self.assertEqual("terra", view["next_stage"])
+        self.assertEqual("builder", view["next_stage"])
         self.assertEqual("PAUSED_REQUESTED", view["status"])
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat", "--pause-after-stage"], 2)
         self.assertTrue((self.project / "greet.py").is_file())

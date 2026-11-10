@@ -82,7 +82,7 @@ def fallback_context(state: RunState) -> dict | None:
     entry = stage_policy.current(state)
     if not entry or not entry.get("fallback") or not reviewing(state):
         return None
-    concerns = ((state.get("planning") or {}).get("reports") or {}).get("astra_challenge", {}).get("report", {})
+    concerns = ((state.get("planning") or {}).get("reports") or {}).get("review_plan", {}).get("report", {})
     return {
         "reason": entry["fallback"]["reason"],
         "blocking_concerns": [c["id"] for c in adaptive.blocking(concerns.get("concerns") or [])],
@@ -104,5 +104,5 @@ def fall_back(state: RunState, reason: str) -> None:
     if isinstance(planning, dict) and type(planning.get("astra_calls")) is int and planning["astra_calls"] > 0:
         planning["astra_calls"] -= 1
         refunded = True
-    stage_policy.fall_back(state, stage="astra_challenge", reason=reason, review_call_refunded=refunded)
+    stage_policy.fall_back(state, stage="review_plan", reason=reason, review_call_refunded=refunded)
     run_status.running(state, "PLANNING", next_stage=workflows.planner_stage(state))

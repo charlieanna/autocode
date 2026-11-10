@@ -56,7 +56,7 @@ def _original(state: RunState):
     if (
         not isinstance(original, dict)
         or not rows
-        or state.get("next_stage") not in ("sol", "astra_checkpoint")
+        or state.get("next_stage") not in ("tester", "review_checkpoint")
         or original.get("stage") != state.get("next_stage")
         or any(rows[-1].get(key) != original.get(key) for key in IDENTITY)
         or not original.get("rejected")

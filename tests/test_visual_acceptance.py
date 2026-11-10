@@ -442,7 +442,7 @@ class VisualAcceptanceTests(unittest.TestCase):
         self.report = {key: self.current[key] for key in ("task_id", "contract_revision", "contract_hash")}
         self.report.update(verdict="PASS", design_manifest_hash=manifest["manifest_hash"], design_results=self.results)
         self.record = {
-            "stage": "sol",
+            "stage": "tester",
             "events": str(self.run / "events.jsonl"),
             "output": str(self.run / "report.json"),
             "finished_at": "2026-10-04T01:00:00+00:00",
@@ -451,7 +451,7 @@ class VisualAcceptanceTests(unittest.TestCase):
             **{key: self.current[key] for key in ("task_id", "contract_revision", "contract_hash", "source_revision")},
         }
         self.stage = {
-            "stage": "sol",
+            "stage": "tester",
             "accepted": True,
             "read_only": True,
             "independent": True,
@@ -1209,7 +1209,7 @@ class VisualAcceptanceTests(unittest.TestCase):
             "source_full_gate": False,
             "model": self.stage["producer_model"],
             "session_id": "ses_builder",
-            "stage": "terra",
+            "stage": "builder",
             "runtime_hash": "0" * 64,
             "finished_at": "2026-10-04T01:01:00+00:00",
         }.items():

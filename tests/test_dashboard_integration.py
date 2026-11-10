@@ -37,7 +37,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertNotIn("pending_report_repair", fixture.state)
         self.assertEqual(original, fixture.state["report_repair_archive"][-1]["repair"])
         self.assertEqual("PAUSED_INTERVENTION", fixture.state["status"])
-        self.assertEqual("astra_discovery", fixture.state["next_stage"])
+        self.assertEqual("draft_plan", fixture.state["next_stage"])
 
     def test_denied_repair_admission_does_not_spend_a_retry(self):
         fixture = self.repair_fixture()
@@ -65,7 +65,7 @@ class DashboardIntegrationTests(unittest.TestCase):
             runner.save_record(state, record)
 
         value = {"summary": "Repaired completion"}
-        repair = fixture.stage_record(stage="astra_review_report_repair", report=json.dumps(value))
+        repair = fixture.stage_record(stage="review_completion_report_repair", report=json.dumps(value))
         with (
             patch.object(runner, "apply_result", side_effect=complete),
             patch.object(runner, "write_json", side_effect=observe),
@@ -79,7 +79,7 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.assertEqual(repair["output"], receipt["repair"]["output"])
         self.assertEqual(support.file_hash(repair["output"]), receipt["output_hash"])
         self.assertEqual(receipt, support.read(fixture.run / "state.json")["report_repair_history"][-1])
-        self.assertEqual("astra_review_report_repair", fixture.state["stages"][-1]["stage"])
+        self.assertEqual("review_completion_report_repair", fixture.state["stages"][-1]["stage"])
 
     def test_denied_planning_admission_does_not_spend_an_astra_call(self):
         fixture = goal_fixtures.GoalTests()

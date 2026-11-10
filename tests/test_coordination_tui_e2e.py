@@ -474,7 +474,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             calls = Path(checkout["workspace"]) / ".autocode/provider-calls.jsonl"
             for _ in range(20):
                 rows = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
-                planning = [row for row in rows if row["stage"] == "astra_discovery"]
+                planning = [row for row in rows if row["stage"] == "draft_plan"]
                 if planning:
                     break
                 client.step()

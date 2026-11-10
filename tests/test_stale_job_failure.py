@@ -32,7 +32,7 @@ def observed():
     """The saved pause from the report: Requirements abandoned, the Investigator failure still set."""
     return {
         "status": "PAUSED_STAGE_ABANDONED",
-        "next_stage": "astra_discovery",
+        "next_stage": "draft_plan",
         "stop_reason": "Partial work retained. Resume explicitly for Requirements to inspect it and choose the next step.",
         "job_failure": dict(FAILURE),
         "job_retry_authorization": {"token": "jr:investigator"},
@@ -66,7 +66,7 @@ class StaleJobFailureTests(unittest.TestCase):
         blocked = job_failure.resume_gate(state, resume=True, retry=True, token="jr:investigator")
         self.assertIn("earlier attempt", blocked)
         self.assertEqual("jr:investigator", state["job_failure"]["job_retry_token"])
-        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual("draft_plan", state["next_stage"])
 
     def test_a_current_job_pause_still_requires_its_explicit_retry(self):
         state = {
@@ -124,7 +124,7 @@ class StaleJobFailureTests(unittest.TestCase):
             },
             "active_stage": {
                 "role": "task_planner",
-                "stage": "astra_discovery",
+                "stage": "draft_plan",
                 "planning": True,
                 "iteration": 1,
                 "duration_seconds": 1,
@@ -137,7 +137,7 @@ class StaleJobFailureTests(unittest.TestCase):
         }
         stage_recovery.abandon_stage(state, run, project.root, "001/discovery-05")
         self.assertEqual("PAUSED_STAGE_ABANDONED", state["status"])
-        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual("draft_plan", state["next_stage"])
         self.assertNotIn("job_failure", state)
         self.assertNotIn("job_retry_authorization", state)
         self.assertEqual("001/discovery-05", state["recovery_context"]["attempt_id"])

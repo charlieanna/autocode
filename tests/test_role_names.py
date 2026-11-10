@@ -34,10 +34,10 @@ class RoleNamesTests(unittest.TestCase):
     def test_legacy_and_current_names_describe_the_same_job(self):
         for names, expected in [
             (("requirements_gather", "requirements"), "Requirements"),
-            (("plan", "astra_plan"), "Planner"),
-            (("astra_challenge", "plan_review"), "Plan Reviewer"),
-            (("terra", "builder"), "Builder"),
-            (("sol", "validator"), "Tester"),
+            (("plan", "plan_task"), "Planner"),
+            (("review_plan", "plan_review"), "Plan Reviewer"),
+            (("builder", "builder"), "Builder"),
+            (("tester", "validator"), "Tester"),
         ]:
             for stage in names:
                 self.assertEqual(expected, role_name(stage))
@@ -50,7 +50,7 @@ class RoleNamesTests(unittest.TestCase):
                 "status": "RUNNING",
                 "settings": {"workflow": {"mode": mode}},
                 "active_stage": {
-                    "stage": "astra_checkpoint",
+                    "stage": "review_checkpoint",
                     "role": "task_planner",
                     "launch_route": {"model": "provider/plan-reviewer-model"},
                 },
@@ -61,8 +61,8 @@ class RoleNamesTests(unittest.TestCase):
             self.assertEqual(expected, row["speaker"])
             self.assertIn("provider/plan-reviewer-model", row["text"])
             self.assertEqual(before, state["settings"])
-            self.assertEqual(expected, role_name("astra_checkpoint_report_repair", mode))
-        self.assertEqual("Completion Reviewer", role_name("astra_checkpoint"))
+            self.assertEqual(expected, role_name("review_checkpoint_report_repair", mode))
+        self.assertEqual("Completion Reviewer", role_name("review_checkpoint"))
 
     def test_registry_is_presentation_data_only(self):
         self.assertEqual({"roles", "aliases", "stages", "modes"}, set(CATALOGUE))

@@ -132,8 +132,8 @@ def _stalled(frontiers):
 
 
 def _why(row):
-    stage = "astra_review" if row.get("source") == "task_planner" else row.get("source")
-    owner = roles.screen_name(stage) if stage in ("sol", "astra_review") else "raising reviewer"
+    stage = "review_completion" if row.get("source") == "task_planner" else row.get("source")
+    owner = roles.screen_name(stage) if stage in ("tester", "review_completion") else "raising reviewer"
     pending = row.get("pending_resolution") or {}
     if pending:
         unverified = ", ".join(pending.get("unverified_criteria") or [])
@@ -155,7 +155,7 @@ def _stop(state: RunState, stalled, revision, window, count):
             for row in state.get("stages", [])
             if row.get("rejected")
             and row.get("task_id") in tasks
-            and (row.get("original_stage") or row.get("stage")) == "sol"
+            and (row.get("original_stage") or row.get("stage")) == "tester"
             and str(row.get("rejection_reason") or "").strip()
         )
     )

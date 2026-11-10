@@ -22,7 +22,7 @@ completion_case = os.environ.get("REVIEW_REPAIR_COMPLETION") == "1"
 text_case = os.environ.get("REVIEW_REPAIR_TEXT") == "1"
 prefix, suffix, expression = "All checks complete.\n```json\n", "\n```", '.replace("unused","")'
 stage = data["original"]["stage"] if repair else data["stage"]
-target_stage = "astra_review" if completion_case else "sol"
+target_stage = "review_completion" if completion_case else "tester"
 output = Path(sys.argv[sys.argv.index("-o") + 1])
 if repair and stage == target_stage:
     source = data["rejected_report"]

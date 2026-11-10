@@ -78,7 +78,7 @@ def _observations(raw):
 
 def context(state: RunState, stage, run_dir, source_revision):
     contract = (state.get("goal_contract") or {}).get("hash")
-    if stage not in ("astra_challenge", "astra_finalize") or not contract or not source_revision:
+    if stage not in ("review_plan", "finalize_plan") or not contract or not source_revision:
         return None
     root = Path(run_dir).resolve()
     attempts: list[dict] = []

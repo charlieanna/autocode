@@ -174,11 +174,13 @@ class KiloDiscoveryTests(unittest.TestCase):
         with mock.patch.object(command.env_prep, "preflight_run", kilo_listing(auth=gateway_only)):
             found = discovery.discover(self.provider)
         routes = selector.select(
-            ("requirements", "planner", "terra", "plan_reviewer", "sol", "completion", "task_planner"),
+            ("requirements", "planner", "builder", "plan_reviewer", "tester", "completion", "task_planner"),
             found["candidates"],
         )["routes"]
         self.assertIsNotNone(routes)
-        self.assertEqual("kilo/openai/gpt-6-sol", routes["terra"]["model"])  # the preferred Builder the gateway serves
+        self.assertEqual(
+            "kilo/openai/gpt-6-sol", routes["builder"]["model"]
+        )  # the preferred Builder the gateway serves
         self.assertEqual("kilo/z-ai/glm-5.3", routes["requirements"]["model"])
         self.assertEqual("kilo/openai/gpt-6-sol", routes["plan_reviewer"]["model"])
         self.assertEqual("kilo/openai/gpt-6-astra", routes["task_planner"]["model"])
@@ -189,8 +191,8 @@ class KiloDiscoveryTests(unittest.TestCase):
         # Among Builders of one preference (GPT models aside): DeepSeek Flash is cheaper per token, but GLM on
         # the Z.AI Coding Plan bills a subscription the owner already pays for, and subscription always wins.
         candidates = [row for row in found["candidates"] if "gpt-" not in row["model"]]
-        routes = selector.select(("terra",), candidates)["routes"]
-        self.assertEqual("zai-coding-plan/glm-5.3", routes["terra"]["model"])
+        routes = selector.select(("builder",), candidates)["routes"]
+        self.assertEqual("zai-coding-plan/glm-5.3", routes["builder"]["model"])
 
 
 class OpenCodeDiscoveryTests(unittest.TestCase):
@@ -281,10 +283,10 @@ class VariantOmissionTests(unittest.TestCase):
 
     def test_a_route_with_no_level_omits_the_variant_arguments(self):
         provider = command.load("kilocode")
-        argv, _env, _meta = provider.launch("terra", "/tmp/w", "/tmp/r", None, "kilo/z-ai/glm-5.3", None, True)
+        argv, _env, _meta = provider.launch("builder", "/tmp/w", "/tmp/r", None, "kilo/z-ai/glm-5.3", None, True)
         self.assertNotIn("--variant", argv)
         self.assertNotIn("", argv)
-        argv, _env, _meta = provider.launch("terra", "/tmp/w", "/tmp/r", None, "kilo/z-ai/glm-5.3", "high", True)
+        argv, _env, _meta = provider.launch("builder", "/tmp/w", "/tmp/r", None, "kilo/z-ai/glm-5.3", "high", True)
         self.assertIn("--variant", argv)
         self.assertEqual("high", argv[argv.index("--variant") + 1])
 
@@ -373,8 +375,8 @@ class AutoSelectConfigureTests(unittest.TestCase):
             "task_planner": "openai/gpt-6-astra",
             "planner": "zai-coding-plan/glm-5.3",
             "requirements": "zai-coding-plan/glm-5.3",
-            "terra": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
-            "sol": "zai-coding-plan/glm-5.3",
+            "builder": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "tester": "zai-coding-plan/glm-5.3",
             "completion": "zai-coding-plan/glm-5.3",
             "plan_reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
         }
@@ -387,15 +389,15 @@ class AutoSelectConfigureTests(unittest.TestCase):
     def test_the_selection_becomes_the_runs_routes_and_origins(self):
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
             settings = self.configure(self.args(auto_select=True))
-        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["terra"]["model"])  # Luna is not connected
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["builder"]["model"])  # Luna is not connected
         self.assertEqual("kilo/z-ai/glm-5.3", settings["roles"]["planner"]["model"])
         self.assertEqual("kilo/openai/gpt-6-astra", settings["roles"]["task_planner"]["model"])
-        self.assertEqual("auto_selected", settings["route_origins"]["terra"])
-        self.assertEqual("kilo/openai/gpt-6-sol", settings["route_selection"]["routes"]["terra"]["model"])
+        self.assertEqual("auto_selected", settings["route_origins"]["builder"])
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["route_selection"]["routes"]["builder"]["model"])
         self.assertIn("kilo/openai/gpt-6-sol", settings["route_selection"]["probe"])
 
     def test_explicit_effort_survives_selection_and_matches_the_probe(self):
-        for role in ("terra", "sol", "task_planner", "completion", "requirements", "planner", "plan_reviewer"):
+        for role in ("builder", "tester", "task_planner", "completion", "requirements", "planner", "plan_reviewer"):
             with self.subTest(role=role), mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
                 settings = self.configure(self.args(auto_select=True, **{f"{role}_reasoning_effort": "low"}))
                 self.assertEqual("low", settings["roles"][role]["reasoning_effort"])
@@ -403,9 +405,11 @@ class AutoSelectConfigureTests(unittest.TestCase):
 
     def test_global_effort_is_used_unless_a_role_overrides_it(self):
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
-            settings = self.configure(self.args(auto_select=True, reasoning_effort="low", sol_reasoning_effort="high"))
+            settings = self.configure(
+                self.args(auto_select=True, reasoning_effort="low", tester_reasoning_effort="high")
+            )
         for role, route in settings["route_selection"]["routes"].items():
-            expected = "high" if role == "sol" else "low"
+            expected = "high" if role == "tester" else "low"
             self.assertEqual(expected, route["reasoning_effort"])
             self.assertEqual(expected, settings["roles"][role]["reasoning_effort"])
 
@@ -415,16 +419,16 @@ class AutoSelectConfigureTests(unittest.TestCase):
             candidate["levels"] = ["low"]
         with mock.patch.object(discovery, "discover", return_value=found):
             settings = self.configure(self.args(auto_select=True))
-        for role in ("planner", "plan_reviewer", "terra", "sol"):
+        for role in ("planner", "plan_reviewer", "builder", "tester"):
             self.assertIsNone(settings["roles"][role]["reasoning_effort"])
             self.assertIsNone(settings["route_selection"]["routes"][role]["reasoning_effort"])
 
     def test_a_role_flag_wins_over_the_selection(self):
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
-            settings = self.configure(self.args(auto_select=True, terra_model="openai/gpt-6-sol"))
-        self.assertEqual("openai/gpt-6-sol", settings["roles"]["terra"]["model"])
-        self.assertEqual("user_explicit", settings["route_origins"]["terra"])
-        self.assertEqual("user_explicit", settings["route_selection"]["routes"]["terra"]["origin"])
+            settings = self.configure(self.args(auto_select=True, builder_model="openai/gpt-6-sol"))
+        self.assertEqual("openai/gpt-6-sol", settings["roles"]["builder"]["model"])
+        self.assertEqual("user_explicit", settings["route_origins"]["builder"])
+        self.assertEqual("user_explicit", settings["route_selection"]["routes"]["builder"]["origin"])
 
     def test_a_selection_that_cannot_field_a_checker_refuses_to_start(self):
         one_family = {
@@ -460,21 +464,21 @@ class AutoSelectConfigureTests(unittest.TestCase):
         self.assertNotIn("route_selection", settings)
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
             settings = self.configure(self.args(auto_select=None))  # the soft default
-        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["terra"]["model"])
-        self.assertEqual("auto_selected", settings["route_origins"]["terra"])
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["builder"]["model"])
+        self.assertEqual("auto_selected", settings["route_origins"]["builder"])
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()) as probe:
             settings = self.configure(self.args(auto_select=False))  # the explicit opt-out
         probe.assert_not_called()
         self.assertNotIn("route_selection", settings)
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
-        self.assertEqual("runner_default", settings["route_origins"]["terra"])
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["builder"]["model"])
+        self.assertEqual("runner_default", settings["route_origins"]["builder"])
 
     def test_a_soft_default_falls_back_when_the_accounts_field_no_checker(self):
         nothing = {"tool": "opencode", "accounts": [], "candidates": []}
         with mock.patch.object(discovery, "discover", return_value=nothing):
             settings = self.configure(self.args(auto_select=None))  # the stop is printed, run proceeds
         self.assertNotIn("route_selection", settings)
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["builder"]["model"])
         with mock.patch.object(discovery, "discover", return_value=nothing):
             with self.assertRaisesRegex(ValueError, "no qualified model"):  # insisted: refuses
                 self.configure(self.args(auto_select=True))
@@ -497,18 +501,18 @@ class AutoSelectConfigureTests(unittest.TestCase):
 
         settings = configure(self.args(auto_select=None), "9.9.9")  # soft default: fixed routes
         self.assertNotIn("route_selection", settings)
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["builder"]["model"])
         with self.assertRaisesRegex(ValueError, "opencode 9.9.9 has not passed the offline conformance suite"):
             configure(self.args(auto_select=True), "9.9.9")  # insisted: refuses
         settings = configure(self.args(auto_select=True), "1.18.33")  # a known-good version selects
-        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["terra"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["builder"]["model"])
 
     def test_a_soft_default_falls_back_to_fixed_routes_when_listings_cannot_be_read(self):
         broken = mock.Mock(side_effect=RuntimeError("cannot verify kilocode login"))
         with mock.patch.object(discovery, "discover", broken):
             settings = self.configure(self.args(auto_select=None))  # soft default: fallback
         self.assertNotIn("route_selection", settings)
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["builder"]["model"])
         with mock.patch.object(discovery, "discover", broken):
             with self.assertRaisesRegex(ValueError, "listings could not be read"):  # insisted: refuses
                 self.configure(self.args(auto_select=True))

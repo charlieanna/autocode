@@ -31,7 +31,12 @@ class KiloNativeTests(unittest.TestCase):
         settings = {
             "engine": "opencode",
             "roles": {
-                "sol": {"engine": "opencode", "provider": "kilocode", "model": rules.MODEL, "reasoning_effort": "high"},
+                "tester": {
+                    "engine": "opencode",
+                    "provider": "kilocode",
+                    "model": rules.MODEL,
+                    "reasoning_effort": "high",
+                },
                 "plan_reviewer": {"provider": "opencode", "model": "mimo/mimo-v2.6-pro", "reasoning_effort": "high"},
             },
             "transport_identities": {"role:sol": {"provider": "kilocode", "identity": identity}},
@@ -40,7 +45,7 @@ class KiloNativeTests(unittest.TestCase):
 
     def test_only_explicit_former_openai_role_selects_kilo(self):
         profile, settings = self.fixture()
-        binding, identity = rules.selected(profile, settings, "sol")
+        binding, identity = rules.selected(profile, settings, "tester")
         self.assertEqual(identity["engine"], "kilocode")
         self.assertIsNone(rules.selected(profile, settings, "plan_reviewer"))
         settings["roles"]["plan_reviewer"]["provider"] = "kilocode"
@@ -51,19 +56,19 @@ class KiloNativeTests(unittest.TestCase):
         original, settings = self.fixture()
         for key, value in (("reasoning_effort", "max"), ("model", "anthropic/another-model")):
             changed = copy.deepcopy(settings)
-            changed["roles"]["sol"][key] = value
+            changed["roles"]["tester"][key] = value
             with self.subTest(key=key), self.assertRaises(ValueError):
-                rules.selected(original, changed, "sol")
+                rules.selected(original, changed, "tester")
         changed = copy.deepcopy(settings)
         changed["transport_identities"]["role:sol"]["identity"]["version"] = "7.8.3"
         with self.assertRaisesRegex(ValueError, "immutable"):
-            rules.selected(original, changed, "sol")
+            rules.selected(original, changed, "tester")
 
     def test_profile_does_not_fall_back_when_review_route_is_missing(self):
         profile, settings = self.fixture()
-        settings["roles"]["sol"]["provider"] = "opencode"
+        settings["roles"]["tester"]["provider"] = "opencode"
         with self.assertRaisesRegex(ValueError, "explicit saved Kilo"):
-            rules.selected(profile, settings, "sol")
+            rules.selected(profile, settings, "tester")
 
     def test_only_proven_limit_input_undefined_is_reinstated(self):
         compiled = {"family": "claude-opus", "limit": {"context": 1000000, "output": 128000}}
@@ -116,13 +121,13 @@ class KiloNativeTests(unittest.TestCase):
         provider = object.__new__(KiloProvider)
         with self.assertRaisesRegex(ValueError, "exact original Kilo owner"):
             provider.launch(
-                "sol", "/fixture", "/fixture/run", None, rules.MODEL, "high", False, isolation=Mock(), containment={}
+                "tester", "/fixture", "/fixture/run", None, rules.MODEL, "high", False, isolation=Mock(), containment={}
             )
 
     def test_ordinary_configured_launch_preserves_its_existing_facade(self):
         provider = object.__new__(KiloProvider)
         with patch.object(CommandProvider, "launch", return_value=("command", "env", "overrides")) as ordinary:
-            result = provider.launch("sol", "/fixture", "/fixture/run", None, rules.MODEL, "high", False)
+            result = provider.launch("tester", "/fixture", "/fixture/run", None, rules.MODEL, "high", False)
         self.assertEqual(result, ("command", "env", "overrides"))
         ordinary.assert_called_once()
 

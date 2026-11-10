@@ -46,7 +46,7 @@ def builder_commits(state: RunState, workspace, current, git):
     root = Path(state["run_dir"]).resolve()
     for record in state.get("stages", []):
         if (
-            record.get("stage") != "terra"
+            record.get("stage") != "builder"
             or record.get("exit_code") != 0
             or any(record.get(key) for key in ("report_only", "rejected", "abandoned", "timed_out"))
             or record.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]

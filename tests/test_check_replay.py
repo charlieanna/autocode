@@ -469,7 +469,7 @@ class ScratchReplayTests(unittest.TestCase):
         events = self.run_dir / "validator.events"
         events.write_text("validator command execution\n")
         record = {
-            "stage": "sol",
+            "stage": "tester",
             "events": str(events),
             "output": "validator.json",
             "task_id": "T1",
@@ -761,7 +761,7 @@ class ValidatorNoteTests(unittest.TestCase):
         state = approved_fix()
         schemas = Path(check_replay.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"
-        validator = common.execution_request(state, "sol", state_path, schemas)
+        validator = common.execution_request(state, "tester", state_path, schemas)
         self.assertIn(check_replay.VALIDATOR_NOTE, validator.prompt.split("\nCURRENT HANDOFF DATA\n")[0])
         self.assertIn("sh -c '! python3", check_replay.VALIDATOR_NOTE)
         self.assertIn("no .autocode/", check_replay.VALIDATOR_NOTE)
@@ -773,7 +773,7 @@ class ValidatorNoteTests(unittest.TestCase):
         self.assertIn("original dependency lockfiles, supplied environments or setup inputs", validator.prompt)
         self.assertIn("does not itself impose an OS sandbox", validator.prompt)
         self.assertEqual((len(validator.prompt.encode()) + 3) // 4, validator.metrics["estimated_prompt_tokens"])
-        builder = common.execution_request(state, "terra", state_path, schemas)
+        builder = common.execution_request(state, "builder", state_path, schemas)
         self.assertNotIn(check_replay.VALIDATOR_NOTE, builder.prompt)
 
     def test_the_supplied_scratch_template_runs_output_writing_tests_without_touching_source(self):

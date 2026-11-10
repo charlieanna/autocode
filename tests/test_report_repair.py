@@ -32,10 +32,10 @@ class RepairTests(unittest.TestCase):
         from providers.kilocode import KiloProvider
         from units import common
 
-        self.state["next_stage"] = "sol"
+        self.state["next_stage"] = "tester"
         self.queue(
-            stage="sol",
-            role="sol",
+            stage="tester",
+            role="tester",
             engine="opencode",
             schema=str(runner.SCHEMA_DIR / "v2/sol-report.schema.json"),
             error=ValueError("Check is not supported by an exact executed Validator event"),
@@ -60,7 +60,7 @@ class RepairTests(unittest.TestCase):
             handoff["original_executed_checks"],
         )
         with patch.object(common.goals, "execution_guard"):
-            request = common.execution_request(self.state, "sol", self.run / "state.json", runner.SCHEMA_DIR)
+            request = common.execution_request(self.state, "tester", self.run / "state.json", runner.SCHEMA_DIR)
         config = {"name": "synthetic", "command": ["fixture"], "roles": {}, "output": "opencode_events"}
         facades = [
             opencode,
@@ -90,7 +90,7 @@ class RepairTests(unittest.TestCase):
                         )
 
     def test_repair_launch_keeps_the_original_pre_upgrade_schema_bytes(self):
-        self.state["next_stage"] = "astra_review"
+        self.state["next_stage"] = "review_completion"
         schema = self.run / "legacy-review.schema.json"
         schema.write_text(json.dumps(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json")))
         original = schema.read_bytes()
@@ -113,13 +113,13 @@ class RepairTests(unittest.TestCase):
     def timed_out_repair(self):
         pending = self.queue()
         pending["attempts"] = 1
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         original = pending["original"]
         path = self.run / "iterations/005/terra_report_repair-01"
         record = {key: original[key] for key in ("role", "iteration", "schema")}
         record.update(
-            stage="terra_report_repair",
-            original_stage="terra",
+            stage="builder_report_repair",
+            original_stage="builder",
             report_only=True,
             timed_out=True,
             exit_code=-15,
@@ -146,7 +146,7 @@ class RepairTests(unittest.TestCase):
             runner.reconcile_active(self.state, self.run, self.root)
         self.assertEqual(expected, self.state["pending_report_repair"])
         self.assertEqual(sessions, self.state["sessions"])
-        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("builder", self.state["next_stage"])
         self.assertNotIn("active_stage", self.state)
         self.assertEqual("retry", self.state["stages"][-1]["decision"]["action"])
         self.assertEqual(1, self.state["stages"][-1]["receipt"]["evidence"]["repair_attempts_used"])
@@ -198,7 +198,7 @@ class RepairTests(unittest.TestCase):
                 if case == "exhausted":
                     self.state["pending_report_repair"]["attempts"] = 2
                 if case == "route":
-                    self.state["next_stage"] = "sol"
+                    self.state["next_stage"] = "tester"
                 if case == "pause":
                     (self.run / "pause-requested").touch()
                 expected = copy.deepcopy(self.state["pending_report_repair"])
@@ -216,7 +216,7 @@ class RepairTests(unittest.TestCase):
 
     def test_plan_review_missing_blocking_is_preserved_as_blocking(self):
         schema = self.run / "plan-review.schema.json"
-        schema.write_text(json.dumps(runner.planning.SCHEMAS["astra_challenge"]))
+        schema.write_text(json.dumps(runner.planning.SCHEMAS["review_plan"]))
         concern = {
             "id": "C-1",
             "concern": "The build gate is premature",
@@ -225,7 +225,7 @@ class RepairTests(unittest.TestCase):
             "acceptance_test": "Review happens after build",
         }
         raw = {"summary": "Rework is needed", "concerns": [concern, {**concern, "id": "C-2", "blocking": False}]}
-        for stage in ("astra_challenge", "astra_challenge_report_repair"):
+        for stage in ("review_plan", "review_plan_report_repair"):
             with self.subTest(stage=stage):
                 output = self.run / f"{stage}.json"
                 record = {
@@ -244,9 +244,9 @@ class RepairTests(unittest.TestCase):
 
     def test_plan_review_normalization_does_not_hide_other_schema_errors(self):
         schema = self.run / "plan-review.schema.json"
-        schema.write_text(json.dumps(runner.planning.SCHEMAS["astra_challenge"]))
+        schema.write_text(json.dumps(runner.planning.SCHEMAS["review_plan"]))
         record = {
-            "stage": "astra_challenge",
+            "stage": "review_plan",
             "engine": "opencode",
             "events": str(self.run / "plan-review.jsonl"),
             "output": str(self.run / "plan-review.json"),
@@ -270,7 +270,7 @@ class RepairTests(unittest.TestCase):
 
     def test_builder_repair_preserves_failed_results_commands_and_user_decisions(self):
         report = self.run / "original-builder.json"
-        original = {"stage": "terra", "output": str(report), "events": str(self.run / "events.jsonl")}
+        original = {"stage": "builder", "output": str(report), "events": str(self.run / "events.jsonl")}
         value = {
             "commands_run": ["failed-test"],
             "results": ["exit=1"],
@@ -297,7 +297,7 @@ class RepairTests(unittest.TestCase):
         # history, so the correct fix was thrown away and the run stopped. History is now
         # restored from the original rather than trusted to the repair.
         report = self.run / "original-builder.json"
-        original = {"stage": "terra", "output": str(report), "events": str(self.run / "events.jsonl")}
+        original = {"stage": "builder", "output": str(report), "events": str(self.run / "events.jsonl")}
         value = {
             "commands_run": ["failed-test"],
             "results": ["exit=1"],
@@ -336,7 +336,7 @@ class RepairTests(unittest.TestCase):
 
     def test_missing_or_ill_typed_history_stays_repairable(self):
         report = self.run / "original-builder.json"
-        original = {"stage": "terra", "output": str(report), "events": str(self.run / "events.jsonl")}
+        original = {"stage": "builder", "output": str(report), "events": str(self.run / "events.jsonl")}
         report.write_text(json.dumps({"results": "not a list", "commands_run": ["ok", 3]}))
         repaired = {"results": ["exit=1"], "commands_run": ["real-test"], "remaining_risks": []}
         self.assertFalse(runner.restore_builder_history(original, repaired))
@@ -355,16 +355,16 @@ class RepairTests(unittest.TestCase):
                 }
             )
         )
-        original = {"stage": "terra", "output": str(report), "events": str(events)}
+        original = {"stage": "builder", "output": str(report), "events": str(events)}
         runner.assert_repair_preserves_builder_history(original, {"commands_run": ["real-test"]})
         with self.assertRaisesRegex(ValueError, "invented a command"):
             runner.assert_repair_preserves_builder_history(original, {"commands_run": ["fake-test"]})
 
-    def stage_record(self, *, report="{}", event_rows=None, stage="terra", iteration=5, **overrides):
+    def stage_record(self, *, report="{}", event_rows=None, stage="builder", iteration=5, **overrides):
         path = self.run / "iterations" / f"{iteration:03d}" / f"{stage}-01"
         path.parent.mkdir(parents=True, exist_ok=True)
         record = {
-            "role": "terra",
+            "role": "builder",
             "stage": stage,
             "iteration": iteration,
             "exit_code": 0,
@@ -434,12 +434,12 @@ class RepairTests(unittest.TestCase):
     FORMAT_ERROR = RuntimeError("OpenCode final message is not a JSON report; inspect the saved raw events")
 
     def test_format_error_resumes_the_session_with_a_tiny_correction_first(self):
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         self.queue(error=self.FORMAT_ERROR, engine="opencode")
         with (
             patch.object(runner, "account_stage") as accounted,
             patch.object(runner, "accept_repaired_report") as accepted,
-            patch.object(runner, "run_role", return_value=({}, {"stage": "terra_report_repair"})) as launch,
+            patch.object(runner, "run_role", return_value=({}, {"stage": "builder_report_repair"})) as launch,
         ):
             runner.execute_report_repair(self.state, self.run, self.root)
         kwargs = launch.call_args.kwargs
@@ -456,7 +456,7 @@ class RepairTests(unittest.TestCase):
     def test_fresh_kilo_repair_receives_report_and_schema_on_its_first_call(self):
         # The actual restricted Kilo launch discards resume_session. A reminder
         # alone therefore has neither the previous answer nor its schema.
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         rejected = "Completed implementation, but this final report is not JSON."
         pending = self.queue(
             error=self.FORMAT_ERROR,
@@ -477,7 +477,7 @@ class RepairTests(unittest.TestCase):
             self.assertEqual(str(kwargs["schema"]), handoff["original"]["schema"])
             self.assertFalse(kwargs["allow_write"])
             self.assertTrue(kwargs["report_only"])
-            return {"summary": "Re-serialized saved report"}, {"stage": "terra_report_repair"}
+            return {"summary": "Re-serialized saved report"}, {"stage": "builder_report_repair"}
 
         with (
             patch.object(runner, "run_role", side_effect=fresh_provider),
@@ -491,7 +491,7 @@ class RepairTests(unittest.TestCase):
         self.assertNotIn("correction_attempted", pending)
 
     def test_failed_correction_falls_back_to_the_unchanged_full_repair(self):
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         self.queue(error=self.FORMAT_ERROR, engine="opencode")
         with patch.object(runner, "run_role", side_effect=RuntimeError("correction also malformed")):
             with self.assertRaisesRegex(RuntimeError, "correction also malformed"):
@@ -502,12 +502,12 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(1, self.state["pending_report_repair"]["attempts"])
 
     def test_without_a_session_thread_the_full_repair_runs_directly(self):
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         self.queue(error=self.FORMAT_ERROR, engine="opencode", event_rows=[{"type": "turn.completed"}])
         self.assertIn("CURRENT HANDOFF DATA", self.repair_request()["prompt"])
 
     def test_non_format_errors_never_resume_the_session(self):
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         self.queue(error=ValueError("$.requirements[48]: unexpected fields"), engine="opencode")
         kwargs = self.repair_request()
         self.assertIsNone(kwargs.get("resume_session"))
@@ -585,10 +585,10 @@ class RepairTests(unittest.TestCase):
         owned.parent.mkdir(parents=True)
         owned.write_text("print('candidate')\n")
         self.state["settings"]["roles"]["planner"] = {"model": "glm-model"}
-        self.state["next_stage"] = "astra_discovery"
+        self.state["next_stage"] = "draft_plan"
         rejected = {"summary": "Plan the greeting service.", "code_refs": [".autocode/candidate-inputs/alpha/app.py:1"]}
         self.queue(
-            stage="astra_discovery",
+            stage="draft_plan",
             role="planner",
             error=ValueError(
                 "code_refs entry .autocode/candidate-inputs/alpha/app.py:1 is a file the runner or "
@@ -611,28 +611,26 @@ class RepairTests(unittest.TestCase):
             "output": "r.json",
         }
         self.state["settings"]["roles"]["planner"] = {"model": "planner-model"}
-        self.state["next_stage"] = "astra_discovery"
-        self.queue(
-            ValueError("$.requirement_trace[0]: missing requirement_id"), stage="astra_discovery", role="planner"
-        )
+        self.state["next_stage"] = "draft_plan"
+        self.queue(ValueError("$.requirement_trace[0]: missing requirement_id"), stage="draft_plan", role="planner")
         data = json.loads(self.repair_request()["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(["R1"], [row["requirement_id"] for row in data["requirement_trace_rows"]])
 
     def test_finalizer_repair_receives_current_concerns_and_saved_human_context(self):
         self.state.update(
-            next_stage="astra_finalize",
+            next_stage="finalize_plan",
             requirements_handoff={
                 "report": {"requirements": [{"id": "R1", "source_quote": "Reject blank names"}], "open_questions": []}
             },
             brief_feedback=[{"id": "feedback-1", "text": "Preserve valid-name output"}],
             planning={
                 "reports": {
-                    "astra_challenge": {"report": {"concerns": [{"id": "C1", "concern": "Keep the guard"}]}},
-                    "glm_revise": {"report": {"responses": [{"concern_id": "C1"}]}},
+                    "review_plan": {"report": {"concerns": [{"id": "C1", "concern": "Keep the guard"}]}},
+                    "revise_plan": {"report": {"responses": [{"concern_id": "C1"}]}},
                 }
             },
         )
-        self.queue(stage="astra_finalize", role="task_planner")
+        self.queue(stage="finalize_plan", role="task_planner")
 
         prompt = self.repair_request()["prompt"]
         data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -654,15 +652,15 @@ class RepairTests(unittest.TestCase):
         # one the issue's run hit.
         draft = 90 * 1024
         reports = {
-            "astra_discovery": {
+            "draft_plan": {
                 "output": "discovery.json",
                 "report": {"summary": "First draft", "contract": {"intended_outcome": "first-draft " + "d" * draft}},
             },
-            "astra_challenge": {
+            "review_plan": {
                 "output": "review.json",
                 "report": {"concerns": [{"id": "C1", "concern": "Narrow the scope"}]},
             },
-            "glm_revise": {
+            "revise_plan": {
                 "output": "revision.json",
                 "report": {
                     "responses": [{"concern_id": "C1"}],
@@ -671,9 +669,9 @@ class RepairTests(unittest.TestCase):
             },
         }
         self.state["settings"]["engine"] = "opencode"
-        self.state.update(next_stage="astra_finalize", planning={"reports": copy.deepcopy(reports)})
+        self.state.update(next_stage="finalize_plan", planning={"reports": copy.deepcopy(reports)})
         rejected = json.dumps({"summary": "Final", "contract": {"intended_outcome": "final-draft " + "f" * draft}})
-        self.queue(stage="astra_finalize", role="task_planner", report=rejected)
+        self.queue(stage="finalize_plan", role="task_planner", report=rejected)
         with (
             patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})),
             patch.object(runner.opencode, "prompt_for_schema", wraps=runner.opencode.prompt_for_schema) as decorate,
@@ -691,11 +689,9 @@ class RepairTests(unittest.TestCase):
         self.assertLess(len(prompt.encode("utf-8")), runner.REPAIR_HANDOFF_BYTES)
         data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         exchange = data["clarification_context"]["planning_exchange"]
-        self.assertEqual(
-            {"output": "discovery.json", "report": {"summary": "First draft"}}, exchange["astra_discovery"]
-        )
-        self.assertEqual(reports["astra_challenge"], exchange["astra_challenge"])
-        self.assertEqual(reports["glm_revise"], exchange["glm_revise"])
+        self.assertEqual({"output": "discovery.json", "report": {"summary": "First draft"}}, exchange["draft_plan"])
+        self.assertEqual(reports["review_plan"], exchange["review_plan"])
+        self.assertEqual(reports["revise_plan"], exchange["revise_plan"])
         self.assertEqual(json.loads(rejected), data["rejected_report"]["content"])
         self.assertEqual(1, prompt.count("revised-draft "))
         self.assertNotIn("first-draft ", prompt)
@@ -715,8 +711,8 @@ class RepairTests(unittest.TestCase):
         requirements = [{"id": "R1", "text": "Build a planner", "source_quote": "Build a planner."}]
         for stage, role in (
             ("requirements_gather", "requirements"),
-            ("astra_discovery", "task_planner"),
-            ("glm_revise", "task_planner"),
+            ("draft_plan", "task_planner"),
+            ("revise_plan", "task_planner"),
         ):
             with self.subTest(stage=stage):
                 self.state.clear()
@@ -743,7 +739,7 @@ class RepairTests(unittest.TestCase):
 
     def test_planning_repair_repeats_semantic_rules_without_changing_the_saved_schema(self):
         before = copy.deepcopy(self.state)
-        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        for stage in ("draft_plan", "revise_plan", "finalize_plan"):
             with self.subTest(stage=stage):
                 self.state = copy.deepcopy(before)
                 self.state["next_stage"] = stage
@@ -767,7 +763,7 @@ class RepairTests(unittest.TestCase):
                 self.assertIn(runner.planning.PROGRESSIVE_POLICY, prompt)
                 self.assertIn("exactly one whole-product milestone", prompt)
                 self.assertIn("retain the protected text and add a blocking decision", prompt)
-                if stage == "glm_revise":
+                if stage == "revise_plan":
                     self.assertIn("Each responses[].evidence_refs must be nonempty", prompt)
                 self.assertEqual(error, data["error"])
                 self.assertEqual(rejected, data["rejected_report"]["content"])
@@ -793,15 +789,15 @@ class RepairTests(unittest.TestCase):
         ):
             with self.subTest(fields=list(fields)):
                 self.state = copy.deepcopy(before)
-                self.state["next_stage"] = "glm_revise"
+                self.state["next_stage"] = "revise_plan"
                 schema = self.run / "saved.schema.json"
                 schema.write_text(json.dumps({"type": "object", "properties": fields}))
-                self.queue(stage="glm_revise", role="task_planner", schema=str(schema))
+                self.queue(stage="revise_plan", role="task_planner", schema=str(schema))
                 prompt = self.repair_request()["prompt"]
                 self.assertNotIn(runner.planning.PROGRESSIVE_POLICY, prompt)
 
     def test_gocode_report_repair_uses_the_full_schema_on_the_wire(self):
-        self.state["next_stage"] = "astra_discovery"
+        self.state["next_stage"] = "draft_plan"
         self.state["settings"]["engine"] = "opencode"
         self.state["settings"]["roles"]["task_planner"]["provider"] = "gocode"
         schema = self.run / "discovery.schema.json"
@@ -813,7 +809,7 @@ class RepairTests(unittest.TestCase):
         }
         schema.write_text(json.dumps(original))
         self.queue(
-            stage="astra_discovery",
+            stage="draft_plan",
             role="task_planner",
             schema=str(schema),
             report=json.dumps({"summary": "Rejected draft"}),
@@ -861,7 +857,7 @@ class RepairTests(unittest.TestCase):
     def test_native_schema_rejections_preserve_reports_before_validation_and_archive_pins(self):
         cases = [
             (
-                "astra_challenge",
+                "review_plan",
                 {
                     "summary": "Review",
                     "concerns": [
@@ -878,7 +874,7 @@ class RepairTests(unittest.TestCase):
                 "$.concerns[0]: missing requested_change",
             ),
             (
-                "astra_discovery",
+                "draft_plan",
                 {
                     "contract": body(),
                     "summary": "Draft",
@@ -901,7 +897,7 @@ class RepairTests(unittest.TestCase):
                 self.state["next_stage"] = stage
                 schema = runner.planning.SCHEMAS[stage]
                 validate(report, schema)
-                if stage == "astra_challenge":
+                if stage == "review_plan":
                     del report["concerns"][0]["requested_change"]
                 else:
                     # A missing provenance list (code_refs) is now defaulted without repair
@@ -1068,7 +1064,7 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(baseline, pending["original"])
         self.assertEqual(latest_error, pending["error"])
         rejected = pending["latest_rejected"]
-        self.assertEqual("terra_report_repair", rejected["stage"])
+        self.assertEqual("builder_report_repair", rejected["stage"])
         self.assertNotEqual(baseline["output"], rejected["output"])
         self.assertEqual(latest, support.read(rejected["output"]))
         for key in ("output", "events", "schema"):
@@ -1301,7 +1297,7 @@ class RepairTests(unittest.TestCase):
         for current in (self.state, saved):
             self.assertNotIn("pending_report_repair", current)
             self.assertEqual(0, current["report_repair_archive"][-1]["repair"]["attempts"])
-            self.assertEqual(("RUNNING", "terra"), (current["status"], current["next_stage"]))
+            self.assertEqual(("RUNNING", "builder"), (current["status"], current["next_stage"]))
 
     def test_oversized_command_receipts_start_a_fresh_attempt_instead_of_truncating_or_launching(self):
         command = "exact-command-" + "x" * runner.REPAIR_HANDOFF_BYTES
@@ -1429,9 +1425,9 @@ class RepairTests(unittest.TestCase):
                 runner.assert_repair_preserves_builder_history(baseline, {**original, field: replacement})
 
     def test_exact_format_failure_can_request_one_fresh_sol_validation(self):
-        self.state["next_stage"] = "sol"
+        self.state["next_stage"] = "tester"
         error = RuntimeError("OpenCode final message is not a JSON report; inspect the saved raw events")
-        self.queue(role="sol", stage="sol", error=error)
+        self.queue(role="tester", stage="tester", error=error)
         self.state["pending_report_repair"]["attempts"] = 1
         with self.assertRaises(runner.ReportRepairQueued):
             self.reject_repair(6, error)
@@ -1450,15 +1446,15 @@ class RepairTests(unittest.TestCase):
             runner.retry_format_failed_report(self.state, self.run, self.root, selected)
         changed.unlink()
         runner.retry_format_failed_report(self.state, self.run, self.root, selected)
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertNotIn("pending_report_repair", self.state)
         self.assertEqual("report_retry_after_format_fix", self.state["user_events"][-1]["kind"])
         self.assertTrue(self.state["report_repair_archive"])
 
     def test_exact_evidence_mismatch_can_request_fresh_sol_validation(self):
-        self.state["next_stage"] = "sol"
+        self.state["next_stage"] = "tester"
         error = ValueError("Check is not supported by an exact executed Validator event")
-        self.queue(role="sol", stage="sol", error=error)
+        self.queue(role="tester", stage="tester", error=error)
         self.state["pending_report_repair"]["attempts"] = 1
         with self.assertRaises(runner.ReportRepairQueued):
             self.reject_repair(6, error)
@@ -1485,7 +1481,7 @@ class RepairTests(unittest.TestCase):
             }
         )
         runner.retry_format_failed_report(self.state, self.run, self.root, selected)
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertNotIn("pending_report_repair", self.state)
         self.assertEqual("report_retry_after_format_fix", self.state["user_events"][-1]["kind"])
 
@@ -1512,7 +1508,7 @@ class RepairTests(unittest.TestCase):
         saved = support.read(self.run / "state.json")
         entry = next(iter(saved["failure_history"].values()))
         self.assertEqual(
-            {"stage": "terra", "artifact_hash": saved["stages"][0]["source_revision"], "error_class": "ValueError"},
+            {"stage": "builder", "artifact_hash": saved["stages"][0]["source_revision"], "error_class": "ValueError"},
             entry["identity"],
         )
         self.assertEqual(3, entry["count"])
@@ -1552,7 +1548,7 @@ class RepairTests(unittest.TestCase):
         changed_artifact.update(iteration=7, source_revision="different-artifact")
         runner.failures.record(self.state, changed_artifact, RuntimeError("Missing summary"), runner.now())
         changed_stage = copy.deepcopy(other)
-        changed_stage.update(iteration=8, stage="sol", original_stage="sol")
+        changed_stage.update(iteration=8, stage="tester", original_stage="tester")
         runner.failures.record(self.state, changed_stage, RuntimeError("Missing summary"), runner.now())
         self.assertEqual(4, len(self.state["failure_history"]))
         self.assertEqual(
@@ -1561,7 +1557,7 @@ class RepairTests(unittest.TestCase):
                 row["count"]
                 for row in self.state["failure_history"].values()
                 if row["identity"]["error_class"] == "RuntimeError"
-                and row["identity"]["stage"] == "terra"
+                and row["identity"]["stage"] == "builder"
                 and row["identity"]["artifact_hash"] == same["source_revision"]
             ),
         )
@@ -1583,18 +1579,18 @@ class RepairTests(unittest.TestCase):
     def test_explicit_execution_retry_archives_exhausted_repairs_and_rotates_session(self):
         pending = self.queue()
         pending["attempts"] = 2
-        self.state.update(status="PAUSED_REPORT_REPAIR_LIMIT", next_stage="terra")
-        self.state["sessions"]["terra"] = "failed-session"
+        self.state.update(status="PAUSED_REPORT_REPAIR_LIMIT", next_stage="builder")
+        self.state["sessions"]["builder"] = "failed-session"
         self.assertTrue(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
         self.assertNotIn("pending_report_repair", self.state)
-        self.assertNotIn("terra", self.state["sessions"])
+        self.assertNotIn("builder", self.state["sessions"])
         self.assertEqual(2, self.state["report_repair_archive"][-1]["repair"]["attempts"])
         self.assertEqual("failed-session", self.state["session_rotations"][-1]["old_session"])
 
     def test_explicit_execution_retry_accepts_rejected_final_repair(self):
         pending = self.queue()
         pending["attempts"] = 2
-        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="terra")
+        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="builder")
         self.assertTrue(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
         self.assertNotIn("pending_report_repair", self.state)
 
@@ -1602,8 +1598,8 @@ class RepairTests(unittest.TestCase):
         # Saved repair inputs over their limits never shrink, so the repair is spent although it never ran.
         before = copy.deepcopy(self.state)
         for stage, retry in (
-            ("terra", runner.prepare_exhausted_execution_report_retry),
-            ("astra_finalize", runner.prepare_planning_retry),
+            ("builder", runner.prepare_exhausted_execution_report_retry),
+            ("finalize_plan", runner.prepare_planning_retry),
         ):
             with self.subTest(stage=stage):
                 self.state = copy.deepcopy(before)
@@ -1619,8 +1615,8 @@ class RepairTests(unittest.TestCase):
                 self.assertIn("cannot launch from its saved inputs", archived["reason"])
                 self.assertTrue(all(Path(path).is_file() for path in pending["pins"]))
                 self.assertEqual(stage, self.state["next_stage"])
-                if stage == "terra":  # the session that wrote the rejected report is not resumed
-                    self.assertNotIn("terra", self.state["sessions"])
+                if stage == "builder":  # the session that wrote the rejected report is not resumed
+                    self.assertNotIn("builder", self.state["sessions"])
 
     def test_terminal_reasoning_only_response_is_input_not_an_accepted_report(self):
         output = self.run / "empty-repair.json"
@@ -1631,7 +1627,7 @@ class RepairTests(unittest.TestCase):
             "events": str(events),
             "output": str(output),
             "report_only": True,
-            "stage": "glm_revise_report_repair",
+            "stage": "revise_plan_report_repair",
         }
         with self.assertRaises(support.Paused):
             runner.repair_report_source(record)
@@ -1642,8 +1638,8 @@ class RepairTests(unittest.TestCase):
             runner.load_stage_report(record)
 
     def test_empty_repair_does_not_bypass_original_or_latest_pins(self):
-        self.state["next_stage"] = "glm_revise"
-        pending = self.queue(stage="glm_revise", report='{"summary": "retained",}')
+        self.state["next_stage"] = "revise_plan"
+        pending = self.queue(stage="revise_plan", report='{"summary": "retained",}')
         pending["attempts"] = 1
         with self.assertRaises(runner.ReportRepairQueued):
             self.reject_repair(6, self.FORMAT_ERROR, report="")
@@ -1658,8 +1654,8 @@ class RepairTests(unittest.TestCase):
 
     def test_saved_empty_planning_repair_hold_keeps_its_remaining_attempt(self):
         self.state["settings"]["joint_planning"] = True
-        self.state["next_stage"] = "glm_revise"
-        pending = self.queue(stage="glm_revise", report='{"summary": "retained",}')
+        self.state["next_stage"] = "revise_plan"
+        pending = self.queue(stage="revise_plan", report='{"summary": "retained",}')
         pending["attempts"] = 1
         with self.assertRaises(runner.ReportRepairQueued):
             self.reject_repair(6, self.FORMAT_ERROR, report="")
@@ -1685,7 +1681,7 @@ class RepairTests(unittest.TestCase):
 
     def test_empty_execution_repair_uses_original_within_existing_allowance(self):
         before = copy.deepcopy(self.state)
-        for stage in ("terra", "sol"):
+        for stage in ("builder", "tester"):
             with self.subTest(stage=stage):
                 self.state = copy.deepcopy(before)
                 self.empty_execution_repair(stage)
@@ -1695,7 +1691,7 @@ class RepairTests(unittest.TestCase):
                 self.assertEqual(2, self.state["pending_report_repair"]["attempts"])
 
     def test_saved_empty_execution_repair_hold_keeps_its_remaining_attempt(self):
-        self.empty_execution_repair("sol")
+        self.empty_execution_repair("tester")
         self.state["status"] = "PAUSED_REPORT_REPAIR_INPUT"
         before = copy.deepcopy(self.state)
         self.assertFalse(runner.prepare_exhausted_execution_report_retry(self.state, self.run, self.root))
@@ -1705,14 +1701,14 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(2, self.state["pending_report_repair"]["attempts"])
 
     def test_empty_execution_original_starts_a_fresh_attempt(self):
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         self.queue(report="")
         # Nothing remains to correct, so the runner discards the repair for a fresh attempt itself.
         self.assert_repair_restarted()
 
     def test_unlaunchable_repair_without_a_pending_repair_admits_nothing(self):
         self.state["settings"]["joint_planning"] = True
-        for stage in ("terra", "astra_finalize"):
+        for stage in ("builder", "finalize_plan"):
             with self.subTest(stage=stage):
                 self.state.update(status="PAUSED_REPORT_REPAIR_INPUT", next_stage=stage)
                 before = copy.deepcopy(self.state)
@@ -1727,7 +1723,7 @@ class RepairTests(unittest.TestCase):
             again.pop("failure_attempt", None)
             again["iteration"] = iteration
             runner.failures.record(self.state, again, ValueError("Missing summary"), runner.now())
-        self.state.update(status="PAUSED_REPORT_REPAIR_INPUT", next_stage="terra")
+        self.state.update(status="PAUSED_REPORT_REPAIR_INPUT", next_stage="builder")
         expected = copy.deepcopy(pending)
         with self.assertRaises(support.Paused) as stopped:
             runner.prepare_exhausted_execution_report_retry(self.state, self.run, self.root)
@@ -1739,30 +1735,30 @@ class RepairTests(unittest.TestCase):
     def test_abandoned_sol_repair_retries_sol_instead_of_astra_review(self):
         pending = self.queue()
         pending["attempts"] = 2
-        pending["original"].update(stage="sol", role="sol")
+        pending["original"].update(stage="tester", role="tester")
         abandoned = {
-            "stage": "sol_report_repair",
-            "role": "sol",
+            "stage": "tester_report_repair",
+            "role": "tester",
             "iteration": 5,
             "output": str(self.run / "iterations/005/sol_report_repair-01.json"),
             "abandoned": True,
         }
         self.state["stages"].append(abandoned)
-        self.state["recovery_context"] = {"role": "sol", "attempt_id": runner.attempt_id(abandoned)}
-        self.state.update(status="PAUSED_REPORT_REPAIR_LIMIT", next_stage="astra_review")
+        self.state["recovery_context"] = {"role": "tester", "attempt_id": runner.attempt_id(abandoned)}
+        self.state.update(status="PAUSED_REPORT_REPAIR_LIMIT", next_stage="review_completion")
         self.assertTrue(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual("tester", self.state["next_stage"])
         self.assertNotIn("pending_report_repair", self.state)
 
     def test_execution_retry_requires_an_exhausted_clean_execution_checkpoint(self):
         pending = self.queue()
         pending["attempts"] = 2
-        self.state.update(status="PAUSED_REPORT_REPAIR_LIMIT", next_stage="astra_plan")
+        self.state.update(status="PAUSED_REPORT_REPAIR_LIMIT", next_stage="plan_task")
         before = copy.deepcopy(self.state)
         self.assertFalse(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
         self.assertEqual(before, self.state)
-        self.state["next_stage"] = "terra"
-        self.state["active_stage"] = {"stage": "terra"}
+        self.state["next_stage"] = "builder"
+        self.state["active_stage"] = {"stage": "builder"}
         before = copy.deepcopy(self.state)
         self.assertFalse(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
         self.assertEqual(before, self.state)
@@ -1853,7 +1849,7 @@ class RepairTests(unittest.TestCase):
         self.assertFalse(call["allow_write"])
         self.assertTrue(call["report_only"])
         self.assertEqual("read-only", call["sandbox"])
-        self.assertEqual("model-terra", call["model"])
+        self.assertEqual("model-builder", call["model"])
         self.assertIn("Do not redo implementation", call["prompt"])
         self.assertIn("modify repository source", call["prompt"])
         self.assertNotIn("rerun tests, modify files", call["prompt"])
@@ -1879,7 +1875,7 @@ class RepairTests(unittest.TestCase):
         self.assertIn(
             "each at run/<its file name>", launch.call_args.kwargs["prompt"].split("CURRENT HANDOFF DATA\n")[0]
         )
-        self.assertEqual("", runner.jobs.repair_rules("terra"))
+        self.assertEqual("", runner.jobs.repair_rules("builder"))
 
     def test_a_probing_job_repair_keeps_its_own_rules_and_the_probe_definition(self):
         # Live run 2026-10-21: a job's repair wrote "probe": "event:prt_…" because the repair prompt
@@ -1888,7 +1884,7 @@ class RepairTests(unittest.TestCase):
         self.assertIn("A probe is a shell command run from the repository root", rules)
         self.assertIn("is not a citation", rules)
         # A build-pipeline stage keeps none.
-        self.assertEqual("", runner.jobs.repair_rules("terra"))
+        self.assertEqual("", runner.jobs.repair_rules("builder"))
 
     def test_a_probing_job_repair_is_told_its_probe_must_fail_on_a_counterexample(self):
         # Live run 20261021-001305-chat-25ca74: the second repair's probe was `python3 -c 'assert 2 + 2 == 4'`,
@@ -1903,7 +1899,7 @@ class RepairTests(unittest.TestCase):
             runner.autopilot.apply_review_result(
                 runner,
                 self.state,
-                "sol",
+                "tester",
                 {"verdict": "PASS", "checks": [], "criterion_results": [], "evidence_refs": []},
                 {"events": str(self.run / "none.jsonl"), "source_revision": "r", "output": "sol-01.json"},
                 self.root,
@@ -1928,7 +1924,7 @@ class RepairTests(unittest.TestCase):
             runner.autopilot.apply_review_result(
                 runner,
                 self.state,
-                "sol",
+                "tester",
                 {
                     "verdict": "PASS",
                     "checks": [{"command": command, "exit_code": 1, "evidence_ref": "event:prt_9"}],
@@ -1961,7 +1957,7 @@ class RepairTests(unittest.TestCase):
             runner.autopilot.apply_review_result(
                 runner,
                 self.state,
-                "sol",
+                "tester",
                 {
                     "verdict": "PASS",
                     "checks": [
@@ -2010,7 +2006,7 @@ class RepairTests(unittest.TestCase):
             runner.autopilot.apply_review_result(
                 runner,
                 self.state,
-                "sol",
+                "tester",
                 {
                     "verdict": "PASS",
                     "checks": [{"command": "python -m unittest", "exit_code": 0, "evidence_ref": "event:prt_1"}],
@@ -2066,18 +2062,18 @@ class RepairTests(unittest.TestCase):
         original_events = pending["original"]["events"]
         output = self.run / "repair-output.json"
         output.write_text("{}")
-        repair = {"stage": "terra_report_repair", "events": "repair-events", "output": str(output)}
+        repair = {"stage": "builder_report_repair", "events": "repair-events", "output": str(output)}
 
         def apply(state, stage, value, record, workspace, run):
             self.assertEqual(original_events, record["events"])
             state["stages"].append(record)
             state["history"].append(record)
-            state["next_stage"] = "sol"
+            state["next_stage"] = "tester"
 
         with patch.object(runner, "apply_result", side_effect=apply):
             runner.accept_repaired_report(self.state, self.run, self.root, {}, repair)
         self.assertEqual(2, len(self.state["stages"]))
-        self.assertEqual("terra_report_repair", self.state["stages"][-1]["stage"])
+        self.assertEqual("builder_report_repair", self.state["stages"][-1]["stage"])
         self.assertNotIn("pending_report_repair", self.state)
 
     def test_acceptance_restores_rewritten_history_and_keeps_the_repair_fix(self):
@@ -2099,7 +2095,7 @@ class RepairTests(unittest.TestCase):
         output = self.run / "repair-output.json"
         repaired = {**original_value, "results": ["PASS"], "remaining_risks": [], "summary": "Fixed evidence ref"}
         output.write_text(json.dumps(repaired))
-        repair = {"stage": "terra_report_repair", "events": "repair-events", "output": str(output)}
+        repair = {"stage": "builder_report_repair", "events": "repair-events", "output": str(output)}
         applied = {}
 
         def apply(state, stage, value, record, workspace, run):
@@ -2119,11 +2115,11 @@ class RepairTests(unittest.TestCase):
         pending = self.queue()
         pending["attempts"] = 2
         self.state["settings"].update(engine="opencode")
-        self.state["settings"]["roles"]["terra"].update(
+        self.state["settings"]["roles"]["builder"].update(
             engine="opencode", provider=None, model="openai/gpt-6-sol", reasoning_effort="medium"
         )
         repair = copy.deepcopy(pending["original"])
-        repair.update(stage="terra_report_repair", report_only=True)
+        repair.update(stage="builder_report_repair", report_only=True)
         self.state["active_stage"] = repair
         with patch.object(runner, "apply_result", side_effect=ValueError("invalid repaired report")):
             with self.assertRaises(support.Paused):
@@ -2136,16 +2132,16 @@ class RepairTests(unittest.TestCase):
         self.assertTrue(saved["stages"][-1]["rejected"])
         self.assertEqual("PAUSED_INVALID_OUTPUT", saved["status"])
         self.assertEqual("GPT-6 Sol High", saved["reasoning_escalations"][-1]["selected"]["profile"])
-        self.assertNotIn("terra", saved["sessions"])
+        self.assertNotIn("builder", saved["sessions"])
 
     def test_a_rejected_task_plan_leaves_the_astra_route_where_it_was(self):
-        """The per-task Planner (astra_plan) runs on the astra route, which no longer climbs GPT-6 Astra
+        """The per-task Planner (plan_task) runs on the astra route, which no longer climbs GPT-6 Astra
         (#1345): a task plan rejected once report repair is spent pauses on the route it had."""
         self.state["settings"].update(engine="opencode", report_repair={"max_attempts": 0})
         self.state["settings"]["roles"]["task_planner"].update(
             engine="opencode", provider=None, model="openai/gpt-6-astra", reasoning_effort="high"
         )
-        record = self.stage_record(stage="astra_plan", role="task_planner")
+        record = self.stage_record(stage="plan_task", role="task_planner")
         with self.assertRaises(support.Paused) as paused:
             runner.reject_completed_stage(self.state, self.run, record, ValueError("Missing task id"))
         self.assertEqual("PAUSED_INVALID_OUTPUT", paused.exception.status)
@@ -2162,9 +2158,9 @@ class RepairTests(unittest.TestCase):
 
     def test_retry_does_not_clear_uncertain_or_implementation_attempt(self):
         for stage, active in [
-            ("terra", None),
-            ("astra_discovery", {"rejected": True, "exit_code": 0, "timed_out": True}),
-            ("astra_discovery", {"exit_code": 0}),
+            ("builder", None),
+            ("draft_plan", {"rejected": True, "exit_code": 0, "timed_out": True}),
+            ("draft_plan", {"exit_code": 0}),
         ]:
             self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage=stage, active_stage=active)
             before = copy.deepcopy(self.state)
@@ -2181,13 +2177,13 @@ class RepairTests(unittest.TestCase):
         # Issue #968 live shape: the repair's job rewrote its own pinned report
         # file, so the pre-repair pin deadlocked every retry as stale. The
         # accepted repair must re-pin its self-written paths before validation.
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         pending = self.queue(report='{"summary":"original draft"}')
         pending["attempts"] = 1
         original = pending["original"]
         before = copy.deepcopy(pending["pins"])
         repair = copy.deepcopy(original)
-        repair.update(stage="terra_report_repair", original_stage="terra", report_only=True, exit_code=0)
+        repair.update(stage="builder_report_repair", original_stage="builder", report_only=True, exit_code=0)
         Path(repair["output"]).write_text('{"summary":"repaired draft"}')  # the repair's self-write
         hold = runner.result_application.receipts.OwnershipUncertain
         with patch.object(runner, "apply_result", side_effect=hold("fixture ownership hold")):
@@ -2203,14 +2199,14 @@ class RepairTests(unittest.TestCase):
 
     def test_t2_external_change_to_unwritten_pin_still_blocks(self):
         # A pin the repair did not write keeps guarding external changes (#968).
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         pending = self.queue(report='{"summary":"original draft"}')
         pending["attempts"] = 1
         original = pending["original"]
         repair = {
             "role": original["role"],
-            "stage": "terra_report_repair",
-            "original_stage": "terra",
+            "stage": "builder_report_repair",
+            "original_stage": "builder",
             "report_only": True,
             "iteration": original["iteration"],
             "exit_code": 0,
@@ -2232,13 +2228,13 @@ class RepairTests(unittest.TestCase):
         # AC5: the schema is the repair's input, never one of its writes, so its
         # pin is never refreshed — a changed schema must still block acceptance
         # even when the repair record carries the same pinned path.
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         pending = self.queue(report='{"summary":"original draft"}')
         pending["attempts"] = 1
         original = pending["original"]
         before = copy.deepcopy(pending["pins"])
         repair = copy.deepcopy(original)
-        repair.update(stage="terra_report_repair", original_stage="terra", report_only=True, exit_code=0)
+        repair.update(stage="builder_report_repair", original_stage="builder", report_only=True, exit_code=0)
         Path(repair["output"]).write_text('{"summary":"repaired draft"}')
         Path(repair["schema"]).write_text('{"type":"object","required":["invented-field"]}')
         with patch.object(runner, "apply_result") as applied, self.assertRaises(support.Paused) as stopped:
@@ -2251,13 +2247,13 @@ class RepairTests(unittest.TestCase):
     def test_ac6_missing_written_pin_leaves_all_pins_unchanged(self):
         # AC6: a claimed-written pinned file missing from disk fails closed
         # before any pin mutation — in memory and in the saved state alike.
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         pending = self.queue(report='{"summary":"original draft"}')
         pending["attempts"] = 1
         original = pending["original"]
         before = copy.deepcopy(pending["pins"])
         repair = copy.deepcopy(original)
-        repair.update(stage="terra_report_repair", original_stage="terra", report_only=True, exit_code=0)
+        repair.update(stage="builder_report_repair", original_stage="builder", report_only=True, exit_code=0)
         Path(repair["output"]).write_text('{"summary":"repaired draft"}')
         Path(repair["events"]).unlink()
         with patch.object(runner, "apply_result") as applied, self.assertRaises(support.Paused) as stopped:
@@ -2274,7 +2270,7 @@ class RepairSubprocessTests(unittest.TestCase):
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ("--engine", "codex")
 
-    def timeout_provider(self, mode="first", stage="astra_discovery"):
+    def timeout_provider(self, mode="first", stage="draft_plan"):
         provider = self.root / "fixture-bin/codex"
         real = provider.with_name("real_codex.py")
         provider.rename(real)
@@ -2335,14 +2331,12 @@ raise SystemExit(subprocess.run([sys.executable, {str(real)!r}, *sys.argv[1:]], 
         old_output.write_text(json.dumps(value))
         active = copy.deepcopy(original)
         active.update(
-            stage="astra_discovery_report_repair",
+            stage="draft_plan_report_repair",
             report_only=True,
             rejected=True,
             rejection_reason="A feedback-based decision needs an actual saved feedback event",
         )
-        state.update(
-            status="PAUSED_INVALID_OUTPUT", next_stage="astra_discovery", pending_questions=[], active_stage=active
-        )
+        state.update(status="PAUSED_INVALID_OUTPUT", next_stage="draft_plan", pending_questions=[], active_stage=active)
         state["pending_report_repair"] = {
             "original": original,
             "attempts": 2,
@@ -2364,24 +2358,24 @@ raise SystemExit(subprocess.run([sys.executable, {str(real)!r}, *sys.argv[1:]], 
         self.assertEqual(2, saved["report_repair_archive"][-1]["repair"]["attempts"])
 
     def test_completed_implementation_is_not_replayed_to_fix_report(self):
-        self.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE="terra")
+        self.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE="builder")
         self.launch(["Build greeting", "--chat"], 0, answers="CLI\nyes\n")
         _, state = self.saved()
         self.assertEqual("COMPLETE", state["phase"])
-        self.assertEqual(1, sum(r["stage"] == "terra" for r in state["stages"]))
-        repairs = [r for r in state["stages"] if r["stage"] == "terra_report_repair"]
+        self.assertEqual(1, sum(r["stage"] == "builder" for r in state["stages"]))
+        repairs = [r for r in state["stages"] if r["stage"] == "builder_report_repair"]
         self.assertEqual(1, len(repairs))
         self.assertIn("read-only", repairs[0]["command"])
         self.assertNotIn("resume", repairs[0]["command"])
         self.assertEqual(1, len(state["report_repair_history"]))
 
     def test_planning_report_repair_does_not_restart_discovery_or_approve_goal(self):
-        self.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE="astra_discovery")
+        self.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE="draft_plan")
         self.launch(["Build greeting", "--no-chat"], 2)
         _, state = self.saved()
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.assertEqual(
-            ["astra_discovery", "astra_discovery_report_repair"],
+            ["draft_plan", "draft_plan_report_repair"],
             [r["stage"] for r in state["stages"]],
         )
         self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
@@ -2482,7 +2476,7 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
             return reference, receipt
 
         observe('provider', sandbox=args.sandbox)
-        if stage == 'sol' and repairing:
+        if stage == 'tester' and repairing:
             assert args.sandbox == 'read-only', 'Repair must keep the existing read-only route'
             run_dir = Path(data['state_file']).parent  # A public handoff path, never read state.json.
             status = subprocess.run(
@@ -2533,7 +2527,7 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
                 print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, 'output_tokens': 1}}), flush=True)
         else:
             report, provider_events = delegated_report()
-            reference, receipt = capture(fault=args.fault if stage == 'sol' else None)
+            reference, receipt = capture(fault=args.fault if stage == 'tester' else None)
             report = replace_event_refs(report, reference)
             if report.get('commands_run'):
                 report['commands_run'] = [shlex.join(receipt['command'])]
@@ -2541,7 +2535,7 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
                 report['checks_run'] = [shlex.join(receipt['command'])]
             for check in report.get('checks', []):
                 check.update(command=shlex.join(receipt['command']), exit_code=receipt['exit_code'], evidence_ref=reference)
-            if stage == 'sol':
+            if stage == 'tester':
                 assert len(report['checks']) == 1
                 if args.fault == 'wrong_command':
                     report['checks'][0]['command'] = shlex.join([sys.executable, '-m', 'unittest', 'placeholder.py'])
@@ -2579,7 +2573,7 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
             "--sandbox",
             "{sandbox}",
         ]
-        roles = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+        roles = ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
         config.write_text(
             'name = "receipt_repair_fixture"\noutput = '
             + json.dumps(getattr(self, "PROVIDER_OUTPUT", "report_file"))
@@ -2627,15 +2621,15 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
         self.assertEqual(1, view["efficiency"]["by_category"]["report_repair"]["attempts"])
         rows = self.observations()
         providers = [row for row in rows if row["kind"] == "provider"]
-        self.assertEqual(1, sum(row["stage"] == "terra" and not row["repairing"] for row in providers))
-        self.assertEqual(1, sum(row["stage"] == "sol" and not row["repairing"] for row in providers))
-        (repair,) = [row for row in rows if row["kind"] == "repair" and row["stage"] == "sol"]
+        self.assertEqual(1, sum(row["stage"] == "builder" and not row["repairing"] for row in providers))
+        self.assertEqual(1, sum(row["stage"] == "tester" and not row["repairing"] for row in providers))
+        (repair,) = [row for row in rows if row["kind"] == "repair" and row["stage"] == "tester"]
         self.assertTrue(repair["authenticated"])
         self.assertEqual([mismatch], repair["mismatch_fields"])
         self.assertEqual(
             ("REPORT_REPAIR", False, "read-only"), (repair["public_phase"], repair["public_done"], repair["sandbox"])
         )
-        (capture,) = [row for row in rows if row["kind"] == "capture" and row["stage"] == "sol"]
+        (capture,) = [row for row in rows if row["kind"] == "capture" and row["stage"] == "tester"]
         self.assertFalse(capture["repairing"], "Report repair may not execute another check")
         for field, digest_field in (("receipt_path", "receipt_sha256"), ("output_path", "output_sha256")):
             self.assertEqual(capture[digest_field], repair[digest_field])
@@ -2654,19 +2648,19 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
         self.assertFalse(view["done"], view)
         self.assertNotEqual("TASK_COMPLETE", view["status"], view)
         rows = self.observations()
-        repairs = [row for row in rows if row["kind"] == "repair" and row["stage"] == "sol"]
+        repairs = [row for row in rows if row["kind"] == "repair" and row["stage"] == "tester"]
         self.assertTrue(repairs, rows)
         self.assertTrue(all(row["authenticated"] is False for row in repairs))
         self.assertTrue(all(row["context_present"] is False for row in repairs))
         self.assertTrue(all(row["public_phase"] == "REPORT_REPAIR" and row["public_done"] is False for row in repairs))
         self.assertTrue(all(row["sandbox"] == "read-only" for row in repairs))
         providers = [row for row in rows if row["kind"] == "provider"]
-        repair_providers = [row for row in providers if row["stage"] == "sol" and row["repairing"]]
+        repair_providers = [row for row in providers if row["stage"] == "tester" and row["repairing"]]
         self.assertTrue(repair_providers, rows)
         self.assertEqual(len(repair_providers), len(repairs))
-        self.assertEqual(1, sum(row["stage"] == "terra" and not row["repairing"] for row in providers))
-        self.assertEqual(1, sum(row["stage"] == "sol" and not row["repairing"] for row in providers))
-        self.assertFalse(any(row["stage"] == "sol" and row["repairing"] for row in rows if row["kind"] == "capture"))
+        self.assertEqual(1, sum(row["stage"] == "builder" and not row["repairing"] for row in providers))
+        self.assertEqual(1, sum(row["stage"] == "tester" and not row["repairing"] for row in providers))
+        self.assertFalse(any(row["stage"] == "tester" and row["repairing"] for row in rows if row["kind"] == "capture"))
         # Reopening without explicit recovery must not dispatch another provider.
         observed = self.probe.read_bytes()
         with contextlib.suppress(TaskRunError):
@@ -2722,7 +2716,7 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
                 argv = [sys.executable, '-c', 'print("synthetic planning observation")']
             result = subprocess.run(argv, text=True, capture_output=True)
             command = shlex.join(argv)
-            if stage == 'sol' and args.fault == 'old_verdict' and not repairing:
+            if stage == 'tester' and args.fault == 'old_verdict' and not repairing:
                 # A saved verdict is display data, not a fresh authoritative command event.
                 emit('tool_use', id='synthetic-old-proof', tool='read', state={
                     'status': 'completed', 'input': {'filePath': 'prior-report.json'},
@@ -2749,7 +2743,7 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
 
         observe('provider', sandbox=args.sandbox)
         emit('step_start')
-        if stage == 'sol' and repairing:
+        if stage == 'tester' and repairing:
             assert args.sandbox == 'read-only'
             originals = data['original_executed_checks']
             if args.fault == 'old_verdict':
@@ -2781,7 +2775,7 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
             event_id = 'synthetic-original-' + stage
             command = execute(event_id)
             reference = 'event:' + event_id
-            if args.fault == 'report_file' and stage != 'sol':
+            if args.fault == 'report_file' and stage != 'tester':
                 # Preserve the existing receipt-only provider policy for every other stage.
                 reference = '.autocode/evidence/synthetic-' + uuid.uuid4().hex + '.json'
                 captured = subprocess.run(
@@ -2800,7 +2794,7 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
                 report['checks_run'] = [command]
             for check in report.get('checks', []):
                 check.update(command=command, exit_code=0, evidence_ref=reference)
-            if stage == 'sol':
+            if stage == 'tester':
                 assert len(report['checks']) == 1
                 # Only this metadata error requires repair; the executed check is genuine.
                 report['checks'][0]['command'] = 'python3 -m unittest -q'
@@ -2849,10 +2843,10 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
                         self.assertEqual("TASK_COMPLETE", view["status"], status_summary)
                         self.assertTrue(view["done"], status_summary)
                         self.assertEqual(1, view["efficiency"]["by_category"]["report_repair"]["attempts"])
-                        self.assertEqual(1, sum(row["stage"] == "sol" and not row["repairing"] for row in providers))
+                        self.assertEqual(1, sum(row["stage"] == "tester" and not row["repairing"] for row in providers))
                         self.assertEqual(1, len(repairs))
                         self.assertTrue(
-                            any(row["stage"] == "astra_review" and not row["repairing"] for row in providers)
+                            any(row["stage"] == "review_completion" and not row["repairing"] for row in providers)
                         )
                         self.assertFalse(any(row["stage"] == "investigate_stuck" for row in providers))
                         self.assertFalse(any(row["repairing"] for row in rows if row["kind"] == "execution"))
@@ -2871,7 +2865,7 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
                         # rejected evidence must never reach that accepted-report boundary.
                         if fault != "fail_report":
                             self.assertFalse(
-                                any(row["stage"] == "astra_review" and not row["repairing"] for row in providers)
+                                any(row["stage"] == "review_completion" and not row["repairing"] for row in providers)
                             )
                         if fault in ("unknown", "repair_only", "foreign_attempt", "old_verdict"):
                             self.assertTrue(

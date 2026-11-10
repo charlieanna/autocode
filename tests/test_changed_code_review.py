@@ -29,11 +29,11 @@ def assessment():
     )
 
 
-def wire(stage="sol", state=None):
+def wire(stage="tester", state=None):
     schema = (
         workflow.checkpoint_schema(SCHEMAS)
-        if stage == "astra_checkpoint"
-        else roles.role_schema(json.loads((SCHEMAS / "v2/sol-report.schema.json").read_text()), "sol")
+        if stage == "review_checkpoint"
+        else roles.role_schema(json.loads((SCHEMAS / "v2/sol-report.schema.json").read_text()), "tester")
     )
     return model_output_schema(
         reports.review_generation_schema(
@@ -54,8 +54,8 @@ class ChangedCodeReviewTests(unittest.TestCase):
             "evidence_refs": ["check:1", "calc.py"],
         }
         self.record = {
-            "stage": "sol",
-            "role": "sol",
+            "stage": "tester",
+            "role": "tester",
             "source_revision": "source-one",
             "changed_files": [],
             "output": "/run/tester.json",
@@ -73,22 +73,22 @@ class ChangedCodeReviewTests(unittest.TestCase):
         )
 
     def test_generation_offers_only_current_gaps_without_mutating_schema_or_state(self):
-        schema = roles.role_schema(json.loads((SCHEMAS / "v2/sol-report.schema.json").read_text()), "sol")
+        schema = roles.role_schema(json.loads((SCHEMAS / "v2/sol-report.schema.json").read_text()), "tester")
         state = {"regression_proof": {"changed_code_evidence": self.assessment}}
         original = copy.deepcopy((schema, state))
-        field = reports.review_generation_schema(schema, state, "sol")["properties"][review.FIELD]
+        field = reports.review_generation_schema(schema, state, "tester")["properties"][review.FIELD]
         self.assertEqual(["L1", self.gap["gap_id"]], field["items"]["properties"]["gap_id"]["enum"])
         self.assertEqual(1, field["maxItems"])
         self.assertEqual(["array", "null"], field["type"])
         self.assertNotIn(review.FIELD, schema["required"])
         self.assertEqual(original, (schema, state))
-        field = reports.review_generation_schema(schema, {}, "sol")["properties"][review.FIELD]
+        field = reports.review_generation_schema(schema, {}, "tester")["properties"][review.FIELD]
         self.assertEqual(0, field["maxItems"])
         with self.assertRaises(ValueError):
             validate_schema([self.decision], field)
 
     def test_checkpoint_offers_same_binding_but_builder_self_check_does_not(self):
-        field = wire("astra_checkpoint")["properties"]["validation"]["properties"][review.FIELD]
+        field = wire("review_checkpoint")["properties"]["validation"]["properties"][review.FIELD]
         self.assertEqual(["L1", self.gap["gap_id"]], field["items"]["properties"]["gap_id"]["enum"])
         builder = workflow.implementation_schema(SCHEMAS)
         self.assertNotIn(
@@ -96,7 +96,7 @@ class ChangedCodeReviewTests(unittest.TestCase):
         )
         before = copy.deepcopy(builder)
         result = reports.review_generation_schema(
-            builder, {"regression_proof": {"changed_code_evidence": self.assessment}}, "terra"
+            builder, {"regression_proof": {"changed_code_evidence": self.assessment}}, "builder"
         )
         self.assertNotIn(
             review.FIELD, result["properties"]["continuation"]["properties"]["self_assessment"]["properties"]
@@ -109,7 +109,7 @@ class ChangedCodeReviewTests(unittest.TestCase):
         self.assertEqual("source-one", bound[0]["source_revision"])
         self.assertEqual("proof-one", bound[0]["proof_context"])
         self.assertEqual(["event:verified", "/workspace/calc.py"], bound[0]["evidence"])
-        self.assertEqual({"stage": "sol", "role": "sol", "output": "/run/tester.json"}, bound[0]["reviewer"])
+        self.assertEqual({"stage": "tester", "role": "tester", "output": "/run/tester.json"}, bound[0]["reviewer"])
         result = evidence.assess(
             [{"path": "calc.py", "sha256": "a" * 64, "lines": [2]}],
             None,
@@ -188,9 +188,9 @@ class ChangedCodeReviewTests(unittest.TestCase):
 
     def test_checkpoint_and_original_stage_repair_are_independent(self):
         for stage, role, original in (
-            ("astra_checkpoint", "task_planner", None),
-            ("sol_report_repair", "sol", "sol"),
-            ("astra_checkpoint_report_repair", "task_planner", "astra_checkpoint"),
+            ("review_checkpoint", "task_planner", None),
+            ("tester_report_repair", "tester", "tester"),
+            ("review_checkpoint_report_repair", "task_planner", "review_checkpoint"),
         ):
             with self.subTest(stage=stage):
                 record = {**self.record, "stage": stage, "role": role}
@@ -201,10 +201,10 @@ class ChangedCodeReviewTests(unittest.TestCase):
 
     def test_builder_self_check_wrong_role_and_source_edits_never_authorize(self):
         for patch in (
-            {"stage": "terra", "role": "terra"},
-            {"stage": "self_check", "role": "terra"},
-            {"stage": "astra_review", "role": "task_planner"},
-            {"role": "terra"},
+            {"stage": "builder", "role": "builder"},
+            {"stage": "self_check", "role": "builder"},
+            {"stage": "review_completion", "role": "task_planner"},
+            {"role": "builder"},
             {"source_revision": "other"},
             {"changed_files": ["calc.py"]},
             {"output": ""},
@@ -249,9 +249,9 @@ class ChangedCodeReviewTests(unittest.TestCase):
         self.assertEqual("UNVERIFIED", self.assessment["status"])
 
     def test_real_loader_preserves_legacy_raw_and_defaults_only_nullable_tester_field(self):
-        for stage in ("sol", "astra_checkpoint", "sol_report_repair", "astra_checkpoint_report_repair"):
+        for stage in ("tester", "review_checkpoint", "tester_report_repair", "review_checkpoint_report_repair"):
             base = stage.removesuffix("_report_repair")
-            nested = base == "astra_checkpoint"
+            nested = base == "review_checkpoint"
             fields = {review.FIELD: copy.deepcopy(review.SCHEMA)}
             schema = roles.obj({"validation": roles.obj(fields)}) if nested else roles.obj(fields)
             raw = {"validation": {}} if nested else {}
@@ -268,11 +268,11 @@ class ChangedCodeReviewTests(unittest.TestCase):
                 self.assertIsNone((loaded["validation"] if nested else loaded)[review.FIELD])
                 self.assertEqual(raw, json.loads(Path(record["reported_output"]).read_text()))
                 self.assertEqual(loaded, runner.load_stage_report(record, state={}))
-        for stage in ("terra", "astra_review"):
+        for stage in ("builder", "review_completion"):
             self.assertEqual({}, reports.normalize_absent_authority({}, roles.obj(fields), {"stage": stage}))
-        self.assertEqual({}, reports.normalize_absent_authority({}, roles.obj({}), {"stage": "sol"}))
+        self.assertEqual({}, reports.normalize_absent_authority({}, roles.obj({}), {"stage": "tester"}))
         supplied = {review.FIELD: [self.decision]}
-        self.assertEqual(supplied, reports.normalize_absent_authority(supplied, roles.obj(fields), {"stage": "sol"}))
+        self.assertEqual(supplied, reports.normalize_absent_authority(supplied, roles.obj(fields), {"stage": "tester"}))
 
     def test_public_verification_projection_copies_reasons_gaps_and_fallback(self):
         state = {"regression_proof": {"changed_code_evidence": self.assessment}}
@@ -312,19 +312,19 @@ class TesterOnlyGapTests(unittest.TestCase):
         self.schema = Path(folder.name) / "tester.schema.json"
         self.schema.write_text(json.dumps(wire(state={"regression_proof": {"changed_code_evidence": self.assessment}})))
         self.state = {"regression_proof": {"changed_code_evidence": self.assessment, "path": "/run/proof.json"}}
-        self.record = {"stage": "sol", "source_revision": "source-one", "schema": str(self.schema)}
+        self.record = {"stage": "tester", "source_revision": "source-one", "schema": str(self.schema)}
 
     def test_only_the_line_with_no_mutation_outcome_needs_the_testers_decision(self):
         self.assertEqual("reason_required", self.no_site["status"])
         self.assertEqual([], self.no_site["mutation_outcomes"])
         self.assertTrue(self.survivor["mutation_outcomes"])
         offered = json.loads(self.schema.read_text())
-        self.assertEqual([self.no_site], review.tester_only_gaps(self.assessment, [], offered, "sol"))
+        self.assertEqual([self.no_site], review.tester_only_gaps(self.assessment, [], offered, "tester"))
         decided = [{"gap_id": self.no_site["gap_id"], "decision": "reject"}]
-        self.assertEqual([], review.tester_only_gaps(self.assessment, decided, offered, "sol"))
+        self.assertEqual([], review.tester_only_gaps(self.assessment, decided, offered, "tester"))
         by_handle = [{"gap_id": self.no_site["handle"], "decision": "reject"}]
-        self.assertEqual([], review.tester_only_gaps(self.assessment, by_handle, offered, "sol"))
-        self.assertEqual([], review.tester_only_gaps(self.assessment, [], {"properties": {}}, "sol"))
+        self.assertEqual([], review.tester_only_gaps(self.assessment, by_handle, offered, "tester"))
+        self.assertEqual([], review.tester_only_gaps(self.assessment, [], {"properties": {}}, "tester"))
 
     def test_a_pass_that_leaves_it_undecided_is_returned_for_that_decision(self):
         import autocode_changed_code_review_application as application
@@ -338,7 +338,7 @@ class TesterOnlyGapTests(unittest.TestCase):
         self.assertIn("/run/proof.json", str(raised.exception))
         for value, record in (
             ({"verdict": "FAIL", "changed_code_exceptions": []}, self.record),
-            ({"verdict": "PASS", "changed_code_exceptions": None}, {**self.record, "stage": "sol_report_repair"}),
+            ({"verdict": "PASS", "changed_code_exceptions": None}, {**self.record, "stage": "tester_report_repair"}),
             # autocode_repaired_result applies a repaired report with its original stage's record, so
             # the bounded repair is recognized by report_repaired: an undecided gap it leaves goes to
             # the Builder and Investigator rounds instead of rejecting the whole repaired PASS.
@@ -415,7 +415,7 @@ class TesterOnlyGapTests(unittest.TestCase):
         state = {"regression_proof": {"changed_code_evidence": self.assessment, "path": str(proof)}}
         record = {
             **self.record,
-            "role": "sol",
+            "role": "tester",
             "changed_files": [],
             "output": str(workspace / ".autocode/runs/run-1/tester.json"),
         }
@@ -455,10 +455,10 @@ class TesterOnlyGapTests(unittest.TestCase):
             "current_task": {"id": "task-1"},
             "goal_contract": {"hash": "h" * 64, "revision": 1},
         }
-        record = {"stage": "sol", "role": "sol", "source_revision": "source-one", "output": "/run/tester.json"}
+        record = {"stage": "tester", "role": "tester", "source_revision": "source-one", "output": "/run/tester.json"}
         rejected = [{"path": "calc.py", "line": 3, "reason": "No test calls adjust(0); add one asserting 0."}]
         self.assertTrue(rework.route(state, record, investigation_enabled=False, rejected=rejected))
-        self.assertEqual(("terra", "builder"), (state["next_stage"], state["regression_proofs"][-1]["action"]))
+        self.assertEqual(("builder", "builder"), (state["next_stage"], state["regression_proofs"][-1]["action"]))
         self.assertIn(
             "Tester rejected a reason for calc.py:3: No test calls adjust(0); add one asserting 0.",
             state["next_action"],

@@ -108,7 +108,7 @@ def _queued(state: RunState):
 
 
 def _stage(event):
-    return "astra_finalize" if (event.get("context") or {}).get("kind") == "coordinated_plan" else "requirements_gather"
+    return "finalize_plan" if (event.get("context") or {}).get("kind") == "coordinated_plan" else "requirements_gather"
 
 
 def resume_stage(state: RunState):
@@ -189,9 +189,7 @@ def accept(state: RunState, value, record):
         or state.get("status") != "RUNNING"
         or state.get("next_stage")
         != (
-            "astra_finalize"
-            if (event.get("context") or {}).get("kind") == "coordinated_plan"
-            else "requirements_gather"
+            "finalize_plan" if (event.get("context") or {}).get("kind") == "coordinated_plan" else "requirements_gather"
         )
         or value.get("message_id") != event["id"]
         or value.get("contract_token") != event["contract_token"]

@@ -51,7 +51,7 @@ class NeedsActionsCliTests(unittest.TestCase):
         )
         view = run.status()
         for _ in range(16):
-            if view["status"] == "PAUSED_REQUESTED" and view["next_stage"] == "astra_resolve":
+            if view["status"] == "PAUSED_REQUESTED" and view["next_stage"] == "resolve":
                 break
             view = self.progress(run, view)
         else:
@@ -94,8 +94,8 @@ class NeedsActionsCliTests(unittest.TestCase):
         )
         accepted = run.status()
         self.assertEqual("PAUSED_REQUESTED", accepted["status"], self.details(accepted))
-        self.assertEqual("terra", accepted["next_stage"])
-        self.assertEqual(["astra_resolve"], [row["stage"] for row in self.launches()[len(before) :]])
+        self.assertEqual("builder", accepted["next_stage"])
+        self.assertEqual(["resolve"], [row["stage"] for row in self.launches()[len(before) :]])
         self.assertEqual(approved, accepted["approved_contract"])
         self.assertEqual(edited, source.read_bytes(), "Accepting source may launch only the read-only Resolver")
         self.assertNotIn("accept-source-edit", accepted["needs"].get("action", ""))

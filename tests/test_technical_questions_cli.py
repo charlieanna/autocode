@@ -60,7 +60,7 @@ class TechnicalQuestionsCliTests(unittest.TestCase):
         return self.run.advance_until_input()
 
     def test_internal_discovery_and_revision_questions_need_no_human_answer(self):
-        for stage in ("astra_discovery", "glm_revise"):
+        for stage in ("draft_plan", "revise_plan"):
             with self.subTest(stage=stage):
                 view = self.run_question(stage, "technical")
                 self.assertEqual("approve_plan", view["needs"]["kind"], (view["status"], view["stop_reason"]))
@@ -69,36 +69,36 @@ class TechnicalQuestionsCliTests(unittest.TestCase):
                 self.assertFalse(any("AC4" in row["text"] for row in view["chat"]["messages"]))
                 state = json.loads((self.run.run_dir / "state.json").read_text())
                 reviews = [
-                    row["stage"] for row in state["stages"] if row.get("stage") in ("astra_challenge", "astra_finalize")
+                    row["stage"] for row in state["stages"] if row.get("stage") in ("review_plan", "finalize_plan")
                 ]
-                if stage == "glm_revise":
+                if stage == "revise_plan":
                     # The revision's question was AutoCode's to answer, so the redraft continues the reviewed
                     # cycle: the saved first review and one final review, not a second review from scratch.
                     self.assertEqual(1, len(state["planning_history"]))
-                    self.assertEqual(["astra_challenge", "astra_finalize"], reviews)
+                    self.assertEqual(["review_plan", "finalize_plan"], reviews)
                     self.assertEqual(2, state["planning"]["astra_calls"])
-                    self.assertEqual("astra_finalize", state["planning"]["inherited_review"]["next_stage"])
+                    self.assertEqual("finalize_plan", state["planning"]["inherited_review"]["next_stage"])
                 else:
                     self.assertEqual([], state.get("planning_history", []))
-                    self.assertEqual(["astra_challenge", "astra_finalize"], reviews)
+                    self.assertEqual(["review_plan", "finalize_plan"], reviews)
 
     def test_a_behavior_choice_still_requires_the_human_even_with_a_default(self):
-        view = self.run_question("astra_discovery", "behavior")
+        view = self.run_question("draft_plan", "behavior")
         self.assertEqual("answer", view["needs"]["kind"], (view["status"], view["stop_reason"]))
         self.assertEqual("WAITING_FOR_USER", view["status"])
         self.assertEqual(["internal-proof"], [q["id"] for q in view["needs"]["questions"]])
 
     def test_rephrased_internal_question_repairs_the_report_without_another_full_planner_call(self):
-        view = self.run_question("astra_discovery", "technical", repeat=True)
+        view = self.run_question("draft_plan", "technical", repeat=True)
         self.assertEqual("approve_plan", view["needs"]["kind"], (view["status"], view["stop_reason"]))
         attempts = view["usage"]["accounting"]["attempts"]
-        drafts = [row for row in attempts if row["stage"] == "astra_discovery" and not row["report_only"]]
+        drafts = [row for row in attempts if row["stage"] == "draft_plan" and not row["report_only"]]
         self.assertEqual(2, len(drafts), "A paraphrase must not start a third full Planner pass")
         repairs = [row for row in attempts if row["report_only"]]
         self.assertEqual(1, len(repairs))
-        self.assertEqual("astra_discovery", repairs[0]["original_stage"])
+        self.assertEqual("draft_plan", repairs[0]["original_stage"])
         self.assertTrue(any(row["rejected"] for row in drafts), "Retain the rejected repeated question")
-        self.assertNotIn("terra", [row["stage"] for row in attempts], "A technical default never approves a plan")
+        self.assertNotIn("builder", [row["stage"] for row in attempts], "A technical default never approves a plan")
         reopened = self.run.status()
         self.assertEqual(view["displayed_plan"], reopened["displayed_plan"])
         self.assertEqual(attempts, reopened["usage"]["accounting"]["attempts"])

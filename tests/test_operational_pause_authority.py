@@ -83,13 +83,13 @@ ACKNOWLEDGING = {
     "PAUSED_MILESTONE_BUDGET": ("--max-milestone-seconds", "50000"),
     "PAUSED_NO_PROGRESS": ("--no-progress-limit", "5"),
 }
-STOP_AT_TESTER = {"AUTOCODE_FIXTURE_QUOTA_STAGE": "sol"}  # the admitted stage records its launch, then stops
+STOP_AT_TESTER = {"AUTOCODE_FIXTURE_QUOTA_STAGE": "tester"}  # the admitted stage records its launch, then stops
 FEEDBACK = "Prefer a shorter greeting"
 # Timeout recoveries spent, so --grant-recovery is that pause's own authority.
 SPENT_TIMEOUT_RECOVERIES = dict(
     automatic_recoveries_since_resume=3,
     consecutive_timeout_recoveries=3,
-    automatic_timeout_recoveries=[{"stage": "terra", "timeout_reason": "idle watchdog"} for _ in range(3)],
+    automatic_timeout_recoveries=[{"stage": "builder", "timeout_reason": "idle watchdog"} for _ in range(3)],
 )
 
 
@@ -110,7 +110,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         cls.flow = flow = test_subprocess.SubprocessFlow("setUp")
         flow.setUp()
         cls.addClassCleanup(flow.doCleanups)
-        flow.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_QUOTA_STAGE="astra_review")
+        flow.env.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_QUOTA_STAGE="review_completion")
         flow.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
         run, paused = flow.saved()
         flow.launch(["--run-dir", str(run), "--abandon-stage", runner.attempt_id(paused["active_stage"])], 0)
@@ -128,7 +128,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         shutil.copytree(self.template, self.flow.root, symlinks=True)
         state = self.saved()
         state.setdefault("automatic_permission_recoveries", []).extend(
-            {"stage": "terra", "instruction": "workspace paths only"} for _ in range(2)
+            {"stage": "builder", "instruction": "workspace paths only"} for _ in range(2)
         )
         if edit:
             edit(state)
@@ -259,7 +259,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
 
     def assert_resumes(self, result):
         code, stages, output = result
-        self.assertEqual(["sol"], stages, f"changing the exhausted bound must admit the next stage:\n{output}")
+        self.assertEqual(["tester"], stages, f"changing the exhausted bound must admit the next stage:\n{output}")
 
     # (a) The reported sequences, as real processes: a budget flag for another bound on --resume-paused.
     def test_unrelated_limit_on_resume_never_releases_an_unanswered_operational_pause(self):
@@ -341,7 +341,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         self.assert_intervention_adds_nothing("PAUSED_TIMEOUT_RECOVERY", process=True)
         # Applied by --resume-paused itself, at a stop the answer alone continues: the queued pause was bound
         # into nothing the information was sent for, so it neither retires that answer nor stands in for it.
-        self.assertEqual(["sol"], self.admitted_after_answer("PAUSED_RATE_LIMIT"))
+        self.assertEqual(["tester"], self.admitted_after_answer("PAUSED_RATE_LIMIT"))
         self.assert_intervention_adds_nothing("PAUSED_RATE_LIMIT", process=True, applied_by=("--resume-paused",))
 
     def test_pause_intervention_never_releases_an_unanswered_operational_pause(self):
@@ -679,7 +679,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         for status in STATUSES:
             with self.subTest(status=status):
                 expected = (
-                    (["sol"], ("admitted", "continue"))
+                    (["tester"], ("admitted", "continue"))
                     if status in operational_information.INFORMATION_CAUSES
                     else ([], ("held", "hold"))
                 )
@@ -737,7 +737,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                 code, stages, output = self.invoke(
                     "--approve-goal", self.approval_token(self.saved()), "--resume-paused", env=STOP_AT_TESTER
                 )
-                self.assertEqual("astra_plan", (stages or [None])[0], output)
+                self.assertEqual("plan_task", (stages or [None])[0], output)
                 self.assertIn("Resumed: dispatching the next stage.", output)
 
     # Controls: changing the exhausted bound itself is the operator's authority and still resumes in one
@@ -760,7 +760,7 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
             ("PAUSED_COST_LIMIT", explicit_bound("max_cost_usd", 0.000001), ("--max-cost-usd", "5")),
             (
                 "PAUSED_NO_PROGRESS",
-                explicit_bound("no_progress_batches", 2, no_progress_batches=2, next_stage="terra"),
+                explicit_bound("no_progress_batches", 2, no_progress_batches=2, next_stage="builder"),
                 ("--no-progress-limit", "5"),
             ),
         )
@@ -800,14 +800,14 @@ class OrdinaryGateTests(unittest.TestCase):
         launched()
         result = flow.launch(["--run-dir", str(run), "--answer", "Q1=CLI", "--resume-paused", "--no-chat"], 2)
         self.assertIn("Resumed: dispatching the next stage.", result.stdout)
-        self.assertEqual(["astra_discovery"], launched(), result.stdout)
+        self.assertEqual(["draft_plan"], launched(), result.stdout)
         _, state = flow.saved()
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
         result = flow.launch(
             ["--run-dir", str(run), "--approve-goal", state["displayed_goal"], "--resume-paused", "--no-chat"], 2
         )
         self.assertIn("Resumed: dispatching the next stage.", result.stdout)
-        self.assertEqual("astra_plan", (launched() or [None])[0], result.stdout)
+        self.assertEqual("plan_task", (launched() or [None])[0], result.stdout)
 
 
 class StatusCoverageTests(unittest.TestCase):

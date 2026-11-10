@@ -64,7 +64,7 @@ class KiloWrapperIdleCliTests(unittest.TestCase):
         config = Path(self.env["XDG_CONFIG_HOME"]) / "autocode/providers/wrapper_fixture.toml"
         config.parent.mkdir(parents=True)
         command = [str(launcher), str(provider), str(native), str(probe), str(native_outcome)]
-        roles = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
+        roles = ("task_planner", "builder", "tester", "completion", "planner", "plan_reviewer")
         config.write_text(
             'name = "wrapper_fixture"\noutput = "opencode_events"\nprompt = "stdin"\nresume = ["--session", "{session}"]\ncommand = '
             + json.dumps(command)

@@ -45,7 +45,7 @@ class VerificationClaimCLI(unittest.TestCase):
         view = run.advance_until_input()
         self.assertEqual("TASK_COMPLETE", view["status"], view.get("stop_reason"))
         trace = [json.loads(line) for line in (fixture.root / "stage-repair-trace.jsonl").read_text().splitlines()]
-        for stage in ("terra", "sol", "astra_review"):
+        for stage in ("builder", "tester", "review_completion"):
             rows = [row for row in trace if row["stage"] == stage]
             self.assertEqual(1, len(rows), rows)
             self.assertFalse(rows[0]["repair"], rows)

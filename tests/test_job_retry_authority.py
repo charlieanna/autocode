@@ -31,7 +31,7 @@ class JobConfigurationTests(unittest.TestCase):
     def test_saved_verification_commands_are_visible_to_job_recovery(self):
         state = {
             "status": "PAUSED_INVALID_OUTPUT",
-            "next_stage": "sol",
+            "next_stage": "tester",
             "settings": {
                 "test_command": "legacy suite",
                 "regression_command": "legacy regression",
@@ -87,7 +87,7 @@ class JobRetryAuthorityTests(unittest.TestCase):
             "workspace": str(self.root),
             "run_dir": str(self.run),
             "status": "PAUSED_RATE_LIMIT",
-            "next_stage": "sol",
+            "next_stage": "tester",
             "stop_reason": "The current provider is rate limited",
             "settings": {},
             "stages": [],
@@ -148,13 +148,13 @@ class JobRetryAuthorityTests(unittest.TestCase):
     def test_ordinary_repeated_failure_retry_with_and_without_historical_job(self):
         for historical in (False, True):
             with self.subTest(historical=historical):
-                self.state.update(status="PAUSED_REPEATED_FAILURE", next_stage="terra", stages=[], failure_history={})
+                self.state.update(status="PAUSED_REPEATED_FAILURE", next_stage="builder", stages=[], failure_history={})
                 if historical:
                     self.state["job_failure"] = copy.deepcopy(FAILURE)
                 else:
                     self.state.pop("job_failure", None)
                 revision = runner.support.snapshot(self.root)["revision"]
-                for stage, count in (("sol", 1), ("terra", 3)):
+                for stage, count in (("tester", 1), ("builder", 3)):
                     for index in range(count):
                         row = {
                             "stage": stage,

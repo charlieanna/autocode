@@ -267,7 +267,7 @@ class RecoveryBlackbox(unittest.TestCase):
                 time.sleep(0.01)
             self.assertTrue(all(path.exists() for path in publications), "Actual timeout was not durably published")
             timeout, receipt = [json.loads(path.read_text()) for path in publications]
-            self.assertEqual(("terra", "stage"), (timeout["stage"], timeout["activity"]["timeout_kind"]))
+            self.assertEqual(("builder", "stage"), (timeout["stage"], timeout["activity"]["timeout_kind"]))
             self.assertEqual(("stopping", "stage_deadline"), (receipt["phase"], receipt["cause"]))
             metadata = timeout["supervision"]
             self.assertEqual(metadata, {key: receipt[key] for key in metadata})
@@ -676,7 +676,7 @@ class RecoveryBlackbox(unittest.TestCase):
                 all(r["status"] == "not_verified" for r in checkpoints["rows"] if r["id"].startswith("criterion:"))
             )
             status = self.invoke("autocode_build", ["--run-dir", str(self.run), "--status"])
-            self.assertIn("terra", status.stdout)
+            self.assertIn("builder", status.stdout)
             event_files = list(self.run.glob("iterations/*/builder-*.jsonl")) + list(
                 self.run.glob("iterations/*/terra-*.jsonl")
             )
@@ -748,7 +748,7 @@ class WriterStartupEvidenceTests(unittest.TestCase):
         return harness
 
     def test_a_controller_that_exits_first_is_reported_at_once_with_how_far_it_got(self):
-        harness = self.harness([dict(event="start", stage="astra_finalize", milestone="")])
+        harness = self.harness([dict(event="start", stage="finalize_plan", milestone="")])
         worker = harness.root / "worker-m1"
         worker.mkdir()
         (worker / "worker.log").write_text("x" * 2000 + "Builder lifeline: owner gone\n")
@@ -762,7 +762,7 @@ class WriterStartupEvidenceTests(unittest.TestCase):
                 bound=20,
                 controller_exit=2,
                 event_count=1,
-                last_events=["astra_finalize start -"],
+                last_events=["finalize_plan start -"],
                 state=state,
                 workers=[
                     dict(
@@ -783,7 +783,7 @@ class WriterStartupEvidenceTests(unittest.TestCase):
         self.assertTrue(report["stdout_tail"].endswith("Run: r1\n"))
 
     def test_a_live_controller_is_reported_at_the_bound_and_a_half_written_line_is_not_fatal(self):
-        harness = self.harness([dict(event="start", stage="astra_finalize", milestone="")])
+        harness = self.harness([dict(event="start", stage="finalize_plan", milestone="")])
         with (harness.root / "events.jsonl").open("a") as log:
             log.write('{"event": "start", "stage": "ter')  # a Builder's start line, half appended
         facts = harness.await_writer(SimpleNamespace(poll=lambda: None), 0)
@@ -792,7 +792,7 @@ class WriterStartupEvidenceTests(unittest.TestCase):
         self.assertIn("FileNotFoundError", facts["state"])
 
     def test_a_started_builder_is_ready(self):
-        harness = self.harness([dict(event="start", stage="terra", milestone="M1")])
+        harness = self.harness([dict(event="start", stage="builder", milestone="M1")])
         self.assertIsNone(harness.await_writer(SimpleNamespace(poll=lambda: 0), 20))
 
     def test_the_facts_survive_a_controller_that_outlives_its_cleanup_bound(self):

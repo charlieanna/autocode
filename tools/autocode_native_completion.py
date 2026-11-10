@@ -38,7 +38,7 @@ class NativeCompletionPreparation:
             "missing the original concrete run/factory context",
         )
         _require(
-            record.get("stage") == "astra_review" and decision.get("status") in ("COMPLETE", "TASK_COMPLETE"),
+            record.get("stage") == "review_completion" and decision.get("status") in ("COMPLETE", "TASK_COMPLETE"),
             "requires the original terminal Completion decision",
         )
         self.factory = context.factory

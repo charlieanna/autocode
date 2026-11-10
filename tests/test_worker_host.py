@@ -300,7 +300,7 @@ class PersistentHost(unittest.TestCase):
                 os.close(leader)
 
     def test_builder_and_slow_tester_survive_each_viewer_loss_then_complete_once(self):
-        for stage in ("terra", "sol", "astra_checkpoint"):
+        for stage in ("builder", "tester", "review_checkpoint"):
             self.hold(stage)
         self.start()
         approved = self.plan()
@@ -318,7 +318,7 @@ class PersistentHost(unittest.TestCase):
         self.assertEqual(1, len({receipt["launch_id"] for receipt in accepted}))
         self.receipts.extend(accepted)
         bound = self.bound(accepted[0])
-        before = self.at_stage("terra")
+        before = self.at_stage("builder")
         self.assertEqual(bound["binding"]["controller_id"], before["execution"]["controller_epoch"])
         identity = self.attempts(before)
         epoch = before["execution"]["controller_epoch"]
@@ -329,10 +329,11 @@ class PersistentHost(unittest.TestCase):
                 self.assertTrue(actions.working(after))
                 self.assertEqual(identity, self.attempts(after))
                 self.assertEqual(epoch, after["execution"]["controller_epoch"])
-        self.release("terra")
+        self.release("builder")
         tested = self.wait(
             lambda view: (
-                any(self.gates[stage][0].exists() for stage in ("sol", "astra_checkpoint")) and actions.working(view)
+                any(self.gates[stage][0].exists() for stage in ("tester", "review_checkpoint"))
+                and actions.working(view)
             ),
             advance=False,
         )
@@ -340,7 +341,7 @@ class PersistentHost(unittest.TestCase):
         self.leave("ctrl_d")
         self.assertEqual(self.attempts(tested), self.attempts(self.run.status()))
         self.assertEqual(edited, {name: (self.workspace / name).read_bytes() for name in edited})
-        for stage in ("sol", "astra_checkpoint"):
+        for stage in ("tester", "review_checkpoint"):
             if self.gates[stage][0].exists():
                 self.release(stage)
         done = self.wait(lambda view: not actions.working(view))
@@ -353,7 +354,7 @@ class PersistentHost(unittest.TestCase):
             done = self.wait(lambda view: not actions.working(view))
         self.assertTrue(done["done"], done)
         self.assertTrue(done["delivery"]["verified_complete"], done.get("delivery"))
-        self.assertEqual(1, sum(stage == "terra" for stage, _, _ in self.attempts(done)))
+        self.assertEqual(1, sum(stage == "builder" for stage, _, _ in self.attempts(done)))
 
     def test_worker_loss_retains_the_accepted_attempt_and_read_only_reconnect_does_not_replay(self):
         self.hold("requirements_gather")
@@ -404,10 +405,10 @@ class PersistentHost(unittest.TestCase):
         self.start("waiting-plan")
         waiting, plan = self.run, self.plan()
         waiting_attempts = self.attempts(plan)
-        self.hold("terra")
+        self.hold("builder")
         self.start()
         self.dispatch(self.plan())
-        building = self.at_stage("terra")
+        building = self.at_stage("builder")
         rows = chat.History(self.workspace, command=CORE, env=self.env).list()
         number = next(index for index, row in enumerate(rows, 1) if row["run_dir"] == str(waiting.run_dir))
         screen = TerminalScreen(
@@ -441,7 +442,7 @@ class PersistentHost(unittest.TestCase):
         screen.type("X")
         shown = screen.wait_for(lambda shown: composer_text(shown) == "B draft 你X好")
         self.evidence.append({"terminal_active_switch": shown})
-        self.release("terra")
+        self.release("builder")
         self.wait(lambda value: value.get("done"))
         shown = screen.wait_for(
             lambda shown: "F8: 1 new alert" in shown and composer_text(shown) == "B draft 你X好",
@@ -485,7 +486,7 @@ class PersistentHost(unittest.TestCase):
                 capture_output=True,
             )
             projects[name] = workspace
-        self.hold("terra", run_workspace=projects["building-a"])
+        self.hold("builder", run_workspace=projects["building-a"])
 
         self.start("completed-c")
         completed = self.run
@@ -498,7 +499,7 @@ class PersistentHost(unittest.TestCase):
         self.start("building-a")
         building = self.run
         self.dispatch(self.plan())
-        held = self.at_stage("terra")
+        held = self.at_stage("builder")
 
         def terminal(run, env):
             screen = TerminalScreen(
@@ -557,7 +558,7 @@ class PersistentHost(unittest.TestCase):
         second.wait_for("Anything else?", 120)
         accepted = waiting.status()
         self.assertTrue(accepted["done"])
-        self.assertEqual(1, sum(stage == "terra" for stage, _, _ in self.attempts(accepted)))
+        self.assertEqual(1, sum(stage == "builder" for stage, _, _ in self.attempts(accepted)))
         # The other viewer still holds the former approval prompt. It must inspect before acting.
         first.keys("C-u")
         first.type("y")
@@ -566,9 +567,9 @@ class PersistentHost(unittest.TestCase):
         self.assertIn("plan changed while", stale.lower())
         self.assertEqual(self.attempts(accepted), self.attempts(waiting.status()))
         self.assertTrue(actions.working(building.status()), "the other project's Builder remains held")
-        self.release("terra")
+        self.release("builder")
         final = self.wait(lambda value: value.get("done"))
-        self.assertEqual(1, sum(stage == "terra" for stage, _, _ in self.attempts(final)))
+        self.assertEqual(1, sum(stage == "builder" for stage, _, _ in self.attempts(final)))
         self.evidence.append({"matrix": ["S06", "S07", "S10", "S14"], "stale_viewer": stale, "view": final})
         for screen in (first, second):
             screen.keys("C-d")
@@ -623,7 +624,7 @@ class PersistentHost(unittest.TestCase):
             os.close(leader)
 
     def test_worker_loss_after_edits_keeps_source_routes_and_unfinished_verification(self):
-        for stage in ("sol", "astra_checkpoint"):
+        for stage in ("tester", "review_checkpoint"):
             self.hold(stage)
         self.start()
         self.dispatch(self.plan())

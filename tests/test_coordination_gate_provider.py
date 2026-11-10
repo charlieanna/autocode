@@ -17,7 +17,7 @@ class CoordinationGateProviderTests(unittest.TestCase):
     def test_fixture_answers_gate_messages_before_any_repository_discovery(self):
         for kind, stage, text, intent in (
             ("gate_message", "requirements_gather", "yes coplete", "confirm"),
-            ("plan_message", "astra_finalize", "yes coplete", "confirm"),
+            ("plan_message", "finalize_plan", "yes coplete", "confirm"),
             ("gate_message", "requirements_gather", "The displayed result is zero instead of 1000.", "change"),
             ("gate_message", "requirements_gather", "Why this?", "question"),
         ):

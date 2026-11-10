@@ -36,8 +36,8 @@ class CarryForwardTests(unittest.TestCase):
         output = Path(str(prefix) + ".terra.json")
         output.write_text("{}")
         record = {
-            "role": "terra",
-            "stage": "terra",
+            "role": "builder",
+            "stage": "builder",
             "task_id": task["id"],
             "contract_hash": task["contract_hash"],
             "output": str(output),
@@ -340,13 +340,13 @@ class CarryForwardTests(unittest.TestCase):
         with self.assertRaisesRegex(s.Paused, "current approved task"):
             self.assign("M1", status="REWORK")
         self.assertEqual(before, self.state)
-        self.assertEqual("astra_plan", self.state["next_stage"])
+        self.assertEqual("plan_task", self.state["next_stage"])
         decision = self.decision("M1", "REWORK")
         output = self.run / "astra-plan-rework.json"
         output.write_text(json.dumps(decision))
         fixtures.runner.apply_result(
             self.state,
-            "astra_plan",
+            "plan_task",
             decision,
             {"output": str(output), "source_revision": s.snapshot(self.root)["revision"]},
             self.root,
@@ -432,11 +432,11 @@ class CarryForwardTests(unittest.TestCase):
         self.revise(lambda body: body.update(initial_task=initial), approve=False)
         self.state["settings"]["joint_planning"] = True
         # Joint approval is only requested once the final planning report matches the current source.
-        final = self.run / "astra_finalize.json"
+        final = self.run / "finalize_plan.json"
         final.write_text("{}")
         self.state["stages"].append(
             {
-                "stage": "astra_finalize",
+                "stage": "finalize_plan",
                 "output": str(final),
                 "exit_code": 0,
                 "source_revision": s.snapshot(self.root)["revision"],
@@ -445,14 +445,14 @@ class CarryForwardTests(unittest.TestCase):
         self.state["planning"] = {
             "astra_calls": 0,
             "final_token": goals.token(self.state["goal_contract"]),
-            "reports": {"astra_finalize": {"output": str(final)}},
+            "reports": {"finalize_plan": {"output": str(final)}},
         }
         self.assertEqual("escalate", lifecycle.human.evaluate(self.state))
         lifecycle.present(self.state)
         self.assertEqual(self.state["planning"]["final_token"], self.state["displayed_goal"])
         lifecycle.approve(self.state, self.state["displayed_goal"])
         self.assertEqual({"M1"}, m.accepted_ids(self.state))
-        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual("review_completion", self.state["next_stage"])
         self.assertNotIn("current_task", self.state)
 
     def test_context_summary_exposes_provenance_without_full_manifest(self):

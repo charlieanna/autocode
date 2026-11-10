@@ -107,7 +107,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         execution_limits=state["settings"].get("limits", {}),
         execution_engine=stage_roles.engine_for(state["settings"], stage_roles.role_for(state, stage)),
     )
-    if stage == "terra":
+    if stage == "builder":
         base["builder_artifact_policy"] = {
             "evidence_directory": (state.get("recovery_context") or {}).get("diagnostic_directory")
             or str(Path(state_path).parent / "evidence"),
@@ -127,7 +127,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         state["settings"],
         (state.get("current_task") or {}).get("affected_paths", []),
         state,
-        current=current if stage in ("sol", "astra_review", "astra_checkpoint") else None,
+        current=current if stage in ("tester", "review_completion", "review_checkpoint") else None,
     )
     if protected:
         base["protected_tests"] = protected
@@ -151,13 +151,13 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
     if state.get("findings_ledger"):
         # Both reviewers' open findings, each with its identity and assigned fix task.
         base["open_findings"] = findings_ledger.handoff(state)
-    if stage in ("sol", "astra_review", "astra_checkpoint"):
-        source = "sol" if stage == "sol" else "task_planner"
+    if stage in ("tester", "review_completion", "review_checkpoint"):
+        source = "tester" if stage == "tester" else "task_planner"
         base["review_identity_policy"] = {
             "own_open_finding_ids": [r["id"] for r in findings_ledger.open_entries(state, source)],
             "instruction": prompts.get("fragments/stage-context/context-packet-05.md"),
         }
-    if stage == "terra":
+    if stage == "builder":
         base.update(
             affected_paths=state.get("affected_paths", []), actionable_findings=state.get("unresolved_findings", [])
         )
@@ -176,7 +176,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
             task.get("id") == cast(dict, state.get("current_task", {})).get("id") for task in repair.get("tasks", [])
         ):
             base["repair_plan"] = repair
-    elif stage in ("sol", "astra_checkpoint"):
+    elif stage in ("tester", "review_checkpoint"):
         impl = state.get("implementation", {})
         base.update(
             implementation=impl,
@@ -184,7 +184,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
             source_snapshot=state.get("source_snapshot"),
             diff_ref=state.get("diff_ref"),
         )
-        if stage == "astra_checkpoint":
+        if stage == "review_checkpoint":
             base.update(validation=state.get("validation"), unresolved_findings=state.get("unresolved_findings", []))
     else:
         impl = state.get("implementation", {})
@@ -192,7 +192,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         base.update(
             implementation=impl, validation=validation, unresolved_findings=state.get("unresolved_findings", [])
         )
-    if stage in ("sol", "astra_checkpoint", "astra_review"):
+    if stage in ("tester", "review_checkpoint", "review_completion"):
         attached_source = review_source.context(state, current)
         if attached_source:
             base["review_source"] = attached_source
@@ -204,7 +204,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         if proof:
             base["regression_proof"] = proof
             proof_note = regression.PROMPT_NOTES["passed" if proof["verdict"] == "PASS" else "open"][
-                "validator" if stage == "sol" else "owner"
+                "validator" if stage == "tester" else "owner"
             ] + regression.mutation_note(proof)
         else:
             proof_note = ""
@@ -243,7 +243,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         base["visual_capture_command"] = shlex.join(
             [sys.executable, str(Path(__file__).with_name("autocode.py")), "visual-capture"]
         )
-    if stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+    if stage in ("builder", "tester", "review_completion", "review_checkpoint"):
         try:
             from . import autocode_progressive_state as progressive_state
             from . import autocode_verification_plan as verification_plan
@@ -260,7 +260,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
             )
             if batch:
                 base["ready_capture_batch"] = batch
-        elif stage == "terra":
+        elif stage == "builder":
             batch = ready_capture_batch.builder_context(
                 state, base["capture_command"], base["builder_artifact_policy"]["evidence_directory"]
             )
@@ -307,10 +307,10 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         execution_instruction = goals.EXECUTION_PROMPT + execution_prompt.criteria_instruction(response_schema)
         instruction = (
             goals.DISCOVERY_PROMPT + goals.JOB_TYPE_POLICY + goals.DECISION_PROVENANCE
-            if stage == "astra_discovery"
+            if stage == "draft_plan"
             else instruction + execution_instruction
         )
-        if stage == "astra_discovery":
+        if stage == "draft_plan":
             # A non-joint run has no Plan Reviewer; the discovery draft's criteria
             # still cite the run's human sources verbatim (#595).
             try:
@@ -328,7 +328,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
                 # Full brief once in source_inventory; do not also paste it under task (#1337).
                 base["task"] = brief_obligations.handoff_task(base["task"], base["source_inventory"])
                 citation_rule = source_trace.rule(records)
-        if stage in ("astra_plan", "astra_review"):
+        if stage in ("plan_task", "review_completion"):
             instruction += support.ASTRA_DECISIONS
     # No previous transcripts or history array is forwarded; exact goals are never truncated.
     milestone_policy = support.MILESTONE_POLICY
@@ -337,15 +337,15 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         base["milestone_checkpoint"]["current_evidence_ready"] = checkpoints.evidence_ready(state, current)
         base["current_milestone"] = checkpoints.scope(state)
         milestone_policy += checkpoints.POLICY
-        if stage != "terra":
+        if stage != "builder":
             milestone_policy += checkpoints.ADVANCEMENT_POLICY
         if cast(dict, state.get("current_task", {})).get("milestone_ids"):
             milestone_policy += prompts.get("fragments/stage-context/context-packet-07.md")
-        elif stage == "sol":
+        elif stage == "tester":
             milestone_policy += prompts.get("fragments/stage-context/context-packet-10.md")
         checkpoint = base["milestone_checkpoint"]
         pending_replan = replan.constraint(checkpoint["current"], checkpoint["limits"])
-        if pending_replan and stage in ("astra_plan", "astra_review"):
+        if pending_replan and stage in ("plan_task", "review_completion"):
             # State the gate the decision must pass, and drop the general rule it refuses (#459).
             instruction = instruction.replace(
                 replan.GENERAL_VALIDATE_RULE, replan.validate_rule(checkpoint["current"], checkpoint["limits"])
@@ -356,15 +356,15 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         base["workflow"] = state["settings"]["workflow"]
         base["targeted_consultation"] = state.get("targeted_consultation")
         milestone_policy = workflow.POLICY
-        if stage == "astra_checkpoint":
+        if stage == "review_checkpoint":
             instruction = workflow.CHECKPOINT + execution_instruction
-        elif stage == "sol":
+        elif stage == "tester":
             instruction += prompts.get("fragments/stage-context/context-packet-11.md")
         if workflow.final_only(state):
             milestone_policy = workflow.FINAL_POLICY
             base["final_audit_request"] = state.get("final_audit_request")
             base["consultation_reports"] = state.get("consultation_reports", [])[-1:]
-            if stage == "astra_checkpoint":
+            if stage == "review_checkpoint":
                 instruction += workflow.FINAL_CHECKPOINT
     try:
         from . import autocode_context

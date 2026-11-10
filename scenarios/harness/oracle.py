@@ -194,14 +194,14 @@ def findings_of(report: object, severity: str) -> list[dict]:
 
 # Stage names AutoCode saves today (AGENTS.md, "Names"); oracles use them only through the sets below.
 REQUIREMENTS_STAGES = ("requirements_gather",)
-PLAN_REVIEW_STAGES = ("astra_challenge", "glm_revise")
-BUILD_STAGES = ("orchestrator", "astra_plan", "terra")
+PLAN_REVIEW_STAGES = ("review_plan", "revise_plan")
+BUILD_STAGES = ("orchestrator", "plan_task", "builder")
 RUNNER_STAGES = ("orchestrator",)
 
 
 # Every new task goes through the full pipeline (#3010): after Requirements, a review, a design
 # job and a question are planned like a build, so their first stage is the Planner's.
-PIPELINE_ENTRY = "astra_discovery"
+PIPELINE_ENTRY = "draft_plan"
 
 
 def bugfix_entry(run: dict | None) -> str:

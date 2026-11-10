@@ -21,7 +21,7 @@ except ImportError:
     import autocode_conversation_policy as policy
     import autocode_roles as roles
 
-REVIEW_STAGES = ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
+REVIEW_STAGES = ("review_plan", "finalize_plan", "plan_review", "plan_finalize")
 
 
 def _records(state: RunState, planning, *, current_cycle):

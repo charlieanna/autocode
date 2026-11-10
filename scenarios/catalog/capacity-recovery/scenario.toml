@@ -4,7 +4,7 @@ category = "greenfield"
 # changing the provider route, recovery allowance or any approval boundary.
 
 [run]
-requires_stages = ["astra_discovery", "terra", "sol", "astra_review"]
+requires_stages = ["draft_plan", "builder", "tester", "review_completion"]
 timeout_minutes = 5
 max_steps = 20
 
@@ -14,4 +14,4 @@ fault = "capacity_once"
 
 [hybrid]
 # Only the first Requirements call is scripted; recovery and delivery are live.
-first_attempt = ["astra_discovery"]
+first_attempt = ["draft_plan"]

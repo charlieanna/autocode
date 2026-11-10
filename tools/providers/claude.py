@@ -73,8 +73,8 @@ DEFAULT_MODELS = {
     "requirements": SONNET,
     "planner": SONNET,
     "plan_reviewer": OPUS,
-    "terra": HAIKU,
-    "sol": SONNET,
+    "builder": HAIKU,
+    "tester": SONNET,
     "completion": OPUS,
     "task_planner": OPUS,
 }

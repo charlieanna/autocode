@@ -24,7 +24,7 @@ def _state_with_cause(pause_status, status="WAITING_FOR_USER", request_id="req-1
             "human_escalations": {
                 request_id: {
                     "status": "pending",
-                    "identity": {"proposal": {"origin": {"pause_status": pause_status, "stage": "terra"}}},
+                    "identity": {"proposal": {"origin": {"pause_status": pause_status, "stage": "builder"}}},
                 }
             },
         },
@@ -262,7 +262,7 @@ class AdviceMatchesEligibility(unittest.TestCase):
                 state = {
                     "status": pause_status,
                     "workspace": "/tmp/unused-workspace",
-                    "next_stage": "terra",
+                    "next_stage": "builder",
                     "settings": {"limits": {"no_progress_batches": 3}},
                     "no_progress_batches": 3,
                     "automatic_recoveries_since_resume": count,
@@ -329,7 +329,7 @@ class AdviceMatchesEligibility(unittest.TestCase):
         state = {
             "status": "PAUSED_BUILDER_RETRY_LIMIT",
             "workspace": "/tmp/unused-workspace",
-            "next_stage": "terra",
+            "next_stage": "builder",
             "settings": {"limits": {}},
             "no_progress_batches": 3,
             "stages": [],

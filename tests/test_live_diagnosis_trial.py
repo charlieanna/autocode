@@ -1,13 +1,13 @@
-"""Offline tests for the astra_diagnose live-validation trial driver.
+"""Offline tests for the diagnose live-validation trial driver.
 
 These run for free, with no model calls, and prove the trial script's own
 code: the seeded defect's regression proof, and the mechanical repeat-count
-escalation. They do not exercise astra_diagnose itself -- that mechanic
-(admission -> astra_diagnose -> a model's retry recommendation ->
+escalation. They do not exercise diagnose itself -- that mechanic
+(admission -> diagnose -> a model's retry recommendation ->
 re-dispatch) is already proven offline, through the real CLI, in
 tests/test_resolver_runtime.py's OperationalDiagnosisTests. What is new here
 is specific to live_diagnosis_trial.py: its fixture harness must not crash,
-and it must not misattribute a non-target pause to astra_diagnose's trigger.
+and it must not misattribute a non-target pause to diagnose's trigger.
 """
 
 from __future__ import annotations
@@ -97,8 +97,8 @@ class MechanicalEscalationTests(unittest.TestCase):
     def test_raises_a_real_single_occurrence_to_the_policy_threshold(self):
         self.write_state(
             {
-                "pending_report_repair": {"original": {"stage": "terra", "role": "terra", "failure_key": "k1"}},
-                "stages": [{"stage": "terra", "failure_key": "k1"}],
+                "pending_report_repair": {"original": {"stage": "builder", "role": "builder", "failure_key": "k1"}},
+                "stages": [{"stage": "builder", "failure_key": "k1"}],
                 "failure_history": {"k1": {"count": 1, "last_error": "Missing summary field"}},
                 "status": "RUNNING",
             }
@@ -115,7 +115,7 @@ class MechanicalEscalationTests(unittest.TestCase):
         self.write_state(
             {
                 "pending_report_repair": None,
-                "stages": [{"stage": "terra", "failure_key": "k2"}],
+                "stages": [{"stage": "builder", "failure_key": "k2"}],
                 "failure_history": {"k2": {"count": 1}},
             }
         )
@@ -449,14 +449,14 @@ class DiagnosisOutcomeTests(unittest.TestCase):
         self.output.write_text(
             json.dumps({"diagnosis": "The report is missing summary", "recommendation": {"action": "retry"}})
         )
-        self.request = {"blocker_id": "b1", "failure_key": "f1", "original_stage": "terra"}
+        self.request = {"blocker_id": "b1", "failure_key": "f1", "original_stage": "builder"}
         self.admitted = {
             "status": "RUNNING",
-            "next_stage": "astra_diagnose",
+            "next_stage": "diagnose",
             "diagnosis_request": self.request,
             "stages": [],
         }
-        self.diagnosis_row = {"stage": "astra_diagnose", "output": str(self.output)}
+        self.diagnosis_row = {"stage": "diagnose", "output": str(self.output)}
         self.receipt = {
             "stage": "resolver",
             "runner_owned": True,
@@ -504,10 +504,10 @@ class DiagnosisOutcomeTests(unittest.TestCase):
         self.assertEqual(2, calls)
 
     def test_accepted_retry_and_observed_dispatch_are_recorded_separately(self):
-        accepted = {"status": "RUNNING", "next_stage": "terra", "stages": [self.receipt, self.diagnosis_row]}
+        accepted = {"status": "RUNNING", "next_stage": "builder", "stages": [self.receipt, self.diagnosis_row]}
         final = {
             "status": "TASK_COMPLETE",
-            "stages": accepted["stages"] + [{"stage": "terra", "output": "new-builder-report.json"}],
+            "stages": accepted["stages"] + [{"stage": "builder", "output": "new-builder-report.json"}],
         }
         result, calls = self.diagnose([self.admitted, accepted, accepted, final, final, final])
         self.assertTrue(result["policy_accepted_retry"])
@@ -519,12 +519,12 @@ class DiagnosisOutcomeTests(unittest.TestCase):
             dict(self.receipt, receipt=dict(self.receipt["receipt"], blocker_id="other")),
             dict(self.receipt, receipt=dict(self.receipt["receipt"], in_scope_reason="invalid proposal")),
         ):
-            state = {"status": "RUNNING", "next_stage": "terra", "stages": [receipt, self.diagnosis_row]}
+            state = {"status": "RUNNING", "next_stage": "builder", "stages": [receipt, self.diagnosis_row]}
             result, calls = self.diagnose([self.admitted, state])
             self.assertFalse(result["policy_accepted_retry"])
             self.assertEqual(2, calls)
         admitted = dict(self.admitted, stages=[self.receipt])
-        state = {"status": "RUNNING", "next_stage": "terra", "stages": [self.receipt, self.diagnosis_row]}
+        state = {"status": "RUNNING", "next_stage": "builder", "stages": [self.receipt, self.diagnosis_row]}
         result, calls = self.diagnose([admitted, state])
         self.assertFalse(result["policy_accepted_retry"])
         self.assertEqual(2, calls)
@@ -532,7 +532,7 @@ class DiagnosisOutcomeTests(unittest.TestCase):
     def test_retry_does_not_renew_the_budget_used_before_diagnosis(self):
         budget = trial.TrialBudget(3, trial.time.monotonic() + 30)
         budget.used = 1  # first driving invocation already spent
-        accepted = {"status": "RUNNING", "next_stage": "terra", "stages": [self.receipt, self.diagnosis_row]}
+        accepted = {"status": "RUNNING", "next_stage": "builder", "stages": [self.receipt, self.diagnosis_row]}
         with self.assertRaisesRegex(trial.TrialError, "invocation budget"):
             self.diagnose([self.admitted, accepted, accepted], budget)
         self.assertEqual(3, budget.used)
@@ -572,7 +572,7 @@ class MainOutcomeTests(unittest.TestCase):
         code, payload, bundle, _, _, _ = self.run_main()
         self.assertEqual(3, code)
         self.assertEqual("PASS", payload["code_verdict"])
-        self.assertEqual("NOT_EXERCISED", payload["astra_diagnose"])
+        self.assertEqual("NOT_EXERCISED", payload["diagnose"])
         self.assertEqual("NEEDS_HUMAN_REVIEW", payload["result"])
         self.assertEqual("RECORDED", bundle.finish.call_args.args[0])
 

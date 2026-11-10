@@ -117,14 +117,14 @@ class JUnitReportRepairTests(unittest.TestCase):
     def saved(self, **overrides):
         state = {
             "status": "PAUSED_REQUESTED",
-            "next_stage": "sol",
+            "next_stage": "tester",
             "settings": {
                 "regression": {
                     "test_command": "mvn -o test",
                     "test_report": "junit:target/old.xml",
                     "test_timeout": 42,
                 },
-                "roles": {"sol": {"model": "approved-model"}},
+                "roles": {"tester": {"model": "approved-model"}},
             },
             "goal_contract": {"hash": "approved"},
             "regression_proof": {"verdict": "PASS", "path": "old-proof.json"},
@@ -137,7 +137,7 @@ class JUnitReportRepairTests(unittest.TestCase):
         return configuration.configure_resume(state, state["settings"], args)
 
     def test_a_report_change_is_allowed_at_either_reconciled_verification_checkpoint(self):
-        for stage in ("sol", "astra_checkpoint"):
+        for stage in ("tester", "review_checkpoint"):
             with self.subTest(stage=stage):
                 state = self.saved(next_stage=stage)
                 old_contract = copy.deepcopy(state["goal_contract"])
@@ -147,7 +147,7 @@ class JUnitReportRepairTests(unittest.TestCase):
                     settings["regression"],
                 )
                 self.assertEqual(old_contract, state["goal_contract"])
-                self.assertEqual({"sol": {"model": "approved-model"}}, settings["roles"])
+                self.assertEqual({"tester": {"model": "approved-model"}}, settings["roles"])
                 self.assertEqual(1, len(state["user_events"]))
                 event = state["user_events"][0]
                 self.assertEqual("verification_commands_changed", event["kind"])
@@ -165,7 +165,7 @@ class JUnitReportRepairTests(unittest.TestCase):
         )
 
     def test_same_saved_report_is_a_noop_even_during_an_active_attempt(self):
-        state = self.saved(status="RUNNING", next_stage="terra", active_stage={"stage": "terra"})
+        state = self.saved(status="RUNNING", next_stage="builder", active_stage={"stage": "builder"})
         before = copy.deepcopy(state)
         args = SimpleNamespace(test_report="junit:target/old.xml", resume_paused=False)
         self.assertIs(state["settings"], configuration.configure_resume(state, state["settings"], args))
@@ -182,7 +182,7 @@ class JUnitReportRepairTests(unittest.TestCase):
                 self.assertEqual(before, state)
 
     def test_a_late_report_repair_cannot_reuse_an_accepted_proof(self):
-        for stage in ("terra", "astra_review", "astra_resolve"):
+        for stage in ("builder", "review_completion", "resolve"):
             with self.subTest(stage=stage):
                 state = self.saved(next_stage=stage)
                 before = copy.deepcopy(state)
@@ -199,7 +199,7 @@ class JUnitReportRepairTests(unittest.TestCase):
             "runner_check",
         ):
             with self.subTest(key=key):
-                state = self.saved(**{key: {"stage": "sol"}})
+                state = self.saved(**{key: {"stage": "tester"}})
                 before = copy.deepcopy(state)
                 with self.assertRaisesRegex(ValueError, "Reconcile the active or uncertain attempt"):
                     self.repair(state)

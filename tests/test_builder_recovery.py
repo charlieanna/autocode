@@ -20,7 +20,7 @@ class SerialRecoveryTests(unittest.TestCase):
 
     def stopped_run(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "stalled"
-        self.launch(["Build greeting", "--chat", "--pin-model-role", "terra"], 2, answers="CLI\nno\n")
+        self.launch(["Build greeting", "--chat", "--pin-model-role", "builder"], 2, answers="CLI\nno\n")
         run, _ = self.saved()
         # Isolate the Builder allowance from the separate stalled-review policy.
         self.launch(
@@ -48,7 +48,7 @@ class SerialRecoveryTests(unittest.TestCase):
         args = ["--run-dir", str(run), "--resume-paused", "--retry-builder", "M1", "--no-chat"]
         for token in ("old", view["recovery"]["token"]):
             with self.subTest(token=token):
-                self.launch([*args, "--expected-recovery-token", token, "--terra-reasoning-effort", "low"], 2)
+                self.launch([*args, "--expected-recovery-token", token, "--builder-reasoning-effort", "low"], 2)
                 after = self.status(run)
                 for field in ("settings", "contract_token"):
                     self.assertEqual(before[field], after[field])
@@ -95,10 +95,10 @@ class SerialRecoveryGuards(unittest.TestCase):
     def state(self):
         state = {
             "status": "PAUSED_BUILDER_RETRY_LIMIT",
-            "next_stage": "terra",
+            "next_stage": "builder",
             "settings": {
                 "builder_retry": {"enabled": True},
-                "roles": {"terra": {"model": "openai/gpt-6-sol", "model_pinned": True}},
+                "roles": {"builder": {"model": "openai/gpt-6-sol", "model_pinned": True}},
             },
             "goal_contract": {"hash": "approved"},
             "current_task": {"id": "t", "milestone_id": "M1", "kind": "implement"},
@@ -108,9 +108,9 @@ class SerialRecoveryGuards(unittest.TestCase):
 
     def test_uncertain_or_wrong_milestone_attempt_is_not_changed(self):
         variants = [
-            ({"active_stage": {"stage": "terra"}}, ["M1"]),
-            ({"active_runner_check": {"stage": "sol"}}, ["M1"]),
-            ({"pending_report_repair": {"stage": "terra"}}, ["M1"]),
+            ({"active_stage": {"stage": "builder"}}, ["M1"]),
+            ({"active_runner_check": {"stage": "tester"}}, ["M1"]),
+            ({"pending_report_repair": {"stage": "builder"}}, ["M1"]),
             ({"parent_run": "/parent"}, ["M1"]),
             ({"status": "PAUSED_PERMISSION"}, ["M1"]),
             ({"resolution_request": {"contract_hash": "old"}}, ["M1"]),
@@ -131,8 +131,8 @@ class SerialRecoveryGuards(unittest.TestCase):
         state["current_task"]["kind"] = "validate"
         state["resolution_request"] = {"contract_hash": "approved"}
         recovery.request_serial_retry(state, ["M1"])
-        self.assertEqual("astra_resolve", state["next_stage"])
+        self.assertEqual("resolve", state["next_stage"])
         self.assertEqual(["failure"], state["builder_retries"][recovery.policy.key(state)]["failures"])
-        self.assertTrue(state["settings"]["roles"]["terra"]["model_pinned"])
+        self.assertTrue(state["settings"]["roles"]["builder"]["model_pinned"])
         with self.assertRaises(ValueError):
             recovery.request_serial_retry(state, ["M1"])

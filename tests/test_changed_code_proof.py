@@ -77,11 +77,11 @@ class ChangedCodeProofTests(unittest.TestCase):
             "accepted": True,
             "reason": "Independent inspection establishes this exact mutant is equivalent.",
             "evidence": [str(self.product), str(self.review)],
-            "reviewer": {"stage": "sol", "role": "sol", "output": str(self.review)},
+            "reviewer": {"stage": "tester", "role": "tester", "output": str(self.review)},
         }
         self.validation = {
             "source_revision": "source-one",
-            "reviewer_role": "sol",
+            "reviewer_role": "tester",
             "changed_code_decisions": [self.exception],
             "evidence_hashes": {str(path): file_hash(path) for path in (self.product, self.review)},
         }
@@ -118,11 +118,13 @@ class ChangedCodeProofTests(unittest.TestCase):
         proof = {**copy.deepcopy(self.result), "path": str(self.path), "receipt_sha256": file_hash(self.path)}
         schema = self.root / "schema.json"
         schema.write_text(
-            json.dumps(review.generation_schema({"properties": {review.FIELD: review.SCHEMA}}, self.assessment, "sol"))
+            json.dumps(
+                review.generation_schema({"properties": {review.FIELD: review.SCHEMA}}, self.assessment, "tester")
+            )
         )
         record = {
-            "stage": "sol",
-            "role": "sol",
+            "stage": "tester",
+            "role": "tester",
             "source_revision": "source-one",
             "output": str(self.review),
             "schema": str(schema),
@@ -279,7 +281,7 @@ class ChangedCodeProofTests(unittest.TestCase):
         before = copy.deepcopy((self.proof, self.result, self.validation))
         self.assertTrue(proof_policy.ready(self.proof, self.result, self.validation))
         self.assertEqual(before, (self.proof, self.result, self.validation))
-        for role in ("sol", "task_planner"):
+        for role in ("tester", "task_planner"):
             self.assertTrue(proof_policy.ready(self.proof, self.result, {**self.validation, "reviewer_role": role}))
         for key, value in (("source_revision", "other"), ("proof_context", "other"), ("line", 3), ("accepted", False)):
             validation = copy.deepcopy(self.validation)
@@ -290,7 +292,7 @@ class ChangedCodeProofTests(unittest.TestCase):
     def test_stale_source_builder_role_or_missing_review_pins_cannot_approve_reason(self):
         for patch in (
             {"source_revision": "old"},
-            {"reviewer_role": "terra"},
+            {"reviewer_role": "builder"},
             {"reviewer_role": "self_check"},
             {"evidence_hashes": {}},
             {"changed_code_decisions": []},

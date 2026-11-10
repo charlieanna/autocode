@@ -76,8 +76,8 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertTrue(
             all(check.ok for check in checks), [dataclasses.asdict(check) for check in checks if not check.ok]
         )
-        validators = [row for row in self.trace() if row["stage"] == "sol"]
-        owners = [row for row in self.trace() if row["stage"] == "astra_review"]
+        validators = [row for row in self.trace() if row["stage"] == "tester"]
+        owners = [row for row in self.trace() if row["stage"] == "review_completion"]
         self.assertEqual([1] * (len(validators) - 1) + [0], [row["exit_code"] for row in validators])
         self.assertEqual(len(validators), len({row["task_id"] for row in validators}))
         self.assertEqual(len(validators), len({row["source_revision"] for row in validators}))
@@ -131,7 +131,8 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertTrue(result.passed, result.summary)
         self.assertEqual(1, len(view["direct_rework_assignments"]))
         self.assertEqual(
-            ["terra", "sol", "astra_review", "terra", "sol", "astra_review"], [row["stage"] for row in self.trace()]
+            ["builder", "tester", "review_completion", "builder", "tester", "review_completion"],
+            [row["stage"] for row in self.trace()],
         )
 
     def test_validator_activity_citation_survives_completion_rework_and_automatic_repair(self):
@@ -141,9 +142,12 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertEqual(1, len(view["direct_rework_assignments"]))
         trace = self.trace()
         self.assertEqual(
-            ["terra", "sol", "astra_review", "terra", "sol", "astra_review"], [row["stage"] for row in trace]
+            ["builder", "tester", "review_completion", "builder", "tester", "review_completion"],
+            [row["stage"] for row in trace],
         )
-        self.assertEqual(["REWORK", "COMPLETE"], [row["status"] for row in trace if row["stage"] == "astra_review"])
+        self.assertEqual(
+            ["REWORK", "COMPLETE"], [row["status"] for row in trace if row["stage"] == "review_completion"]
+        )
         activity = driver.run_dir / "activity.jsonl"
         validators = sorted(driver.run_dir.glob("iterations/*/validator-01.json"))
         self.assertEqual(2, len(validators))
@@ -175,11 +179,11 @@ class CompletionReworkCLI(unittest.TestCase):
                     self.assert_delivery(driver, view)
                     self.assertEqual([], view["direct_rework_assignments"])
                     self.assertEqual(
-                        ["terra", "sol", "astra_review", "astra_resolve", "terra", "sol", "astra_review"],
+                        ["builder", "tester", "review_completion", "resolve", "builder", "tester", "review_completion"],
                         [row["stage"] for row in self.trace()],
                     )
                     self.assertEqual(0, scenario_run.metrics(driver.state())["report_repairs"])
-                    first = next(row for row in self.trace() if row["stage"] == "astra_review")
+                    first = next(row for row in self.trace() if row["stage"] == "review_completion")
                     self.assertEqual("REWORK", first["status"])
                     self.assertEqual("FAIL", first["validation_verdict"])
                     if fault == "incomplete":
@@ -200,16 +204,16 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertEqual(1, len(view["direct_rework_assignments"]))
         self.assertEqual(
             [
-                "terra",
-                "sol",
-                "astra_review",
-                "terra",
-                "sol",
-                "astra_review",
-                "astra_resolve",
-                "terra",
-                "sol",
-                "astra_review",
+                "builder",
+                "tester",
+                "review_completion",
+                "builder",
+                "tester",
+                "review_completion",
+                "resolve",
+                "builder",
+                "tester",
+                "review_completion",
             ],
             [row["stage"] for row in self.trace()],
         )
@@ -218,17 +222,17 @@ class CompletionReworkCLI(unittest.TestCase):
         driver = self.driver("validate", "--pause-after-stage")
         view = driver.drive(self.scenario.brief)
         while not (self.root / "rework-trace.jsonl").exists() or not any(
-            row["stage"] == "astra_resolve" for row in self.trace()
+            row["stage"] == "resolve" for row in self.trace()
         ):
             self.assertEqual("--pause-after-stage checkpoint reached", view["needs"].get("reason"), view)
             driver.call("resume-checkpoint", "--resume-paused")
             view = driver.until_stopped()
         self.assertFalse(view["done"], view)
-        self.assertEqual("sol", view["next_stage"], view)
+        self.assertEqual("tester", view["next_stage"], view)
         self.assertEqual("validate", driver.state()["current_task"]["kind"])
         self.assertEqual(0, scenario_run.metrics(driver.state())["report_repairs"])
         # The previous passing report belongs to another task and cannot finish this one.
-        previous = [row for row in self.trace() if row["stage"] == "sol"]
+        previous = [row for row in self.trace() if row["stage"] == "tester"]
         self.assertEqual(1, len(previous))
         self.assertNotEqual(previous[0]["task_id"], driver.state()["current_task"]["id"])
         while not view["done"]:
@@ -236,12 +240,12 @@ class CompletionReworkCLI(unittest.TestCase):
             driver.call("resume-checkpoint", "--resume-paused")
             view = driver.until_stopped()
         self.assertEqual(
-            ["terra", "sol", "astra_review", "astra_resolve", "sol", "astra_review"],
+            ["builder", "tester", "review_completion", "resolve", "tester", "review_completion"],
             [row["stage"] for row in self.trace()],
         )
-        self.assertEqual(1, len({row["source_revision"] for row in self.trace() if row["stage"] != "terra"}))
+        self.assertEqual(1, len({row["source_revision"] for row in self.trace() if row["stage"] != "builder"}))
         self.assertEqual(1, len({row["source_sha256"] for row in self.trace()}))
-        self.assertEqual([0, 0], [row["exit_code"] for row in self.trace() if row["stage"] == "sol"])
+        self.assertEqual([0, 0], [row["exit_code"] for row in self.trace() if row["stage"] == "tester"])
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
         checks = self.scenario.oracle()(self.project, self.scenario)
         self.assertTrue(all(check.ok for check in checks), checks)
@@ -253,20 +257,20 @@ class CompletionReworkCLI(unittest.TestCase):
         stages = [row["stage"] for row in self.trace()]
         self.assertEqual(
             [
-                "terra",
-                "sol",
-                "astra_review",
-                "terra",
-                "sol",
-                "astra_review",
-                "sol",
-                "astra_review",
-                "sol",
-                "astra_review",
+                "builder",
+                "tester",
+                "review_completion",
+                "builder",
+                "tester",
+                "review_completion",
+                "tester",
+                "review_completion",
+                "tester",
+                "review_completion",
             ],
             stages,
         )
-        rounds = [row for row in self.trace()[6:] if row["stage"] == "sol"]
+        rounds = [row for row in self.trace()[6:] if row["stage"] == "tester"]
         self.assertEqual(1, len({(row["source_revision"], row["source_sha256"]) for row in rounds}))
         self.assertEqual([0, 0], [row["exit_code"] for row in rounds])
         state = driver.state()
@@ -312,16 +316,16 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertTrue(view["done"], view)
         self.assertEqual(
             [
-                "terra",
-                "sol",
-                "astra_review",
-                "terra",
-                "sol",
-                "astra_review",
-                "sol",
-                "astra_review",
-                "sol",
-                "astra_review",
+                "builder",
+                "tester",
+                "review_completion",
+                "builder",
+                "tester",
+                "review_completion",
+                "tester",
+                "review_completion",
+                "tester",
+                "review_completion",
             ],
             [row["stage"] for row in self.trace()],
         )
@@ -332,28 +336,29 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertTrue(all(check.ok for check in checks), checks)
 
     def test_exhausted_pinned_builder_ends_without_changing_route_or_asking_for_recovery(self):
-        driver = self.driver("exhausted", "--pin-model-role", "terra")
-        pinned_model = driver.flags[driver.flags.index("--terra-model") + 1]
+        driver = self.driver("exhausted", "--pin-model-role", "builder")
+        pinned_model = driver.flags[driver.flags.index("--builder-model") + 1]
         view = driver.drive(self.scenario.brief)
         self.assertFalse(view["done"], view)
         self.assertEqual("PAUSED_INTERVENTION", view["status"])
         self.assertEqual("could_not_finish", view["recovery"]["outcome"]["result"])
         self.assertEqual("stopped", view["recovery"]["category"])
         self.assertNotEqual("answer", view["needs"]["kind"])
-        self.assertEqual(pinned_model, view["routes"]["terra"]["model"])
+        self.assertEqual(pinned_model, view["routes"]["builder"]["model"])
         self.assertEqual([], view["escalations"])
         self.assertEqual(1, len(view["direct_rework_assignments"]))
         self.assertEqual(
-            ["terra", "sol", "astra_review", "terra", "sol", "astra_review"], [row["stage"] for row in self.trace()]
+            ["builder", "tester", "review_completion", "builder", "tester", "review_completion"],
+            [row["stage"] for row in self.trace()],
         )
-        self.assertEqual([1, 1], [row["exit_code"] for row in self.trace() if row["stage"] == "sol"])
+        self.assertEqual([1, 1], [row["exit_code"] for row in self.trace() if row["stage"] == "tester"])
         attempts = self.trace()
         driver.call("resume-ended-task", "--resume-paused")
         self.assertEqual(attempts, self.trace(), "an exhausted task must not launch another attempt")
         resumed = driver.view()
         self.assertFalse(resumed["done"])
         self.assertEqual("could_not_finish", resumed["recovery"]["outcome"]["result"])
-        self.assertEqual(pinned_model, resumed["routes"]["terra"]["model"])
+        self.assertEqual(pinned_model, resumed["routes"]["builder"]["model"])
 
     def test_restart_after_assignment_commit_does_not_repeat_assignment_or_provider(self):
         driver = self.driver()
@@ -370,7 +375,7 @@ class CompletionReworkCLI(unittest.TestCase):
         saved_assignment = committed["direct_rework_assignments"][0]
         charge = saved_assignment["retry_charge"]
         self.assertEqual("retry", charge["action"])
-        self.assertEqual(["terra", "sol", "astra_review"], [row["stage"] for row in self.trace()])
+        self.assertEqual(["builder", "tester", "review_completion"], [row["stage"] for row in self.trace()])
         driver.env.pop("PYTHONPATH")
         driver.env.pop("SCENARIO_REWORK_CRASH_ON_ASSIGNMENT")
         # The controller died between stages after saving this assignment. A plain
@@ -379,14 +384,15 @@ class CompletionReworkCLI(unittest.TestCase):
         held = driver.call("inspect-ended-controller")
         self.assertEqual(2, held.returncode)
         self.assertEqual([saved_assignment], driver.view()["direct_rework_assignments"])
-        self.assertEqual(["terra", "sol", "astra_review"], [row["stage"] for row in self.trace()])
+        self.assertEqual(["builder", "tester", "review_completion"], [row["stage"] for row in self.trace()])
         driver.call("resume-committed-assignment", "--resume-paused")
         final = driver.until_stopped()
         self.assert_delivery(driver, final)
         self.assertEqual([saved_assignment], final["direct_rework_assignments"])
         self.assertEqual(2, final["iteration"])
         self.assertEqual(
-            ["terra", "sol", "astra_review", "terra", "sol", "astra_review"], [row["stage"] for row in self.trace()]
+            ["builder", "tester", "review_completion", "builder", "tester", "review_completion"],
+            [row["stage"] for row in self.trace()],
         )
 
     def test_restart_before_assignment_commit_reconciles_without_another_review_call(self):
@@ -402,7 +408,7 @@ class CompletionReworkCLI(unittest.TestCase):
             driver.drive(self.scenario.brief)
         self.assertEqual("before_assignment_commit", json.loads(marker.read_text())["boundary"])
         self.assertEqual([], driver.view()["direct_rework_assignments"])
-        self.assertEqual(["terra", "sol", "astra_review"], [row["stage"] for row in self.trace()])
+        self.assertEqual(["builder", "tester", "review_completion"], [row["stage"] for row in self.trace()])
         for key in ("PYTHONPATH", "SCENARIO_REWORK_CRASH_ON_ASSIGNMENT", "SCENARIO_REWORK_CRASH_WHEN"):
             driver.env.pop(key)
         driver.resume_after_crash()  # the Resume the view offers after the crash (#1698)
@@ -412,7 +418,8 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertEqual("retry", final["direct_rework_assignments"][0]["retry_charge"]["action"])
         self.assertEqual(2, final["iteration"])
         self.assertEqual(
-            ["terra", "sol", "astra_review", "terra", "sol", "astra_review"], [row["stage"] for row in self.trace()]
+            ["builder", "tester", "review_completion", "builder", "tester", "review_completion"],
+            [row["stage"] for row in self.trace()],
         )
 
 

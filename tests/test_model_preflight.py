@@ -66,8 +66,8 @@ class BillingAwareTests(unittest.TestCase):
         settings = {
             "roles": {
                 "task_planner": {"model": "plan/glm"},
-                "terra": {"model": "plan/mimo"},
-                "sol": {"model": "plan/glm"},
+                "builder": {"model": "plan/mimo"},
+                "tester": {"model": "plan/glm"},
                 "completion": {"model": ""},
             }
         }
@@ -84,8 +84,8 @@ class BareProbeAgentTests(unittest.TestCase):
             ("KILO_CONFIG_CONTENT", {"permission": {"read": "allow"}, "model": "openai/gpt-6-luna"}),
         ):
             with self.subTest(variable=variable):
-                config = {"plugin": ["activity.mjs"], "agent": {"autocode_sol_x": chosen, "other": {}}}
-                argv = ["kilo", "run", "--agent", "autocode_sol_x", "--model", "openai/gpt-6-luna"]
+                config = {"plugin": ["activity.mjs"], "agent": {"autocode_tester_x": chosen, "other": {}}}
+                argv = ["kilo", "run", "--agent", "autocode_tester_x", "--model", "openai/gpt-6-luna"]
                 ran, env = preflight.bare(argv, {variable: json.dumps(config), "HOME": "/h"})
                 self.assertEqual(preflight.PROBE_AGENT, ran[ran.index("--agent") + 1])
                 written = json.loads(env[variable])
@@ -130,8 +130,8 @@ class PreflightCheckTests(unittest.TestCase):
                 "engine": "opencode",
                 "roles": {
                     "task_planner": {"model": "plan/glm"},
-                    "terra": {"model": "plan/mimo"},
-                    "sol": {"model": "plan/glm"},
+                    "builder": {"model": "plan/mimo"},
+                    "tester": {"model": "plan/glm"},
                 },
                 "transport_identities": {"opencode": self.identity},
             }
@@ -244,7 +244,7 @@ class PreflightCheckTests(unittest.TestCase):
         for settings in (
             {},
             {"roles": {}},
-            {"roles": {"sol": {}}},
+            {"roles": {"tester": {}}},
             {"roles": {"requirements": None}},
             {"roles": {"requirements": "unbound"}},
         ):
@@ -268,7 +268,7 @@ class PreflightCheckTests(unittest.TestCase):
 
     def test_same_requirements_model_at_another_effort_still_has_its_own_probe(self):
         self.fresh_requirements()
-        self.state["settings"]["roles"]["sol"]["reasoning_effort"] = "low"
+        self.state["settings"]["roles"]["tester"]["reasoning_effort"] = "low"
         efforts = []
         execute = self.fake_execute({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
 
@@ -355,7 +355,7 @@ class PreflightCheckTests(unittest.TestCase):
         self.state["settings"]["roles"]["task_planner"]["model"] = "plan/new"
         self.state["configuration_changes"][0]["previous"]["roles"]["task_planner"]["model"] = "plan/new"
         self.state["configuration_changes"][0]["selected"]["roles"]["task_planner"]["model"] = "plan/new"
-        self.state["next_stage"] = "astra_plan"
+        self.state["next_stage"] = "plan_task"
         self.calls.clear()
         self.assertTrue(self.check({"plan/new": OK_EVENTS}))
         self.assertEqual(["plan/new"], self.calls)
@@ -516,9 +516,9 @@ class PreflightCheckTests(unittest.TestCase):
         self.state["next_stage"] = "recognize_workflow"
         self.assertTrue(self.check(events))
         self.assertEqual(["plan/mimo", "plan/glm"], self.calls)
-        self.state["next_stage"] = "terra"
+        self.state["next_stage"] = "builder"
         self.assertFalse(self.check(events))
-        self.state["next_stage"] = "astra_resolve"
+        self.state["next_stage"] = "resolve"
         self.assertTrue(self.check(events))
         self.assertEqual(["plan/mimo", "plan/glm", "plan/astra"], self.calls)
         self.assertFalse(self.check(events), "a passed probe is never repeated")
@@ -594,7 +594,7 @@ class PreflightCheckTests(unittest.TestCase):
 
     def test_a_saved_route_probes_at_its_roles_effort_and_certifies_the_level(self):
         # #2057: every route, saved or selected, proves the level it will launch at.
-        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["tester"] = {"model": "plan/glm", "reasoning_effort": "high"}
         probed = []
         execute = self.fake_execute({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
 
@@ -614,7 +614,7 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertFalse(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}), "both receipts are reused")
 
     def test_a_saved_receipt_certifies_its_level_without_another_probe(self):
-        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["tester"] = {"model": "plan/glm", "reasoning_effort": "high"}
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
         self.assertTrue(self.check(events))
         self.state["settings"].pop("certified_variants")
@@ -623,7 +623,7 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual(3, len(self.calls), "the receipt is evidence; no new request")
 
     def test_an_uncertain_probe_does_not_certify_its_level(self):
-        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["tester"] = {"model": "plan/glm", "reasoning_effort": "high"}
         self.state["settings"]["roles"]["completion"] = {"model": "plan/mimo", "reasoning_effort": "medium"}
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": GARBLED_EVENTS}))
@@ -631,7 +631,7 @@ class PreflightCheckTests(unittest.TestCase):
 
     def test_one_model_at_two_saved_levels_is_probed_and_certified_twice(self):
         del self.state["settings"]["roles"]["task_planner"]
-        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["tester"] = {"model": "plan/glm", "reasoning_effort": "high"}
         self.state["settings"]["roles"]["completion"] = {"model": "plan/glm", "reasoning_effort": "medium"}
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
         self.assertTrue(self.check(events))
@@ -642,23 +642,23 @@ class PreflightCheckTests(unittest.TestCase):
 
     def test_a_person_named_level_its_model_does_not_declare_pauses_before_any_probe(self):
         # #2104: the access preflight is the first launch boundary, so it fits like route_fit.launch.
-        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "medium"}
-        self.state["settings"]["effort_origins"] = {"sol": "user_explicit"}
+        self.state["settings"]["roles"]["tester"] = {"model": "plan/glm", "reasoning_effort": "medium"}
+        self.state["settings"]["effort_origins"] = {"tester": "user_explicit"}
         self.state["settings"]["route_selection"] = {
-            "candidates": {"sol": [{"model": "plan/glm", "levels": ["high", "low", "max"]}]}
+            "candidates": {"tester": [{"model": "plan/glm", "levels": ["high", "low", "max"]}]}
         }
         with patch.object(preflight, "probe", side_effect=AssertionError("a probe ran before the fit")):
             with self.assertRaises(route_fit.EffortUnsupported) as caught:
                 self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
         self.assertEqual(route_fit.STATUS, caught.exception.status)
-        self.assertIn("--sol-reasoning-effort", str(caught.exception))
+        self.assertIn("--tester-reasoning-effort", str(caught.exception))
         self.assertIn("low, high, max", str(caught.exception))
         self.assertEqual([], self.calls, "no model was launched")
 
     def test_a_runner_chosen_level_is_probed_at_the_level_the_model_declares(self):
-        self.state["settings"]["roles"] = {"sol": {"model": "plan/glm", "reasoning_effort": "medium"}}
+        self.state["settings"]["roles"] = {"tester": {"model": "plan/glm", "reasoning_effort": "medium"}}
         self.state["settings"]["route_selection"] = {
-            "candidates": {"sol": [{"model": "plan/glm", "levels": ["high", "low", "max"]}]}
+            "candidates": {"tester": [{"model": "plan/glm", "levels": ["high", "low", "max"]}]}
         }
         execute = self.fake_execute({"plan/glm": OK_EVENTS})
         seen = []
@@ -673,7 +673,7 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual([("plan/glm", "high")], seen)
         self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
         self.assertEqual(
-            "medium", self.state["settings"]["roles"]["sol"]["reasoning_effort"], "the saved route is untouched"
+            "medium", self.state["settings"]["roles"]["tester"]["reasoning_effort"], "the saved route is untouched"
         )
 
     def test_a_tool_refusing_the_probed_level_names_its_roles_flag(self):
@@ -688,7 +688,7 @@ class PreflightCheckTests(unittest.TestCase):
             seen.append(role)
             raise KiloEffortError(
                 "Kilo model plan/glm does not support reasoning variant 'medium'; supported variants: high, low, max. "
-                "Name one of them with --glm-reasoning-effort high; no model request was launched"
+                "Name one of them with --planner-reasoning-effort high; no model request was launched"
             )
 
         self.adapter.launch = launch
@@ -696,7 +696,7 @@ class PreflightCheckTests(unittest.TestCase):
         with self.assertRaises(support.Paused) as caught:
             preflight.check(runner, self.state, self.run_dir, self.root)
         self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
-        self.assertIn("--glm-reasoning-effort high", str(caught.exception))
+        self.assertIn("--planner-reasoning-effort high", str(caught.exception))
         self.assertEqual(["planner"], seen, "the probe launch carries the role it proves")
 
     def test_non_billing_adapters_make_no_probe_calls(self):
@@ -869,12 +869,12 @@ class MixedProviderPreflightTests(unittest.TestCase):
                 "provider": "opencode",
                 "roles": {
                     "task_planner": {"model": "plan/glm"},
-                    "terra": {"model": "plan/glm"},
-                    "sol": {"engine": "opencode", "provider": "kilocode", "model": "kilo/xiaomi/mimo"},
+                    "builder": {"model": "plan/glm"},
+                    "tester": {"engine": "opencode", "provider": "kilocode", "model": "kilo/xiaomi/mimo"},
                 },
                 "transport_identities": {
                     "opencode": {"engine": "fixture", "config_sha256": "a" * 64},
-                    "role:sol": {"provider": "kilocode", "identity": dict(self.kilo_identity)},
+                    "role:tester": {"provider": "kilocode", "identity": dict(self.kilo_identity)},
                 },
             }
         }
@@ -917,8 +917,8 @@ class MixedProviderPreflightTests(unittest.TestCase):
         self.state["next_stage"] = "requirements_gather"
         settings = self.state["settings"]
         settings["roles"]["requirements"] = {"engine": "opencode", "provider": "kilocode", "model": "plan/glm"}
-        settings["roles"]["sol"] = {"model": "plan/glm"}
-        settings["transport_identities"].pop("role:sol")
+        settings["roles"]["tester"] = {"model": "plan/glm"}
+        settings["transport_identities"].pop("role:tester")
         settings["transport_identities"]["role:requirements"] = {
             "provider": "kilocode",
             "identity": dict(self.kilo_identity),
@@ -938,7 +938,7 @@ class MixedProviderPreflightTests(unittest.TestCase):
             self.assertTrue(self.check(builtin))
         self.assertIn("Model preflight: kilo/xiaomi/mimo on kilocode ok", output.getvalue())
         self.assertEqual([(self.kilo, "kilo/xiaomi/mimo")], self.calls)
-        self.assertEqual([(self.kilo, {"sol": self.state["settings"]["roles"]["sol"]})], self.logins)
+        self.assertEqual([(self.kilo, {"tester": self.state["settings"]["roles"]["tester"]})], self.logins)
         self.assertEqual({"kilocode"}, set(self.receipts()))
         self.assertEqual("ok", self.receipts()["kilocode"]["kilo/xiaomi/mimo"]["status"])
         self.assertEqual(["kilocode"], [row["launch_route"]["provider"] for row in self.state["stages"]])
@@ -950,7 +950,7 @@ class MixedProviderPreflightTests(unittest.TestCase):
         self.assertTrue(self.check())
         self.assertEqual([(self.kilo, "kilo/xiaomi/mimo"), (self.primary, "plan/glm")], self.calls)
         self.assertEqual(
-            [(self.kilo, {"sol"}), (self.primary, {"task_planner", "terra"})],
+            [(self.kilo, {"tester"}), (self.primary, {"task_planner", "builder"})],
             [(adapter, set(checked)) for adapter, checked in self.logins],
         )
 
@@ -964,7 +964,7 @@ class MixedProviderPreflightTests(unittest.TestCase):
         self.assertTrue(self.check(self.spy("opencode", billing=False)))
         self.assertEqual([(self.kilo, "kilo/xiaomi/mimo")], self.calls)
         self.assertEqual(
-            [(self.kilo, {"task_planner", "sol"})], [(adapter, set(roles)) for adapter, roles in self.logins]
+            [(self.kilo, {"task_planner", "tester"})], [(adapter, set(roles)) for adapter, roles in self.logins]
         )
 
     def test_every_login_is_checked_before_the_first_request(self):
@@ -991,7 +991,7 @@ class MixedProviderPreflightTests(unittest.TestCase):
         self.assertFalse((self.run_dir / "model-preflight.json").exists())
 
     def test_the_same_model_on_two_tools_is_probed_and_cached_separately(self):
-        self.state["settings"]["roles"]["sol"]["model"] = "plan/glm"
+        self.state["settings"]["roles"]["tester"]["model"] = "plan/glm"
         self.events[("kilocode", "plan/glm")] = PAYWALL_EVENTS
         with self.assertRaises(support.Paused) as caught:
             self.check()
@@ -1030,7 +1030,7 @@ class MixedProviderPreflightTests(unittest.TestCase):
 
     def test_saved_single_tool_marker_is_trusted_only_for_its_own_tool(self):
         # Version 2, as written before per-tool receipts: one identity, the run's own tool.
-        self.state["settings"]["roles"]["sol"]["model"] = "plan/glm"
+        self.state["settings"]["roles"]["tester"]["model"] = "plan/glm"
         transport = self.state["settings"]["transport_identities"]["opencode"]
         (self.run_dir / "model-preflight.json").write_text(
             json.dumps(
@@ -1046,14 +1046,14 @@ class MixedProviderPreflightTests(unittest.TestCase):
         self.assertEqual({"fixture", "kilocode"}, set(self.receipts()))
 
     def test_saved_marker_alone_restores_each_tool_receipt(self):
-        self.state["settings"]["roles"]["sol"]["model"] = "plan/glm"
+        self.state["settings"]["roles"]["tester"]["model"] = "plan/glm"
         self.assertTrue(self.check())
         self.state["stages"] = []  # Leave only the marker to vouch for both passes.
         self.assertFalse(self.check())
         self.assertEqual(2, len(self.calls))
 
     def test_charged_attempts_restore_each_tool_receipt_after_a_lost_marker(self):
-        self.state["settings"]["roles"]["sol"]["model"] = "plan/glm"
+        self.state["settings"]["roles"]["tester"]["model"] = "plan/glm"
         self.assertTrue(self.check())
         self.assertEqual(2, len(self.calls))
         (self.run_dir / "model-preflight.json").unlink()
@@ -1121,12 +1121,12 @@ class SelectionPreflightTests(unittest.TestCase):
                 "tool": "opencode",
                 "reasoning_effort": "medium",
             },
-            "terra": {
+            "builder": {
                 "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
                 "tool": "opencode",
                 "reasoning_effort": "medium",
             },
-            "sol": {"model": "openai/gpt-6-sol", "tool": "opencode", "reasoning_effort": None},
+            "tester": {"model": "openai/gpt-6-sol", "tool": "opencode", "reasoning_effort": None},
         }
         unknown = sorted({route["model"] for route in routes.values()})
         return {"routes": routes, "probe": probe if probe is not None else unknown, "stop": None}
@@ -1189,7 +1189,7 @@ class SelectionPreflightTests(unittest.TestCase):
 
     def test_saved_routes_skip_a_non_billing_tool(self):
         runner = types.SimpleNamespace(opencode=self.adapter)
-        state = {"settings": {"engine": "opencode", "roles": {"terra": {"model": "zai-coding-plan/glm-5.3"}}}}
+        state = {"settings": {"engine": "opencode", "roles": {"builder": {"model": "zai-coding-plan/glm-5.3"}}}}
         events = {"zai-coding-plan/glm-5.3": OK_EVENTS}
         with patch.object(preflight.transport, "execute", side_effect=self.fake_execute(events)) as execute:
             self.assertFalse(preflight.check(runner, state, self.run_dir, self.root))
@@ -1197,7 +1197,7 @@ class SelectionPreflightTests(unittest.TestCase):
 
     def test_selection_groups_resolve_each_tool_and_keep_identities_apart(self):
         selection = self.selection()
-        selection["routes"]["terra"] = {
+        selection["routes"]["builder"] = {
             "model": "kilo/deepseek/deepseek-v4.1-flash",
             "tool": "kilocode",
             "reasoning_effort": "medium",
@@ -1209,7 +1209,7 @@ class SelectionPreflightTests(unittest.TestCase):
         load.assert_called_once_with("kilocode")
         by_provider = {group[2]["provider"]: group for group in groups}
         self.assertEqual({"opencode", "kilocode"}, set(by_provider))
-        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", by_provider["kilocode"][1]["terra"]["model"])
+        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", by_provider["kilocode"][1]["builder"]["model"])
 
 
 class OwnedPreflightTests(unittest.TestCase):

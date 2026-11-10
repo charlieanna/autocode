@@ -32,7 +32,7 @@ def check(project, scenario, run=None):
     checks += escalation_checks(
         run,
         kind="stronger_attempt",
-        role="terra",
+        role="builder",
         job="Builder",
         climbed=CLIMBED,
         attempts=1,
@@ -40,7 +40,7 @@ def check(project, scenario, run=None):
         basis="validation",
         stamped=STAMPED,
     )
-    builds = (run.get("model_stages") or []).count("terra")
+    builds = (run.get("model_stages") or []).count("builder")
     checks.append(Check("no_builder_attempt_after_the_stronger_one", builds == BUILDS, f"{builds} Builder attempts"))
     view = run.get("view") or {}
     checks.append(

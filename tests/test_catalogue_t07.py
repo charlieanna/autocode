@@ -52,7 +52,7 @@ class RepairCase(t06.SolControllerCase):
         support.atomic_json(self.run / "rework.json", rework)
         record = {"output": str(self.run / "rework.json"), "source_revision": support.snapshot(self.root)["revision"]}
         with self.forbid_real_launches(runner):
-            runner.apply_result(self.state, "astra_review", rework, record, self.root, self.run)
+            runner.apply_result(self.state, "review_completion", rework, record, self.root, self.run)
         return record
 
     def resolve(self, record, *, status="REWORK", **changes):
@@ -66,7 +66,7 @@ class RepairCase(t06.SolControllerCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "astra_resolve",
+                "resolve",
                 diagnosis,
                 {"output": str(output), "source_revision": record["source_revision"]},
                 self.root,
@@ -98,7 +98,7 @@ class RepairScenarios(RepairCase):
             support.Paused,
             runner.apply_result,
             self.state,
-            "astra_resolve",
+            "resolve",
             promote,
             {"output": "x", "source_revision": record["source_revision"]},
             self.root,
@@ -124,7 +124,7 @@ class RepairScenarios(RepairCase):
             support.Paused,
             runner.apply_result,
             self.state,
-            "astra_resolve",
+            "resolve",
             edited,
             {"output": "x", "changed_files": ["greet.py"], "source_revision": support.snapshot(self.root)["revision"]},
             self.root,
@@ -137,7 +137,7 @@ class RepairScenarios(RepairCase):
             (ValueError, support.Paused),
             runner.apply_result,
             self.state,
-            "astra_resolve",
+            "resolve",
             verdict,
             {"output": "x", "source_revision": record["source_revision"]},
             self.root,
@@ -199,34 +199,34 @@ class RepairScenarios(RepairCase):
     def test_fix05_fixed_escalation_policy(self):
         """FIX-05. Existing: test_escalation + builder-ladder tests in test_autocode."""
         contract_before = copy.deepcopy(self.state["goal_contract"])
-        self.state["settings"]["roles"]["terra"].update(model="openai/gpt-6-sol", reasoning_effort="medium")
-        role_settings = self.state["settings"]["roles"]["terra"]
+        self.state["settings"]["roles"]["builder"].update(model="openai/gpt-6-sol", reasoning_effort="medium")
+        role_settings = self.state["settings"]["roles"]["builder"]
         first = copy.deepcopy(role_settings)
         trigger = {"trigger": "rejected_output", "detail": ValueError("same failure")}
-        escalation.advance(self.state, "terra", **trigger)
-        rung_one = self.state["settings"]["roles"]["terra"]["reasoning_effort"]
-        escalation.advance(self.state, "terra", **trigger)  # second failure: one more rung
-        rung_two = self.state["settings"]["roles"]["terra"]["reasoning_effort"]
+        escalation.advance(self.state, "builder", **trigger)
+        rung_one = self.state["settings"]["roles"]["builder"]["reasoning_effort"]
+        escalation.advance(self.state, "builder", **trigger)  # second failure: one more rung
+        rung_two = self.state["settings"]["roles"]["builder"]["reasoning_effort"]
         self.check("escalation_moves_ladder", True, rung_one != first["reasoning_effort"] or rung_two != rung_one)
         self.check("escalation_receipt_recorded", True, bool(self.state.get("reasoning_escalations")))
         self.check("contract_not_restarted", contract_before, self.state["goal_contract"])
         self.check(
-            "model_route_still_configured", True, self.state["settings"]["roles"]["terra"].get("model") is not None
+            "model_route_still_configured", True, self.state["settings"]["roles"]["builder"].get("model") is not None
         )
         self.finish(summary="ESCALATED_THEN_PROGRESS: saved attempts drive a fixed ladder, contract preserved")
 
     def test_fix06_failure_identity_survives_rename_and_restart(self):
         """FIX-06. Existing: test_report_repair failure-identity tests."""
         record = {
-            "stage": "terra",
-            "role": "terra",
+            "stage": "builder",
+            "role": "builder",
             "source_revision": "artifact-7",
             "output": "out.json",
             "summary": "Attempt one wording",
         }
         error = support.Paused("PAUSED_INVALID_OUTPUT", "broken json")
         identity = failures.identity(record, error)
-        renamed = {**record, "summary": "Completely different visible label", "stage": "terra"}
+        renamed = {**record, "summary": "Completely different visible label", "stage": "builder"}
         after_restart = {**renamed, "iteration": 99}
         self.check("identity_stable_across_rename", identity, failures.identity(renamed, error))
         self.check("identity_stable_across_restart", identity, failures.identity(after_restart, error))
@@ -258,7 +258,7 @@ class RepairScenarios(RepairCase):
         with self.forbid_real_launches(runner):
             runner.apply_result(
                 self.state,
-                "astra_review",
+                "review_completion",
                 blocked,
                 {"output": str(output), "source_revision": support.snapshot(self.root)["revision"]},
                 self.root,
@@ -292,15 +292,15 @@ class RepairScenarios(RepairCase):
                 support.Paused,
                 runner.apply_result,
                 self.state,
-                "astra_review",
+                "review_completion",
                 complete,
                 {"output": str(self.run / "complete.json")},
                 self.root,
                 self.run,
             )
-        self.check("no_pointless_correction_batch", "astra_review", self.state["next_stage"])
+        self.check("no_pointless_correction_batch", "review_completion", self.state["next_stage"])
         self.check(
-            "no_source_edits_during_block", 0, sum(1 for rec in self.state["stages"] if rec.get("stage") == "terra")
+            "no_source_edits_during_block", 0, sum(1 for rec in self.state["stages"] if rec.get("stage") == "builder")
         )
         self.finish(summary="VERIFICATION_BLOCKED: environment gap stays an explicit blocker")
 
@@ -349,11 +349,11 @@ class RepairScenarios(RepairCase):
         report["end_to_end_result"] = {"status": "FAIL", "summary": "regression", "evidence_refs": ["event:recheck"]}
         runner.apply_result(
             self.state,
-            "sol",
+            "tester",
             report,
             {
-                "role": "sol",
-                "stage": "sol",
+                "role": "tester",
+                "stage": "tester",
                 "events": str(events),
                 "output": str(events),
                 "source_revision": support.snapshot(self.root)["revision"],
@@ -361,12 +361,12 @@ class RepairScenarios(RepairCase):
             self.root,
             self.run,
         )
-        regression = [row for row in findings.open_entries(self.state, "sol") if "Regression" in row["finding"]]
+        regression = [row for row in findings.open_entries(self.state, "tester") if "Regression" in row["finding"]]
         self.check("regression_finding_open", 1, len(regression))
         self.check(
             "f1_fix_evidence_retained",
             True,
-            any(rec.get("stage") == "astra_resolve" for rec in self.state["stages"])
+            any(rec.get("stage") == "resolve" for rec in self.state["stages"])
             or bool(self.state.get("resolution_history")),
         )
         self.check("not_closed_after_retest", False, self.state["status"] == "TASK_COMPLETE")

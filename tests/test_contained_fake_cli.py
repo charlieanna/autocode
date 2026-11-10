@@ -26,7 +26,7 @@ import task_scenarios as scenarios
 from . import test_containment_policy_cli as policy_cli
 
 NATIVE_PROBLEM = containment.sandbox_problem()
-CONTAINED_STAGES = ("terra", "sol", "astra_review")
+CONTAINED_STAGES = ("builder", "tester", "review_completion")
 
 
 @unittest.skipUnless(

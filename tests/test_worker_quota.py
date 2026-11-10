@@ -19,7 +19,7 @@ class MemberQuestionPolicyTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         worker = {
-            "role": "terra",
+            "role": "builder",
             "milestone_id": "M1",
             "run_dir": directory.name,
             "workspace": "/work/first",
@@ -53,7 +53,7 @@ class MemberQuestionPolicyTests(unittest.TestCase):
                 lambda state, origin: origin["quota_worker"].update(pause_status="PAUSED_CONTENT_FILTER"),
             ),
             ("finished batch", lambda state, origin: state["orchestration_batch"].update(status="BUILT")),
-            ("review checkpoint", lambda state, origin: state.update(next_stage="sol")),
+            ("review checkpoint", lambda state, origin: state.update(next_stage="tester")),
             ("generic stop", lambda state, origin: origin.pop("quota_worker")),
         )
         for name, change in controls:
@@ -115,8 +115,13 @@ class MemberRetryRoutePolicyTests(unittest.TestCase):
     def test_parent_builder_route_changes_are_refused_but_other_settings_are_allowed(self):
         before = {
             "roles": {
-                "terra": {"engine": "opencode", "model": "fixture/first", "provider": None, "reasoning_effort": "high"},
-                "sol": {"model": "fixture/tester"},
+                "builder": {
+                    "engine": "opencode",
+                    "model": "fixture/first",
+                    "provider": None,
+                    "reasoning_effort": "high",
+                },
+                "tester": {"model": "fixture/tester"},
             }
         }
         with tempfile.TemporaryDirectory() as directory:
@@ -134,18 +139,18 @@ class MemberRetryRoutePolicyTests(unittest.TestCase):
             ):
                 with self.subTest(key=key):
                     after = copy.deepcopy(before)
-                    after["roles"]["terra"][key] = value
+                    after["roles"]["builder"][key] = value
                     refusal = quota.retry_route_refusal(state, ["M1"], before, after, asked="M1")
                     self.assertIn("fixture/first", refusal)
-                    self.assertIn("--answer route-terra=MODEL", refusal)
+                    self.assertIn("--answer route-builder=MODEL", refusal)
             after = copy.deepcopy(before)
-            after["roles"]["sol"]["model"] = "fixture/other-tester"
+            after["roles"]["tester"]["model"] = "fixture/other-tester"
             after["orchestration"] = {"max_parallel": 3}
             self.assertIsNone(quota.retry_route_refusal(state, ["M1"], before, after))
             state["orchestration_batch"]["workers"][0]["status"] = "FAILED"
             after = copy.deepcopy(before)
-            after["roles"]["terra"]["model"] = "fixture/other"
-            self.assertNotIn("route-terra", quota.retry_route_refusal(state, ["M1"], before, after))
+            after["roles"]["builder"]["model"] = "fixture/other"
+            self.assertNotIn("route-builder", quota.retry_route_refusal(state, ["M1"], before, after))
 
 
 class OutputLengthMemberPolicyTests(unittest.TestCase):
@@ -167,7 +172,7 @@ class OutputLengthMemberPolicyTests(unittest.TestCase):
                 },
             }
             Path(directory, "state.json").write_text(
-                json.dumps({"settings": {"roles": {"terra": {"model": "fixture/first"}}}})
+                json.dumps({"settings": {"roles": {"builder": {"model": "fixture/first"}}}})
             )
             before = copy.deepcopy(state)
             refusal = quota.refused_retry(state, row, result, asked="M1")
@@ -178,10 +183,10 @@ class OutputLengthMemberPolicyTests(unittest.TestCase):
             self.assertIn("model", label)
             self.assertIn("output limit", effect)
             self.assertNotIn("content filter", effect)
-            self.assertIn("route-terra", str(refusal))
+            self.assertIn("route-builder", str(refusal))
             self.assertEqual(before, state)
             Path(directory, "state.json").write_text(
-                json.dumps({"settings": {"roles": {"terra": {"model": "fixture/other"}}}})
+                json.dumps({"settings": {"roles": {"builder": {"model": "fixture/other"}}}})
             )
             self.assertIsNone(quota.refused_retry(state, row, result, asked="M1"))
             self.assertEqual(before, state)

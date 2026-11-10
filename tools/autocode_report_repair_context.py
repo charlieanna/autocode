@@ -40,7 +40,7 @@ except ImportError:
     import autocode_source_trace as source_trace
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
-DECISION_STAGES = frozenset({"astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"})
+DECISION_STAGES = frozenset({"plan_task", "review_completion", "review_checkpoint", "resolve"})
 
 
 def requirements_sources(state: RunState, stage: str) -> dict:
@@ -90,10 +90,10 @@ def clarification_context(state: RunState, stage: str) -> dict:
     feedback = state.get("brief_feedback") or []
     reports = (state.get("planning") or {}).get("reports") or {}
     predecessors = (
-        ("astra_discovery", "astra_challenge", "glm_revise")
-        if stage == "astra_finalize"
-        else ("astra_discovery", "astra_challenge")
-        if stage == "glm_revise"
+        ("draft_plan", "review_plan", "revise_plan")
+        if stage == "finalize_plan"
+        else ("draft_plan", "review_plan")
+        if stage == "revise_plan"
         else ()
     )
     return {
@@ -156,7 +156,7 @@ def criterion_retention(clarification: dict, stage: str, schema: dict | None = N
     if stage not in retention.AUTHORS - retention.FINAL or not clarification.get("retained_contract"):
         return "", {}
     if (
-        stage == "glm_revise"
+        stage == "revise_plan"
         and schema is not None
         and retention.allows_delta(schema)
         and not retention.allows_row_references(schema)
@@ -274,12 +274,12 @@ def prompt_parts(
     batch = batch_validation_context(state, stage)
     citation = changed_code_citation_context(state, pending, stage)
     interpretations = goals.feedback_interpretation_context(state) if stage in PLANNING_STAGES else {}
-    adjacent = failure_correction.repair_obligations(state) if stage == "glm_revise" else None
+    adjacent = failure_correction.repair_obligations(state) if stage == "revise_plan" else None
     # Revision validation uses the current review, not the execution findings ledger.
     # Carry that report once without restoring superseded predecessor contracts.
     review = (
-        {"planning_exchange": {"astra_challenge": copy.deepcopy(entry)}}
-        if stage == "glm_revise" and (entry := clarification["planning_exchange"].get("astra_challenge"))
+        {"planning_exchange": {"review_plan": copy.deepcopy(entry)}}
+        if stage == "revise_plan" and (entry := clarification["planning_exchange"].get("review_plan"))
         else {}
     )
     differences = protected_list_differences(protected, latest) if stage in retention.AUTHORS else []
@@ -389,7 +389,7 @@ def prompt_parts(
             },
             "original_report": historical_source,
             "protected_contract": protected,
-            "clarification": {"clarification_context": clarification} if stage == "astra_finalize" else {},
+            "clarification": {"clarification_context": clarification} if stage == "finalize_plan" else {},
         },
     )
 
@@ -397,7 +397,7 @@ def prompt_parts(
 def batch_validation_context(state: RunState, stage: str) -> dict:
     """Keep report-only repairs grounded in the exact current combined task."""
     task = state.get("current_task") or {}
-    if stage not in DECISION_STAGES | {"sol"} or not task.get("milestone_ids"):
+    if stage not in DECISION_STAGES | {"tester"} or not task.get("milestone_ids"):
         return {}
     return {
         "task_id": task["id"],
@@ -419,14 +419,14 @@ def instruction(stage: str) -> str:
     """Explain how a planning report repair must use the saved clarification sources."""
     if stage not in PLANNING_STAGES:
         return ""
-    if stage == "astra_finalize":
+    if stage == "finalize_plan":
         return prompts.get("fragments/report-repair-context/instruction-02.md")
     return prompts.get("fragments/report-repair-context/instruction.md")
 
 
 def changed_code_citation_context(state: RunState, pending: dict, stage: str) -> dict:
     """Offer the current enclosing proof as a citation, never new evidence authority."""
-    if stage not in {"sol", "astra_checkpoint"}:
+    if stage not in {"tester", "review_checkpoint"}:
         return {}
     proof = state.get("regression_proof") or {}
     source = proof.get("source_revision")

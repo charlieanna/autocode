@@ -37,7 +37,7 @@ class ProgressiveFrontiersTests(unittest.TestCase):
     def test_lineage_review_exhaustion_is_capacity_not_an_investigation_reset(self):
         state = {
             "status": "RUNNING",
-            "next_stage": "astra_finalize",
+            "next_stage": "finalize_plan",
             "progressive": {"version": 1, "budget": {"pools": {"existing": {"reviews_used": 2}}}},
         }
         before = copy.deepcopy(state)

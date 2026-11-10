@@ -367,7 +367,7 @@ def workspace_file(workspace, path) -> bool:
 
 def planner_stage(state: RunState) -> str:
     """Where a workflow hands over to planning: the Planner's first stage in the saved flow."""
-    return "plan" if roles.planning_flow(state) == "v2" else "astra_discovery"
+    return "plan" if roles.planning_flow(state) == "v2" else "draft_plan"
 
 
 def kind(state: RunState) -> str | None:

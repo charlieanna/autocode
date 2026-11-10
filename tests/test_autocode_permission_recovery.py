@@ -20,17 +20,17 @@ class PermissionRecovery(unittest.TestCase):
 
     def test_temporary_path_changes_do_not_create_a_new_incident(self):
         first = self.prepare(
-            "terra",
+            "builder",
             recovery.operation("permission requested: external_directory (/tmp/first/*); auto-rejecting"),
             [],
             [],
         )
         first["events"] = "first.jsonl"
         second = self.prepare(
-            "terra",
+            "builder",
             recovery.operation("permission requested: external_directory (/private/tmp/second/*); auto-rejecting"),
             [first],
-            [{"stage": "terra", "events": "first.jsonl", "abandoned": True}],
+            [{"stage": "builder", "events": "first.jsonl", "abandoned": True}],
         )
         self.assertEqual(first["incident_id"], second["incident_id"])
         self.assertEqual(2, second["repeat_count"])
@@ -39,12 +39,12 @@ class PermissionRecovery(unittest.TestCase):
 
     def test_successful_owner_ends_incident_but_another_role_does_not(self):
         denied = recovery.operation("permission requested: external_directory (/external/project/*)")
-        first = self.prepare("terra", denied, [], [])
+        first = self.prepare("builder", denied, [], [])
         first["events"] = "first.jsonl"
-        archived = {"stage": "terra", "events": "first.jsonl", "abandoned": True}
-        other = self.prepare("terra", denied, [first], [archived, {"stage": "sol"}])
+        archived = {"stage": "builder", "events": "first.jsonl", "abandoned": True}
+        other = self.prepare("builder", denied, [first], [archived, {"stage": "tester"}])
         self.assertEqual(2, other["repeat_count"])
-        resolved = self.prepare("terra", denied, [first], [archived, {"stage": "terra"}])
+        resolved = self.prepare("builder", denied, [first], [archived, {"stage": "builder"}])
         self.assertEqual(1, resolved["repeat_count"])
 
     def test_symlink_cannot_redirect_scratch_outside_workspace(self):
@@ -52,12 +52,12 @@ class PermissionRecovery(unittest.TestCase):
         outside.mkdir()
         (self.workspace / ".autocode").symlink_to(outside, target_is_directory=True)
         with self.assertRaisesRegex(ValueError, "symlink"):
-            self.prepare("terra", recovery.operation("external_directory"), [], [])
+            self.prepare("builder", recovery.operation("external_directory"), [], [])
         self.assertEqual([], list(outside.iterdir()))
 
     def test_unchanged_resume_does_not_erase_permission_hold_or_allowance(self):
         denied = recovery.operation("permission requested: external_directory (/tmp/probe/*)")
-        context = self.prepare("terra", denied, [], [])
+        context = self.prepare("builder", denied, [], [])
         context.update(repeat_count=2, source_revision="retained")
         state = {"workspace": str(self.workspace), "recovery_context": context}
         with patch.object(limits, "snapshot", return_value={"revision": "retained"}):
@@ -70,10 +70,10 @@ class PermissionRecovery(unittest.TestCase):
 
     def test_two_runs_do_not_share_scratch_even_for_the_same_denial(self):
         denied = recovery.operation("permission requested: external_directory (/tmp/probe/*)")
-        first = self.prepare("terra", denied, [], [], "first")
-        second = self.prepare("terra", denied, [], [], "second")
+        first = self.prepare("builder", denied, [], [], "first")
+        second = self.prepare("builder", denied, [], [], "second")
         self.assertNotEqual(first["diagnostic_directory"], second["diagnostic_directory"])
         receipt = Path(first["diagnostic_directory"]) / "retained.txt"
         receipt.write_text("first run evidence")
-        self.prepare("terra", denied, [], [], "second")
+        self.prepare("builder", denied, [], [], "second")
         self.assertEqual("first run evidence", receipt.read_text())
