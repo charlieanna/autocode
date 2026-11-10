@@ -29,6 +29,7 @@ try:
     from . import autocode_chat_stage_policy as stage_policy
     from . import autocode_chat_verification as verification
     from . import autocode_progress_view as progress_view
+    from . import autocode_roles as roles
 except ImportError:
     import autocode_chat_changeset as changeset
     import autocode_chat_cost as cost
@@ -38,6 +39,7 @@ except ImportError:
     import autocode_chat_stage_policy as stage_policy
     import autocode_chat_verification as verification
     import autocode_progress_view as progress_view
+    import autocode_roles as roles
 
 LOG_LIMIT = 200
 STAGE_ROWS = 4  # the newest stages the panel lists; /details has every attempt
@@ -532,11 +534,43 @@ def sections(view: dict | None, *, launched: bool = False, task_total: dict | No
     return result
 
 
+# The stages every task runs, in order, with the route records that can name each one's model,
+# first match wins. The Plan Reviewer has its own route; older runs without one used astra's.
+PIPELINE = (
+    ("requirements", ("requirements",)),
+    ("planner", ("glm",)),
+    ("plan_reviewer", ("plan_reviewer", "astra")),
+    ("builder", ("terra",)),
+    ("tester", ("sol",)),
+    ("completion", ("completion",)),
+)
+# Stages that run only when the task needs them. A derived role copies its model from these routes
+# until it has one of its own (autocode_role_transport.DERIVED_ROLES; a test keeps them in step).
+# The Orchestrator schedules parallel Builders and runs no model.
+ON_CALL = (
+    ("orchestrator", ()),
+    ("resolver", ("resolver", "astra")),
+    ("investigator", ("stuck_investigator", "plan_reviewer", "astra")),
+)
+
+
+def _stage_model(routes: dict, names: tuple[str, ...]) -> str:
+    if not names:
+        return "no model"
+    for name in names:
+        model = _mapping(routes.get(name)).get("model")
+        if model:
+            model = str(model)
+            return model.rsplit("/", 1)[-1] if "/" in model else model
+    return "?"
+
+
 def pipeline_section(view: dict | None) -> Section | None:
     """The stage pipeline: each stage's job, model and status (#3070).
 
     Shows the standard pipeline (Requirements → Planner → Plan Reviewer → Builder →
-    Tester → Completion Reviewer) with the model each stage runs and a status mark
+    Tester → Completion Reviewer), then the stages that run only when needed (Orchestrator,
+    Resolver, Investigator), with the model each stage runs and a status mark
     (✓ done, ● working, ! needs you, · waiting). Returns None when no route data."""
     view = view or {}
     routes = _mapping(view.get("routes"))
@@ -548,24 +582,8 @@ def pipeline_section(view: dict | None) -> Section | None:
     status = view.get("status") or ""
     stages_run = _rows(_mapping(view).get("stages"))
 
-    # The standard pipeline jobs in order.
-    pipeline = ["requirements", "planner", "plan_reviewer", "builder", "tester", "completion"]
-    # Map job to the route record that names its model.
-    job_to_role = {
-        "requirements": "requirements",
-        "planner": "glm",
-        "plan_reviewer": "astra",
-        "builder": "terra",
-        "tester": "sol",
-        "completion": "completion",
-    }
     # Which jobs have completed (from recorded stages).
     completed_jobs = set()
-    try:
-        from . import autocode_roles as roles
-    except ImportError:
-        import autocode_roles as roles
-
     for record in stages_run:
         if isinstance(record, dict):
             stage_name = str(record.get("stage") or "")
@@ -578,12 +596,10 @@ def pipeline_section(view: dict | None) -> Section | None:
     breakdown = _mapping(_mapping(_mapping(view.get("cost")).get("breakdown")))
     by_job = {str(r.get("job")): r for r in _rows(breakdown.get("by_stage"))}
 
-    for job in pipeline:
-        role = job_to_role.get(job, job)
-        route = _mapping(routes.get(role))
-        model = str(route.get("model") or "?")
-        short_model = model.rsplit("/", 1)[-1] if "/" in model else model
-        screen_name = SCREEN_NAMES.get(job, job.title())
+    stages = [(False, stage) for stage in PIPELINE] + [(True, stage) for stage in ON_CALL]
+    for on_call, (job, names) in stages:
+        short_model = _stage_model(routes, names)
+        screen_name = roles.SCREEN[job]
 
         if job in completed_jobs:
             mark, style = "✓", "panel-good"
@@ -602,13 +618,14 @@ def pipeline_section(view: dict | None) -> Section | None:
             spent = job_cost.get("spent_usd")
             if spent is not None and spent > 0:
                 cost_text = f" · ${spent:.2f}"
-        rows.append(Row(mark, f"{screen_name} · {short_model}{cost_text}", style))
+        when = " · if needed" if on_call and mark == "·" else ""
+        rows.append(Row(mark, f"{screen_name} · {short_model}{cost_text}{when}", style))
 
     summary = ""
     if status == "TASK_COMPLETE":
         summary = "All stages done"
     elif current_stage:
-        summary = f"Running: {SCREEN_NAMES.get(current_stage, current_stage)}"
+        summary = f"Running: {roles.SCREEN.get(current_stage, current_stage)}"
     # Total cost and tokens in the summary line.
     cost = _mapping(view.get("cost"))
     usage = _mapping(view.get("usage"))
@@ -628,23 +645,8 @@ def pipeline_section(view: dict | None) -> Section | None:
     return Section("Pipeline", summary, tuple(rows))
 
 
-SCREEN_NAMES = {
-    "requirements": "Requirements",
-    "planner": "Planner",
-    "plan_reviewer": "Plan Reviewer",
-    "builder": "Builder",
-    "tester": "Tester",
-    "completion": "Completion Reviewer",
-}
-
-
 def _is_current_job(job: str, current_stage: str, next_stage: str) -> bool:
     """Whether this job is the one currently running or next."""
-    try:
-        from . import autocode_roles as roles
-    except ImportError:
-        import autocode_roles as roles
-
     return any(stage and roles.job_for_stage(stage) == job for stage in (current_stage, next_stage))
 
 

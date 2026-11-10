@@ -4,6 +4,7 @@ import unittest
 from datetime import UTC, datetime
 
 import autocode_chat_panel as panel
+import autocode_role_transport as role_transport
 
 
 def view(*, headline="Builder working", needs="nothing needed from you", task="working", requirement="unchecked"):
@@ -825,3 +826,71 @@ class StepTextTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def routed(**models):
+    return {name: {"model": model} for name, model in models.items()}
+
+
+class PipelineTests(unittest.TestCase):
+    ROUTES = routed(
+        requirements="anthropic/claude-opus-5-5",
+        glm="zai-coding-plan/glm-5.3",
+        plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        terra="openai/gpt-6.1-sol",
+        sol="anthropic/claude-opus-5-5",
+        completion="anthropic/claude-fable-5-1",
+        astra="kilo/openai/gpt-5.1-codex-max",
+    )
+
+    def rows(self, **view):
+        section = panel.pipeline_section({"status": "RUNNING", "routes": self.ROUTES, **view})
+        return {row.text.split(" · ", 1)[0]: row for row in section.rows}
+
+    def test_plan_reviewer_shows_its_own_route_not_the_resolvers(self):
+        rows = self.rows()
+        self.assertEqual(rows["Plan Reviewer"].text, "Plan Reviewer · mimo-v2.6-pro")
+        self.assertEqual(rows["Resolver"].text, "Resolver · gpt-5.1-codex-max · if needed")
+
+    def test_stages_that_run_when_needed_follow_the_six_every_task_runs(self):
+        rows = self.rows()
+        self.assertEqual(
+            list(rows),
+            [
+                "Requirements",
+                "Planner",
+                "Plan Reviewer",
+                "Builder",
+                "Tester",
+                "Completion Reviewer",
+                "Orchestrator",
+                "Resolver",
+                "Investigator",
+            ],
+        )
+        self.assertEqual(rows["Orchestrator"].text, "Orchestrator · no model · if needed")
+        self.assertEqual(rows["Investigator"].text, "Investigator · mimo-v2.6-pro · if needed")
+        self.assertEqual(rows["Builder"].text, "Builder · gpt-6.1-sol")
+        self.assertEqual({rows[name].style for name in ("Orchestrator", "Resolver", "Investigator")}, {"dim"})
+
+    def test_a_stage_that_ran_is_marked_done_on_its_own_route(self):
+        self.ROUTES = {**self.ROUTES, **routed(stuck_investigator="anthropic/claude-opus-5-5")}
+        rows = self.rows(stages=[{"stage": "investigate_stuck"}, {"stage": "orchestrator"}], next_stage="astra_resolve")
+        self.assertEqual(
+            (rows["Investigator"].mark, rows["Investigator"].text), ("✓", "Investigator · claude-opus-5-5")
+        )
+        self.assertEqual((rows["Orchestrator"].mark, rows["Orchestrator"].text), ("✓", "Orchestrator · no model"))
+        self.assertEqual((rows["Resolver"].mark, rows["Resolver"].style), ("●", "panel-now"))
+        self.assertEqual(rows["Resolver"].text, "Resolver · gpt-5.1-codex-max")
+
+    def test_a_run_without_a_plan_reviewer_route_falls_back_to_astra(self):
+        self.ROUTES = {name: route for name, route in self.ROUTES.items() if name != "plan_reviewer"}
+        rows = self.rows()
+        self.assertEqual(rows["Plan Reviewer"].text, "Plan Reviewer · gpt-5.1-codex-max")
+        self.assertEqual(rows["Investigator"].text, "Investigator · gpt-5.1-codex-max · if needed")
+
+    def test_on_call_models_follow_the_roles_they_are_copied_from(self):
+        derived = {"resolver": "resolver", "investigator": "stuck_investigator"}
+        for job, names in panel.ON_CALL:
+            if names:
+                self.assertEqual(names, (derived[job], *role_transport.DERIVED_ROLES[derived[job]]), job)
