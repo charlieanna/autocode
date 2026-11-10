@@ -244,11 +244,11 @@ def resume_workspace(selected, state: RunState):
         raise ValueError("workspace differs from checkpoint; use the original project or task worktree")
     data = metadata(saved)
     if not data or data["project_workspace"] != str(selected):
-        raise ValueError(_missing_worktree(selected, saved))
+        raise ValueError(missing_worktree(selected, saved))
     return saved
 
 
-def _missing_worktree(project: Path, saved: Path) -> str:
+def missing_worktree(project: Path, saved: Path) -> str:
     """Why a saved run cannot continue: `autocode clean-worktrees` archived its worktree's records
     to PROJECT/.autocode/archive/TREE after the merge (#2402), or the worktree is simply gone."""
     archive = keep_out_of_git(project) / "archive" / saved.name

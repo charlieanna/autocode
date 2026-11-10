@@ -62,6 +62,8 @@ TANGLED: frozenset[str] = frozenset()
 # import and one call in load_stage_report raised autocode.py by 1.
 # 2026-11-08: the --requirements-triage flag's parser entry raised autocode_args.py (#2940), like
 # --auto-select before it (#1426); the flag's action lives in autocode_requirements_triage.
+# 2026-11-10: the --build-in-worktree flag's parser entry, and the --in-place it implies before --new-run-dir is
+# checked, raised autocode_args.py (#3077); the move itself lives in autocode_build_worktree.
 # 2026-11-08: triage application validation moved to autocode_requirements_triage, shrinking autopilot.py.
 MAX_LINES = {
     "autocode.py": 1830,
@@ -69,7 +71,7 @@ MAX_LINES = {
     "autocode_support.py": 620,
     "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
-    "autocode_args.py": 1030,
+    "autocode_args.py": 1038,
     "autocode_verify.py": 3012,
 }
 
@@ -89,7 +91,7 @@ MAX_LINES = {
 # probes and its conformance record became module functions.
 MAX_FUNCTION_LINES = {
     ("autocode_run_actions.py", "handle"): 9,
-    ("autocode_args.py", "build_parser"): 539,
+    ("autocode_args.py", "build_parser"): 544,
     ("autocode.py", "run_role"): 527,
     ("autocode_verify.py", "verify"): 334,
     ("autocode_verify.py", "_preserve_suite"): 219,

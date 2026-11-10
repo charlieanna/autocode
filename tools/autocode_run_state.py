@@ -103,6 +103,7 @@ KEYS: frozenset[str] = frozenset(
         "builder_retries",
         "builder_retry_decisions",
         "builder_retry_key",
+        "build_worktree",
         "changed_code_fallback",
         "changed_files",
         "changeset_approval",
@@ -476,6 +477,10 @@ class RunState(TypedDict, total=False):
     builder_failure_hold: Any
     builder_retry_decisions: Any
     builder_retry_key: Any
+    # Plan in the person's checkout, build in a task worktree (#3077): written only by
+    # autocode_build_worktree (request at launch, move at plan approval); read there by due/resolve/moved
+    # (the build loop, --run-dir loading, run listings) and notice (autocode_chat_history).
+    build_worktree: Any
     changed_files: Any
     checked: Any
     checkpoint_continuation: Any

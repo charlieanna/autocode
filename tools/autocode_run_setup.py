@@ -36,6 +36,7 @@ except ImportError:
     import autocode_roles as roles
 
 try:
+    from . import autocode_build_worktree as build_worktree
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_containment_policy as containment_policy
     from . import autocode_controller_isolation as controller_isolation
@@ -83,6 +84,7 @@ try:
     from . import autocode_workspaces as task_workspaces
     from . import model_catalogue
 except ImportError:
+    import autocode_build_worktree as build_worktree
     import autocode_checkout_lock as checkout_lock
     import autocode_containment_policy as containment_policy
     import autocode_controller_isolation as controller_isolation
@@ -301,6 +303,12 @@ def resolve(runner, args, parser):
                 "`autocode runs` lists this project's runs with their directories"
             )
         state = runner.read_json(state_path)
+        if (carried := build_worktree.resolve(workspace, run_dir, state)) is not None:
+            # Planned here and moved to its own worktree to build: the name a client holds stays its handle.
+            workspace, run_dir, state = carried
+            state_path = run_dir / "state.json"
+        elif build_worktree.moved(state):
+            parser.error(build_worktree.gone(workspace, state))  # never build again in the person's checkout
         try:
             lifecycle.require_supported_checkpoint(state)
         except support.Paused as error:
@@ -397,6 +405,8 @@ def resolve(runner, args, parser):
             # The selected folder held no repository, so the work happens in a project AutoCode
             # created. A launch line on stdout never reaches a chat client (#1908).
             state["workspace_bootstrap"] = {"selected": str(selected), "project": str(workspace)}
+        elif getattr(args, "build_in_worktree", False) and not (args.dry_run or args.status or args.explain):
+            build_worktree.request(state, workspace)  # planned here, built in its own worktree once approved
         task_input.assign(state, task)
         source_log.seed(state)
         project_memory_lifecycle.install(state, getattr(args, "_project_memory_input", None))

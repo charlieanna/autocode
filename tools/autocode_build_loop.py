@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_approval_provenance as approval_provenance
+    from . import autocode_build_worktree as build_worktree
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_climb_cap as climb_cap
     from . import autocode_completion_result as completion_result
@@ -44,6 +45,7 @@ try:
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_approval_provenance as approval_provenance
+    import autocode_build_worktree as build_worktree
     import autocode_checkout_lock as checkout_lock
     import autocode_climb_cap as climb_cap
     import autocode_completion_result as completion_result
@@ -444,6 +446,12 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             runner.write_json(state_path, current)
 
     def before_stage(current):
+        if build_worktree.due(current):
+            # Planned in the person's checkout; the approved plan is built in a worktree of its own, so
+            # this folder is never written to. The run continues there on its next command.
+            target = build_worktree.move(current, workspace, run_dir, runner.write_json)
+            print(f"Plan approved; building on branch {target['branch']} in {target['workspace']}.", flush=True)
+            raise runner.orchestrator.LoopExit(2)
         hold_checkout(current)
         return before_code_stage(current)
 

@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_build_worktree as build_worktree
     from . import autocode_contract_identity as contract_identity
     from . import autocode_message_context as message_context
     from . import autocode_project_delivery as project_delivery
@@ -16,6 +17,7 @@ try:
     from . import autocode_requirements_review as requirements_review
     from . import autocode_scratch_projects as scratch_projects
 except ImportError:
+    import autocode_build_worktree as build_worktree
     import autocode_contract_identity as contract_identity
     import autocode_message_context as message_context
     import autocode_project_delivery as project_delivery
@@ -28,6 +30,7 @@ CONFIRMED_REQUIREMENTS = "Looks right. Prepare the plan."
 APPROVED_PLAN = "Approved the plan."
 # A client shows a message id once, so the bootstrap disclosure keeps a stable one (#1908).
 BOOTSTRAP_NOTICE = "workspace-bootstrap"
+WORKTREE_NOTICE = "build-worktree"  # where an approved plan is built, said once (autocode_build_worktree)
 # What a completed build in a scratch project said about the named project it delivered, per turn.
 DELIVERY_NOTICE = "project-delivered"
 
@@ -138,6 +141,7 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
     initial = requirements_chat.opener(state) or initial
     rows = [{"id": "initial", "role": "user", "text": initial}] if initial else []
     notice = _bootstrap_notice(state)  # shown after the first approved plan, the first point files are written
+    worktree = build_worktree.notice(state)  # likewise: the approved plan is built on a branch of its own
     prior = {turn.get("event_id"): (turn.get("previous") or {}).get("chat_response") for turn in turns}
     # Turn k's response is shown where follow-up k was said; its delivery note follows it.
     turn_of = {turn.get("event_id"): number for number, turn in enumerate(turns)}
@@ -156,6 +160,9 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
             if notice is not None:
                 rows.append(notice)
                 notice = None
+            if worktree is not None:
+                rows.append({"id": WORKTREE_NOTICE, "role": "assistant", "text": worktree})
+                worktree = None
             continue
         if (
             event.get("kind") not in ("brief_feedback", "answer", "plan_message", "gate_message")
