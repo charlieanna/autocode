@@ -12,7 +12,7 @@ For one "hi" the full-screen chat showed ten blocks. Only the reply was meant fo
 | Block | Needed for "hi"? | Now |
 | --- | --- | --- |
 | "This folder was not a Git repository, so I started one here and the work happens in it: PATH" | No: nothing is written until a plan is approved | Shown after the first approved plan, one sentence, no private-project path |
-| "Working on your request…" | Marginal | Unchanged |
+| "Working on your request…" | Marginal | On the status row, not as a reply (2026-11-10) |
 | "Requirements · thinking ▸ 1 thought folded" (twice) | Pointer to `/live` | One fold: with the notices gone the second fold replaces the first |
 | "Recovery · Requirements answer rejected / $: missing required_behaviors" | No: machinery, settled by AutoCode | Side panel and `/why` only |
 | "Hi! I'm AutoCode's requirements assistant…" | **Yes** | Unchanged |

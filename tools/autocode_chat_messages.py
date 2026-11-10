@@ -15,6 +15,11 @@ class MessageError(ValueError):
     """The composer must keep the draft until its exact receipt is confirmed."""
 
 
+class MessageClosed(MessageError):
+    """The step that offered the message ended before it was sent: nothing was submitted, and the
+    run's next question (or step) takes the text instead. A retry would only be refused again."""
+
+
 class Sender:
     def __init__(self, client):
         self.client = client
@@ -40,10 +45,11 @@ class Sender:
                 fresh = client.status()
                 if actions.own(fresh, client.workspace, client.run_dir) != (workspace, run):
                     raise ValueError("The fresh view belongs to another conversation")
-                if any(
-                    ((view.get("chat") or {}).get("input") or {}).get("kind") != "message" for view in (shown, fresh)
-                ):
+                if ((shown.get("chat") or {}).get("input") or {}).get("kind") != "message":
                     raise ValueError("The core offers no pending-only message here")
+                if ((fresh.get("chat") or {}).get("input") or {}).get("kind") != "message":
+                    # Nothing was submitted: the offer closed when the step ended (it reached a question).
+                    raise MessageClosed("AutoCode finished this step before your message was sent.")
                 request = "chat-message-" + secrets.token_hex(16)
                 command = actions.message(
                     fresh,
@@ -70,6 +76,8 @@ class Sender:
                 or not receipt["message_id"]
             ):
                 raise ValueError("Receipt does not confirm this message")
+        except MessageClosed:
+            raise
         except (actions.ClientGap, OSError, ValueError, TypeError, AttributeError) as error:
             raise MessageError(
                 "Message receipt is unconfirmed; your draft is kept. Sending it again reconciles the same request."

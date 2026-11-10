@@ -821,8 +821,14 @@ highlighted one:
 | `/quit` | At a question: leave the chat; the run stays as it is |
 
 A new chat opens on a welcome with a few example requests, and its status row reads
-"New chat" until something is sent; a run that has just started reads "Starting the
-run…" while its first status reads land. When a run finishes, the chat names the
+"New chat" until something is sent. From the Enter on, one row above the reply box says
+what is happening now and updates in place: "Starting the run…" while its first status
+reads land, then the working stage ("Requirements working · last output 3s ago"), then
+"AutoCode has a question for you…" in the moment before a question's box opens. While
+that row shows, the header does not repeat it. Text typed while AutoCode works stays in
+the box: Enter there says it is not sent yet (unless the run offers a message), and a
+question any text answers opens with it, while a plan approval or a choice never takes
+text typed before it was shown. When a run finishes, the chat names the
 files its saved steps changed, then the files its acceptance tests are in (named apart, since the
 Tester may have bound a test that was already there), and points to `/diff`. The F8 badge counts alerts from
 other chats; the question on screen is not counted again.

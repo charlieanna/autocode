@@ -1070,7 +1070,10 @@ class ChatClient:
         if line != self.last_line:
             self.last_line = line
             if notice and notice != self.last_notice:
-                self.say(f"\n{notice}")
+                # A running run's notice ("Working on your request…") says what is happening now, as a
+                # progress line does: the full-screen chat shows it on its one status row, not as a
+                # reply from AutoCode beside the stage's own progress line.
+                self.say(f"  · {notice}" if view.get("status") == "RUNNING" else f"\n{notice}")
             # Under a notice already said, a new progress line is the only news: say it, not silence.
             # The same stage flipping between working, finished and next is not news (#1844).
             if (
