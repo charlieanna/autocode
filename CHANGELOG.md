@@ -46,6 +46,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- One checkout under a configured source root that Git cannot read (for example a `git init`
+  with no commit) no longer stops a task at Requirements as "the model or its provider failed".
+  It is skipped and listed under `unreadable` in the task's pinned source inventory. A missing
+  root, a discovery bound or a link out of a root still stops, now as a stop in your environment
+  that names the paths.
 - After a design turn that went through the full pipeline (#3010), "Build it." again names the
   design documents that turn wrote, so the build checks that design first. The tests, scenario
   oracles and scripted provider now expect every new task to go through the full pipeline, and
