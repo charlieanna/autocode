@@ -1956,7 +1956,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d83cde1935ddbe771e2bf4b5c16695bde5b819c5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/53aaf4ce27da00082e13fab2f9618cd77676ccf4/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -2248,7 +2248,7 @@ discover an arbitrary service dependency.</p>
 <p>These are focused regressions, not one live, end-to-end multi-service production
 trial. Bounded live Kilo MiMo/GLM TUI attempts on 2026-10-27 discovered all three
 fixture repositories but stopped on planning/report validation before builds,
-joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/d83cde1935ddbe771e2bf4b5c16695bde5b819c5/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
+joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/53aaf4ce27da00082e13fab2f9618cd77676ccf4/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
 and <a href="https://github.com/charlieanna/autocode/issues/2208">remaining convergence issue #2208</a>.
 Live end-to-end delivery is not yet verified. The current implementation also has these limits:</p>
 <ul>
@@ -2296,6 +2296,7 @@ Live end-to-end delivery is not yet verified. The current implementation also ha
 <p>Without a change set, nothing checks that the two halves agree.</p>
 <p>Configured source roots are workspace search boundaries. Git metadata on a root itself does not hide independent child checkouts. Discovery recognizes Git identities without repository-name prefixes; ordinary discovered checkouts are traversal leaves. Depth, directory and containment limits remain explicit.</p>
 <p>Discovery skips generated Python environments identified by <code>pyvenv.cfg</code>, independently of their directory names. File symlinks are not traversed; directory symlinks escaping a configured root still make discovery incomplete.</p>
+<p>A checkout or directory below a configured root that Git or the file system cannot read (for example a <code>git init</code> with no commit yet) is skipped rather than stopping the task: nothing in it could be read or cited anyway. The task's pinned inventory (<code>planning/source-catalog.json</code>) lists each skipped path under <code>unreadable</code>, and the intake stages are told about them. A missing configured root, the depth or directory bound, or a link escaping a root can hide readable checkouts, so those still stop the task before Requirements, as a stop in your environment that names the exact paths.</p>
 
 
 

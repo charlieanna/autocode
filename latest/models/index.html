@@ -2166,7 +2166,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d83cde1935ddbe771e2bf4b5c16695bde5b819c5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/53aaf4ce27da00082e13fab2f9618cd77676ccf4/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2336,7 +2336,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/d83cde1935ddbe771e2bf4b5c16695bde5b819c5/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/53aaf4ce27da00082e13fab2f9618cd77676ccf4/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2821,6 +2821,27 @@ each attempt ran at, and the live log says when a review runs below your level. 
 typed as a flag (<code>--sol-reasoning-effort</code>, <code>--reasoning-effort</code>) or given as an answer is
 exact. A level the runner chose keeps its own tiers: the Plan Reviewer's reduced depth for
 small clear briefs and the Builder's light first attempt (<code>autocode_light_builder</code>).</p>
+<p>A hard plan goes the other way (owner decision 2026-11-09): the Planner and the Plan Reviewer
+run one level above their level, on the same model, never another one. AutoCode decides it at
+each launch from facts it checks itself, never from a model's own rating of the task:</p>
+<ul>
+<li>The draft is large: three or more milestones, or ten or more files.</li>
+<li>The draft touches a file the project's <code>sensitive-paths</code> names.</li>
+<li>The Plan Reviewer blocked the draft twice in this planning cycle (raises the next revision).</li>
+<li>Requirements judged the request vague. This is the only signal for the Planner's first draft,
+  since no plan exists yet.</li>
+</ul>
+<p>The level above must be one the model offers. A new run reads the levels of a stage choice's
+model from the tool's listing when it starts, and an automatically selected route's levels from
+the listing selection already read; a fixed default route (<code>--no-auto-select</code>) reads no listing.
+A model already at its strongest level, or one whose levels the run does not know (Codex today,
+or a fixed default route), stays where it is and the stage records why. The raise applies to your
+stage choice and to the runner's default level. A level typed as a flag or given as an answer is
+exact, and a route that climbed the effort ladder is left where the climb put it. The launch
+records the raise as the stage's <code>effort_choice</code> (<code>raised</code>, <code>reason: "hard_plan"</code>, the <code>signals</code>
+and your <code>saved</code> level); <code>/details</code> and the live log say when an attempt ran one level above
+your level and why. A raise wins over a small task's lowered review, so a small plan that
+touches a sensitive file is reviewed at the higher level.</p>
 <p>An effort AutoCode derives itself — a reduced Builder tier, a climb on the effort ladder,
 a single-model run — moves to the nearest declared variant and records the move as
 <code>effort_fits</code>. An effort a person named never moves. When the model does not declare it,
