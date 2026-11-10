@@ -5,6 +5,7 @@ import unittest
 import autocode_roles as roles
 import autocode_status as status
 import autocode_workflow as workflow
+from units import autoplanner
 
 
 class OneListOfNames(unittest.TestCase):
@@ -134,3 +135,29 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EachPipelineJobNamesTheSlotItRunsOn(unittest.TestCase):
+    """route_for_job, which clients read, agrees with the slot the runner launches each stage on (#3087)."""
+
+    JOINT = ("requirements", "glm", "plan_reviewer", "astra", "terra", "sol", "completion")
+
+    def check(self, configured, joint, stages):
+        state = {"settings": {"joint_planning": joint, "roles": {slot: {"model": slot} for slot in configured}}}
+        for stage in stages:
+            with self.subTest(stage=stage, joint=joint):
+                job = roles.job_for_stage(stage, state)
+                self.assertIn(job, roles.PIPELINE)
+                self.assertEqual(autoplanner._resolve_route(state, stage), roles.route_for_job(job, configured))
+
+    def test_a_joint_run_shows_the_plan_reviewers_own_slot_not_the_resolvers(self):
+        planning = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
+        self.check(self.JOINT, True, (*planning, "astra_review", "astra_checkpoint"))
+        self.assertEqual("plan_reviewer", roles.route_for_job("plan_reviewer", dict.fromkeys(self.JOINT)))
+
+    def test_a_run_without_their_own_slots_reviews_on_astra(self):
+        self.check(("astra", "terra", "sol"), False, ("astra_plan", "astra_challenge", "astra_review"))
+
+    def test_an_unconfigured_job_has_no_slot(self):
+        self.assertIsNone(roles.route_for_job("requirements", {"astra": {}}))
+        self.assertIsNone(roles.route_for_job("unknown", {"astra": {}}))
