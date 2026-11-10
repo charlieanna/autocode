@@ -822,7 +822,12 @@ export function panelHtml(chat = false): string {
   .activity-row.failed { color: var(--vscode-errorForeground); }
   .activity-row.thinking { opacity: .7; font-style: italic; }
   .activity-mark { width: 1ch; flex: none; }
-  .live-log .agent { flex: none; opacity: .75; }
+  .live-log .log-agent { margin-top: 6px; font-family: var(--vscode-font-family); font-size: .76rem; font-weight: 600; opacity: .8; }
+  .live-log .log-agent:first-child { margin-top: 0; }
+  .live-log .activity-row > :last-child { min-width: 0; }
+  .live-log .thought summary { list-style: none; cursor: pointer; }
+  .live-log .thought summary::-webkit-details-marker { display: none; }
+  .live-log .thought:not([open]) summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   pre { white-space: pre-wrap; word-break: break-all; font-size: .76rem; background: var(--vscode-textCodeBlock-background);
         padding: 8px; border-radius: 4px; }
   .gap, .notice { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cc8800);
@@ -873,6 +878,8 @@ let workingCompare = null;
 const ACTIVITY_MARKS = { command: '$', edit: '±', tool: '·', thinking: '∴', message: '»' };
 // The live agent log kept by entry id across reads (the terminal chat's LiveLog).
 const liveLog = new Map();
+// Thoughts a person unfolded; every other thought shows as one line, as the terminal folds them.
+const openThoughts = new Set();
 let checkpointResult = null;
 const tabScroll = Object.create(null);
 
@@ -913,20 +920,44 @@ function renderChatProgress(container, state) {
   for (const row of logRows) {
     if (!row || typeof row.id !== 'string' || typeof row.text !== 'string' || typeof row.agent !== 'string') continue;
     if (!(row.kind in ACTIVITY_MARKS)) continue;
-    liveLog.set(row.id, { agent: row.agent, kind: row.kind, text: row.text, status: row.status || '' });
+    liveLog.set(row.id, { id: row.id, agent: row.agent, kind: row.kind, text: row.text, status: row.status || '' });
   }
-  while (liveLog.size > 500) liveLog.delete(liveLog.keys().next().value);
+  while (liveLog.size > 500) {
+    const oldest = liveLog.keys().next().value;
+    liveLog.delete(oldest);
+    openThoughts.delete(oldest);
+  }
   const live = [...liveLog.values()].slice(-8);
   if (live.length) {
     // Supersedes the bare activity list: the log already carries those tool marks.
     const list = el('div', 'activity live-log');
     list.setAttribute('aria-label', 'Agent log');
+    // One header per run of steps from the same agent, not its name on every line.
+    let agent = null;
     live.forEach((row) => {
+      if (row.agent !== agent) {
+        agent = row.agent;
+        list.appendChild(el('div', 'log-agent', agent));
+      }
       const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
       const line = el('div', 'activity-row ' + (row.status || '') + (row.kind === 'thinking' ? ' thinking' : ''));
       line.appendChild(el('span', 'activity-mark', mark));
-      line.appendChild(el('span', 'agent', row.agent));
-      line.appendChild(el('span', null, row.text));
+      if (row.kind === 'thinking') {
+        // Reasoning folds to one line; a click unfolds it. The core's streaming marker is
+        // shown as a tooltip, not as part of the thought.
+        const streaming = row.text.endsWith(' [partial]');
+        const thought = el('details', 'thought');
+        const summary = el('summary', null, streaming ? row.text.slice(0, -' [partial]'.length) : row.text);
+        if (streaming) summary.title = 'Still arriving';
+        thought.appendChild(summary);
+        thought.open = openThoughts.has(row.id);
+        thought.addEventListener('toggle', () => {
+          if (thought.open) openThoughts.add(row.id); else openThoughts.delete(row.id);
+        });
+        line.appendChild(thought);
+      } else {
+        line.appendChild(el('span', null, row.text));
+      }
       list.appendChild(line);
     });
     container.appendChild(list);
@@ -1766,6 +1797,7 @@ function renderChat(data) {
     current = null; renderedState = ''; answers = Object.create(null);
     checkpointCompare = Object.create(null); checkpointResult = null; workingCompare = null;
     liveLog.clear();
+    openThoughts.clear();
   }
   chatEnvelope = data;
   const messages = document.getElementById('messages');
