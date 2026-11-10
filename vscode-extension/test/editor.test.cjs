@@ -9,7 +9,7 @@ const { RunController } = host.load('controller.js');
 const { RunPanel, panelHtml, stateFor } = host.load('panel.js');
 const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
-const { activate } = host.load('extension.js');
+const { activate, pickWorkspace, NO_FOLDER } = host.load('extension.js');
 const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
 const { StagesPanel, stagesHtml } = host.load('stages.js');
 const { readStages, currentRoute } = host.load('core/stages.js');
@@ -618,6 +618,31 @@ test('start reports an input rejection instead of returning a nonexistent run', 
   t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
   t.mock.method(cli, 'stream', async () => ({ ...ok, code: 2, rejected: true, stderr: 'Input rejected: invalid destination' }));
   await assert.rejects(controller.start(folder, 'A task'), /invalid destination/);
+});
+
+test('a start that exits 2 before saving its run reports its own output, not a refused status read', async (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-unsaved-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  t.mock.method(cli, 'stream', async () => ({ ...ok, code: 2, stderr: 'Claude Code is not signed in' }));
+  t.mock.method(controller, 'status', async (target) => { throw new Error(`--run-dir ${target.runDir} has no state.json`); });
+  await assert.rejects(controller.start(folder, 'hi'), (error) =>
+    error.message.includes('AutoCode stopped before it saved the run') && error.message.includes('Claude Code is not signed in')
+    && !error.message.includes('state.json'));
+});
+
+test('a start that exits 2 at a saved pause returns the run', async (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-paused-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  t.mock.method(cli, 'stream', async () => ({ ...ok, code: 2 }));
+  const status = t.mock.method(controller, 'status', async () => chatView());
+  const created = await controller.start(folder, 'hi');
+  assert.deepEqual(status.mock.calls[0].arguments[0], created);
 });
 
 test('tree actions use the clicked run with no active run and with another run active', async (t) => {
@@ -2745,6 +2770,32 @@ test('aborted launch when selection changes during workspace or confirmation (#1
 
   assert.equal(startCalled, false, 'start must not launch when selection changed during pre-launch');
   assert.deepEqual(ui.chat.run, runB, 'run B remains selected');
+});
+
+test('a first message with no folder open says to open one and keeps the message', async (t) => {
+  host.vscode.workspace.workspaceFolders = undefined;
+  const ui = await openChat(t, null, false, { actions: { pickWorkspace } });
+  ui.chat.show();
+  await flush();
+  const start = t.mock.method(controller, 'start', async () => run);
+
+  ui.type('hi');
+  ui.submit();
+  await flush(); await flush();
+
+  assert.equal(start.mock.callCount(), 0, 'nothing is launched without a folder');
+  assert.equal(ui.document.querySelector('#chat-error').textContent, NO_FOLDER);
+  assert.equal(ui.document.querySelector('#message').value, 'hi', 'the message stays in the box');
+});
+
+test('the workspace is the open folder, or the one picked from several', async (t) => {
+  t.after(() => { host.vscode.workspace.workspaceFolders = undefined; });
+  const folder = (name) => ({ name, uri: { fsPath: `/${name}` } });
+  host.vscode.workspace.workspaceFolders = [folder('one')];
+  assert.equal(await pickWorkspace(), '/one');
+  host.vscode.workspace.workspaceFolders = [folder('one'), folder('two')];
+  t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items[1]);
+  assert.equal(await pickWorkspace(), '/two');
 });
 
 test('Chat #details toolbar button is disabled without an active run and enabled with one (#1543)', async (t) => {

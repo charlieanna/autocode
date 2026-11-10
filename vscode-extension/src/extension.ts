@@ -190,13 +190,14 @@ export function deactivate(): void {
   RunPanel.disposeAll();
 }
 
-/** A workspace to run in: the folder you picked, or the one VS Code has open. */
-async function pickWorkspace(): Promise<string | undefined> {
+/** What the chat says when there is no folder to run in, instead of a Send that does nothing. */
+export const NO_FOLDER = "Open a folder first (File → Open Folder…). AutoCode runs in the folder this window has open.";
+
+/** A workspace to run in: the one VS Code has open, or the folder you picked from several. */
+export async function pickWorkspace(): Promise<string | undefined> {
   const folders = vscode.workspace.workspaceFolders ?? [];
-  if (folders.length === 0) {
-    const picked = await vscode.window.showWorkspaceFolderPick({ placeHolder: "Run AutoCode in which folder?" });
-    return picked?.uri.fsPath;
-  }
+  // A folder picker over no folders closes at once, so a first message would vanish without a word.
+  if (folders.length === 0) throw new Error(NO_FOLDER);
   if (folders.length === 1) return folders[0]!.uri.fsPath;
   const picked = await vscode.window.showQuickPick(
     folders.map((folder) => ({ label: folder.name, description: folder.uri.fsPath, fsPath: folder.uri.fsPath })),
