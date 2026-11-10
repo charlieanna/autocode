@@ -1,4 +1,4 @@
-"""Plan approval after the checkout changed under the reviewed plan, through the real CLI.
+"""Plan approval after the checkout changed under the reviewed plan, through the real CLI (#3080).
 
 A live chat run planned AutoCode in the person's own checkout; a `git pull` landed there seconds
 before the chat sent the approval the person had confirmed. The Plan Reviewer's final review no
