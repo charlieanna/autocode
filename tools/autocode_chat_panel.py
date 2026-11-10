@@ -306,6 +306,19 @@ def current_line(view: dict | None) -> str | None:
     return line if view.get("status") == "RUNNING" and isinstance(line, str) and line.strip() else None
 
 
+def headline(view: dict | None) -> str | None:
+    """The view's own headline, named by its stage ("Planner · Waiting for you"), when it has no progress
+    line: the status row is the one place the full-screen chat says what is happening now."""
+    progress = _mapping(_mapping(view).get("progress"))
+    text, stage = progress.get("headline"), progress.get("stage")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    text = " ".join(text.split())
+    if isinstance(stage, str) and stage.strip() and stage.strip() not in text:
+        text = f"{stage.strip()} · {text}"
+    return text
+
+
 # Receipts that prove a stream is alive but say nothing about what the agent is doing.
 OPAQUE_STEPS = ("stream activity received", "Partial thought received.", "Partial message received.")
 
