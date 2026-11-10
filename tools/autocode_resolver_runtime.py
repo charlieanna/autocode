@@ -506,7 +506,7 @@ def observe_operational_recovery(runner, state: RunState, run_dir, workspace, re
     )
 
 
-def _is_format_repair(state) -> bool:
+def _is_format_repair(state: RunState) -> bool:
     """Whether the last active stage was a format repair (report_only) (#2836)."""
     active = state.get("active_stage") or {}
     if active.get("report_only"):

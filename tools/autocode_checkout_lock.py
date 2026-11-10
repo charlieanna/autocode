@@ -34,7 +34,10 @@ try:
 except ImportError:
     import autocode_process as processes
     import autocode_util as util
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 STATUS = "PAUSED_WORKSPACE_BUSY"
 _writer_handles: dict[Any, Any] = {}
@@ -52,7 +55,7 @@ class CheckoutBusy(RuntimeError):
 READS_ONLY = ("requirements_gather",)
 
 
-def needed_by(state) -> bool:
+def needed_by(state: RunState) -> bool:
     """Whether the stage ``state`` launches next needs the checkout to itself.
 
     A pending report repair is the repair of its original stage's report, so it needs what that stage needs."""
