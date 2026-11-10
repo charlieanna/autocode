@@ -621,6 +621,63 @@ class ChatViewTests(unittest.TestCase):
         result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
         self.assertEqual([question], [row["text"] for row in result["messages"]])
 
+    def test_the_stage_prose_and_its_question_worded_alike_are_one_message(self):
+        """A Jira link the stage could not open: the chat showed "I couldn't access DTI-12447. Could you paste
+        the ticket description ...?" and, right under it, "Could you paste the description of DTI-12447 ...?"."""
+        spoken = (
+            "I couldn\u2019t access DTI-12447. Could you paste the ticket description, including what is "
+            "going wrong and what should happen instead?"
+        )
+        question = (
+            "Could you paste the description of DTI-12447, including what is going wrong and what should "
+            "happen instead?"
+        )
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "next_stage": "requirements_gather",
+            "requirements_handoff": {"report": {"assistant_reply": spoken}},
+        }
+        need = {"kind": "answer", "questions": [{"id": "Q1", "question": question, "options": []}]}
+        result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
+        self.assertEqual([spoken], [row["text"] for row in result["messages"]])
+        self.assertTrue(result["messages"][0]["id"].startswith(chat.REQUIREMENTS_QUESTION))
+
+    def test_a_question_copied_without_its_code_marks_is_one_message(self):
+        """A live Claude run on the same ticket link (2026-11-10) copied its question word for word but
+        wrote `pages.py` in the reply and pages.py in the question, and its reply ends in a full stop."""
+        spoken = (
+            "I can't open the Jira ticket DTI-12447 from here, so I don't know what the bug is. What is the "
+            "wrong behavior, and what should happen instead? A short description, the ticket's text, or "
+            "reproduction steps would help. If it's in `pages.py`, tell me which page or function."
+        )
+        question = (
+            "What is the wrong behavior, and what should happen instead? A short description, the ticket's "
+            "text, or reproduction steps would help. If it's in pages.py, tell me which page or function."
+        )
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "next_stage": "requirements_gather",
+            "requirements_handoff": {"report": {"assistant_reply": spoken}},
+        }
+        need = {"kind": "answer", "questions": [{"id": "Q1", "question": question, "options": []}]}
+        result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
+        self.assertEqual([spoken], [row["text"] for row in result["messages"]])
+        self.assertTrue(result["messages"][0]["id"].startswith(chat.REQUIREMENTS_QUESTION))
+
+    def test_prose_that_is_not_the_same_ask_keeps_the_question_beside_it(self):
+        question = "Should the export include archived projects, or only the active ones in this workspace?"
+        for spoken in (
+            "Which format do you want for the export?",  # another question
+            "I will list the archived projects and the active ones in the export, then ask you to confirm.",  # no ask
+            "Archived?",  # too short to be the question
+        ):
+            with self.subTest(spoken=spoken):
+                self.assertFalse(chat.rewords(spoken, question))
+        self.assertFalse(chat.rewords("Fine, which one?", "Which one?"), "a short question is never matched by words")
+        self.assertTrue(chat.rewords(f"Thanks. {question}", question))
+
     def test_a_greeting_with_the_complete_question_is_one_question_message(self):
         question = "Should I investigate the history entry or fix the display?"
         spoken = f"Hi! {question}"

@@ -624,8 +624,8 @@
     "sha256": "7ef7ae5412b6d5df734eba7ec8c80bb86dee446c469762fc5cbab0034f74f378"
   },
   "requirements-final/conversational": {
-    "bytes": 28553,
-    "sha256": "b1e962027f54f87b57efb71711740f2424bf8d87bc7301c5e177c237d95ba542"
+    "bytes": 28757,
+    "sha256": "e9efdadba0f1c01dcdbe087438a1b9be8a1e2f9bf8111ddefd66235bd1e0242c"
   },
   "resolver/astra_diagnose": {
     "bytes": 18642,

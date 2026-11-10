@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shlex
 from typing import TYPE_CHECKING
 
@@ -156,6 +157,33 @@ def context(state: RunState, public):
     ).hexdigest()
 
 
+REWORD_WORDS = 6  # a question shorter than this is too brief to tell from a different one by its words
+REWORD_SHARE = 0.85  # of the question's words that the stage's prose must already use
+
+
+def plain(text: str) -> str:
+    """``text`` without Markdown emphasis or code marks and with its spacing collapsed, for comparing
+    a reply with its question: a model wrote `pages.py` in its reply and pages.py in the question."""
+    return " ".join(re.sub(r"[`*_]", "", text).split())
+
+
+def rewords(spoken: str, question: str) -> bool:
+    """Whether the stage's prose already asks ``question``, copied or in other words.
+
+    The Requirements stage writes its reply and then its question, often as two phrasings of one ask
+    ("I couldn't access DTI-12447. Could you paste the ticket description ...?" and then "Could you
+    paste the description of DTI-12447 ...?"), and a client showed both back to back. A prose that asks
+    something (it has a question mark) and already uses nearly every word of a long enough question
+    stands in for it; a note that only describes a repair, or a different question, shares too few."""
+    if "?" not in spoken:
+        return False
+    wanted = re.findall(r"[\w'-]+", plain(question).lower())
+    if len(wanted) < REWORD_WORDS:
+        return False
+    have = set(re.findall(r"[\w'-]+", plain(spoken).lower()))
+    return sum(word in have for word in wanted) / len(wanted) >= REWORD_SHARE
+
+
 def project(state: RunState, public, *, run_dir=None, workspace=None):
     """Expose only actions admitted at this checkpoint; the CLI rechecks on write."""
     messages = history.messages(state, completed=public.get("done", False))
@@ -193,7 +221,11 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         # public needs, without asking the person to narrow the coordinated task.
         question = "\n\n".join(q.get("question", "") for q in displayed).strip()
         spoken = requirements_chat.reply(state)
-        contains_question = bool(question and question in spoken and len(displayed) == len(questions))
+        contains_question = bool(
+            question
+            and (plain(question) in plain(spoken) or rewords(spoken, question))
+            and len(displayed) == len(questions)
+        )
         if spoken and spoken != question and not contains_question:
             messages.append(
                 {
