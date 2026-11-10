@@ -195,9 +195,14 @@ class BlockerNeedTests(unittest.TestCase):
 
     def test_a_different_pending_decision_is_shown_before_any_recovery_retry(self):
         self.hold_before_publication()
-        # A contract contradiction is a person-owned plan decision. Merely
-        # relabeling the recovery-exhaustion request above is not one.
-        self.state[human.PRIVATE].update(scope="blocker", request=blocker_request())
+        # A contract contradiction is a person-owned plan decision, diagnosed by the Resolver as
+        # publish_blocker records it. Merely relabeling the recovery-exhaustion request above, still
+        # bound to its runner-owned recovery receipt, is not one.
+        self.state[human.PRIVATE].update(
+            scope="blocker",
+            request=blocker_request(),
+            evidence={"diagnosis": "Proven contract contradiction", "output": "iterations/001/resolver-01.json"},
+        )
         view = run_view.view(self.state)
         need = view["needs"]
         self.assertEqual("answer", need["kind"])

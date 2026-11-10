@@ -1173,10 +1173,14 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "action": "--resume-paused",
         }
     # A Resolver proposal at RESOLVER_PENDING carries decisions for the person;
-    # surface them so the view names an answerable action (#2896).
+    # surface them so the view names an answerable action (#2896). A proposal bound to
+    # a runner-owned recovery receipt is AutoCode's own machinery, whatever its scope: it
+    # is never a question for the person, and the hold's own next step is named below.
+    pending_proposal = state.get("resolver_human_proposal") or {}
     if (
         status == "RESOLVER_PENDING"
-        and (state.get("resolver_human_proposal") or {}).get("scope") != "operational_exhaustion"
+        and pending_proposal.get("scope") != "operational_exhaustion"
+        and not (pending_proposal.get("evidence") or {}).get("resolver_receipt_id")
     ):
         proposal = state.get("resolver_human_proposal") or {}
         proposal_questions = proposal.get("questions") or []
