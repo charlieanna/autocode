@@ -2410,7 +2410,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/4d1bcb8129eaedae43aa536ae4fa9cc7bb5334f4/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e81247b5dec1232d83ebe1a85cadaa0f17d8d0c6/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2459,7 +2459,7 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 </tr>
 <tr>
 <td><code>autocode chat [BRIEF] [--mode ID] [-- RUN_OPTIONS]</code></td>
-<td>Talk to a run in the terminal, the way the VS Code extension does: it prints the run's conversation, asks you only for what the <a href="../task-run/#status-view">status view</a> leaves to you (an answer, a plan approval, a reply) and runs exactly the command the view names. Plain <code>autocode</code> in an interactive terminal opens it too. With a brief it starts a new run in the project (<code>--in-place</code>, with the start flags of the <code>--mode</code> from <code>autocode modes list</code>, else its default). Without one it picks up the project's open run (or <code>--run-dir RUN</code>), lets you choose when several are open, and asks what you want done when none is. Leaving at a prompt changes nothing. While a stage works, Ctrl-C asks for the view's pause after the current step, a second Ctrl-C interrupts the step and a third stops AutoCode; the chat never exits while AutoCode still runs. A brief that starts with <code>-</code> goes in <code>--brief=TEXT</code>. Where the view names no action it can take, it prints the command to run yourself. Exits 0 when the run completes, 2 when it waits for you. See <a href="#terminal-chat">Terminal chat</a>.</td>
+<td>Talk to a run in the terminal, the way the VS Code extension does: it prints the run's conversation, asks you only for what the <a href="../task-run/#status-view">status view</a> leaves to you (an answer, a plan approval, a reply) and runs exactly the command the view names. Plain <code>autocode</code> in an interactive terminal opens it too. With a brief it starts a new run in the project (<code>--build-in-worktree</code>, with the start flags of the <code>--mode</code> from <code>autocode modes list</code>, else its default). Without one it picks up the project's open run (or <code>--run-dir RUN</code>), lets you choose when several are open, and asks what you want done when none is. Leaving at a prompt changes nothing. While a stage works, Ctrl-C asks for the view's pause after the current step, a second Ctrl-C interrupts the step and a third stops AutoCode; the chat never exits while AutoCode still runs. A brief that starts with <code>-</code> goes in <code>--brief=TEXT</code>. Where the view names no action it can take, it prints the command to run yourself. Exits 0 when the run completes, 2 when it waits for you. See <a href="#terminal-chat">Terminal chat</a>.</td>
 </tr>
 <tr>
 <td><code>autocode conversation start\|attach\|read\|send\|refresh\|handoff</code></td>
@@ -2636,7 +2636,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/4d1bcb8129eaedae43aa536ae4fa9cc7bb5334f4/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/e81247b5dec1232d83ebe1a85cadaa0f17d8d0c6/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2696,6 +2696,10 @@ brief before continuing.</p>
 <tr>
 <td><code>--status</code></td>
 <td>Read-only status, including <code>milestone_checkpoint</code>, <code>interventions</code>, <code>active_stage.activity</code>.</td>
+</tr>
+<tr>
+<td><code>--build-in-worktree</code></td>
+<td>Start a new task in the selected checkout, as <code>--in-place</code> does, while it only reads it: Requirements and the Planner read the checkout as it is. Once the plan is approved, before anything is written, the run moves to a new task worktree and <code>autocode/&lt;task&gt;-&lt;id&gt;</code> branch made from the checkout's committed HEAD, and builds there; uncommitted changes and ignored files in the checkout are not part of the build, and the chat says which paths were left out. The run keeps its name, and <code>--run-dir</code> with its old path still reaches it. A folder outside Git is made a project first, as without the option, and builds there; a run in a change set or coordination builds in place. The terminal chat starts every new chat this way. See <a href="../task-lanes/#multiple-tasks-in-one-project">Task lanes</a>.</td>
 </tr>
 <tr>
 <td><code>--json</code></td>
@@ -3250,7 +3254,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/4d1bcb8129eaedae43aa536ae4fa9cc7bb5334f4/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/e81247b5dec1232d83ebe1a85cadaa0f17d8d0c6/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3951,6 +3955,16 @@ than filling the new question automatically. Pending restore confirmations and
 queued keys never transfer between runs. If a target disappears or cannot be
 read, Enter retries its status and <code>/runs</code>, <code>/open</code> or <code>/tab</code> selects another;
 typed text cannot submit a task decision while status is unavailable.</p>
+<p>Each new chat plans in the folder you opened it in, and builds on a branch of its own
+(<code>--build-in-worktree</code>): Requirements and the Planner read the folder as it is; once you
+approve the plan, the run moves to a new task worktree under <code>.autocode/worktrees/</code> and an
+<code>autocode/&lt;task&gt;-&lt;id&gt;</code> branch made from your last commit, and builds there. Your folder is
+not written, and two chats in one folder no longer wait for each other while they build. The
+chat says once, after the approval, which branch it builds on and which uncommitted files it
+left out; uncommitted changes and ignored files (installed dependencies, local settings) are
+not part of the build. Review and merge the branch when it is done; AutoCode never merges it.
+A folder outside Git is made a project first and builds in it, as before. See
+<a href="../task-lanes/#multiple-tasks-in-one-project">Task lanes</a>.</p>
 <p><code>/new</code> opens a local request composer; no core run or tab is created until a
 brief is submitted. An empty request returns to the original context. Unsent
 drafts and view choices live only in this TUI process. After restart, saved
@@ -4274,7 +4288,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/4d1bcb8129eaedae43aa536ae4fa9cc7bb5334f4/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/e81247b5dec1232d83ebe1a85cadaa0f17d8d0c6/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
