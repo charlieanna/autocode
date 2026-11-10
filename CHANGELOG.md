@@ -51,6 +51,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A recovery hold waiting to publish its request (RESOLVER_PENDING) is no longer shown as a
+  question for the person when its proposal is bound to AutoCode's own recovery receipt; the
+  view names why the hold's retry waits instead. A Resolver-diagnosed decision is still shown.
 - One checkout under a configured source root that Git cannot read (for example a `git init`
   with no commit) no longer stops a task at Requirements as "the model or its provider failed".
   It is skipped and listed under `unreadable` in the task's pinned source inventory. A missing
