@@ -88,7 +88,7 @@ def _followed(run_dir: Path, workspace: Path) -> tuple[Path, Path]:
         state = json.loads((run_dir / "state.json").read_text())
     except (OSError, ValueError):
         return run_dir, workspace
-    found = build_worktree.resolve(workspace, run_dir, state) if isinstance(state, dict) else None
+    found = build_worktree.resolve(workspace, run_dir, cast("RunState", state)) if isinstance(state, dict) else None
     return (found[1], found[0]) if found else (run_dir, workspace)
 
 
