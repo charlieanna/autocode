@@ -234,7 +234,7 @@ def _named(args, role, models) -> bool:
     return bool(
         getattr(args, f"{role}_model", None)
         or models.get(role)
-        # --glm-model names the Requirements route too when --requirements-model does not
+        # --planner-model names the Requirements route too when --requirements-model does not
         # (autocode_configure.configure_joint).
         or any(getattr(args, name, None) for name in ALSO_NAMED_BY.get(role, ()))
     )

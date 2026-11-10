@@ -298,7 +298,7 @@ test('connections delegates login using only the core offer and no shell text', 
 test('connection switching restores Kilo routes and cannot reroute an existing chat', async (t) => {
   t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ version: 1, connections: connectionRows }) }));
   host.config.set('provider', 'kilocode');
-  const routes = ['--requirements-model', 'zai-coding-plan/glm-5.3', '--astra-model=xiaomi-token-plan-sgp/mimo-v2.6-pro', '--pin-model-role', 'astra', '--role-transport', 'terra=companytool', '--allow-uncontained-tools'];
+  const routes = ['--requirements-model', 'zai-coding-plan/glm-5.3', '--astra-model=xiaomi-token-plan-sgp/mimo-v2.6-pro', '--pin-model-role', 'astra', '--role-transport', 'terra=companytool', '--builder-model', 'openai/gpt-6-luna', '--tester-reasoning-effort=high', '--allow-uncontained-tools'];
   host.config.set('extraOptions', ['--max-cost-usd', '3', ...routes]);
   const storage = new Map();
   const connections = new ConnectionsPanel({ get: (key) => storage.get(key), update: async (key, value) => { storage.set(key, value); } });

@@ -7,6 +7,6 @@ used by the CLI and dashboard; there is no separate documentation mapping.
 <!-- canonical-role-table -->
 
 The table shows the default mapping. Under reviewer routing (`glm_first_v1`),
-`astra_checkpoint` performs the **Tester** job. A `_report_repair` suffix retains
+`review_checkpoint` performs the **Tester** job. A `_report_repair` suffix retains
 the stage's job name. See [model routes](models.md#roles) for responsibilities
 and configuration.

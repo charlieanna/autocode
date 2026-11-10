@@ -1806,7 +1806,7 @@ three interpreters when the request also promises atomicity under contention:
 pinned supervisor transcript), each `null` when the request declares none. A failed
 `risk_acceptance` makes the replay's `verdict` `FAIL` even though the Tester's
 own checks passed (see [Execution](execution.md#process-recovery-proof-for-declared-lifecycle-apis)).
-Each `findings` row also has `source`: `sol` (Tester), `astra` (Completion
+Each `findings` row also has `source`: `tester` (Tester), `task_planner` (Completion
 Reviewer) or `runner` (a failed runner lifecycle observation or, in a
 `--package` run, the files changed outside the package, one blocking row naming
 each path ([Monorepo packages](workflow.md#monorepo-packages))). No model
@@ -2280,8 +2280,8 @@ bug-fix run's Investigator has reported (and for every other job); then:
 | `path` | `"compact"` (the runner wrote the draft; the Plan Reviewer reviews it) or `"full"` (the Planner's draft runs) |
 | `reasons` | Every trusted signal that kept the full path, in words (`the run did not opt in (--compact-bugfix-planning)`, `the project declares no sensitive-paths, so every path counts as sensitive`, `the fix touches sensitive paths: ...`, `the compact draft was refused: ...`); `[]` on the compact path |
 | `basis` | The records the decision rests on: `diagnosis_output_hash`, `diagnosis_source_revision` and `requirements_output` |
-| `decisions` | One row for `astra_discovery` (the Planner's draft): `decision` is `"omitted"` or `"included"`, with its `reason`, and `covered_by` names what covers an omission (`runner:compact_draft`, `astra_challenge`, `person:approve_goal`, `runner:regression_proof`) |
-| `fallback` | `null`, or `{"from": "astra_challenge", "reason": ..., "review_call_refunded": true/false}` once a review could not approve the compact draft and the run returned to the full path (the compact review's call is given back to the full path's allowance) |
+| `decisions` | One row for `draft_plan` (the Planner's draft): `decision` is `"omitted"` or `"included"`, with its `reason`, and `covered_by` names what covers an omission (`runner:compact_draft`, `review_plan`, `person:approve_goal`, `runner:regression_proof`) |
+| `fallback` | `null`, or `{"from": "review_plan", "reason": ..., "review_call_refunded": true/false}` once a review could not approve the compact draft and the run returned to the full path (the compact review's call is given back to the full path's allowance) |
 
 The record reports a decision the core made from trusted inputs; it grants nothing, and a
 client renders it without acting on it.
@@ -2294,22 +2294,22 @@ passed over, placed after the stage that decided it:
 
 | Field | Meaning |
 | --- | --- |
-| `stage` | The stage's code name (`requirements_gather`, `astra_discovery`, `glm_revise`, ...) |
+| `stage` | The stage's code name (`requirements_gather`, `draft_plan`, `revise_plan`, ...) |
 | `job` | Its job key from `autocode_roles` (`planner`, `plan_reviewer`, ...) |
 | `label` | The job's screen name (`Planner`) |
 | `decision` | `"run"` when the stage launched, `"skip"` when a saved decision passed over it |
 | `reason` | Why a stage was skipped, in words; `null` for a stage that ran |
-| `covered_by` | For a skipped stage, what still covers its job, in `stage_policy`'s terms (`astra_challenge`, `person:approve_goal`, `requirements_gather`, ...); `[]` for a stage that ran |
+| `covered_by` | For a skipped stage, what still covers its job, in `stage_policy`'s terms (`review_plan`, `person:approve_goal`, `requirements_gather`, ...); `[]` for a stage that ran |
 | `launches` | How many times the stage launched; a report repair is not a launch of its own. `0` for a skipped stage |
 | `effort_choice` | The latest launch's reasoning-level decision (lowered for a small, clear task, raised for a hard plan), as the stage record saved it; `null` when no rule applied or the stage was skipped |
 
 The skips recorded today are:
 
-- the Planner's revision (`glm_revise`) and the final plan review (`astra_finalize`), when the Plan
+- the Planner's revision (`revise_plan`) and the final plan review (`finalize_plan`), when the Plan
   Reviewer approved the draft at a first-style review (`planning_depth.approved_early`);
 - every stage after Requirements, when Requirements answered a discussion itself and the run finished
   on that answer;
-- the Planner's draft (`astra_discovery`) on a saved compact bug-fix run (`stage_policy`).
+- the Planner's draft (`draft_plan`) on a saved compact bug-fix run (`stage_policy`).
 
 A stage that launched is never shown as skipped. Whole stages are not reused, so no row says
 `reuse`: reused evidence inside a stage, such as a regression baseline or a report repair's
@@ -2681,7 +2681,7 @@ can name another model: `run.assign_model(role, model)` answers
 `--answer route-ROLE=MODEL --job-retry-token TOKEN` with the view's token. The spec-first acceptance-test
 writer uses its own
 `route-acceptance_tester` question; an explicit answer changes only that saved
-writer route, leaving the later Tester (`sol`) and Completion Reviewer unchanged.
+writer route, leaving the later Tester (`tester`) and Completion Reviewer unchanged.
 A retained acceptance-writer timeout without a saved question is projected only
 from its matching archived timed-out attempt, source identity and launch configuration.
 This read changes no evidence and grants no retry authority. A model the

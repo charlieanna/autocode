@@ -597,5 +597,14 @@ class UIPromptTransportPin(unittest.TestCase):
         self.assertNotIn("the runner saves it", prompt)
 
 
+class UiFlagTests(unittest.TestCase):
+    def test_ui_takes_the_job_named_flags_and_keeps_the_old_spellings_as_aliases(self):
+        new = ui.parser().parse_args(["t", "--builder-model", "b", "--task-planner-reasoning-effort", "low"])
+        old = ui.parser().parse_args(["t", "--terra-model", "b", "--astra-reasoning-effort", "low"])
+        for args in (new, old):
+            self.assertEqual(("b", "low"), (args.builder_model, args.task_planner_reasoning_effort))
+            self.assertEqual("gpt-5.6-sol", args.tester_model)
+
+
 if __name__ == "__main__":
     unittest.main()

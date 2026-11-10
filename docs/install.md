@@ -349,7 +349,7 @@ the Planner joins the next brief revision.
 Native Codex, including Figma runs, supports `--engine codex --joint-planning`:
 requirements gathering, planning, and plan review run in separate read-only Codex
 sessions using the existing ChatGPT login. The three routes inherit the saved
-planning model unless explicitly selected with `--requirements-model`, `--glm-model`,
+planning model unless explicitly selected with `--requirements-model`, `--planner-model`,
 and `--plan-reviewer-model` (bare GPT names). Adding joint planning to a saved Codex
 run at a clean execution or discovery boundary backs up the checkpoint, retains the
 work and existing sessions, and restarts at requirements gathering. The reviewed plan

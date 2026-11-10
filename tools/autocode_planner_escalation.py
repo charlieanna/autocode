@@ -153,7 +153,7 @@ def decide(settings, escalations=()):
     if route.get("model_pinned"):
         return {"stay": "pinned"}
     if ((settings.get("route_origins") or {}).get(ROLE)) == USER_EXPLICIT:
-        # A model the person chose (a stage choice or a --glm-model flag) is kept: a live Kilo run on
+        # A model the person chose (a stage choice or a --planner-model flag) is kept: a live Kilo run on
         # GLM 5.3 climbed to Claude Opus 5.5, an account it had no credit on, and stopped there.
         return {"stay": "chosen"}
     if route.get("provider") not in (None, "openai"):

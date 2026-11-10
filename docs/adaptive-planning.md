@@ -278,7 +278,7 @@ New implementation tasks, including bug fixes, use Requirements, Planner and Pla
 
 The following describes the retained behavior of older saved runs. A reproduced, localized bug can
 skip one paid planning call. On the historical bug-fix path Requirements runs, the Investigator
-reproduces the bug (`investigate_bug`), the Planner writes the plan draft (`astra_discovery`), the
+reproduces the bug (`investigate_bug`), the Planner writes the plan draft (`draft_plan`), the
 Plan Reviewer reviews it and you approve the displayed plan. On the compact path the runner
 writes that draft itself, deterministically, from two records it already holds: the
 Investigator's diagnosis (its root cause, invariant, regression cases, affected and test paths)

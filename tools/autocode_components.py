@@ -168,7 +168,7 @@ def parser() -> argparse.ArgumentParser:
         default="",
         metavar="FLAGS",
         help="extra flags passed to every component's `autocode` invocation verbatim, "
-        'shell-quoted, e.g. --options "--terra-model x --sol-model y" — see '
+        'shell-quoted, e.g. --options "--builder-model x --tester-model y" — see '
         "docs/models.md and `autocode --help` for the full set",
     )
     result.add_argument(

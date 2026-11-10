@@ -53,20 +53,20 @@ the executable stages and their current unit owners, including v2 planning.
 
 | Stage ID | Human job | Unit |
 | --- | --- | --- |
-| `requirements_gather`, `astra_discovery`, `glm_revise`, `requirements` | Requirements | AutoPlanner |
+| `requirements_gather`, `draft_plan`, `revise_plan`, `requirements` | Requirements | AutoPlanner |
 | `plan`, `plan_revise` | Planner | AutoPlanner |
-| `astra_plan` | Planner | AutoCode |
-| `astra_challenge`, `astra_finalize`, `plan_review`, `plan_finalize` | Plan Reviewer | AutoPlanner |
+| `plan_task` | Planner | AutoCode |
+| `review_plan`, `finalize_plan`, `plan_review`, `plan_finalize` | Plan Reviewer | AutoPlanner |
 | `orchestrator` | Orchestrator | AutoCode |
-| `terra` | Builder | AutoCode |
-| `sol`, `write_acceptance_tests` | Tester | AutoReview |
-| `astra_review`, `astra_checkpoint` | Completion Reviewer | AutoReview |
+| `builder` | Builder | AutoCode |
+| `tester`, `write_acceptance_tests` | Tester | AutoReview |
+| `review_completion`, `review_checkpoint` | Completion Reviewer | AutoReview |
 | `collect_design` | Design inventory | AutoReview |
 | `check_design` | Design Reviewer | AutoReview |
 | `investigate_stuck` | Investigator | AutoResolver |
-| `astra_resolve`, `astra_diagnose` | Resolver | AutoResolver |
+| `resolve`, `diagnose` | Resolver | AutoResolver |
 
-Under `glm_first_v1` reviewer routing, `astra_checkpoint` does the **Tester**
+Under `glm_first_v1` reviewer routing, `review_checkpoint` does the **Tester**
 job; the name describes its work, not the model running it. `_report_repair`
 uses its original stage's job name. Provider/model routes are separate from
 these names, and `orchestrator` does not call a model.

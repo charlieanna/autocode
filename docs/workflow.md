@@ -138,7 +138,7 @@ their final-audit-only policy or automatically retry failed integration operatio
 
 ## Operational diagnosis
 
-An operator can request the separate read-only `astra_diagnose` stage after a
+An operator can request the separate read-only `diagnose` stage after a
 recorded repeated Builder report failure:
 
 ```sh

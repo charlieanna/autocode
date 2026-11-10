@@ -2,7 +2,7 @@
 
 Rules for anyone changing this repository, human or agent. They exist because
 the code grew faster than its structure: much of `tools/` sat in import
-cycles, and three naming schemes describe the same roles. The goal right
+cycles, and several naming schemes described the same roles. The goal right
 now is to make the existing workflow dependable and the code easier to change,
 not to add surface area. See `RELIABILITY.md` for product priorities.
 
@@ -328,8 +328,9 @@ were archived at tag `archive/pre-restructure-2026-09-26`
 
 ## Names
 
-The code still uses internal stage names. **Screen and doc names come from one
-list:** `tools/autocode_roles.py` (`SCREEN` / `STAGE_JOB` / `role_name`). Do not
+Stages and routes are named after their jobs (`draft_plan`, `builder`, `tester`); some
+code identifiers still carry the old code names until they are renamed. **Screen and doc names
+come from one list:** `tools/autocode_roles.py` (`SCREEN` / `STAGE_JOB` / `role_name`). Do not
 add a second table. Name the job being done, not the AI that does it: under
 reviewer routing (`glm_first_v1`), `review_checkpoint` is **Tester**, because that
 stage runs the testing job on the Plan Reviewer. Unit names (AutoPlanner,
@@ -366,16 +367,24 @@ the runner and Autopilot consult that table, so a new one is added there, not in
 `autopilot.py`.
 
 **Job names replace the code names, owner decision 2026-11-10.** `astra`, `glm`, `terra` and `sol`
-are being renamed to the jobs they do, in four steps: one table of old and new names
-(`tools/autocode_names.py`) with the new flags (`--planner-model`, `--task-planner-model`,
-`--builder-model`, `--tester-model`) and the old ones kept as aliases; then the `glm` and `astra`
-route keys (now `planner` and `task_planner`; `names.RETIRED_ROUTES`); then `terra`, `sol` and the
-stage names (the Builder's and Tester's stage and route are both `builder` and `tester`; the others are
-in `names.STAGES`); then identifiers and docs. The browser dashboard still reads the old route and stage
-names, which `dashboard_run_state.read` gives back to it. A fake provider copied out of `tools/` to run
-names the stages itself (`fake_codex.TASK_PLANNER_STAGES`, kept equal by `tests.test_names`). A run saved before the rename is refused
-at resume and stays readable, as a run at a retired stage is. New code and docs use the job names from
-that table; do not add another naming scheme. The same letters are also parts of real model names
+are renamed to the jobs they do. `tools/autocode_names.py` is the one table of old and new names:
+the routes (`ROUTES`: `planner`, `task_planner`, `builder`, `tester`), the stages (`STAGES`) and the
+flags (`--planner-*`, `--task-planner-*`, `--builder-*`, `--tester-*`). New code and docs use the job
+names; do not add another naming scheme. The old names are kept only where a person or a saved file
+may still write them, and each is read through that table:
+
+- the old flag spellings (`--terra-model`), `--pin-model-role`, `--role-transport`, a provider
+  config's `[roles]`, `.autocode/config.toml` and `stages.toml`;
+- a run saved before the rename, which is refused at resume and stays readable, as a run at a
+  retired stage is (`names.RETIRED_ROUTES`);
+- the browser dashboard, which still matches the old names and gets them from
+  `dashboard_run_state.read`;
+- schema file stems (`names.file_stem`) and legacy v1 artifacts;
+- a fake provider copied out of `tools/` to run, which names the stages itself
+  (`fake_codex.TASK_PLANNER_STAGES`, kept equal by `tests.test_names`).
+
+Some identifiers (`astra_calls`, `glm_draft`, `apply_sol`) still carry the old names; the last
+step of the rename renames them. The same letters are also parts of real model names
 (`gpt-6-sol`, `gpt-5.6-terra`, `glm-5.3`), which never change.
 
 Per-stage artifact file stems under `iterations/` use readable slugs from

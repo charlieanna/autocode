@@ -533,7 +533,7 @@ def _joint_planning(args, state: RunState, *, started, engine, saved_engine, sin
     ) and not joint:
         raise ValueError("Planner role overrides require --joint-planning")
     if getattr(args, "planner_model", None) and not joint:
-        raise ValueError("--glm-model requires --joint-planning")
+        raise ValueError("--planner-model requires --joint-planning")
     return joint, enable_saved_joint
 
 
