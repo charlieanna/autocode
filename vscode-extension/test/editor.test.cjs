@@ -3900,7 +3900,9 @@ test('a new chat welcomes with what AutoCode does, and an example only fills the
   const ui = await openChat(t, null, false);
   const welcome = ui.document.getElementById('welcome');
   assert.ok(welcome, 'a new chat shows the welcome');
-  assert.match(welcome.textContent, /Fix.*a bug/);
+  assert.match(welcome.textContent, /plans the change for your approval, builds it, and tests it independently/);
+  assert.match(welcome.textContent, /question about this code is answered without changing anything/);
+  assert.equal(welcome.querySelector('.kinds'), null, 'every task takes one path, so there is no job picker');
   const examples = [...welcome.querySelectorAll('button.example')];
   assert.equal(examples.length, 3);
   const launched = t.mock.method(cli, 'stream', async () => ok);

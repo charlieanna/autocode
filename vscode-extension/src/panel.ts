@@ -749,8 +749,6 @@ const METER_STYLES = `
   .chat-tab .dot.finished { color: var(--vscode-charts-green, #3a7d3a); }
   .welcome { padding: 4px 2px; font-size: .88rem; }
   .welcome p { margin: 4px 0 10px; opacity: .85; }
-  .welcome .kinds { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin: 6px 0 12px; font-size: .82rem; }
-  .welcome .kinds b { font-weight: 600; }
   .welcome .try { opacity: .75; font-size: .8rem; margin-bottom: 4px; }
   .welcome button.example { display: block; width: 100%; text-align: left; margin: 4px 0; background: var(--vscode-input-background);
                             color: var(--vscode-foreground); border: 1px solid var(--vscode-panel-border); border-radius: 4px; }
@@ -761,13 +759,11 @@ const METER_STYLES = `
   .finish .files { overflow-wrap: anywhere; }
 `;
 
-/** What a new chat can ask for: AutoCode's five workflows, in a person's words. */
-export const WELCOME_KINDS: [string, string][] = [
-  ["Build", "a feature or change, planned and checked before it is called done"],
-  ["Fix", "a bug: find the cause, prove it with a test, then fix it"],
-  ["Review", "a change or a branch for problems"],
-  ["Design", "something before building it"],
-  ["Discuss", "a question about this code, without changing it"],
+/** What a new chat says AutoCode does: every change takes one path (#3010); a question is answered directly. */
+export const WELCOME_TEXT = [
+  "Describe what you want. AutoCode agrees the requirements with you, plans the change for your approval, " +
+    "builds it, and tests it independently before it calls it done.",
+  "A question about this code is answered without changing anything.",
 ];
 
 /** Example requests the welcome offers; clicking one only fills the message box. */
@@ -861,7 +857,7 @@ const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 const chatMode = ${chat};
 const RAISE_LABEL = ${JSON.stringify(RAISE_LABEL)};
-const WELCOME_KINDS = ${JSON.stringify(WELCOME_KINDS)};
+const WELCOME_TEXT = ${JSON.stringify(WELCOME_TEXT)};
 const WELCOME_EXAMPLES = ${JSON.stringify(WELCOME_EXAMPLES)};
 const STAGE_ROWS = 4;
 const STAGE_MARKS = { done: '✓', working: '●', retrying: '↻', failed: '✗' };
@@ -1017,14 +1013,11 @@ function formatDuration(seconds) {
   return Math.floor(whole / 3600) + 'h' + String(Math.floor((whole % 3600) / 60)).padStart(2, '0') + 'm';
 }
 
-/** A new chat's welcome: what AutoCode can do, and example requests that only fill the message box. */
+/** A new chat's welcome: what AutoCode does, and example requests that only fill the message box. */
 function renderWelcome() {
   const box = el('div', 'welcome');
   box.id = 'welcome';
-  box.appendChild(el('p', null, 'AutoCode plans the work with you, builds it, and checks it independently before it calls it done.'));
-  const kinds = el('div', 'kinds');
-  WELCOME_KINDS.forEach(([name, what]) => { kinds.appendChild(el('b', null, name)); kinds.appendChild(el('span', null, what)); });
-  box.appendChild(kinds);
+  WELCOME_TEXT.forEach((line) => box.appendChild(el('p', null, line)));
   box.appendChild(el('div', 'try', 'Try asking:'));
   WELCOME_EXAMPLES.forEach((example) => {
     const button = el('button', 'example', example);
