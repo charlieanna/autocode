@@ -2378,7 +2378,7 @@
 
 
 <h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/12fe660fbb2bd60dcd5c8fa0bd2535a9f434dcdf/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/README.md">← Back to README</a></p>
 <p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
 (<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
 <h2 id="you-do-not-need-to-choose-a-model">You do not need to choose a model<a class="headerlink" href="#you-do-not-need-to-choose-a-model" title="Permanent link">&para;</a></h2>
@@ -2770,8 +2770,8 @@ version_command = [&quot;gocode&quot;, &quot;--version&quot;]
 
 [roles]
 task_planner = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
-terra = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;low&quot; }
-sol = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
+builder = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;low&quot; }
+tester = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
 completion = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
 planner = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;low&quot; }
 plan_reviewer = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
@@ -2933,7 +2933,7 @@ ids. <code>components</code> takes <code>--provider claude</code> rather than <c
 <code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
 scenario's <code>--out</code> outside this repository. In a root cloud container, the CLI drops the two
 prohibited capabilities automatically; see <a href="#provider-process-ownership">provider process ownership</a>
-for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/12fe660fbb2bd60dcd5c8fa0bd2535a9f434dcdf/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+for the opt-out and failure behavior (<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
 <h2 id="add-a-tool">Add a tool<a class="headerlink" href="#add-a-tool" title="Permanent link">&para;</a></h2>
 <p>OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
 package. <code>--provider &lt;name&gt;</code> loads <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> and,
@@ -2950,8 +2950,8 @@ version_command = [&quot;kilo&quot;, &quot;--version&quot;]
 
 [roles]
 task_planner = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
-terra = { model = &quot;openai/gpt-5.6-terra&quot;, effort = &quot;medium&quot; }
-sol = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
+builder = { model = &quot;openai/gpt-5.6-terra&quot;, effort = &quot;medium&quot; }
+tester = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
 completion = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;medium&quot; }
 planner = { model = &quot;zhipuai-coding-plan/glm-5.3&quot;, effort = &quot;high&quot; }
 plan_reviewer = { model = &quot;openai/gpt-6-sol&quot;, effort = &quot;high&quot;, light_effort = &quot;medium&quot; }
@@ -3128,8 +3128,8 @@ version_command = [&quot;codex&quot;, &quot;--version&quot;]
 
 [roles]
 task_planner = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
-terra = { model = &quot;gpt-6-luna&quot;, effort = &quot;medium&quot; }
-sol = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
+builder = { model = &quot;gpt-6-luna&quot;, effort = &quot;medium&quot; }
+tester = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
 completion = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
 planner = { model = &quot;gpt-6-luna&quot;, effort = &quot;medium&quot; }
 plan_reviewer = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
@@ -3237,8 +3237,8 @@ version_command = [&quot;kilo&quot;, &quot;--version&quot;]
 
 [roles]
 task_planner = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
-terra = { model = &quot;openai/gpt-5.6-terra&quot;, effort = &quot;medium&quot; }
-sol = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
+builder = { model = &quot;openai/gpt-5.6-terra&quot;, effort = &quot;medium&quot; }
+tester = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
 completion = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;medium&quot; }
 planner = { model = &quot;zhipuai-coding-plan/glm-5.3&quot;, effort = &quot;high&quot; }
 plan_reviewer = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
@@ -3445,7 +3445,7 @@ dashboard; its model pickers list that tool's models.</p>
 <!-- BEGIN provider conformance matrix -->
 
 <p>Generated by <code>python tools/provider_matrix.py --write</code> from
-<a href="https://github.com/charlieanna/autocode/blob/12fe660fbb2bd60dcd5c8fa0bd2535a9f434dcdf/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+<a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
 A version the offline conformance suite has not been run against is
 <code>untested</code> — never guess. Run the suite with
 <code>python tools/provider_conformance.py --fake</code> (no model calls).</p>

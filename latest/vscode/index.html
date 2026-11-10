@@ -1515,6 +1515,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#update-from-master" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update from master
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#run-it-from-a-checkout" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1920,6 +1931,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#update-from-master" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update from master
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#run-it-from-a-checkout" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2012,7 +2034,7 @@
 
 
 <h1 id="vs-code-extension">VS Code extension<a class="headerlink" href="#vs-code-extension" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/12fe660fbb2bd60dcd5c8fa0bd2535a9f434dcdf/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/README.md">← Back to README</a></p>
 <p>Chat with AutoCode in the sidebar (issue #884). The extension starts the CLI,
 reads <code>--status</code> and <code>registry list --json</code>, and takes the actions the public
 <a href="../task-run/">task-run interface</a> names. It imports no runner internals and never
@@ -2061,7 +2083,7 @@ Markdown and code blocks for assistant replies. A fixed composer grows with your
 draft. New output follows the bottom until you scroll up or select text;
 <strong>Latest messages</strong> returns to the bottom. These composer and scrolling components
 are adapted from Kilo Code's open-source UI; the exact revision and attribution
-are in <a href="https://github.com/charlieanna/autocode/blob/12fe660fbb2bd60dcd5c8fa0bd2535a9f434dcdf/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
+are in <a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
 <p><strong>Models &amp; usage</strong> stays above the composer and starts expanded. <strong>Configured
 models</strong> lists every saved role assignment with its full model ID, provider and
 reasoning <strong>Variant</strong> (such as medium or high), even before that role runs.
@@ -2151,6 +2173,22 @@ together. If a plan changes after the card was shown, nothing is approved. Once
 every run is complete and an integration check is due, <strong>Run the set's check</strong>
 asks first, then runs it. These are the only change-set actions the extension
 takes (<a href="../task-run/#change-sets-in-clients">change sets in clients</a>).</p>
+<h2 id="update-from-master">Update from master<a class="headerlink" href="#update-from-master" title="Permanent link">&para;</a></h2>
+<p>To install the newest extension from master, run this from any AutoCode checkout:</p>
+<pre><code class="language-sh">scripts/update-vscode-extension.sh
+</code></pre>
+<p>It fetches master from <code>origin</code>, builds it in a temporary Git worktree (so your
+checkout, its branch and uncommitted changes stay as they are), packages the
+extension and installs it with <code>code --install-extension --force</code>. Then reload the
+VS Code window (<strong>Developer: Reload Window</strong>). <code>--local</code> builds the checkout you are in
+instead, as it stands, and <code>--remote NAME</code> fetches from another remote. It needs Node.js
+(<code>npm</code>) and the <code>code</code> command; on macOS, when <code>code</code> is not on <code>PATH</code>, it uses the one
+inside Visual Studio Code.app, and <code>CODE=cursor</code> or <code>CODE=code-insiders</code> picks another
+editor.</p>
+<p>The extension starts whichever <code>autocode</code> <code>autocode.cliPath</code> names. When that CLI is an
+editable install of the same checkout (<code>pipx install --editable</code>, see
+<a href="../install/#advanced-install-from-a-checkout">install from a checkout</a>), <code>git pull</code> on
+master updates it too; a separate release install keeps its own version.</p>
 <h2 id="run-it-from-a-checkout">Run it from a checkout<a class="headerlink" href="#run-it-from-a-checkout" title="Permanent link">&para;</a></h2>
 <pre><code class="language-sh">cd vscode-extension
 npm ci
@@ -2173,7 +2211,7 @@ conversation.</p>
 Requirements follow-up has passed a real Kilo/token-plan greeting conversation;
 full build/test/completion qualification remains outstanding. The earlier full
 task attempt stopped on a MiMo network failure before building.
-See the <a href="https://github.com/charlieanna/autocode/blob/12fe660fbb2bd60dcd5c8fa0bd2535a9f434dcdf/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
+See the <a href="https://github.com/charlieanna/autocode/blob/d52813be12099d7fd7fdfb4aba97517ee92e022c/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
 The jsdom tests alone establish neither editor-host nor live-provider compatibility.</p>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <table>
