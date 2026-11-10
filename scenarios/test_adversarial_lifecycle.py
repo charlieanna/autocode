@@ -172,14 +172,19 @@ class LifecycleAttacks(AdversarialCase):
         self.assert_cleaned(provider)
         self.assertEqual([], self.trace("stage_exit", "terra"), "Cleanup must not finish an interrupted report")
 
+    def entered_beyond_requirements(self):
+        """Stages entered, but Requirements: it only reads the checkout, so a second run's Requirements may run
+        while another run holds it; every other stage waits for the checkout."""
+        return [row for row in self.trace("stage_enter") if row.get("stage") != "requirements_gather"]
+
     def test_active_run_blocks_new_run_in_same_checkout(self):
         barrier, controller, _, provider = self.held_builder()
-        before = len(self.trace("stage_enter"))
+        before = len(self.entered_beyond_requirements())
         second = self.second_run_in_same_checkout()
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
         self.assertEqual(
             before,
-            len(self.trace("stage_enter")),
+            len(self.entered_beyond_requirements()),
             "A different run must respect checkout ownership before launching providers",
         )
         self.assertTrue(provider.is_running())
@@ -190,10 +195,10 @@ class LifecycleAttacks(AdversarialCase):
 
     def test_live_orphan_blocks_new_run_in_same_checkout(self):
         barrier, controller, parent, provider = self.held_builder()
-        before = len(self.trace("stage_enter"))
+        before = len(self.entered_beyond_requirements())
         blocked = self.second_run_in_same_checkout()
         self.assertEqual(2, blocked.returncode, blocked.stdout + blocked.stderr)
-        self.assertEqual(before, len(self.trace("stage_enter")))
+        self.assertEqual(before, len(self.entered_beyond_requirements()))
         parent.kill()
         self.assertLess(controller.wait(timeout=10), 0)
         self.stopped_receipt(provider=provider, cause="owner_lost")

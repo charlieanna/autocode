@@ -186,7 +186,7 @@ class PackageRunCLI(unittest.TestCase):
         self.builder_writes(FIX)
         with checkout_lock.exclusive(self.project, self.project / ".autocode" / "runs" / "other-run"):
             busy = self.launch(["Fix the greeting CLI", "--package", f"{GREET}/", "--no-chat"], 2)
-        self.assertIn("Another AutoCode run is working in this checkout", busy.stderr)
+        self.assertIn("Another AutoCode task (other-run) is still working in this folder", busy.stderr)
         run, waiting = self.saved()
         self.assertEqual((None, None), (waiting["base_commit"], waiting.get("package_outside_at_launch")))
         self.launch(["--run-dir", str(run), "--no-chat"], 2)

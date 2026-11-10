@@ -24,7 +24,7 @@ class ExclusiveTests(unittest.TestCase):
                     with checkout_lock.exclusive(workspace, "/runs/second"):
                         self.fail("entered a held checkout")
                 self.assertEqual("PAUSED_WORKSPACE_BUSY", busy.exception.status)
-                self.assertIn("/runs/first", str(busy.exception))
+                self.assertIn("Another AutoCode task (first) is still working in this folder", str(busy.exception))
             self.assertEqual({}, checkout_lock.holder(workspace))
             with checkout_lock.exclusive(workspace, "/runs/second"):
                 pass
@@ -110,9 +110,13 @@ class InPlaceRunTests(unittest.TestCase):
         with checkout_lock.exclusive(self.project, other):
             result = self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
             self.assertIn(
-                f"Another AutoCode run is working in this checkout ({other}); nothing was changed", result.stderr
+                "Another AutoCode task (other-run) is still working in this folder, so this task waits rather "
+                "than change the same files at the same time. Nothing was changed. Try again once that task "
+                "has finished or paused.",
+                result.stderr,
             )
-            self.assertIn("without --in-place", result.stderr)
+            for machinery in ("--in-place", "worker", "cleanup", "checkout", str(other)):
+                self.assertNotIn(machinery, result.stderr.split("Another AutoCode task", 1)[1], machinery)
             run, state = self.saved()
             self.assertEqual("RUNNING", state["status"], "a busy checkout changes nothing in the waiting run")
             self.assertIsNone(state["base_commit"], "the other run's unfinished files are not where this run starts")
@@ -120,7 +124,7 @@ class InPlaceRunTests(unittest.TestCase):
             self.assertEqual(
                 [],
                 [row for row in state["stages"] if not row.get("runner_owned")],
-                "no agent may run while another run holds the checkout",
+                "no agent but Requirements may run while another run holds the checkout",
             )
             self.assertFalse((self.project / "greet.py").exists())
             status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)

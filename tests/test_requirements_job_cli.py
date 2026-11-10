@@ -17,6 +17,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_checkout_lock as checkout_lock
 import autocode_taskrun as taskrun
 
 SCENARIOS = Path(__file__).resolve().parents[1] / "scenarios"
@@ -38,12 +39,15 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
 
-    def start(self, scenario_id, chat=CHAT, brief=None):
+    def start(self, scenario_id, chat=CHAT, brief=None, before=None):
+        """Start the scenario's chat; ``before`` is called with the project before the run is launched."""
         scenario = catalog.load(scenario_id)
         if brief:
             # The scripted provider reads the request from the scenario, so the scenario carries it.
             scenario = dataclasses.replace(scenario, brief=brief)
         project = without_maintenance(materialize(scenario.seed, self.root / "project"))
+        if before:
+            before(project)
         flags, provider_env = fake_setup(scenario, self.root, scenario.dir / "reference")
         environment = {**provider_env, "AUTOCODE_HOME": str(self.root / "registry"), "PYTHONDONTWRITEBYTECODE": "1"}
         paths = environment["PATH"].split(os.pathsep)
@@ -114,6 +118,67 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
                 self.assertEqual("answered", result.get("outcome"), result)
                 self.assertIn("Requirements answered", result["summary"])
                 self.assertEqual(before, self.files(project), "Nothing in the project changed")
+
+    def hold_checkout(self, project):
+        """Another run's agents working in the project's checkout, as a second chat finds them."""
+        held = checkout_lock.exclusive(project, project / ".autocode" / "runs" / "20261109-230922-chat-b07586")
+        held.__enter__()
+        self.addCleanup(held.__exit__, None, None, None)
+
+    def test_a_discussion_is_answered_while_another_run_works_in_the_checkout(self):
+        # Seen 2026-11-10: a question asked in a new chat stopped before Requirements because another chat was
+        # planning in the same checkout, and the stop named --in-place, workers and cleanup. A discussion
+        # changes nothing, so Requirements answers it whoever holds the checkout.
+        run, project = self.start(
+            "discuss-cache-choice",
+            brief="Why does app/metadata.py keep its cache in-process rather than in a shared file?",
+            before=self.hold_checkout,
+        )
+        before = self.files(project)
+        view, offers = self.drive(run)
+        self.assertTrue(view["done"], self.details(view))
+        self.assertEqual("discuss", view["workflow"], self.details(view))
+        self.assertEqual([], offers)
+        self.assertEqual(1, self.ran(run, "requirements-gather"))
+        result = (view.get("evidence") or {}).get("workflow_result") or {}
+        self.assertEqual("answered", result.get("outcome"), result)
+        self.assertEqual(before, self.files(project), "Nothing in the project changed")
+        self.assertEqual(
+            "20261109-230922-chat-b07586",
+            Path(checkout_lock.holder(project)["run_dir"]).name,
+            "the other run keeps the checkout",
+        )
+
+    def test_a_change_waits_for_the_checkout_only_after_requirements_and_says_why_plainly(self):
+        # A change does need the checkout. Requirements still runs and asks what it should, and the run
+        # waits before the Planner, in words a person can act on.
+        run, project = self.start("discuss-cache-choice", before=self.hold_checkout)
+        view = run.status()
+        for _ in range(4):
+            need = view.get("needs") or {}
+            if need.get("kind") != "answer":
+                break
+            question = need["questions"][0]
+            answer = (
+                view["chat"]["review"]["answer"]
+                if question["id"].startswith(REQUIREMENTS_REVIEW)
+                else question.get("proposed_default") or "No preference"
+            )
+            run.answer(question["id"], answer, resolver_token=need["resolver_token"])
+            view = run.advance()
+        self.assertEqual("RUNNING", view["status"], self.details(view))
+        self.assertNotEqual("requirements_gather", view["next_stage"], self.details(view))
+        self.assertEqual(1, self.ran(run, "requirements-gather"), "Requirements ran while the checkout was held")
+        self.assertEqual(0, self.ran(run, "discovery"), "nothing is planned while another run holds the checkout")
+        said = run.last_advance.stdout + run.last_advance.stderr
+        self.assertIn(
+            "Another AutoCode task (20261109-230922-chat-b07586) is still working in this folder, so this task "
+            "waits rather than change the same files at the same time. Nothing was changed.",
+            said,
+        )
+        for machinery in ("--in-place", "worker", "cleanup"):
+            self.assertNotIn(machinery, said.split("Another AutoCode task", 1)[1], machinery)
+        self.assertFalse((project / "docs/decisions/metadata-cache.json").exists())
 
     def test_a_question_to_write_down_goes_from_requirements_into_the_full_pipeline(self):
         # Every change goes through the full pipeline (#3010). A discussion whose answer is to be written
