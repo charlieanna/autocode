@@ -477,9 +477,10 @@ class RunState(TypedDict, total=False):
     builder_failure_hold: Any
     builder_retry_decisions: Any
     builder_retry_key: Any
-    # Plan in the person's checkout, build in a task worktree (#3077): written only by
-    # autocode_build_worktree (request at launch, move at plan approval); read there by due/resolve/moved
-    # (the build loop, --run-dir loading, run listings) and notice (autocode_chat_history).
+    # Plan and build in a task worktree (#3077, #3081): written only by autocode_build_worktree
+    # (request at launch, move before the first stage that writes); read there by due/resolve/moved
+    # (the build loop, --run-dir loading, run listings), notice (autocode_chat_history) and the
+    # replay projection's moved_from (autocode_replay_view, #3085).
     build_worktree: Any
     changed_files: Any
     checked: Any
