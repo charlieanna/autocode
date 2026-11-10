@@ -49,7 +49,7 @@ except ImportError:
     import autocode_sensitive_paths as sensitive_paths
 
 ENGINE = ("engine", "review-routing")
-MODELS = (
+MODELS: tuple[str, ...] = (
     "single-model",
     "astra-model",
     "terra-model",
@@ -62,7 +62,7 @@ MODELS = (
     "investigator-model",
     "builder-strong-model",
 )
-EFFORTS = (
+EFFORTS: tuple[str, ...] = (
     "reasoning-effort",
     "astra-reasoning-effort",
     "terra-reasoning-effort",
