@@ -33,15 +33,15 @@ def read(run) -> dict:
     return legacy_routes(value)
 
 
-def legacy_routes(state: dict) -> dict:
-    """``state`` with its renamed route names given back their old names, where the dashboard reads them."""
-    settings = state.get("settings")
+def legacy_routes(saved: dict) -> dict:
+    """``saved`` (a run state) with its renamed route names given back their old names, where the dashboard reads them."""
+    settings = saved.get("settings")
     if isinstance(settings, dict) and isinstance(settings.get("roles"), dict):
         settings["roles"] = {LEGACY_ROUTES.get(role, role): route for role, route in settings["roles"].items()}
-    records = [*(state.get("stages") or ()), state.get("active_stage")]
+    records = [*(saved.get("stages") or ()), saved.get("active_stage")]
     for record in records:
         if isinstance(record, dict):
             for key in ("role", "route_role"):
                 if record.get(key) in LEGACY_ROUTES:
                     record[key] = LEGACY_ROUTES[record[key]]
-    return state
+    return saved
