@@ -274,14 +274,16 @@ with ChatTUI() as ui:
                 tmux=tmux,
             ) as screen:
                 screen.wait_for("Resume? [y/N]")
+                # A notice that stays in the conversation: a running run's notice is the status row's.
+                marker = "Paused to apply your request."
                 update(
                     {
-                        "status": "RUNNING",
+                        "status": "PAUSED_INTERVENTION_PENDING",
                         "needs": {"kind": "continue"},
-                        "chat": {"messages": [prior], "notice": "Working on your request…"},
+                        "chat": {"messages": [prior], "notice": marker},
                     }
                 )
-                screen.wait_for("Working on your request…")
+                screen.wait_for(marker)
                 screen.type("y")
                 screen.keys("Enter")
                 screen.wait_for("Anything else?")
@@ -292,7 +294,7 @@ with ChatTUI() as ui:
                     }
                 )
                 shown = screen.wait_for(lambda body: body.count(text) == 2, what="the new completion reply")
-                self.assertGreater(shown.rfind(text), shown.index("Working on your request…"))
+                self.assertGreater(shown.rfind(text), shown.index(marker))
                 self.assertLess(shown.rfind(text), shown.index("Anything else?"))
                 self.assertIn("Complete; current delivery verified", shown)
                 screen.keys("Enter")
