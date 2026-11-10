@@ -446,9 +446,10 @@ autocode --run-dir /path/to/project/.autocode/worktrees/TASK/.autocode/runs/RUN
 ```
 
 `--build-in-worktree` (what the terminal chat starts every new chat with) does both in turn:
-the task starts in the selected checkout, where Requirements and the Planner only read the
-files, and once the plan is approved, before anything is written, it moves to a new task
-worktree and branch made from the committed HEAD and builds there. The run keeps its name
+the task starts in the selected checkout, where Requirements only reads the files, and before
+the Planner it moves to a new task worktree and branch made from the committed HEAD, where the
+plan is made, reviewed, approved and built against one fixed tree. A run that already planned
+in the checkout moves once its plan is approved. The run keeps its name
 (`.autocode/worktrees/TASK/.autocode/runs/RUN`), and its old path in the checkout still reaches
 it, so `--run-dir` with either works and `autocode runs` lists it once. Uncommitted changes and
 ignored files are not carried over; the chat names the uncommitted paths it left out. A run in a

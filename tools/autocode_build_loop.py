@@ -24,6 +24,7 @@ try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_climb_cap as climb_cap
     from . import autocode_completion_result as completion_result
+    from . import autocode_contract_identity as contract
     from . import autocode_cost as cost
     from . import autocode_dispatch as dispatch
     from . import autocode_interventions as interventions
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_checkout_lock as checkout_lock
     import autocode_climb_cap as climb_cap
     import autocode_completion_result as completion_result
+    import autocode_contract_identity as contract
     import autocode_cost as cost
     import autocode_dispatch as dispatch
     import autocode_interventions as interventions
@@ -447,10 +449,12 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
 
     def before_stage(current):
         if build_worktree.due(current):
-            # Planned in the person's checkout; the approved plan is built in a worktree of its own, so
-            # this folder is never written to. The run continues there on its next command.
+            # Requirements talked with the person in their checkout; the plan is made, reviewed and built in
+            # a worktree of its own, so this folder is never written to. The run continues there on its next command.
+            approved = contract.approved(current)
             target = build_worktree.move(current, workspace, run_dir, runner.write_json)
-            print(f"Plan approved; building on branch {target['branch']} in {target['workspace']}.", flush=True)
+            done = "Plan approved; building" if approved else "Planning and building"
+            print(f"{done} on branch {target['branch']} in {target['workspace']}.", flush=True)
             raise runner.orchestrator.LoopExit(2)
         hold_checkout(current)
         return before_code_stage(current)
