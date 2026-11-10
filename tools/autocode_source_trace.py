@@ -138,31 +138,36 @@ def quoted(quote, text) -> bool:
 
 
 def check_citations(body, records):
-    """Every criterion citation names a live source and quotes it exactly."""
+    """Every criterion citation names a live source and quotes it exactly.
+
+    Names every failing criterion at once (#3054), so one repair can fix them all."""
     by_id = {row["id"]: row for row in records}
+    failures = []
     for row in body.get("acceptance_criteria") or []:
         citations = row.get("sources")
         if citations is None:
             continue
-        # An empty array means uncited: allowed in a draft (strict output schemas
-        # force the key), refused by the ready gate like a missing field.
         if not isinstance(citations, list):
-            raise ValueError(f"Criterion {row.get('id')} sources must be an array")
+            failures.append(f"Criterion {row.get('id')} sources must be an array")
+            continue
         seen = set()
         for citation in citations:
             if not isinstance(citation, dict) or set(citation) != {"source_id", "quote"}:
-                raise ValueError(f"Criterion {row.get('id')} sources hold only source_id and quote")
+                failures.append(f"Criterion {row.get('id')} sources hold only source_id and quote")
+                continue
             source = by_id.get(citation.get("source_id"))
             quote = str(citation.get("quote", "")).strip()
             if source is None or not quote or not quoted(quote, source["text"]):
                 hint = " (no such sentence id)" if SENTENCE_ID.match(quote) else ""
-                raise ValueError(
+                failures.append(
                     f"Criterion {row.get('id')} cites {citation.get('source_id')} without quoting it verbatim{hint}"
                 )
             key = (citation["source_id"], quote)
             if key in seen:
-                raise ValueError(f"Criterion {row.get('id')} cites {citation['source_id']} twice with one quote")
+                failures.append(f"Criterion {row.get('id')} cites {citation['source_id']} twice with one quote")
             seen.add(key)
+    if failures:
+        raise ValueError("; ".join(failures))
 
 
 def _covered(sentence, quotes, *, spans=False):
