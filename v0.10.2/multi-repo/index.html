@@ -1,0 +1,2362 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/v0.10.2/multi-repo/">
+      
+      
+        <link rel="prev" href="../task-lanes/">
+      
+      
+        <link rel="next" href="../cli/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Several repositories - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#work-that-spans-several-repositories" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Several repositories
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several repositories
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several repositories
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#automatic-bug-fixes-from-terminal-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatic bug fixes from terminal chat
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-change-sets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual change sets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#walkthrough-a-bug-reveals-another-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walkthrough: a bug reveals another repository
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-and-current-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification and current limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-manual-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The manual workflow
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../channels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Channel bridge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VS Code extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inside your coding agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#automatic-bug-fixes-from-terminal-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatic bug fixes from terminal chat
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-change-sets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual change sets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#walkthrough-a-bug-reveals-another-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walkthrough: a bug reveals another repository
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-and-current-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification and current limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-manual-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The manual workflow
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
+<p><a href="https://github.com/charlieanna/autocode/blob/f03ef6802e15e973cf4f1ba6af4815595773a3b0/README.md">← Back to README</a></p>
+<p>One AutoCode run changes one repository. Its workspace is one Git tree. The
+checkpoints, diffs, protected tests and the Builder's declared changes are all
+bounded to that tree, and a Builder write outside it is treated as a fault.</p>
+<p>That matters when a request needs changes in more than one separately versioned
+repository. A ticket that adds a field to an API service and records it in a
+history service is two pieces of work. A run started in the API repository can
+deliver only the API half.</p>
+<h2 id="automatic-bug-fixes-from-terminal-chat">Automatic bug fixes from terminal chat<a class="headerlink" href="#automatic-bug-fixes-from-terminal-chat" title="Permanent link">&para;</a></h2>
+<p>This flow is part of current master and is not in the published <strong>0.8.2</strong>
+release: the <code>pipx</code>/Homebrew commands in the README install a tagged release
+without it. Install from master with the <a href="../install/#advanced-install-from-a-checkout">checkout
+installation</a> first, and connect a
+backend your chat can use — including Kilo, which the <a href="../install/#default-provider">default-provider
+guide</a> covers with its pinned Linux release.</p>
+<p>Configure the local source roots once. Discovery searches every configured root,
+even when a chat starts elsewhere. Register standalone checkouts that sit outside
+those roots explicitly:</p>
+<pre><code class="language-sh">autocode registry roots add /work/fulfillment
+autocode registry roots add /work/shared-services
+autocode registry repositories add /srv/standalone/history-consumer
+autocode registry roots list
+</code></pre>
+<p>Then start plain <code>autocode</code> in a terminal (or <code>autocode chat</code>) from any directory
+and provide the ticket only. A clear bug identified by Requirements enters the
+coordinated flow without a workflow flag or separate Requirements confirmation;
+genuine unanswered business questions still need clarification. On a
+supported Linux host, use an owned chat (the default) and set up your coding
+backend with <code>/connect</code>. AutoCode investigates the configured local catalog;
+<code>/repos</code> displays roots and discovered repositories. This catalog is setup, not
+a repository list to add to each bug. An explicit <code>AUTOCODE_HOME</code> selects the
+same user-level catalog from any launch directory; project-local run registries
+remain in place. Checkouts need committed product code, a branch
+identifying the delivery base, a GitHub <code>origin</code>, Git push authentication, and
+<code>gh auth login</code>, <code>GITHUB_TOKEN</code> or <code>GH_TOKEN</code> for PR creation. <code>/repos</code> shows
+authentication readiness. Before creating a worktree, AutoCode checks repository
+write access and that the local baseline matches the remote delivery branch.
+Missing checkouts must be made available before their work starts. Discovery is
+bounded to configured roots and standalone registrations; it does not clone
+remotes or search the whole disk.</p>
+<p>The Investigator traces the symptom through code. Grounded repository names
+resolve against registered directory, GitHub or package names. A unique match is
+selected automatically; ambiguity or missing access stops for your input.
+Model-supplied paths and URLs do not authorize a checkout. Further discoveries
+join the same coordination, including A → B → C dependencies absent from the
+request. Every member works in an isolated, pinned worktree. Original product
+files remain untouched.</p>
+<p>If the set expands after a member finishes, AutoCode reopens completed peers and
+shows a fresh cohort approval with the new member. Earlier approvals cannot
+release implementation against the expanded set.</p>
+<p>AutoCode prepares the joint-test plan from the pinned repository baselines before
+any Builder starts. The chat shows every repository plan and that joint plan in
+one approval offer, bound to the original request and its clarifications, discovery snapshot, selected
+repository identities and exact plan tokens. No member or joint Builder runs
+before that approval. AutoCode retains the selected role routes, efforts and run
+limits. A configured money cap is shared across sequential
+launches using the core's known-cost accounting; unknown cost remains unknown.
+If that cap stops the run, chat shows the shared known spend and asks for a finite
+whole-set cap, followed by confirmation. Leaving it blank keeps the set paused.
+The explicit change retains all earlier spending and other limits; it does not
+approve a plan or waive verification. A changed checkpoint must be read again.
+Each member's flow gate covers its own executable local path. The joint plan
+names a real combined regression without putting it inside a member's completion
+flow. After each member passes its checks, the core exposes a named
+<code>coordinate bind</code> action that snapshots the exact candidate trees, including
+deletions, into the already-approved joint workspace. The integration Builder
+then runs that plan. Corrections discovered in the integration copies return
+through member follow-ups and a complete revised coordinated plan. When every
+revised plan keeps the contract the person approved, the coordinator carries that
+approval and records it; a revision that changes what was approved is shown for
+approval again. A failed
+independent check retains its diagnostics for the bounded retry. The limits are
+12 repositories and three joint attempts.</p>
+<p>Independent review and runner execution must establish fail-before/pass-after
+evidence. Integration copies must match the member trees exactly. Missing checks,
+waivers and individual PASS reports cannot authorize publication. AutoCode commits
+the checked files, pushes reserved branches and creates linked PRs with exact
+revisions and the joint evidence binding. Reopening the chat reconciles existing
+publications; an uncertain result never authorizes a second PR creation. PRs are
+not merged automatically.</p>
+<p><code>/pause</code> cancels further coordination and requests a boundary pause from active
+members, retaining files and existing PRs. While the coordinator is working,
+Ctrl-C takes that same cancellation action; the screen labels it accordingly.
+Individual runs use Ctrl-C for a boundary pause. The TUI consumes the public
+<a href="../task-run/#automatic-coordination-from-chat">coordination contract</a>.
+Once the cancellation has settled, the public resume offer can recover the
+saved work under an explicitly selected spending policy, including no spending
+cap when the person chooses zero. This does not approve plans or restart models;
+the existing participant gates still govern continuation.</p>
+<h2 id="manual-change-sets">Manual change sets<a class="headerlink" href="#manual-change-sets" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Requirements, the Investigator and the Planner notice the other repository.</strong> When the request or the code they
+  read shows that part of the work belongs elsewhere, the report
+  says so in its <code>workspace_scope</code>. The runner keeps a reported part only when
+  its quote is verbatim in the request or a saved answer, or when it cites a file
+  in this repository that shows it, such as a client of the other service. Other
+  claims are dropped. This includes work discovered while reproducing a bug that
+  the initial request did not mention. The same public scope and ready briefs
+  make that repository available for linking.</li>
+<li><strong>It asks you before planning.</strong> A kept part stops the run with one question.
+  Answer <code>This repository only</code> to plan this repository's part. The plan then lists
+  each other part in its scope exclusions as <code>Not covered: changes in TARGET: WORK</code>,
+  so the approval screen shows what this run will not deliver. To change the
+  request instead, give feedback. To stop instead, leave the question
+  unanswered: the run's status (<code>scope.briefs</code>) holds a ready brief for each
+  repository, this one first, to start a run with in each.
+  A reproduced bug still waits on its unanswered questions. A follow-up with an
+  existing plan also asks about newly discovered external work: an earlier choice
+  cannot cover another turn or different work. Later model reports retain grounded
+  obligations until human feedback permits Requirements to revise the scope.
+  Answering the scope question requires a refreshed plan and its explicit approval.</li>
+<li><strong>You can link a run in the other repository.</strong> <code>autocode changeset link</code> starts a
+  run in a registered project with that repository's ready brief and records the two
+  runs as one change set, which both runs' status shows under <code>scope.linked</code>
+  (<a href="../task-run/#linked-runs">Linked runs</a>). Each run still plans, builds and completes
+  on its own.</li>
+<li><strong>You can approve the linked plans together.</strong> <code>autocode changeset status</code> shows every
+  run's plan and one set token, and <code>autocode changeset approve</code> approves them all at
+  once. A plan that changes in any run withdraws the token
+  (<a href="../task-run/#approving-the-set">Approving the set</a>).</li>
+<li><strong>You can check the linked runs together.</strong> Name an integration command, such as the
+  consumer's tests against the producer's checkout, with <code>autocode changeset check-command</code>.
+  <code>autocode changeset verify</code> runs it once every run is complete. Its evidence identifies the
+  command, execution target, member runs and their code; a change to any of those withdraws it.
+  Replacing the check also clears its previous waiver. A concurrent record change refuses an
+  old result instead of attaching it to a new check. A failed check can reopen the run that
+  diverged, or you can waive that check with a reason. <code>autocode changeset pr-body</code> writes the section each
+  pull request carries, with the merge order
+  (<a href="../task-run/#checking-the-set-together-and-delivering-it">Checking the set together</a>).</li>
+<li><strong>The terminal chat shows the change set.</strong> Its side panel lists the linked runs, and
+  <code>/changeset</code> shows every run and asks before approving the plans together or running the
+  check. <code>/runs</code> groups the chats of one change set
+  (<a href="../task-run/#change-sets-in-clients">Change sets in clients</a>). VS Code's Run details does the
+  same with one button. On a GitHub issue, the channel bridge posts every run's plan and takes
+  <code>approve set</code>.</li>
+<li><strong>Component builds stay inside one repository.</strong> <code>autocode components</code> builds
+  several components in parallel, but every component worktree comes from the
+  same repository's HEAD, and integration applies their changes to a worktree of
+  that same repository (<a href="../task-lanes/">Parallel tasks and components</a>). It
+  cannot drive two existing sibling repositories.</li>
+<li><strong>A parent folder is not a multi-repository workspace.</strong> If you start AutoCode
+  in a plain folder that holds several repositories, it creates a new, empty
+  project under that folder instead of working in them. If the parent is itself a
+  Git repository with the services as nested repositories or submodules, changes
+  inside them appear to the parent only as a gitlink, so its diffs and test
+  checks do not see them. Treat both as unsupported.</li>
+</ul>
+<h2 id="walkthrough-a-bug-reveals-another-repository">Walkthrough: a bug reveals another repository<a class="headerlink" href="#walkthrough-a-bug-reveals-another-repository" title="Permanent link">&para;</a></h2>
+<p>This walkthrough describes explicit <code>changeset</code> commands for callers that manage
+their own integration check. Terminal bug chats use the automatic flow above.</p>
+<p>Suppose you report “Submitting an order records the wrong total” in <code>order-api</code>.
+The Investigator finds a call to <code>history-service</code> and reports that its consumer
+also needs to accept the corrected payload. You did not need to name that
+repository in the original request. The pause is triggered by the grounded
+report; it is not a guarantee that a model will discover every dependency.</p>
+<p><strong>1. Use one registry across the repositories.</strong> In every terminal used for this
+change set, choose the same location before starting runs:</p>
+<pre><code class="language-sh">export AUTOCODE_HOME=&quot;$HOME/.autocode&quot;
+autocode registry location
+autocode &quot;Submitting an order records the wrong total&quot; \
+  --workspace /path/to/order-api --engine codex --workflow bugfix
+</code></pre>
+<p>Use your chosen engine consistently; <code>codex</code> here is an example. Without an
+explicit <code>AUTOCODE_HOME</code>, task startup uses the project's registry storage (a task
+worktree's project, not the worktree), which <code>registry list</code> and <code>runs --all</code> read
+when run inside that project.
+For runs already created elsewhere, set the shared home and import their
+existing project roots with <code>autocode registry import /path/to/project</code>.
+Import reads saved runs and launches no model.</p>
+<p><strong>2. Keep the scope question open while selecting the other checkout.</strong> Copy the
+source run directory from AutoCode's output. Inspect the exact target and ready
+brief under <code>scope.external_parts</code> and <code>scope.briefs</code>:</p>
+<pre><code class="language-sh">api_run=/absolute/path/to/the/source/run
+autocode --run-dir &quot;$api_run&quot; --status --json
+</code></pre>
+<p>Select an existing committed checkout yourself. The linked run works directly
+in the selected checkout, so give it a dedicated Git worktree when you want to
+keep your normal checkout separate:</p>
+<pre><code class="language-sh">git -C /path/to/history-service worktree add \
+  -b autocode/history-fix /path/to/history-fix
+autocode registry add /path/to/history-fix
+autocode registry list
+autocode changeset link --run-dir &quot;$api_run&quot; \
+  --target history-service --workspace /path/to/history-fix -- --engine codex
+</code></pre>
+<p>Replace <code>history-service</code> with the exact target the status reported. <code>registry add</code>
+registers a committed local Git root without a task or model request. It does not
+clone repositories, change branches or approve code changes. A target that was
+not reported, or a checkout you have not registered, is refused.</p>
+<p><strong>3. Bring both runs to their plan approval.</strong> <code>changeset status</code> lists each run's
+directory, current need and continuation command. Open each run's chat:</p>
+<pre><code class="language-sh">autocode changeset status --run-dir &quot;$api_run&quot;
+autocode --run-dir &quot;$api_run&quot; --chat
+# Use the linked run_dir printed by changeset status:
+autocode --run-dir /absolute/path/to/the/linked/run --chat
+</code></pre>
+<p>In the source chat, answer the scope question <code>This repository only</code>. This means
+<em>this run</em> owns the API side; the linked run owns history's side. Linking itself
+does not answer the question. Read the exclusions in both plans and make sure
+their payload fields, examples and acceptance checks agree. Leave individual
+plans unapproved while preparing approval of the set.</p>
+<p><strong>4. Review and approve the plans together.</strong> In the terminal chat use
+<code>/changeset</code>, or read the CLI's complete plans and run the approval command it
+prints:</p>
+<pre><code class="language-sh">autocode changeset status --run-dir &quot;$api_run&quot;
+# After reading every plan, substitute the token just shown:
+autocode changeset approve --run-dir &quot;$api_run&quot; --set-token TOKEN_JUST_SHOWN
+</code></pre>
+<p>No token is offered while a member still needs answers or planning. The token
+binds all current plans. An interrupted partial approval holds every Builder;
+read status again and retry with its current token. After approval, continue
+each run with its printed next command or <code>autocode resume --run-dir RUN</code>.
+If history discovers a third repository, link it from history's run in the same
+way: it joins this set and all current plans need fresh approval.</p>
+<p><strong>5. Name a real check of the combined behavior.</strong> The command must exercise
+both delivered versions. For example, if history has a
+<code>tests.test_api_contract</code> module that reads the producer checkout from
+<code>AUTOCODE_CHANGESET_WORKSPACES</code>:</p>
+<pre><code class="language-sh">autocode changeset check-command --run-dir &quot;$api_run&quot; --in history-service -- \
+  python3 -m unittest tests.test_api_contract
+# Once both runs have completed their own checks:
+autocode changeset verify --run-dir &quot;$api_run&quot;
+autocode changeset status --run-dir &quot;$api_run&quot;
+</code></pre>
+<p>Provide that project-specific test; AutoCode does not generate it from the
+command above. <code>AUTOCODE_CHANGESET_WORKSPACES</code> is a JSON mapping from the target
+names in <code>changeset status</code> to the actual run workspaces. Read it in the test
+instead of hard-coding your original checkout. The command runs in the selected
+member's workspace. A failed check leaves the set unverified; use
+<code>autocode changeset reopen --run-dir "$api_run" --target history-service</code>
+when that member needs correction. A waiver requires your explicit reason.</p>
+<p><strong>6. Prepare delivery.</strong> Review the merge order and include the generated
+change-set section in each pull request:</p>
+<pre><code class="language-sh">autocode changeset order --run-dir &quot;$api_run&quot; order-api history-service
+autocode changeset pr-body --run-dir &quot;$api_run&quot; --target order-api
+autocode changeset pr-body --run-dir &quot;$api_run&quot; --target history-service
+</code></pre>
+<p>Use the exact target names from status, including the source name. These
+commands record order and print text; they do not publish or merge pull requests.</p>
+<h2 id="verification-and-current-limits">Verification and current limits<a class="headerlink" href="#verification-and-current-limits" title="Permanent link">&para;</a></h2>
+<p>The deterministic regressions drive the public CLI/TaskRun interface with
+offline providers. They test runner behavior, not a live model's ability to
+discover an arbitrary service dependency.</p>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Coverage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TUI symptom → A → B → C discovery → fixes → joint regression → three PRs</td>
+<td><code>tests/test_coordination_tui_e2e.py</code>: public chat actions, real Git repositories and actual producer/consumer calls, independent fail-before/pass-after proof, offline GitHub publication and cross-links</td>
+</tr>
+<tr>
+<td>Locally passing but incompatible member; lost PR response and reopened chat</td>
+<td>The same full-flow test requires a revised coordinated plan, a second joint regression, no publication before correction and exactly one PR per repository; changed joint-test bytes withdraw completion</td>
+</tr>
+<tr>
+<td>Missing or ambiguous repository, missing credentials/access, stale approval, cancellation, changed source/remote, exhausted joint retries</td>
+<td><code>tests/test_coordinate.py</code>: refusal or bounded correction before launching/publishing; <code>tests/test_control_tokens.py</code> keeps coordination approval tokens out of provider environments</td>
+</tr>
+<tr>
+<td>Initial bug request omits the other repository; Investigator cites a local service client</td>
+<td><code>tests/test_bug_questions.py</code>: pause before planning, public registration of a fresh checkout, linked start, reciprocal links, no Builder, explicit local-only answer</td>
+</tr>
+<tr>
+<td>New external work during a follow-up with an existing plan</td>
+<td><code>tests/test_scope_question_cli.py</code>: asks again and invalidates earlier authority</td>
+</tr>
+<tr>
+<td>Invalid target or unregistered checkout; stale or interrupted set approval</td>
+<td><code>tests/test_changeset_cli.py</code>: rejects unknown members, stale tokens and Builder dispatch after partial approval; retry and explicit standalone release</td>
+</tr>
+<tr>
+<td>A → B → C membership</td>
+<td><code>tests/test_changeset_store.py</code>: one canonical set; duplicates and ambiguous legacy overlap refused</td>
+</tr>
+<tr>
+<td>Real producer output disagrees with the consumer expectation</td>
+<td><code>tests/test_changeset_delivery_cli.py</code>: real command fails, blocks joint completion, and can reopen the affected run</td>
+</tr>
+<tr>
+<td>Code/check changes, waiver replacement and concurrent check edits</td>
+<td><code>tests/test_changeset_delivery.py</code> and delivery CLI tests: old evidence cannot accept a different command or version</td>
+</tr>
+</tbody>
+</table>
+<p>These are focused regressions, not one live, end-to-end multi-service production
+trial. Bounded live Kilo MiMo/GLM TUI attempts on 2026-10-27 discovered all three
+fixture repositories but stopped on planning/report validation before builds,
+joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/f03ef6802e15e973cf4f1ba6af4815595773a3b0/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
+and <a href="https://github.com/charlieanna/autocode/issues/2208">remaining convergence issue #2208</a>.
+Live end-to-end delivery is not yet verified. The current implementation also has these limits:</p>
+<ul>
+<li>Discovery inventories repositories beneath configured roots and standalone
+  registrations. The model still has to ground each repository's role in the
+  ticket and source files; AutoCode does not search the whole disk or clone
+  missing repositories.</li>
+<li>Automatic coordination currently supports owned terminal chats on Linux and
+  local Git repositories containing ordinary files. Symlinks, submodules and
+  <code>durable_local</code> coordination are refused explicitly; saved execution policies
+  are never silently changed.</li>
+<li>Independent verification also requires preservation evidence from the original
+  combined suite. If that suite cannot collect or supplies no complete passing
+  test evidence, the result remains unverified and bounded retries stop with
+  diagnostics.</li>
+<li>The manual change-set API leaves linking and the check command to its caller.
+  Automatic TUI coordination discovers and links the repositories, then uses
+  one consolidated approval for member plans and the joint-test plan. A plain
+  parent folder is not itself a multi-repository run; configure it as a local
+  source root for automatic discovery.</li>
+<li>In the manual change-set API, without a named integration command, <code>verification.done</code> means all individual
+  runs completed. It does <strong>not</strong> prove the producer and consumer agree. Name the
+  check before treating the overall bug as resolved.</li>
+<li>Manual change-set approval binds member plans; automatic coordination binds
+  member and joint-test plans together. A separately versioned shared-interface
+  contract and the remaining guided onboarding work are tracked in
+  <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a>.</li>
+</ul>
+<h2 id="the-manual-workflow">The manual workflow<a class="headerlink" href="#the-manual-workflow" title="Permanent link">&para;</a></h2>
+<p>Without a change set, coordinate the repositories yourself:</p>
+<ol>
+<li>Write one brief per repository. Each brief states the shared requirement,
+   the interface both sides agree on (field names, payload examples, an API
+   schema fragment), and that this run owns only this repository's side.</li>
+<li>Start a run in each repository, the producer first when one side consumes the
+   other: <code>autocode</code> in each checkout, or <code>autocode --workspace PATH</code>. Or start the
+   other repository's run with <code>autocode changeset link</code> so the two are recorded together.</li>
+<li>Read and approve each plan against the same interface. A plan that changes
+   the interface needs the same change in the other repository's plan.</li>
+<li><code>autocode runs --all</code> lists the runs of every registered project, grouped by
+   project, and the terminal chat's <code>/runs</code> and <code>/open</code> switch between them.</li>
+<li>Before merging, run the consumer's tests against the producer's branch, and
+   link the two pull requests to each other with the merge order.</li>
+</ol>
+<p>Without a change set, nothing checks that the two halves agree.</p>
+<p>Configured source roots are workspace search boundaries. Git metadata on a root itself does not hide independent child checkouts. Discovery recognizes Git identities without repository-name prefixes; ordinary discovered checkouts are traversal leaves. Depth, directory and containment limits remain explicit.</p>
+<p>Discovery skips generated Python environments identified by <code>pyvenv.cfg</code>, independently of their directory names. File symlinks are not traversed; directory symlinks escaping a configured root still make discovery incomplete.</p>
+<p>A checkout or directory below a configured root that Git or the file system cannot read (for example a <code>git init</code> with no commit yet) is skipped rather than stopping the task: nothing in it could be read or cited anyway. The task's pinned inventory (<code>planning/source-catalog.json</code>) lists each skipped path under <code>unreadable</code>, and the intake stages are told about them. A missing configured root, the depth or directory bound, or a link escaping a root can hide readable checkouts, so those still stop the task before Requirements, as a stop in your environment that names the exact paths.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
