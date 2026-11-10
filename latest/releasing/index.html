@@ -1828,6 +1828,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#vs-code-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VS Code extension
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="VS Code extension">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-time-setup_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-time setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cadence-and-qualification-decision-2048" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1981,6 +2009,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#vs-code-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VS Code extension
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="VS Code extension">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-time-setup_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-time setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cadence-and-qualification-decision-2048" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2021,7 +2077,7 @@ store or rotate.</p>
 <h2 id="published-baseline">Published baseline<a class="headerlink" href="#published-baseline" title="Permanent link">&para;</a></h2>
 <p>PyPI and <code>charlieanna/homebrew-tap</code> already publish <strong>0.8.2</strong>, checked on
 2026-10-27. The tag points to <code>86fdb7920f46a935405840f78c8c3bff0ed3422b</code>
-(2026-10-21), not current master. See the <a href="https://github.com/charlieanna/autocode/blob/74fc6dd5e89f018d179973d8886d153940674205/docs/bugs/2026-10-27-release-installation.md">distribution verification
+(2026-10-21), not current master. See the <a href="https://github.com/charlieanna/autocode/blob/537a66a200f62b2a693472117af6ea69e6e4e6fe/docs/bugs/2026-10-27-release-installation.md">distribution verification
 record</a>. Existing versions/tags must
 not be republished or moved to ship later master fixes: choose a new version
 and follow the release process below.</p>
@@ -2077,6 +2133,41 @@ git commit -am &quot;autocode 0.8.0&quot; &amp;&amp; git push
 source archive on PyPI. The formula builds a virtualenv on Homebrew's Python and
 links only the public <code>autocode</code> command; <code>brew test</code> checks that it reports the
 release's version.</p>
+<h2 id="vs-code-extension">VS Code extension<a class="headerlink" href="#vs-code-extension" title="Permanent link">&para;</a></h2>
+<p>The extension is on the Visual Studio Marketplace as <code>ankurkothari.autocode-task-chat</code>.
+<code>.github/workflows/publish-vscode-extension.yml</code> publishes it from every master commit
+that changes <code>vscode-extension/</code>, so VS Code's auto-update brings each installation to
+master without a tag or a version bump. The version is MAJOR.MINOR from
+<code>vscode-extension/package.json</code> and, as the patch, the number of commits in master's
+history (<code>0.1.4758</code>), so each publish is higher than the last. The workflow runs
+<code>scripts/publish-vscode-extension.sh</code>, which installs the locked dependencies,
+typechecks, tests and packages first and publishes nothing unless all of them pass.
+To start a new MAJOR.MINOR line, change <code>version</code> in <code>package.json</code> (for example to
+<code>0.2.0</code>); the patch stays the commit count.</p>
+<p>It signs in with Marketplace <a href="https://code.visualstudio.com/api/working-with-extensions/publishing-extension#secure-automated-publishing-to-visual-studio-marketplace">trusted
+publishing</a>
+(<code>vsce publish --oidc</code>): the Marketplace trusts this repository, workflow file and
+environment, so no personal access token is stored or rotated. Until the setup below is
+done, the job is skipped and nothing is published.</p>
+<h3 id="one-time-setup_2">One-time setup<a class="headerlink" href="#one-time-setup_2" title="Permanent link">&para;</a></h3>
+<ol>
+<li>On GitHub, <strong>Settings → Environments → New environment</strong> named <code>vscode-marketplace</code>.
+   Under <strong>Deployment branches and tags</strong>, choose <strong>Selected branches and tags</strong> and add
+   <code>master</code>, so no other branch can publish. Add yourself as a required reviewer if each
+   publish should wait for a click.</li>
+<li>At <a href="https://marketplace.visualstudio.com/manage">marketplace.visualstudio.com/manage</a>,
+   open the <code>ankurkothari</code> publisher, select <strong>Trusted Publishing</strong>, and create a policy:
+   repository owner <code>charlieanna</code>, repository <code>autocode</code>, workflow
+   <code>publish-vscode-extension.yml</code>, environment <code>vscode-marketplace</code>.</li>
+<li>On GitHub, <strong>Settings → Secrets and variables → Actions → Variables</strong>, add the
+   repository variable <code>VSCODE_MARKETPLACE_PUBLISH</code> with the value <code>true</code>.</li>
+<li>Within 48 hours of creating the policy (the Marketplace activates it on the first
+   successful exchange from a private repository), run the workflow once from
+   <strong>Actions → publish-vscode-extension → Run workflow</strong> on <code>master</code>.</li>
+</ol>
+<p>To stop publishing, delete the variable or set it to anything but <code>true</code>.
+<code>scripts/publish-vscode-extension.sh --dry-run</code> runs the same checks and packaging
+locally without publishing; it needs the full history, not a shallow clone.</p>
 <h2 id="cadence-and-qualification-decision-2048">Cadence and qualification decision (#2048)<a class="headerlink" href="#cadence-and-qualification-decision-2048" title="Permanent link">&para;</a></h2>
 <p>The proposed two-week release cadence remains an owner decision, not an enabled
 schedule. No automation or calendar promise is created by the installation
