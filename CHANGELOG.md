@@ -39,6 +39,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A hard plan gets more reasoning on the same model: when the draft is large, touches a file the
+  project's `sensitive-paths` names, was blocked twice by the Plan Reviewer, or Requirements found
+  the request vague, the Planner and the Plan Reviewer run one level above their saved or default
+  level, only at a level the model offers. The stage's `effort_choice`, `/details` and the live log
+  say why.
 - A question or discussion that asks for nothing to be written is answered by Requirements
   itself, from the code, and the turn ends there: nothing is planned, approved or built, so it
   costs one model call instead of a plan, a Builder and two reviews. A discussion whose answer is

@@ -38,6 +38,7 @@ try:
     from . import autocode_output_policy as output_policy
     from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_command as pause_command
+    from . import autocode_plan_difficulty as plan_difficulty
     from . import autocode_planner_routes as planner_routes
     from . import autocode_quota_route as quota_route
     from . import autocode_requirements_review as requirements_review
@@ -72,6 +73,7 @@ except ImportError:
     import autocode_output_policy as output_policy
     import autocode_pause_authority as pause_authority
     import autocode_pause_command as pause_command
+    import autocode_plan_difficulty as plan_difficulty
     import autocode_planner_routes as planner_routes
     import autocode_providers
     import autocode_quota_route as quota_route
@@ -198,17 +200,43 @@ def _list_review_ceilings(settings, provider_mod, workspace) -> None:
 
     A review stage's saved stage choice is a ceiling: on a small, clear task it runs one level below,
     and only at a level its model offers (autocode_review_effort). That needs the tool's own listing,
-    read once here and kept as ``declared_variants`` beside any single-model listing.
+    read once here and kept as ``declared_variants`` beside any single-model listing. A hard plan's
+    Planner and Plan Reviewer run one level above their saved or default level, also only at a level
+    the model offers (autocode_plan_difficulty, owner decision 2026-11-09). Their stage-choice models are
+    read here too; an automatically selected route's levels come from the listing selection already read,
+    and a fixed default route reads nothing, so a run that opted out of selection makes no listing call.
     """
     origins = settings.get("effort_origins") or {}
-    models = {
-        settings["roles"][role]["model"]
-        for role in set(review_effort.STAGES.values())
-        if origins.get(role) == role_route.STAGE_CHOICE and isinstance(settings["roles"].get(role), dict)
+    plan_roles = set(plan_difficulty.STAGES.values())
+    roles = {
+        role for role in set(review_effort.STAGES.values()) | plan_roles if origins.get(role) == role_route.STAGE_CHOICE
     }
-    models = {model for model in models if isinstance(model, str)} - set(settings.get(route_fit.DECLARED) or {})
+    selected = {role for role in plan_roles if origins.get(role) == role_route.AUTO_SELECTED}
+    if selected_levels := _selection_levels(settings, _models(settings, selected)):
+        settings.setdefault(route_fit.DECLARED, {}).update(selected_levels)
+    models = _models(settings, roles) - set(settings.get(route_fit.DECLARED) or {})
     if models and (listed := _listed_levels(provider_mod, workspace, models)):
         settings.setdefault(route_fit.DECLARED, {}).update(listed)
+
+
+def _models(settings, roles) -> set:
+    """The models ``roles`` run on, as saved in ``settings``."""
+    routes = settings.get("roles") or {}
+    models = {(routes.get(role) or {}).get("model") for role in roles if isinstance(routes.get(role), dict)}
+    return {model for model in models if isinstance(model, str)}
+
+
+def _selection_levels(settings, models) -> dict:
+    """``{model: levels}`` for each of ``models`` that route selection's saved listing names; no new read."""
+    found: dict = {}
+    if not models:
+        return found
+    candidates = ((settings.get("route_selection") or {}).get("candidates")) or {}
+    for rows in candidates.values() if isinstance(candidates, dict) else ():
+        for row in rows or ():
+            if isinstance(row, dict) and row.get("model") in models and isinstance(row.get("levels"), list):
+                found.setdefault(row["model"], list(row["levels"]))
+    return found
 
 
 def _auto_select(

@@ -546,8 +546,9 @@ output is never copied. The Orchestrator runs no model, so its newest dispatch s
 last turn appears as one `message` entry from agent `Orchestrator` with the
 runner's own summary, such as which tasks it builds in parallel or that one
 Builder takes the next task. A review running one level below the person's saved stage
-choice (see [models](models.md#reasoning-effort)) starts with one `message` entry from its own
-agent saying the level and why. Each parallel Builder's attempt must itself be confirmed
+choice, or a hard plan's Planner or Plan Reviewer running one level above it (see
+[models](models.md#reasoning-effort)), starts with one `message` entry from its own agent saying
+the level and why. Each parallel Builder's attempt must itself be confirmed
 as supervised, and only a file inside that attempt's run directory is read. The
 entries are display only, never a report, proof, approval or authority to retry.
 The field is omitted when nothing is working. Older cores may omit the field.

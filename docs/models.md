@@ -583,6 +583,28 @@ typed as a flag (`--sol-reasoning-effort`, `--reasoning-effort`) or given as an 
 exact. A level the runner chose keeps its own tiers: the Plan Reviewer's reduced depth for
 small clear briefs and the Builder's light first attempt (`autocode_light_builder`).
 
+A hard plan goes the other way (owner decision 2026-11-09): the Planner and the Plan Reviewer
+run one level above their level, on the same model, never another one. AutoCode decides it at
+each launch from facts it checks itself, never from a model's own rating of the task:
+
+- The draft is large: three or more milestones, or ten or more files.
+- The draft touches a file the project's `sensitive-paths` names.
+- The Plan Reviewer blocked the draft twice in this planning cycle (raises the next revision).
+- Requirements judged the request vague. This is the only signal for the Planner's first draft,
+  since no plan exists yet.
+
+The level above must be one the model offers. A new run reads the levels of a stage choice's
+model from the tool's listing when it starts, and an automatically selected route's levels from
+the listing selection already read; a fixed default route (`--no-auto-select`) reads no listing.
+A model already at its strongest level, or one whose levels the run does not know (Codex today,
+or a fixed default route), stays where it is and the stage records why. The raise applies to your
+stage choice and to the runner's default level. A level typed as a flag or given as an answer is
+exact, and a route that climbed the effort ladder is left where the climb put it. The launch
+records the raise as the stage's `effort_choice` (`raised`, `reason: "hard_plan"`, the `signals`
+and your `saved` level); `/details` and the live log say when an attempt ran one level above
+your level and why. A raise wins over a small task's lowered review, so a small plan that
+touches a sensitive file is reviewed at the higher level.
+
 An effort AutoCode derives itself — a reduced Builder tier, a climb on the effort ladder,
 a single-model run — moves to the nearest declared variant and records the move as
 `effort_fits`. An effort a person named never moves. When the model does not declare it,
