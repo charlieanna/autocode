@@ -5,7 +5,9 @@ A bug-fix run that opted into compact planning (#2021) records which path it too
 Planner draft's omitted/included decision with what covers an omission, and a fallback once a review could
 not approve the runner's draft. This module renders that record for the side panel (compact) and ``/details``
 (details), from the public view alone: it never recomputes a decision, adds authority or takes an action, and
-a view without the field (an older core, a job that never decided) shows nothing.
+a view without the field (an older core, a job that never decided) shows nothing. ``decisions`` renders the
+view's ``stage_decisions`` (autocode_stage_decisions) for ``/details`` the same way: every stage that ran and
+every stage a saved decision skipped, with why.
 
 Client layer, like autocode_chat_cost: imports nothing from AutoCode.
 """
@@ -18,6 +20,7 @@ COVERAGE = {
     "astra_challenge": "the Plan Reviewer",
     "person:approve_goal": "your approval of the plan",
     "runner:regression_proof": "the regression proof",
+    "requirements_gather": "Requirements' own answer",
 }
 STAGES = {"astra_discovery": "Planner draft"}
 
@@ -129,4 +132,34 @@ def details(view: dict) -> str:
     if shown:
         lines.append("Decided from: " + ", ".join(shown))
     lines.append("The record reports a decision the core made from trusted inputs; it grants nothing.")
+    return "\n".join(lines)
+
+
+def decisions(view: dict) -> str:
+    """The status view's ``stage_decisions`` in words for /details: each stage that ran, how often and at which
+    level when a rule moved it, and each stage a saved decision skipped, with why and what covers it. Only
+    core-authored values; an older core without the record shows nothing."""
+    rows = _rows(_mapping(view).get("stage_decisions"))
+    if not rows:
+        return ""
+    lines = ["Stages"]
+    for row in rows:
+        label = str(row.get("label") or row.get("stage") or "stage unknown")
+        if row.get("decision") == "skip":
+            reason = str(row.get("reason") or "").strip()
+            lines.append(f"{label}: skipped" + (f" ({reason})" if reason else ""))
+            covered = _covered(row)
+            if covered:
+                lines.append("  Covered by: " + covered)
+            continue
+        launches = row.get("launches")
+        times = f"{launches} times" if type(launches) is int and launches > 1 else "once"
+        choice = _mapping(row.get("effort_choice"))
+        level = ""
+        if choice.get("lowered") and isinstance(choice.get("level"), str) and isinstance(choice.get("ceiling"), str):
+            level = f", at {choice['level']}, below your {choice['ceiling']}"
+        elif choice.get("raised") and isinstance(choice.get("level"), str) and isinstance(choice.get("saved"), str):
+            level = f", at {choice['level']}, above your {choice['saved']}"
+        lines.append(f"{label}: ran {times}{level}")
+    lines.append("The record reports what the core decided; it grants nothing.")
     return "\n".join(lines)

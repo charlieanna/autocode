@@ -13,6 +13,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - **Every task takes the same path**: builds, bug fixes, reviews, designs and discussions that write something all go Requirements, Planner, Plan Reviewer, your approval, Builder, Tester, Completion Reviewer. The kind of job only labels the run. A flow without a Requirements stage is planned as a build instead of asking a separate Job recognizer.
 - **Each terminal chat builds on a branch of its own**: a chat still plans in your folder (Requirements and the Planner only read it), and once you approve the plan it moves to a new task worktree and `autocode/<task>-<id>` branch made from your last commit and builds there (`--build-in-worktree`). Your folder is not written, and chats in one folder no longer wait for each other while they build. The chat says which branch it builds on and which uncommitted files it left out; merge the branch when it is done.
+- **One record of which stages ran and which were skipped**: the status view's new
+  `stage_decisions` lists every stage a run launched, how often and at which reasoning level, and every stage
+  the runner skipped, with the reason and what still covers its job (the Planner's revision and the final
+  plan review after a first review approves the plan, everything after Requirements when it answers a
+  question itself). No stage runs differently. The terminal chat's Pipeline panel now marks stages that ran
+  `✓`, which it never did because it read a field the status view does not have, marks skipped ones
+  `– skipped`, and `/details` lists the record in words.
 
 ### Removed
 

@@ -78,6 +78,7 @@ try:
     from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_role_transport as role_transport
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_stage_decisions as stage_decisions
     from . import autocode_stage_policy as stage_policy
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
@@ -135,6 +136,7 @@ except ImportError:
     import autocode_role_transport as role_transport
     import autocode_route_ladder as route_ladder
     import autocode_run_metrics
+    import autocode_stage_decisions as stage_decisions
     import autocode_stage_policy as stage_policy
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
@@ -315,6 +317,9 @@ def view(
         # Which planning path a bug-fix run took and why (autocode_stage_policy.view, #2021): the compact path's
         # omitted Planner draft and what covers it, or the full path's reasons; null when the run never decided.
         "stage_policy": stage_policy.view(state),
+        # Every stage the run launched and every stage a saved decision skipped, with the reason and what covers
+        # it (autocode_stage_decisions.view): one place for why a stage ran or did not; it grants nothing.
+        "stage_decisions": stage_decisions.view(state),
         # Which request of the conversation the run is on: 1, then one more per --follow-up
         # (autocode_follow_up).
         "turn": len(state.get("turns") or []) + 1,
