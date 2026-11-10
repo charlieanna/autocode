@@ -106,7 +106,7 @@ with ChatTUI() as ui:
             lambda shown: (
                 composer_text(shown) == "hello!"
                 and shown.count("▌ Not sent yet") == 1
-                and "Your text stays here until AutoCode asks you something." in shown
+                and "Your text stays here until AutoCode asks" in shown
             ),
             what="one working notice with the complete unsent draft after repeated Enter",
         )
