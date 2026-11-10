@@ -9,7 +9,7 @@ const { RunController } = host.load('controller.js');
 const { RunPanel, panelHtml, stateFor } = host.load('panel.js');
 const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
-const { activate } = host.load('extension.js');
+const { activate, pickWorkspace, NO_FOLDER } = host.load('extension.js');
 const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
 const { StagesPanel, stagesHtml } = host.load('stages.js');
 const { readStages, currentRoute } = host.load('core/stages.js');
@@ -618,6 +618,31 @@ test('start reports an input rejection instead of returning a nonexistent run', 
   t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
   t.mock.method(cli, 'stream', async () => ({ ...ok, code: 2, rejected: true, stderr: 'Input rejected: invalid destination' }));
   await assert.rejects(controller.start(folder, 'A task'), /invalid destination/);
+});
+
+test('a start that exits 2 before saving its run reports its own output, not a refused status read', async (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-unsaved-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  t.mock.method(cli, 'stream', async () => ({ ...ok, code: 2, stderr: 'Claude Code is not signed in' }));
+  t.mock.method(controller, 'status', async (target) => { throw new Error(`--run-dir ${target.runDir} has no state.json`); });
+  await assert.rejects(controller.start(folder, 'hi'), (error) =>
+    error.message.includes('AutoCode stopped before it saved the run') && error.message.includes('Claude Code is not signed in')
+    && !error.message.includes('state.json'));
+});
+
+test('a start that exits 2 at a saved pause returns the run', async (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-paused-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  t.mock.method(cli, 'stream', async () => ({ ...ok, code: 2 }));
+  const status = t.mock.method(controller, 'status', async () => chatView());
+  const created = await controller.start(folder, 'hi');
+  assert.deepEqual(status.mock.calls[0].arguments[0], created);
 });
 
 test('tree actions use the clicked run with no active run and with another run active', async (t) => {
@@ -1743,7 +1768,49 @@ test('chat shows the live agent log (chat.log) with agent names and thinking', a
   const thinking = ui.document.querySelector('#app .activity-row.thinking');
   assert.ok(thinking, 'thinking rows are marked');
   assert.equal(thinking.querySelector('.activity-mark').textContent, '∴');
-  assert.equal(thinking.querySelector('.agent').textContent, 'Builder · task M2');
+  const headers = [...ui.document.querySelectorAll('#app .live-log .log-agent')].map((node) => node.textContent);
+  assert.deepEqual(headers, ['Builder · task M2', 'Plan Reviewer'], 'each agent is named once per run of its steps');
+  assert.equal(ui.document.querySelector('#app .live-log .agent'), null, 'no row repeats the agent name');
+});
+
+test('the live agent log names an agent once and folds its reasoning to one line', async (t) => {
+  // The shape of a live Requirements stage (Ankur's report, 2026-11-10): the stage name was
+  // printed above every step and each thought was shown in full with the [partial] marker.
+  const thought = '…in actual code, maybe just the top of server.py and app.py to see routes. [partial]';
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Requirements working'],
+      log: [
+        { id: 'r1', agent: 'Requirements', kind: 'tool', text: 'read README.md', status: 'done' },
+        { id: 'r2', agent: 'Requirements', kind: 'command', text: 'ls engine tools', status: 'done' },
+        { id: 'r3', agent: 'Requirements', kind: 'thinking', text: thought },
+        { id: 'r4', agent: 'Requirements', kind: 'command', text: 'head -60 engine/unified/server.py', status: 'running' },
+        { id: 'r5', agent: 'Planner', kind: 'tool', text: 'read deploy/entrypoint.sh', status: 'done' },
+        { id: 'r6', agent: 'Requirements', kind: 'thinking', text: 'Back to the brief.' },
+      ] } };
+  const ui = await openChat(t, value);
+  const log = () => ui.document.querySelector('#app .live-log');
+  const headers = () => [...log().querySelectorAll('.log-agent')].map((node) => node.textContent);
+  assert.deepEqual(headers(), ['Requirements', 'Planner', 'Requirements'],
+    'consecutive steps of one agent share a header; a new header only when the agent changes');
+  assert.equal(log().querySelectorAll('.activity-row').length, 6, 'every step is still listed');
+  const folded = log().querySelector('.activity-row.thinking details.thought');
+  assert.ok(folded, 'reasoning is a foldable line');
+  assert.equal(folded.open, false, 'reasoning starts folded');
+  const summary = folded.querySelector('summary');
+  assert.equal(summary.textContent, '…in actual code, maybe just the top of server.py and app.py to see routes.');
+  assert.equal(summary.title, 'Still arriving', 'the streaming marker becomes a tooltip');
+  assert.ok(!log().textContent.includes('[partial]'), 'the core marker is not shown as part of the thought');
+  assert.equal(log().querySelectorAll('details.thought')[1].querySelector('summary').title, '',
+    'a finished thought has no streaming tooltip');
+  // An unfolded thought stays unfolded when the next read redraws the log.
+  folded.open = true;
+  folded.dispatchEvent(new ui.window.Event('toggle'));
+  const next = structuredClone(value);
+  next.chat.log.push({ id: 'r7', agent: 'Requirements', kind: 'command', text: 'cat app.py', status: 'running' });
+  await ui.poll(next);
+  const redrawn = [...log().querySelectorAll('details.thought')];
+  assert.deepEqual(redrawn.map((node) => node.open), [true, false], 'only the thought a person opened stays open');
 });
 
 test('the live agent log keeps entries by id across reads as the view moves on', async (t) => {
@@ -2745,6 +2812,32 @@ test('aborted launch when selection changes during workspace or confirmation (#1
 
   assert.equal(startCalled, false, 'start must not launch when selection changed during pre-launch');
   assert.deepEqual(ui.chat.run, runB, 'run B remains selected');
+});
+
+test('a first message with no folder open says to open one and keeps the message', async (t) => {
+  host.vscode.workspace.workspaceFolders = undefined;
+  const ui = await openChat(t, null, false, { actions: { pickWorkspace } });
+  ui.chat.show();
+  await flush();
+  const start = t.mock.method(controller, 'start', async () => run);
+
+  ui.type('hi');
+  ui.submit();
+  await flush(); await flush();
+
+  assert.equal(start.mock.callCount(), 0, 'nothing is launched without a folder');
+  assert.equal(ui.document.querySelector('#chat-error').textContent, NO_FOLDER);
+  assert.equal(ui.document.querySelector('#message').value, 'hi', 'the message stays in the box');
+});
+
+test('the workspace is the open folder, or the one picked from several', async (t) => {
+  t.after(() => { host.vscode.workspace.workspaceFolders = undefined; });
+  const folder = (name) => ({ name, uri: { fsPath: `/${name}` } });
+  host.vscode.workspace.workspaceFolders = [folder('one')];
+  assert.equal(await pickWorkspace(), '/one');
+  host.vscode.workspace.workspaceFolders = [folder('one'), folder('two')];
+  t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items[1]);
+  assert.equal(await pickWorkspace(), '/two');
 });
 
 test('Chat #details toolbar button is disabled without an active run and enabled with one (#1543)', async (t) => {
