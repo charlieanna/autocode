@@ -197,6 +197,7 @@ class RunViewTests(unittest.TestCase):
                 "observation",
                 "planning_depth",
                 "stage_policy",
+                "stage_decisions",
                 "changes_by_criterion",
                 "dev_server",
                 "scope",
@@ -903,6 +904,17 @@ class TaskRunTests(unittest.TestCase):
                 self.assertEqual("requirements_gather", stages[0], stages)
                 self.assertNotIn("recognize_workflow", stages)
                 self.assertNotIn("astra_finalize", stages, "approved at the first review")
+                # The same decision, said in the status view's one record of what ran and what was skipped.
+                self.assertEqual(
+                    [
+                        ("requirements_gather", "run"),
+                        ("astra_discovery", "run"),
+                        ("astra_challenge", "run"),
+                        ("glm_revise", "skip"),
+                        ("astra_finalize", "skip"),
+                    ],
+                    [(row["stage"], row["decision"]) for row in view["stage_decisions"]],
+                )
 
     def test_start_approve_and_complete(self):
         before = self.footprint()

@@ -171,3 +171,156 @@ class ScreenTests(unittest.TestCase):
                 details = panel.text("/details", with_policy(COMPACT), panel.StageLog())
                 self.assertIn("Planning path\nPath: compact", details)
                 self.assertIn("Planner draft: omitted", details)
+
+
+ROUTES = {
+    role: {"model": model}
+    for role, model in (
+        ("requirements", "sonnet"),
+        ("glm", "sonnet"),
+        ("astra", "opus"),
+        ("terra", "haiku"),
+        ("sol", "sonnet"),
+        ("completion", "opus"),
+    )
+}
+
+
+def decided(*rows, **fields):
+    current = view()
+    current.update(routes=ROUTES, **fields)
+    current["stage_decisions"] = [
+        {
+            "stage": stage,
+            "job": job,
+            "label": label,
+            "decision": decision,
+            "reason": reason,
+            "covered_by": covered,
+            "launches": 0 if decision == "skip" else 1,
+            "effort_choice": None,
+        }
+        for stage, job, label, decision, reason, covered in rows
+    ]
+    return current
+
+
+EARLY_APPROVAL = (
+    ("requirements_gather", "requirements", "Requirements", "run", None, []),
+    ("astra_discovery", "planner", "Planner", "run", None, []),
+    ("astra_challenge", "plan_reviewer", "Plan Reviewer", "run", None, []),
+    (
+        "glm_revise",
+        "planner",
+        "Planner",
+        "skip",
+        "no revision: the Plan Reviewer raised no blocking concern",
+        ["astra_challenge", "person:approve_goal"],
+    ),
+    (
+        "astra_finalize",
+        "plan_reviewer",
+        "Plan Reviewer",
+        "skip",
+        "no final review: the Plan Reviewer approved the plan at its review 1",
+        ["astra_challenge", "person:approve_goal"],
+    ),
+)
+ANSWERED = (
+    ("requirements_gather", "requirements", "Requirements", "run", None, []),
+    *(
+        (
+            stage,
+            job,
+            label,
+            "skip",
+            "Requirements answered the question from the code, and nothing was to be written",
+            ["requirements_gather"],
+        )
+        for stage, job, label in (
+            ("astra_discovery", "planner", "Planner"),
+            ("astra_challenge", "plan_reviewer", "Plan Reviewer"),
+            ("terra", "builder", "Builder"),
+            ("sol", "tester", "Tester"),
+            ("astra_review", "completion", "Completion Reviewer"),
+        )
+    ),
+)
+
+
+class PipelineTests(unittest.TestCase):
+    """The Pipeline section marks what ran and what was skipped from the view's stage_decisions."""
+
+    def marks(self, current):
+        return [(row.mark, row.text) for row in panel.pipeline_section(current).rows]
+
+    def test_stages_that_ran_are_marked_done_and_the_working_stage_stays_current(self):
+        building = decided(*EARLY_APPROVAL, ("terra", "builder", "Builder", "run", None, []), next_stage="terra")
+        building["progress"]["stage"] = "terra"
+        self.assertEqual(
+            [
+                ("✓", "Requirements · sonnet"),
+                ("✓", "Planner · sonnet"),
+                ("✓", "Plan Reviewer · opus"),
+                ("●", "Builder · haiku"),
+                ("·", "Tester · sonnet"),
+                ("·", "Completion Reviewer · opus"),
+            ],
+            self.marks(building),
+        )
+
+    def test_a_job_with_a_skipped_step_that_also_ran_is_done_not_skipped(self):
+        marks = dict((text.split(" · ")[0], mark) for mark, text in self.marks(decided(*EARLY_APPROVAL)))
+        self.assertEqual("✓", marks["Planner"], "the draft ran; only its revision was skipped")
+        self.assertEqual("✓", marks["Plan Reviewer"])
+
+    def test_a_discussion_requirements_answered_shows_every_later_job_skipped(self):
+        self.assertEqual(
+            [
+                ("✓", "Requirements · sonnet"),
+                ("–", "Planner · skipped"),
+                ("–", "Plan Reviewer · skipped"),
+                ("–", "Builder · skipped"),
+                ("–", "Tester · skipped"),
+                ("–", "Completion Reviewer · skipped"),
+            ],
+            self.marks(decided(*ANSWERED, status="TASK_COMPLETE")),
+        )
+        self.assertEqual("-", panel.ascii_mark("–"))
+
+    def test_an_older_core_without_the_record_marks_nothing_done(self):
+        older = view()
+        older["routes"] = ROUTES
+        self.assertEqual({"·"}, {mark for mark, _ in self.marks(older)})
+
+
+class DecisionDetailsTests(unittest.TestCase):
+    def test_details_list_what_ran_and_what_was_skipped_with_why_and_what_covers_it(self):
+        current = decided(*EARLY_APPROVAL)
+        current["stage_decisions"][2].update(
+            launches=2, effort_choice={"level": "medium", "ceiling": "high", "lowered": True}
+        )
+        self.assertEqual(
+            [
+                "Stages",
+                "Requirements: ran once",
+                "Planner: ran once",
+                "Plan Reviewer: ran 2 times, at medium, below your high",
+                "Planner: skipped (no revision: the Plan Reviewer raised no blocking concern)",
+                "  Covered by: the Plan Reviewer, your approval of the plan",
+                "Plan Reviewer: skipped (no final review: the Plan Reviewer approved the plan at its review 1)",
+                "  Covered by: the Plan Reviewer, your approval of the plan",
+                "The record reports what the core decided; it grants nothing.",
+            ],
+            stage_policy.decisions(current).splitlines(),
+        )
+        raised = decided(("astra_discovery", "planner", "Planner", "run", None, []))
+        raised["stage_decisions"][0]["effort_choice"] = {"level": "xhigh", "saved": "high", "raised": True}
+        self.assertIn("Planner: ran once, at xhigh, above your high", stage_policy.decisions(raised))
+
+    def test_details_show_the_record_after_the_other_blocks_and_nothing_without_it(self):
+        text = panel.text("/details", decided(*ANSWERED), panel.StageLog())
+        self.assertIn("Stages\nRequirements: ran once\nPlanner: skipped", text)
+        self.assertIn("  Covered by: Requirements' own answer", text)
+        self.assertLess(text.index("AutoCode is building the first task."), text.index("Stages"))
+        self.assertNotIn("Stages\n", panel.text("/details", view(), panel.StageLog()))

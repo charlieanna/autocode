@@ -63,6 +63,7 @@ ASCII_MARKS = {
     "»": ">",
     "●": "*",
     "↻": "~",
+    "–": "-",
 }
 EVENT_MARKS = {"edit": "±", "tool": "·"}  # user-facing activity; internal command text stays hidden
 EVENT_ROWS = 6  # how many of the newest events the panel lists
@@ -550,7 +551,9 @@ def pipeline_section(view: dict | None) -> Section | None:
 
     Shows the standard pipeline (Requirements → Planner → Plan Reviewer → Builder →
     Tester → Completion Reviewer) with the model each stage runs and a status mark
-    (✓ done, ● working, ! needs you, · waiting). Returns None when no route data."""
+    (● working, ! needs you, ✓ ran, – skipped, · waiting). What ran or was skipped is the
+    view's ``stage_decisions``; a job is skipped only when none of its stages ran. Returns
+    None when no route data."""
     view = view or {}
     routes = _mapping(view.get("routes"))
     if not routes:
@@ -559,7 +562,9 @@ def pipeline_section(view: dict | None) -> Section | None:
     current_stage = progress.get("stage") or ""
     next_stage = _mapping(view).get("next_stage") or ""
     status = view.get("status") or ""
-    stages_run = _rows(_mapping(view).get("stages"))
+    decisions = _rows(view.get("stage_decisions"))
+    ran_jobs = {str(row.get("job")) for row in decisions if row.get("decision") == "run"}
+    skipped_jobs = {str(row.get("job")) for row in decisions if row.get("decision") == "skip"} - ran_jobs
 
     # The standard pipeline jobs in order.
     pipeline = ["requirements", "planner", "plan_reviewer", "builder", "tester", "completion"]
@@ -572,20 +577,6 @@ def pipeline_section(view: dict | None) -> Section | None:
         "tester": "sol",
         "completion": "completion",
     }
-    # Which jobs have completed (from recorded stages).
-    completed_jobs = set()
-    try:
-        from . import autocode_roles as roles
-    except ImportError:
-        import autocode_roles as roles
-
-    for record in stages_run:
-        if isinstance(record, dict):
-            stage_name = str(record.get("stage") or "")
-            job = roles.job_for_stage(stage_name)
-            if job:
-                completed_jobs.add(job)
-
     rows: list[Row] = []
     # Per-job cost from the breakdown.
     breakdown = _mapping(_mapping(_mapping(view.get("cost")).get("breakdown")))
@@ -598,13 +589,16 @@ def pipeline_section(view: dict | None) -> Section | None:
         short_model = model.rsplit("/", 1)[-1] if "/" in model else model
         screen_name = SCREEN_NAMES.get(job, job.title())
 
-        if job in completed_jobs:
-            mark, style = "✓", "panel-good"
-        elif _is_current_job(job, current_stage, next_stage):
+        skipped = False
+        if _is_current_job(job, current_stage, next_stage):
             if status in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL") and _needs_this_job(job, progress):
                 mark, style = "!", "panel-warn"
             else:
                 mark, style = "●", "panel-now"
+        elif job in ran_jobs:
+            mark, style = "✓", "panel-good"
+        elif job in skipped_jobs:
+            mark, style, skipped = "–", "dim", True
         else:
             mark, style = "·", "dim"
 
@@ -615,7 +609,9 @@ def pipeline_section(view: dict | None) -> Section | None:
             spent = job_cost.get("spent_usd")
             if spent is not None and spent > 0:
                 cost_text = f" · ${spent:.2f}"
-        rows.append(Row(mark, f"{screen_name} · {short_model}{cost_text}", style))
+        rows.append(
+            Row(mark, f"{screen_name} · skipped" if skipped else f"{screen_name} · {short_model}{cost_text}", style)
+        )
 
     summary = ""
     if status == "TASK_COMPLETE":
@@ -844,7 +840,13 @@ def text(name: str, view: dict | None, log: StageLog, available: list[Command] |
         more = "\n\n".join(
             filter(
                 None,
-                (recoveries.details(view), verification.details(view), cost.details(view), stage_policy.details(view)),
+                (
+                    recoveries.details(view),
+                    verification.details(view),
+                    cost.details(view),
+                    stage_policy.details(view),
+                    stage_policy.decisions(view),
+                ),
             )
         )
         return said + ("\n\n" + more if more else "")

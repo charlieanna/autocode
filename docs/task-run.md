@@ -2286,6 +2286,37 @@ bug-fix run's Investigator has reported (and for every other job); then:
 The record reports a decision the core made from trusted inputs; it grants nothing, and a
 client renders it without acting on it.
 
+`stage_decisions` lists which stages the run ran and which it skipped, and why, in one place. It is
+always present, `[]` before the first stage launches. The runner already decides whether each stage
+runs; this record copies those saved decisions and makes none of its own. There is one row for each
+stage the run launched, in the order it first launched, and one row for each stage a saved decision
+passed over, placed after the stage that decided it:
+
+| Field | Meaning |
+| --- | --- |
+| `stage` | The stage's code name (`requirements_gather`, `astra_discovery`, `glm_revise`, ...) |
+| `job` | Its job key from `autocode_roles` (`planner`, `plan_reviewer`, ...) |
+| `label` | The job's screen name (`Planner`) |
+| `decision` | `"run"` when the stage launched, `"skip"` when a saved decision passed over it |
+| `reason` | Why a stage was skipped, in words; `null` for a stage that ran |
+| `covered_by` | For a skipped stage, what still covers its job, in `stage_policy`'s terms (`astra_challenge`, `person:approve_goal`, `requirements_gather`, ...); `[]` for a stage that ran |
+| `launches` | How many times the stage launched; a report repair is not a launch of its own. `0` for a skipped stage |
+| `effort_choice` | The latest launch's reasoning-level decision (lowered for a small, clear task, raised for a hard plan), as the stage record saved it; `null` when no rule applied or the stage was skipped |
+
+The skips recorded today are:
+
+- the Planner's revision (`glm_revise`) and the final plan review (`astra_finalize`), when the Plan
+  Reviewer approved the draft at a first-style review (`planning_depth.approved_early`);
+- every stage after Requirements, when Requirements answered a discussion itself and the run finished
+  on that answer;
+- the Planner's draft (`astra_discovery`) on a saved compact bug-fix run (`stage_policy`).
+
+A stage that launched is never shown as skipped. Whole stages are not reused, so no row says
+`reuse`: reused evidence inside a stage, such as a regression baseline or a report repair's
+execution, stays in that stage's own record. The terminal chat's Pipeline panel marks a job
+`✓` when one of its stages ran and `–` with "skipped" when every one of its stages was skipped,
+and `/details` lists the whole record in words.
+
 `proxied_requirements` lists the requirements the current plan proves only on a stand-in
 (#2068): the user-visible result is rendered by code outside this checkout, so the plan's
 criteria prove an internal value the result is believed to depend on. Each row has
