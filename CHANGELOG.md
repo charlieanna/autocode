@@ -34,6 +34,9 @@ PR template asks for an entry here; a change without one is incomplete.
   the steps to get going, one per backend (`/connect ID login` for a backend waiting for its
   sign-in, `autocode setup` to install OpenCode or Kilo), where it used to say only that the
   backend "cannot start chats yet" and to run `autocode doctor`.
+- **Terminal chat, Requirements question**: when the stage's reply already asks the question in other
+  words ("I couldn't access DTI-12447. Could you paste the ticket description ...?"), the chat shows
+  that one message, not the reply and then the same ask again.
 
 ### Removed
 
