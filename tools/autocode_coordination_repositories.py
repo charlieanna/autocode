@@ -117,7 +117,8 @@ def _source_discovery():
 
     def load():
         discovery = source_catalog.discover()
-        # A checkout that cannot be read is skipped as intake skips it (autocode_repo_catalog.UNREADABLE).
+        # A checkout that cannot be read, or a folder past the depth bound, is skipped as intake skips it
+        # (autocode_repo_catalog.UNREADABLE, NOT_SEARCHED).
         if stopped := source_catalog.blocking(discovery):
             codes = ", ".join(sorted({row["code"] for row in stopped}))
             raise CoordinationError("Configured source discovery is incomplete" + (f" ({codes})" if codes else ""))

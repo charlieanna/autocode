@@ -44,6 +44,13 @@ UNREADABLE_INSTRUCTION = (
 )
 
 
+NOT_SEARCHED_INSTRUCTION = (
+    "Discovery searched each source root to a bounded depth; the directories listed in not_searched "
+    "were not searched below. If the ticket points at a checkout under one of them, say so in the "
+    "report rather than guessing its code."
+)
+
+
 class DiscoveryIncomplete(ValueError):
     """Discovery could not see every readable source: the person's source roots need a change."""
 
@@ -97,6 +104,9 @@ def context(state: RunState):
         # Recorded in the task's pinned inventory, so the stages and reviewers see what was left out and why.
         result["unreadable"] = skipped
         result["instruction"] = INSTRUCTION + " " + UNREADABLE_INSTRUCTION
+    if unsearched := catalog.not_searched(discovery):
+        result["not_searched"] = unsearched
+        result["instruction"] += " " + NOT_SEARCHED_INSTRUCTION
     if saved is not None:
         if saved != result:
             raise ValueError("The task's saved source inventory changed; rediscover the task scope")
