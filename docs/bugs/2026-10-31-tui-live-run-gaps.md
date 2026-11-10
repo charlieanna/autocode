@@ -14,8 +14,9 @@ tests, new tests fail on the seed). Most observed issues were fixed the same day
 3. **A launched run with no status view yet read as "Reading run status…"** while
    activity counters already ticked. The line now says "Run started; waiting for
    its first status view…" (status line and composer placeholder).
-   Superseded on 2026-11-09: that line froze for the whole wait, which a person
-   reported as not saying what the run is doing. The start now answers `--status`
+   Superseded on 2026-11-10: the line stayed undetailed for the whole wait, which
+   a person reported as not saying what the run is doing (#3075 had meanwhile
+   shortened it to "Starting the run…"). The start now answers `--status`
    with its own phase ([what a start answers](../task-run.md#what-a-start-answers-before-its-first-checkpoint)),
    and the chat draws `Starting the run · <phase> · on <engine> · <mode> · <elapsed>`
    until the first checkpoint exists.

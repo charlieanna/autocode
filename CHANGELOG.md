@@ -54,8 +54,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - **Terminal chat, what a start is doing**: the wait after the first message now says which part of
   the start it is in — preparing the run, then resolving which model each stage runs — with the
-  engine and mode the chat launched the run with and how long it has taken, instead of freezing on
-  "Run started; waiting for its first status view". A run that has saved no checkpoint answers
+  engine and mode the chat launched the run with and how long it has taken, instead of the undetailed
+  "Starting the run…" it froze on. A run that has saved no checkpoint answers
   `--status` with that phase rather than refusing, and the answer carries no `view`, so no client
   can take a second launch of a start that is already running. A launcher that died before saving
   anything is named as one. The line chat says each phase once.
