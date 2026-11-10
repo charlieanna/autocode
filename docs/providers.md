@@ -463,11 +463,11 @@ models_command = ["gocode", "models"]
 version_command = ["gocode", "--version"]
 
 [roles]
-astra = { model = "gpt-5.6-luna", effort = "high" }
+task_planner = { model = "gpt-5.6-luna", effort = "high" }
 terra = { model = "gpt-5.6-luna", effort = "low" }
 sol = { model = "gpt-5.6-luna", effort = "high" }
 completion = { model = "gpt-5.6-luna", effort = "high" }
-glm = { model = "gpt-5.6-luna", effort = "low" }
+planner = { model = "gpt-5.6-luna", effort = "low" }
 plan_reviewer = { model = "gpt-5.6-luna", effort = "high" }
 ```
 
@@ -624,11 +624,11 @@ models_command = ["kilo", "models"]     # optional; or a static list: models = [
 version_command = ["kilo", "--version"]
 
 [roles]
-astra = { model = "openai/gpt-5.6-sol", effort = "high" }
+task_planner = { model = "openai/gpt-5.6-sol", effort = "high" }
 terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
+planner = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
 plan_reviewer = { model = "openai/gpt-6-sol", effort = "high", light_effort = "medium" }
 ```
 
@@ -644,6 +644,9 @@ runs without effort provenance retain their existing effort on upgrade; model
 pins alone do not establish effort provenance. The review-call allowance still
 applies independently of this effort choice.
 
+`[roles]` names the routes `task_planner`, `terra`, `sol`, `completion`, `planner` and
+`plan_reviewer`. A config written before the rename may still say `astra` for `task_planner`
+and `glm` for `planner`; it keeps working, but one route spelled both ways is refused.
 `[roles]` must keep each verifier on a different model family from what it checks
 (Planner/Plan Reviewer, Builder/Validator, Builder/Completion Owner); a run whose
 roles break that pauses with `PAUSED_CROSS_MODEL` before any agent is launched.
@@ -825,11 +828,11 @@ output = "report_file"
 version_command = ["codex", "--version"]
 
 [roles]
-astra = { model = "gpt-6-sol", effort = "medium" }
+task_planner = { model = "gpt-6-sol", effort = "medium" }
 terra = { model = "gpt-6-luna", effort = "medium" }
 sol = { model = "gpt-6-sol", effort = "medium" }
 completion = { model = "gpt-6-sol", effort = "medium" }
-glm = { model = "gpt-6-luna", effort = "medium" }
+planner = { model = "gpt-6-luna", effort = "medium" }
 plan_reviewer = { model = "gpt-6-sol", effort = "medium" }
 
 [auth]
@@ -844,10 +847,10 @@ expect = "ChatGPT"
 Save this as `~/.config/autocode/providers/codex_receipts.toml`, then select it
 with `autocode "Your task" --provider codex_receipts`. Choose models available
 to your login. Registered command providers synthesize Requirements defaults
-from the config's own `glm` model and effort. For a new provider-configured task,
-`--glm-model` overrides the model for both Planner and Requirements;
+from the config's own `planner` model and effort. For a new provider-configured task,
+`--planner-model` overrides the model for both Planner and Requirements;
 `--requirements-model` wins for Requirements when given. The provider's Requirements reasoning default stays
-independent of `--glm-reasoning-effort`; use `--requirements-reasoning-effort` to
+independent of `--planner-reasoning-effort`; use `--requirements-reasoning-effort` to
 change it. OpenCode keeps its separately defined Requirements defaults when
 neither model override is given.
 
@@ -950,11 +953,11 @@ models_command = ["kilo", "models"]
 version_command = ["kilo", "--version"]
 
 [roles]
-astra = { model = "openai/gpt-5.6-sol", effort = "high" }
+task_planner = { model = "openai/gpt-5.6-sol", effort = "high" }
 terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
+planner = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
 plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
 
 [auth]

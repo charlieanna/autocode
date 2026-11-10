@@ -19,7 +19,7 @@ def ledger(*rows):
 
 class FindingCloseTests(unittest.TestCase):
     def test_named_open_findings_close_as_the_users_decision(self):
-        state = ledger(("F-1", "sol", "open"), ("F-2", "astra", "open"))
+        state = ledger(("F-1", "sol", "open"), ("F-2", "task_planner", "open"))
         withdrawn = []
         closed = finding_close.close(
             state,
@@ -62,7 +62,10 @@ class FindingCloseTests(unittest.TestCase):
 
         for named, answered in ((["F-3"], False), (["F-1"], True), (["F-1", "F-2"], True)):
             with self.subTest(named=named):
-                state, withdrawn = ledger(("F-1", "sol", "open"), ("F-2", "astra", "open"), ("F-3", "sol", "open")), []
+                state, withdrawn = (
+                    ledger(("F-1", "sol", "open"), ("F-2", "task_planner", "open"), ("F-3", "sol", "open")),
+                    [],
+                )
                 finding_close.close(
                     state,
                     named,

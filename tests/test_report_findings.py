@@ -34,7 +34,7 @@ def report(*rows, source="sol", outcome=None):
 
 class PreservedDispositionsTests(unittest.TestCase):
     def test_citation_repair_retains_exact_dispositions_without_mutating_inputs(self):
-        for stage, source in (("sol", "sol"), ("astra_review", "astra"), ("astra_plan", "astra")):
+        for stage, source in (("sol", "sol"), ("astra_review", "task_planner"), ("astra_plan", "task_planner")):
             with self.subTest(stage=stage):
                 record = {"stage": stage, "exit_code": 0, "rejected": True}
                 original = report(disposition(), disposition("F-2", action="retracted"), source=source)
@@ -67,21 +67,21 @@ class PreservedDispositionsTests(unittest.TestCase):
     def test_checkpoint_preserves_each_reviewers_rows_without_crossing_sources(self):
         original = {
             "validation": report(disposition("F-sol")),
-            "decision": report(disposition("F-astra", action="retracted"), source="astra"),
+            "decision": report(disposition("F-astra", action="retracted"), source="task_planner"),
         }
         record = {"stage": "astra_checkpoint", "exit_code": 0}
-        expected = {"sol": [disposition("F-sol")], "astra": [disposition("F-astra", action="retracted")]}
+        expected = {"sol": [disposition("F-sol")], "task_planner": [disposition("F-astra", action="retracted")]}
         self.assertEqual(expected, preserved_dispositions(record, original, copy.deepcopy(original)))
         swapped = {"validation": original["decision"], "decision": original["validation"]}
         self.assertEqual({}, preserved_dispositions(record, original, swapped))
-        duplicate = {"validation": report(disposition()), "decision": report(disposition(), source="astra")}
+        duplicate = {"validation": report(disposition()), "decision": report(disposition(), source="task_planner")}
         self.assertEqual({}, preserved_dispositions(record, duplicate, duplicate))
 
     def test_blocked_missing_or_unknown_original_outcome_cannot_gain_authority(self):
         for stage, source, field in (
             ("sol", "sol", "verdict"),
-            ("astra_review", "astra", "status"),
-            ("astra_plan", "astra", "status"),
+            ("astra_review", "task_planner", "status"),
+            ("astra_plan", "task_planner", "status"),
         ):
             record = {"stage": stage, "exit_code": 0}
             repaired = report(disposition(), source=source)
@@ -97,7 +97,7 @@ class PreservedDispositionsTests(unittest.TestCase):
     def test_recognized_original_outcomes_retain_existing_dispositions(self):
         for source, stage, outcomes in (
             ("sol", "sol", ("PASS", "FAIL")),
-            ("astra", "astra_review", ("CONTINUE", "REWORK", "COMPLETE", "TASK_COMPLETE")),
+            ("task_planner", "astra_review", ("CONTINUE", "REWORK", "COMPLETE", "TASK_COMPLETE")),
         ):
             for outcome in outcomes:
                 with self.subTest(source=source, outcome=outcome):
@@ -109,10 +109,13 @@ class PreservedDispositionsTests(unittest.TestCase):
 
     def test_checkpoint_outcome_authority_is_separate_for_each_reviewer(self):
         record = {"stage": "astra_checkpoint", "exit_code": 0}
-        valid = {"validation": report(disposition("F-sol")), "decision": report(disposition("F-astra"), source="astra")}
+        valid = {
+            "validation": report(disposition("F-sol")),
+            "decision": report(disposition("F-astra"), source="task_planner"),
+        }
         for blocked_source, section, field, retained_source, retained_id in (
-            ("sol", "validation", "verdict", "astra", "F-astra"),
-            ("astra", "decision", "status", "sol", "F-sol"),
+            ("sol", "validation", "verdict", "task_planner", "F-astra"),
+            ("task_planner", "decision", "status", "sol", "F-sol"),
         ):
             for outcome in ("BLOCKED", "UNKNOWN", None):
                 with self.subTest(source=blocked_source, outcome=outcome):
@@ -191,7 +194,7 @@ class UnretainedDispositionTests(unittest.TestCase):
         original = report(disposition(), disposition("F-2", action="retracted"))
         checkpoint = {
             "validation": report(disposition("F-sol")),
-            "decision": report(disposition("F-astra"), source="astra"),
+            "decision": report(disposition("F-astra"), source="task_planner"),
         }
         cases = [
             (self.SOL, original, copy.deepcopy(original)),
@@ -279,12 +282,12 @@ class UnretainedDispositionTests(unittest.TestCase):
     def test_checkpoint_explains_each_reviewer_separately(self):
         original = {
             "validation": report(disposition("F-sol")),
-            "decision": report(disposition("F-astra"), source="astra"),
+            "decision": report(disposition("F-astra"), source="task_planner"),
         }
         repaired = copy.deepcopy(original)
         repaired["validation"]["finding_dispositions"][0]["evidence"] = "receipt.json"
         fields = retained({"stage": "astra_checkpoint", "exit_code": 0}, original, repaired)
-        self.assertEqual({"astra": [disposition("F-astra")]}, fields["preserved_finding_dispositions"])
+        self.assertEqual({"task_planner": [disposition("F-astra")]}, fields["preserved_finding_dispositions"])
         self.assertEqual(
             {"sol": {"F-sol": "changed its evidence from the original review's row"}},
             fields["unretained_finding_dispositions"],
@@ -297,7 +300,7 @@ class UnretainedDispositionTests(unittest.TestCase):
         self.assertEqual(
             {
                 "sol": {"F-sol": "changed its evidence from the original review's row"},
-                "astra": {"F-astra": UNAUTHORIZED},
+                "task_planner": {"F-astra": UNAUTHORIZED},
             },
             fields["unretained_finding_dispositions"],
         )
@@ -323,7 +326,7 @@ class UnretainedDispositionTests(unittest.TestCase):
         )
         self.assertIn(
             "astra finding_dispositions row F-1 is not an exact row of the original completed review",
-            refusal("astra", ["F-1"], record),
+            refusal("task_planner", ["F-1"], record),
         )
         self.assertIn("row F-2 is not an exact row", refusal("sol", ["F-2"], {}))
 

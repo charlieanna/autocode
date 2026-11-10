@@ -110,7 +110,7 @@ class RepairScenarios(RepairCase):
     def test_fix02_resolver_is_read_only_and_completion_blind(self):
         """FIX-02. Existing: resolver validate + test_resolver_diagnosis_cannot_close..."""
         record = self.start_rework("Empty names are accepted")
-        fid = findings.open_entries(self.state, "astra")[0]["id"]
+        fid = findings.open_entries(self.state, "task_planner")[0]["id"]
         (self.root / "greet.py").write_text("print('edited by resolver')\n")  # source edit attempt
         edited = self.decision("REWORK")
         edited.update(
@@ -144,7 +144,9 @@ class RepairScenarios(RepairCase):
             self.run,
         )
         self.check(
-            "finding_not_self_closed", True, any(row["id"] == fid for row in findings.open_entries(self.state, "astra"))
+            "finding_not_self_closed",
+            True,
+            any(row["id"] == fid for row in findings.open_entries(self.state, "task_planner")),
         )
         self.check("no_permission_change", True, "user_request" not in self.state)
         self.finish(summary="PAUSED_SAFE: resolver edits, verdicts and self-approval all refused")
@@ -156,7 +158,7 @@ class RepairScenarios(RepairCase):
             findings.record_decision(
                 self.state, self.decision("REWORK", f"Defect number {i}"), {"output": f"astra-{i}.json"}
             )
-        open_ids = sorted(row["id"] for row in findings.open_entries(self.state, "astra"))
+        open_ids = sorted(row["id"] for row in findings.open_entries(self.state, "task_planner"))
         task = {"id": "repair-big"}
         self.expect_raises(
             "oversized_batch_rejected_with_guidance",
@@ -171,7 +173,7 @@ class RepairScenarios(RepairCase):
         bounded = {"id": "repair-2"}
         findings.assign(self.state, bounded, {"kind": "implement", "findings": subset}, {"status": "REWORK"})
         self.check("two_finding_assignment", subset, bounded["findings"])
-        remaining = [row for row in findings.open_entries(self.state, "astra") if row["id"] not in subset]
+        remaining = [row for row in findings.open_entries(self.state, "task_planner") if row["id"] not in subset]
         self.check("f3_f4_remain_pending", 2, len(remaining))
         self.check("remaining_work_visible", 4, findings.summary(self.state)["open"])
         self.finish(summary="PAUSE_THEN_BOUNDED_REPAIR: oversized split guided, nothing dropped")

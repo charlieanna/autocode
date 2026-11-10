@@ -11,7 +11,7 @@ from units import autoplanner
 
 
 def fresh(joint=True, task="Review pr-184.patch before I merge it."):
-    roles = {"astra": {"model": "a"}, "terra": {"model": "t"}, "sol": {"model": "s"}}
+    roles = {"task_planner": {"model": "a"}, "terra": {"model": "t"}, "sol": {"model": "s"}}
     if joint:
         roles.update(requirements={"model": "r"}, glm={"model": "g"}, plan_reviewer={"model": "p"})
     return {
@@ -291,13 +291,15 @@ class JobRouteTests(unittest.TestCase):
     or it silently takes the Plan Reviewer route's engine, effort and saved session."""
 
     def test_each_job_stage_resolves_to_its_own_route_when_prepared(self):
-        roles = {"astra": {"model": "a"}, "plan_reviewer": {"model": "p"}}
+        roles = {"task_planner": {"model": "a"}, "plan_reviewer": {"model": "p"}}
         for stage, route in autoplanner.JOB_ROUTES.items():
             with self.subTest(stage=stage):
                 state = {"settings": {"roles": {**roles, route: {"model": "m", "reasoning_effort": "xhigh"}}}}
-                self.assertEqual(route, autoplanner.route_for(state, stage, "astra"))
+                self.assertEqual(route, autoplanner.route_for(state, stage, "task_planner"))
                 # Before its unit has prepared the route, the stage keeps the old behaviour.
-                self.assertEqual("astra", autoplanner.route_for({"settings": {"roles": roles}}, stage, "astra"))
+                self.assertEqual(
+                    "task_planner", autoplanner.route_for({"settings": {"roles": roles}}, stage, "task_planner")
+                )
 
     def test_the_stuck_investigator_launches_on_its_prepared_route(self):
         import tempfile
@@ -324,7 +326,10 @@ class JobRouteTests(unittest.TestCase):
                             "provider": None,
                         }
                     },
-                    "roles": {"astra": {"model": "gpt-6-astra", "engine": "codex"}, "terra": {"model": "gpt-6-sol"}},
+                    "roles": {
+                        "task_planner": {"model": "gpt-6-astra", "engine": "codex"},
+                        "terra": {"model": "gpt-6-sol"},
+                    },
                 },
             }
             stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x")

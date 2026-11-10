@@ -117,7 +117,7 @@ class CorrectionRouteTests(unittest.TestCase):
 
     def pending(self, error=cmd_only.ERROR, **original):
         record = {
-            "role": "astra",
+            "role": "task_planner",
             "route_role": "plan_reviewer",
             "stage": "astra_challenge",
             "planning": True,
@@ -220,7 +220,7 @@ class CorrectionRouteTests(unittest.TestCase):
         self.state["settings"]["roles"].update(
             plan_reviewer={**fallback, "model": "reviewer-model"}, glm=dict(fallback)
         )
-        pending = self.pending(engine="opencode", route_role="glm", launch_route=dict(fallback))
+        pending = self.pending(engine="opencode", route_role="planner", launch_route=dict(fallback))
         self.assertIsNone(self.correct(pending, "plan_reviewer"))
         self.assertNotIn("correction_attempted", pending)
 

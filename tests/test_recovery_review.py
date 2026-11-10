@@ -94,7 +94,7 @@ class RecoveryReviewTests(unittest.TestCase):
                 self.assertEqual(1, self.review(state))
         for field, value in (
             ("stage", "sol"),
-            ("role", "astra"),
+            ("role", "task_planner"),
             ("next_stage", "sol"),
             ("source_revision", "stale"),
             ("task_id", "another-task"),

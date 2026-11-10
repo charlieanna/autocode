@@ -1,8 +1,7 @@
 """The one table from AutoCode's old code names to the names of the jobs they do.
 
-Owner decision 2026-11-10: the code names ``astra``, ``glm``, ``terra`` and ``sol`` (and the
-``architect`` and ``stuck_investigator`` routes) are replaced by job names everywhere, in four
-steps. This module is the first: it names every old spelling and its replacement once, so the
+Owner decision 2026-11-10: the code names ``astra``, ``glm``, ``terra`` and ``sol`` are replaced
+by job names everywhere, in four steps. This module is the first: it names every old spelling and its replacement once, so the
 flags, the stage choices and later the run's routes and stages read one list. The old flags keep
 working as aliases of the new ones. A run saved before the rename is refused at resume, as a run
 saved at a retired stage is (#3010), and its status and reports stay readable.
@@ -21,9 +20,11 @@ ROUTES = {
     "astra": "task_planner",
     "terra": "builder",
     "sol": "tester",
-    "architect": "design_reviewer",
-    "stuck_investigator": "investigator",
 }
+
+# The old route names this runtime no longer runs: a run saved with one is refused at resume
+# (autocode_workflows.retired_stage). Step 2 renamed these; ``terra`` and ``sol`` follow with the stages.
+RETIRED_ROUTES = ("glm", "astra")
 
 # Stage code name -> its job name. The v2 planning flow already runs ``plan``, ``plan_review``,
 # ``plan_revise`` and ``plan_finalize``, so the legacy flow's new names do not reuse them.
@@ -63,6 +64,11 @@ def route(name: str) -> str:
     return ROUTES.get(name, name)
 
 
+def current_route(name: str) -> str:
+    """The name this runtime gives a route spelled old or new: a retired name becomes its job name."""
+    return ROUTES[name] if name in RETIRED_ROUTES else name
+
+
 def stage(name: str) -> str:
     """The job name of a stage, old or new; an unknown name is returned as it is."""
     return STAGES.get(name, name)
@@ -80,13 +86,35 @@ def flag(old: str) -> str:
 FLAG_ALIASES = {flag(old): old for old in OLD_FLAGS}
 
 
-def spellings(old: str) -> tuple[str, ...]:
-    """Every spelling of a flag: its new name first, then the old one; other flags alone."""
-    new = flag(old)
-    return (new, old) if new != old else (old,)
+def spellings(name: str) -> tuple[str, ...]:
+    """Every spelling of a flag, old or new: its new name first, then the old one; other flags alone."""
+    if name in FLAG_ALIASES:
+        return (name, FLAG_ALIASES[name])
+    new = flag(name)
+    return (new, name) if new != name else (name,)
 
 
 def legacy_flag(word: str) -> str:
     """The old spelling of a new flag (keeping ``=VALUE``), so code that still matches old names finds it."""
     name, separator, value = word.partition("=")
     return FLAG_ALIASES.get(name, name) + separator + value
+
+
+def renamed_routes(table: dict, where: str) -> dict:
+    """``table`` keyed by routes with each retired route name replaced by its job name.
+
+    A provider config or another file the person keeps may still spell a route the old way; it
+    keeps working. One route spelled both ways is refused, since neither spelling can win.
+    """
+    out: dict = {}
+    for key, value in table.items():
+        new = current_route(key)
+        if new in out:
+            raise ValueError(f"{where} names the {new} route twice (as {new} and as its old name)")
+        out[new] = value
+    return out
+
+
+def file_stem(route: str) -> str:
+    """The stem of a route's schema file, which keeps the old name until the files are renamed."""
+    return next((old for old in RETIRED_ROUTES if ROUTES[old] == route), route)

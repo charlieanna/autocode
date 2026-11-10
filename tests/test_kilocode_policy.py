@@ -101,7 +101,7 @@ class KiloPolicyTests(unittest.TestCase):
     def test_remote_or_inherited_launch_cannot_reuse_foreign_tool_grants(self):
         for flag in ("--attach", "--attach=http://localhost:123", "--continue", "-c"):
             with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "fresh local"):
-                policy.restrict(["kilo", "run", flag], {}, Path("/unused"), role="glm")
+                policy.restrict(["kilo", "run", flag], {}, Path("/unused"), role="planner")
 
     def test_a_macos_checker_keeps_read_tools_and_kilos_shell_but_never_edits(self):
         # #1766 (owner decision 2026-10-21): no kernel shell on macOS, so Kilo's own policy, edits denied.
@@ -632,7 +632,7 @@ class NativeKiloPolicyTests(unittest.TestCase):
                 argv, child, _, worker = launch.prepare(
                     engine="opencode",
                     adapter=self.provider,
-                    role="astra",
+                    role="task_planner",
                     route_role="plan_reviewer",
                     workspace=self.workspace,
                     run_dir=run_dir,
@@ -688,7 +688,7 @@ class NativeKiloPolicyTests(unittest.TestCase):
     def test_planning_blocks_real_write_shell_background_and_preserves_read_denial(self):
         for permissions, read_allowed in (({"*": "allow"}, True), ({"*": "allow", "read": "deny"}, False)):
             argv, child, _ = self.provider.launch(
-                "glm",
+                "planner",
                 self.workspace,
                 self.root,
                 "old-session",

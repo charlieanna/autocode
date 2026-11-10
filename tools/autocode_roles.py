@@ -96,8 +96,8 @@ STAGE_JOB = {
 # Configured model slots are distinct from recorded stages: a slot can serve
 # several stages. These name its primary job, not a prediction of execution.
 ROUTE_JOB = {
-    "astra": "planner",
-    "glm": "planner",
+    "task_planner": "planner",
+    "planner": "planner",
     "requirements": "requirements",
     "plan_reviewer": "plan_reviewer",
     "terra": "builder",
@@ -118,11 +118,11 @@ ROUTE_JOB = {
 PIPELINE = ("requirements", "planner", "plan_reviewer", "builder", "tester", "completion")
 JOB_ROUTES = {
     "requirements": ("requirements",),
-    "planner": ("glm", "astra"),
-    "plan_reviewer": ("plan_reviewer", "astra"),
+    "planner": ("planner", "task_planner"),
+    "plan_reviewer": ("plan_reviewer", "task_planner"),
     "builder": ("terra",),
     "tester": ("sol",),
-    "completion": ("completion", "astra"),
+    "completion": ("completion", "task_planner"),
 }
 
 

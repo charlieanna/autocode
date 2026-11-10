@@ -385,7 +385,7 @@ class AskTests(unittest.TestCase):
         after, changes = revised(approved["body"])
         with self.assertRaises(rewording.ProtectedRewording) as refused:
             revision_guard(self.state, after, changes, "glm_revise")
-        record = self.stage_record(stage="glm_revise", role="astra")
+        record = self.stage_record(stage="glm_revise", role="task_planner")
 
         with self.assertRaises(runner.ReportRepairQueued):
             runner.reject_completed_stage(self.state, self.run, record, refused.exception)

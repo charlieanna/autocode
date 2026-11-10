@@ -118,7 +118,9 @@ class VerificationClaimHandoffTests(unittest.TestCase):
                 version=3,
                 task="Implement all 18 requirements",
                 workspace=root,
-                settings={"roles": {role: {"engine": "codex", "model": "fake"} for role in ("astra", "terra", "sol")}},
+                settings={
+                    "roles": {role: {"engine": "codex", "model": "fake"} for role in ("task_planner", "terra", "sol")}
+                },
             )
             value["answers"] = value["saved_answers"]
             before = copy.deepcopy(value)

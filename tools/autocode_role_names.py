@@ -42,8 +42,8 @@ ACTIVITIES = {
     "check_design": "Checking the design",
 }
 ALIASES = {
-    "glm": "planner",
-    "astra": "planner",
+    "planner": "planner",
+    "task_planner": "planner",
     "terra": "builder",
     "sol": "tester",
     "completion owner": "completion",

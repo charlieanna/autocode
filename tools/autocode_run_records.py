@@ -686,4 +686,4 @@ def timeout_recovery_route(state: RunState, record):
     # modes retain the established Plan Reviewer recovery review before another writer.
     if workflow.final_only(state) and role in ("terra", "sol"):
         return "terra", "EXECUTING"
-    return ("astra_review" if role != "astra" else stage), "EXECUTING"
+    return ("astra_review" if role != "task_planner" else stage), "EXECUTING"

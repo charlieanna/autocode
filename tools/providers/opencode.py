@@ -100,7 +100,7 @@ def transport_version(settings):
 DEFAULT_MODELS = {
     # Planning path (Z.ai): Requirements medium → Planner high.
     "requirements": "zai-coding-plan/glm-5.3",
-    "glm": "zai-coding-plan/glm-5.3",
+    "planner": "zai-coding-plan/glm-5.3",
     # Independent Plan Reviewer must not be the Planner's model (or family).
     # GPT-6 Sol, not Astra: Astra is too expensive and only for the Resolver (user 2026-09-28).
     "plan_reviewer": "openai/gpt-6-sol",
@@ -114,19 +114,19 @@ DEFAULT_MODELS = {
     # The astra route: the per-task Planner (astra_plan) runs on it, and the Resolver's own
     # route ("resolver") starts as a copy of it. Only the Resolver's route climbs the GPT-6
     # Astra effort ladder (autocode_route_ladder; user 2026-09-28, #1345).
-    "astra": "openai/gpt-6-astra",
+    "task_planner": "openai/gpt-6-astra",
 }
 
 # Ladder entry points (docs/models.md) — start medium where the ladder says so,
 # escalate to higher reasoning inside the stage when evidence shows struggle.
 DEFAULT_REASONING_EFFORTS = {
     "requirements": "medium",
-    "glm": "high",
+    "planner": "high",
     "plan_reviewer": "high",
     "terra": "medium",
     "sol": "high",
     "completion": "medium",
-    "astra": "high",
+    "task_planner": "high",
 }
 
 

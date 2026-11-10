@@ -335,7 +335,7 @@ def annotate(state: RunState, status: str, reason: str) -> str:
 # The run's own direct routes a default Investigator may use, most independent judge first. Never the Resolver's
 # Astra (user 2026-09-28: too expensive) and never a kilo/ gateway route (user 2026-10-21: direct logins only), so a
 # gateway model needs --investigator-model.
-CANDIDATE_ROLES = ("plan_reviewer", "glm", "requirements", "completion", "sol", "terra")
+CANDIDATE_ROLES = ("plan_reviewer", "planner", "requirements", "completion", "sol", "terra")
 GATEWAY_PREFIX = "kilo/"
 
 
@@ -365,7 +365,7 @@ def route(roles: dict, stuck_model: str, provider: str | None = None) -> dict:
     Sol, or GLM 5.3 when the stuck stage runs on any GPT model (one family). Native Codex runs (GPT only): GPT-6 Sol,
     or Luna when the stuck stage runs on Sol. A custom provider keeps its reviewer model. Always high effort, on the
     Plan Reviewer's engine and provider; --investigator-model overrides all of this (pinned_route)."""
-    base = dict(roles.get("plan_reviewer") or roles.get("astra") or {})
+    base = dict(roles.get("plan_reviewer") or roles.get("task_planner") or {})
     model, stuck_model = str(base.get("model") or ""), str(stuck_model or "")
     if provider == "kilocode":
         choice = direct_default(roles, stuck_model) or model

@@ -59,8 +59,8 @@ class ProviderReportSchemaTests(unittest.TestCase):
         }
         self.path.write_text(json.dumps(offered))
 
-        settings = {"engine": "opencode", "roles": {"astra": {"provider": "gocode"}}}
-        result = reports.for_route(self.path, settings, "astra")
+        settings = {"engine": "opencode", "roles": {"task_planner": {"provider": "gocode"}}}
+        result = reports.for_route(self.path, settings, "task_planner")
 
         self.assertNotEqual(self.path, result)
         self.assertEqual(self.original, json.loads(result.read_text()))
@@ -102,7 +102,7 @@ class ProviderReportSchemaTests(unittest.TestCase):
         self.path.write_text(json.dumps(offered))
 
         result = reports.for_route(
-            self.path, {"engine": "opencode", "roles": {"astra": {"provider": "opencode"}}}, "astra"
+            self.path, {"engine": "opencode", "roles": {"task_planner": {"provider": "opencode"}}}, "task_planner"
         )
 
         self.assertEqual(self.path, result)

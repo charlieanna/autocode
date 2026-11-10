@@ -610,7 +610,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
             },
             finding_record,
         )
-        finding_id = findings.open_entries(self.state, "astra")[0]["id"]
+        finding_id = findings.open_entries(self.state, "task_planner")[0]["id"]
         request = {
             "kind": "permission",
             "decision_needed": "Perform the C1 human review via the runner",
@@ -629,7 +629,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         output = self.run / "review-only.json"
         output.write_text(json.dumps(decision))
         findings.record_decision(self.state, decision, {"stage": "astra_review", "output": str(output)})
-        self.assertEqual([], findings.open_entries(self.state, "astra"))
+        self.assertEqual([], findings.open_entries(self.state, "task_planner"))
         lifecycle.wait_for_user(self.state, request, origin={"stage": "astra_review", "output": str(output)})
         lifecycle.human.evaluate(self.state)
         self.assertEqual("human_review", lifecycle.human.current(self.state)["scope"])

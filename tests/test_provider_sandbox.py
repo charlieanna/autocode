@@ -128,7 +128,7 @@ class ProviderSandboxTests(unittest.TestCase):
         argv = self.launch(role="terra", allow_write=True)
         self.assertEqual("workspace-write", argv[argv.index("--sandbox") + 1])
         self.assertIn("--ignore-user-config", argv)
-        planning = self.launch(role="astra", allow_write=True, planning=True)
+        planning = self.launch(role="task_planner", allow_write=True, planning=True)
         self.assertNotIn("--sandbox", planning)
         with self.assertRaisesRegex(ValueError, "source policy"):
             self.launch(sandbox="danger-full-access")

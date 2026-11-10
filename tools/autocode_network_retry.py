@@ -56,7 +56,7 @@ HTTP_CODES = frozenset({500, 502, 503, 504})
 MAX_NETWORK_RETRIES = 2  # consecutive recoveries in one command-provider chain (#1001)
 # Roles whose stages only read the workspace: Requirements, planning and plan review, completion review and
 # the Investigator. The Builder writes and the Tester runs commands, so a partial attempt of theirs keeps its hold.
-READ_ONLY_ROLES = frozenset({"requirements", "glm", "astra"})
+READ_ONLY_ROLES = frozenset({"requirements", "planner", "task_planner"})
 PARTIAL_LIMIT = 8 * 1024 * 1024
 _NO_EFFECT_ROWS = frozenset({"autocode_progress", "step_start", "step_finish", "text", "reasoning", "tool_use"})
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")

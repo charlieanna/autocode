@@ -22,18 +22,18 @@ except ImportError:
 def _chains(settings):
     if roles.planning_flow(settings) == "v2":
         return (
-            ("requirements", "requirements", "glm", "plan"),
+            ("requirements", "requirements", "planner", "plan"),
             ("requirements", "requirements", "terra", "terra"),
-            ("glm", "plan", "terra", "terra"),
+            ("planner", "plan", "terra", "terra"),
         )
     if settings.get("joint_planning"):
         return (
-            ("requirements", "requirements_gather", "astra", "astra_plan"),
+            ("requirements", "requirements_gather", "task_planner", "astra_plan"),
             ("requirements", "requirements_gather", "terra", "terra"),
-            ("glm", "glm_revise", "terra", "terra"),
-            ("astra", "astra_plan", "terra", "terra"),
+            ("planner", "glm_revise", "terra", "terra"),
+            ("task_planner", "astra_plan", "terra", "terra"),
         )
-    return (("astra", "astra_plan", "terra", "terra"),)
+    return (("task_planner", "astra_plan", "terra", "terra"),)
 
 
 def warnings(previous, selected):

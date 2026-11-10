@@ -41,7 +41,7 @@ class Fixture(unittest.TestCase):
         )
         self.schema = self.run / "astra-v3.schema.json"
         legacy = support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json")
-        self.schema.write_text(json.dumps(goals.role_schema(legacy, "astra")))
+        self.schema.write_text(json.dumps(goals.role_schema(legacy, "task_planner")))
 
     def report(self, **identity):
         return {
@@ -115,7 +115,7 @@ class LaunchBoundIdentityTests(Fixture):
             patch.object(runner.processes, "wait_for_stage", return_value=(0, False)),
         ):
             result = runner.run_role(
-                role="astra",
+                role="task_planner",
                 prompt="review the batch",
                 sandbox="read-only",
                 workspace=self.root,
@@ -201,7 +201,7 @@ class SavedReportBindingTests(Fixture):
         )
         record = {
             "stage": "astra_review",
-            "role": "astra",
+            "role": "task_planner",
             "iteration": 5,
             "output": str(output),
             "events": str(events),

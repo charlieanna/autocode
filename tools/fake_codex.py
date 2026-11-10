@@ -572,12 +572,12 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
         "finding_dispositions": (
             [
                 {
-                    "id": open_finding_id("astra", "Empty names are accepted by greet.py"),
+                    "id": open_finding_id("task_planner", "Empty names are accepted by greet.py"),
                     "disposition": "resolved",
                     "evidence": "Validator events",
                 }
             ]
-            if complete and open_finding_id("astra", "Empty names are accepted by greet.py")
+            if complete and open_finding_id("task_planner", "Empty names are accepted by greet.py")
             else []
         ),
         "evidence": ["Validator events"],

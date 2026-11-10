@@ -74,7 +74,7 @@ class ModelOutputSchemaTests(unittest.TestCase):
             schemas.append((f"autoplanner.{name}", schema))
         for path in sorted((SCHEMA_DIR / "v2").glob("*.schema.json")):
             raw = json.loads(path.read_text())
-            for role in ("astra", "terra", "sol", "glm"):
+            for role in ("task_planner", "terra", "sol", "planner"):
                 try:
                     schemas.append((f"{path.name}:{role}", role_schema.role_schema(raw, role)))
                 except (KeyError, ValueError, TypeError):

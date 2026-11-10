@@ -78,7 +78,7 @@ class ReconsiderationTests(unittest.TestCase):
         cases = {
             "raw": lambda: self.state.pop(human.PUBLIC),
             "mixed": lambda: self.state["pending_questions"].append({"id": "material", "question": "Choose scope"}),
-            "stale_settings": lambda: self.state["settings"]["roles"]["astra"].update(model="changed"),
+            "stale_settings": lambda: self.state["settings"]["roles"]["task_planner"].update(model="changed"),
             "unsealed_contract": lambda: self.state["goal_contract"]["body"].update(intended_outcome="unsealed change"),
             "active": lambda: self.state.update(active_stage={"stage": "astra_challenge"}),
             "repair": lambda: self.state.update(pending_report_repair={"attempts": 1}),

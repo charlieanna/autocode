@@ -82,7 +82,7 @@ _STOPPED = {
 }
 KIND = "route_assignment"
 # Roles a person can route by flag on resume (autocode_args: --<role>-model).
-ROLES = ("astra", "terra", "sol", "completion", "glm", "requirements", "resolver", "plan_reviewer")
+ROLES = ("task_planner", "terra", "sol", "completion", "planner", "requirements", "resolver", "plan_reviewer")
 # Workflow-job models are changed by an answer with the exact job token, never a
 # resume flag. The stuck-stage Investigator answer also saves its preparation pin.
 JOB_ROLES = ("architect", "stuck_investigator", "acceptance_tester")

@@ -105,7 +105,7 @@ class RejectionTests(unittest.TestCase):
         stage = self.run / "iterations" / "001" / "check_design-01"
         stage.parent.mkdir(parents=True)
         record = {
-            "role": "astra",
+            "role": "task_planner",
             "stage": "check_design",
             "iteration": 1,
             "exit_code": 0,

@@ -672,7 +672,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         record = self.repeated_terra_failure()
         self.admit()
         diag_record = {
-            "role": "astra",
+            "role": "task_planner",
             "stage": "astra_diagnose",
             "iteration": self.state["iteration"],
             "output": str(self.run / "astra_diagnose.json"),
@@ -714,7 +714,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
             {
                 **self.state.pop("active_stage"),
                 "stage": "astra_diagnose",
-                "role": "astra",
+                "role": "task_planner",
                 "iteration": self.state.get("iteration"),
                 "automatic_recovery": True,
                 "timed_out": True,
@@ -1249,7 +1249,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
                         decision,
                         {
                             "stage": "astra_review",
-                            "role": "astra",
+                            "role": "task_planner",
                             "iteration": iteration,
                             "output": str(output),
                             "source_revision": support.snapshot(self.root)["revision"],
@@ -1293,7 +1293,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         (route role "resolver") from GPT-6 Astra High to XHigh (#1345)."""
         self.repeated_terra_failure()
         self.state["settings"]["report_repair"] = {"max_attempts": 0}
-        self.state["settings"]["roles"]["astra"].update(model="gpt-6-astra", reasoning_effort="high")
+        self.state["settings"]["roles"]["task_planner"].update(model="gpt-6-astra", reasoning_effort="high")
         cap = runner.build_loop.climb_cap
         with (
             self.provider(value={}) as launches,
@@ -1607,7 +1607,7 @@ class OperationalBudgetResumeTests(unittest.TestCase):
     def assert_planning_admitted(self, code, launch):
         self.assertEqual(2, code)  # The fake provider stops immediately at admission.
         self.assertEqual(1, launch.call_count, self.output)
-        self.assertEqual("astra", launch.call_args.kwargs["role"])
+        self.assertEqual("task_planner", launch.call_args.kwargs["role"])
         self.assertFalse(launch.call_args.kwargs["allow_write"])
         self.assertEqual("read-only", launch.call_args.kwargs["sandbox"])
         self.assertEqual(5400, self.state["settings"]["limits"]["max_seconds"])
@@ -1794,16 +1794,16 @@ class ResolverPromptTests(unittest.TestCase):
 
         state = {
             "workspace": "/ws",
-            "settings": {"roles": {"astra": {"engine": "codex"}}},
+            "settings": {"roles": {"task_planner": {"engine": "codex"}}},
             "resolution_request": {"source_revision": "r"},
             "diagnosis_request": {"source_revision": "r", "repeated_count": 2},
         }
         upstream = ModelRequest(
-            "astra",
+            "task_planner",
             "astra_review",
             "Review it.\nCURRENT HANDOFF DATA\n{}",
             {},
-            runner.goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "astra"),
+            runner.goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "task_planner"),
             False,
         )
         with (

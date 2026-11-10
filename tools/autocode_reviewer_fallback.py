@@ -46,13 +46,15 @@ def _route(config):
 
 def _reviewer_role(state: RunState):
     roles = state.get("settings", {}).get("roles", {})
-    return "plan_reviewer" if "plan_reviewer" in roles else "astra"
+    return "plan_reviewer" if "plan_reviewer" in roles else "task_planner"
 
 
 def _producer_role(state: RunState, stage):
     roles = state.get("settings", {}).get("roles", {})
     preferred = (
-        ("technical_planner", "glm") if stage in ("plan_review", "plan_finalize") else ("glm", "technical_planner")
+        ("technical_planner", "planner")
+        if stage in ("plan_review", "plan_finalize")
+        else ("planner", "technical_planner")
     )
     return next((role for role in preferred if (roles.get(role) or {}).get("model")), None)
 

@@ -510,7 +510,7 @@ class ChatViewTests(unittest.TestCase):
             **need,
             "route": {
                 "question_id": "route-glm",
-                "role": "glm",
+                "role": "planner",
                 "cause": "quota",
                 "current_model": "p/old",
                 "stopped_model": "p/old",

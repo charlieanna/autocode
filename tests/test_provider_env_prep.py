@@ -426,7 +426,7 @@ class ProviderEnvPrepTests(unittest.TestCase):
         )
         mapping = self.mapping_for(auth_bin, OPENAI_API_KEY="ac13-mapping-secret")
         with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY") as raised:
-            provider.check_subscription_routes({"astra": {"model": "openai/x"}}, env=mapping)
+            provider.check_subscription_routes({"task_planner": {"model": "openai/x"}}, env=mapping)
         self.assertIn("will not silently change billing", str(raised.exception))
         self.assertNotIn("ac13-mapping-secret", str(raised.exception))
         self.assertFalse(marker.exists())
@@ -434,7 +434,7 @@ class ProviderEnvPrepTests(unittest.TestCase):
         os.environ["OPENAI_API_KEY"] = "ac13-process-secret"
         oc.check_subscription_routes({"sol": {"model": "openai/gpt-6-sol"}})
         with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY") as raised:
-            provider.check_subscription_routes({"astra": {"model": "openai/x"}})
+            provider.check_subscription_routes({"task_planner": {"model": "openai/x"}})
         self.assertIn("will not silently change billing", str(raised.exception))
         self.assertNotIn("ac13-mapping-secret", str(raised.exception))
 

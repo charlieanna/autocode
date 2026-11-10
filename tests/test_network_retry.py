@@ -385,7 +385,7 @@ class RecoveryAdmissionTests(unittest.TestCase):
         self.base.parent.mkdir(parents=True)
         self.record = {
             "stage": "requirements_gather",
-            "role": "glm",
+            "role": "planner",
             "engine": "opencode",
             "iteration": 1,
             "expected_session": None,
@@ -445,7 +445,7 @@ class RecoveryAdmissionTests(unittest.TestCase):
         for marker in ({"consumed": False}, None, [], "invalid"):
             with self.subTest(marker=marker):
                 loaded["stages"][-1]["network_retry_chain"] = marker
-                loaded["settings"]["roles"] = {"glm": "operator-changed-model"}
+                loaded["settings"]["roles"] = {"planner": "operator-changed-model"}
                 child.pop("network_retry_chain", None)
                 retry.bind_attempt(loaded, child, scope.snapshot(self.workspace, loaded), self.workspace)
                 self.assertIn("network_retry_chain", child)
@@ -564,7 +564,7 @@ class RecoveryAdmissionTests(unittest.TestCase):
 
     def test_a_read_only_stage_cut_short_by_a_reset_retries_once(self):
         # #1717: the laptop slept mid-plan; on wake the stream reset after read-only tools and partial text.
-        self.cut_short("glm")
+        self.cut_short("planner")
         self.assertTrue(self.recover())
         archived = self.state["stages"][-1]
         self.assertEqual("ECONNRESET", archived["network_retry_chain"]["cause"])
@@ -579,7 +579,7 @@ class RecoveryAdmissionTests(unittest.TestCase):
                 self.assertEqual(before, self.state)
 
     def test_a_read_only_stage_that_changed_the_workspace_keeps_its_hold(self):
-        self.cut_short("astra")
+        self.cut_short("task_planner")
         (self.workspace / "seed.txt").write_text("changed\n")
         self.assertFalse(self.recover())
 
@@ -604,7 +604,7 @@ class RecoveryAdmissionTests(unittest.TestCase):
         self.error = util.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without turn.completed")
 
     def test_a_read_only_stream_dropped_without_an_answer_retries_once(self):
-        self.dropped("astra")
+        self.dropped("task_planner")
         self.assertTrue(self.recover())
         archived = self.state["stages"][-1]
         self.assertEqual("dropped_stream", archived["network_retry_chain"]["cause"])
@@ -622,15 +622,15 @@ class RecoveryAdmissionTests(unittest.TestCase):
                 before = copy.deepcopy(self.state)
                 self.assertFalse(self.recover())
                 self.assertEqual(before, self.state)
-        self.dropped("astra")
+        self.dropped("task_planner")
         self.error = util.Paused("PAUSED_PROVIDER_UNCERTAIN", "a clean exit is not a provider failure")
         self.assertFalse(self.recover())
-        self.dropped("astra")
+        self.dropped("task_planner")
         (self.workspace / "seed.txt").write_text("changed\n")
         self.assertFalse(self.recover())
 
     def test_a_clean_exit_with_an_error_row_is_not_admitted(self):
-        self.dropped("astra")
+        self.dropped("task_planner")
         events = Path(self.record["events"])
         events.chmod(0o600)
         events.write_bytes(cut_short_stream())
@@ -731,7 +731,7 @@ class CommandProviderRecoveryTests(unittest.TestCase):
         self.base.parent.mkdir(parents=True)
         self.record = {
             "stage": "requirements_gather",
-            "role": "glm",
+            "role": "planner",
             "engine": "codex",
             "iteration": 1,
             "expected_session": None,

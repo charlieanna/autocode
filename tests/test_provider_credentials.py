@@ -22,7 +22,7 @@ from . import test_subprocess
 
 ROLES = "\n[roles]\n" + "\n".join(
     f'{role} = {{ model = "demo/{"builder" if role == "terra" else "reviewer"}", effort = "medium" }}'
-    for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+    for role in ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
 )
 CANARY = "fixture-secret-value-never-print-975"
 WRAPPER = """import json, os, sys

@@ -234,7 +234,7 @@ class MultiProviderConnectionTests(unittest.TestCase):
         del record["keys"]["claude"]
         (config.directory() / "auth.json").write_text(json.dumps(record))
         facade = providers.resolve("autocode")
-        facade.check_subscription_routes({"glm": {"model": "gpt-6.1"}})
+        facade.check_subscription_routes({"planner": {"model": "gpt-6.1"}})
         with self.assertRaisesRegex(ValueError, "claude"):
             facade.check_subscription_routes({"sol": {"model": "claude-opus-5.5"}})
         # Check setup reports the whole connection as needing setup, like a broken single connection does.
@@ -316,7 +316,7 @@ class MultiProviderConnectionTests(unittest.TestCase):
         self.assertIn("--provider=claude", argv)
         facade.check_subscription_routes({"analyst": {"model": "claude-opus-5.5"}})
         shared = multi_settings()
-        shared["roles"]["glm"] = {"provider": "openai", "model": "claude-opus-5.5"}
+        shared["roles"]["planner"] = {"provider": "openai", "model": "claude-opus-5.5"}
         config.save_v2(shared, multi_keys())
         facade = providers.resolve("autocode")
         with self.assertRaisesRegex(ValueError, "several providers"):
@@ -331,7 +331,7 @@ class MultiProviderConnectionTests(unittest.TestCase):
                 report=self.root / "report.json",
             )
         argv, _, _ = facade.launch(
-            "glm",
+            "planner",
             self.root,
             self.root / ".autocode/runs/test",
             None,
@@ -404,7 +404,7 @@ class DirectConnectionsTests(unittest.TestCase):
         self.assertNotIn("fixture-secret", json.dumps(connections.view()))
         facade = providers.resolve("autocode")
         argv, _, _ = facade.launch(
-            "glm",
+            "planner",
             self.root,
             self.root / ".autocode/runs/test",
             None,
@@ -527,7 +527,7 @@ class DirectConnectionsTests(unittest.TestCase):
 
     def test_edit_setup_can_rotate_key_without_replacing_role_assignments(self):
         original = settings()
-        original["roles"]["astra"] = "fixture/special-planner"
+        original["roles"]["task_planner"] = "fixture/special-planner"
         config.save(original, "original-key")
         with (
             mock.patch("builtins.input", return_value=""),

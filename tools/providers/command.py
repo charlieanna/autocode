@@ -44,8 +44,13 @@ except ImportError:
     import autocode_tool_handoff as tool_handoff
     import autocode_verifier_independence as verifier_independence
 
+try:
+    from .. import autocode_names as names
+except ImportError:
+    import autocode_names as names
 
-REQUIRED_ROLES = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+
+REQUIRED_ROLES = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
 PLACEHOLDERS = {
     "model",
     "effort",
@@ -72,6 +77,7 @@ class CommandProvider:
     CONFIGURED = True
 
     def __init__(self, config: dict, path: Path):
+        config = {**config, "roles": names.renamed_routes(config["roles"], "provider config [roles]")}
         self._config = config
         self._path = path
         self.NAME = config["name"]
@@ -83,9 +89,9 @@ class CommandProvider:
         self.DEFAULT_LIGHT_EFFORTS = {
             role: spec["light_effort"] for role, spec in config["roles"].items() if "light_effort" in spec
         }
-        if "glm" in self.DEFAULT_MODELS:
-            self.DEFAULT_MODELS["requirements"] = self.DEFAULT_MODELS["glm"]
-            self.DEFAULT_REASONING_EFFORTS["requirements"] = self.DEFAULT_REASONING_EFFORTS["glm"]
+        if "planner" in self.DEFAULT_MODELS:
+            self.DEFAULT_MODELS["requirements"] = self.DEFAULT_MODELS["planner"]
+            self.DEFAULT_REASONING_EFFORTS["requirements"] = self.DEFAULT_REASONING_EFFORTS["planner"]
         # The models the config lists, or None when it lists them with models_command or not at all.
         self.LISTED_MODELS = config.get("models")
         # The tool's own stronger Builder and the model its checkers move to ([builder_retry]), or None.
@@ -509,6 +515,7 @@ def _validate(name: str, config: dict) -> None:
     roles = config.get("roles")
     if not isinstance(roles, dict):
         raise ValueError("provider config requires a [roles] table")
+    roles = config["roles"] = names.renamed_routes(roles, "provider config [roles]")
     missing = [role for role in REQUIRED_ROLES if role not in roles]
     if missing:
         raise ValueError("provider config is missing roles: " + ", ".join(missing))

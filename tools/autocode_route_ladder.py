@@ -45,8 +45,8 @@ except ImportError:
 # Effort rungs per route role (the settings["roles"] key a stage runs on and
 # escalates by), strongest last. Only the Resolver climbs GPT-6 Astra: it is
 # too expensive for any other role (user 2026-09-28). The Resolver stages run
-# on their own "resolver" route, which starts as a copy of the "astra" route;
-# the per-task Planner (astra_plan) stays on "astra" and climbs nothing (#1345).
+# on their own "resolver" route, which starts as a copy of the "task_planner" route;
+# the per-task Planner (astra_plan) stays on "task_planner" and climbs nothing (#1345).
 # A role whose route matches no rung (the default GLM Builder, a GLM Validator
 # or Completion Owner, the Plan Reviewer) has no effort ladder; the Builder's
 # stronger attempt is the strong rung from its retry policy instead.
@@ -151,8 +151,8 @@ def configure_ladders(listed_models=None):
 
 # Ladder keys a saved run may persist under a route role that no longer
 # climbs them, and the route role they belong to. Runs saved before #1345 keyed
-# the Resolver's Astra ladder "astra", the per-task Planner's route.
-SAVED_LADDER_ROLES = {"astra": "resolver"}
+# the Resolver's Astra ladder "task_planner", the per-task Planner's route.
+SAVED_LADDER_ROLES = {"task_planner": "resolver"}
 
 
 def ladders(settings):
@@ -268,7 +268,7 @@ def serve(settings, available, *, roles=None, named_strong=None):
             else [list(rung) for rung in ladder]
             for role, ladder in effort.items()
         }
-    if target_roles is None or "glm" in target_roles:
+    if target_roles is None or "planner" in target_roles:
         planner_escalation.serve(settings, available)
     retry = settings.get("builder_retry")
     missing = (
@@ -299,7 +299,7 @@ def _engine(settings, role):
     roles = settings.get("roles") or {}
     route = roles.get(role)
     if route is None and role == "resolver":
-        route = roles.get("astra")
+        route = roles.get("task_planner")
     return (route if isinstance(route, dict) else {}).get("engine") or settings.get("engine") or "codex"
 
 

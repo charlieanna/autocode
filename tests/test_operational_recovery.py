@@ -43,7 +43,7 @@ class OperationalRecoveryTests(unittest.TestCase):
         events.write_text(json.dumps({"type": "step_start"}) + "\n")
         record = {
             "stage": "astra_challenge",
-            "role": "astra",
+            "role": "task_planner",
             "iteration": number,
             "output": str(directory / "report.json"),
             "events": str(events),
@@ -203,7 +203,7 @@ class OperationalRecoveryTests(unittest.TestCase):
         mutations = {
             "source": lambda: (self.root / "changed.py").write_text("changed"),
             "contract": lambda: self.state["goal_contract"].update(hash="different"),
-            "route": lambda: self.state["settings"]["roles"]["astra"].update(model="different"),
+            "route": lambda: self.state["settings"]["roles"]["task_planner"].update(model="different"),
             "log": lambda: Path(self.origins[0]["events"]).write_text('{"type":"turn.completed"}\n'),
             "input": lambda: Path(self.state["planning"]["reports"]["astra_discovery"]["output"]).write_text("{}"),
             "cycle": lambda: self.state.update(planning_history=[{}]),
@@ -438,14 +438,14 @@ class OperationalRecoveryTests(unittest.TestCase):
             self.assertRaisesRegex(RuntimeError, "captured launch"),
         ):
             runner.run_role(
-                role="astra",
+                role="task_planner",
                 prompt=prompt,
                 sandbox="read-only",
                 workspace=self.root,
                 run_dir=self.run,
                 state=self.state,
                 schema=self.run / "schema.json",
-                model=self.state["settings"]["roles"]["astra"]["model"],
+                model=self.state["settings"]["roles"]["task_planner"]["model"],
                 allow_write=False,
                 dry_run=False,
             )
@@ -453,7 +453,7 @@ class OperationalRecoveryTests(unittest.TestCase):
 
     def test_saved_grant_cannot_be_rebound_to_changed_route(self):
         self.boundary()
-        self.state["settings"]["roles"]["astra"]["model"] = "different"
+        self.state["settings"]["roles"]["task_planner"]["model"] = "different"
         grant = self.state["planning"]["recovery_review_grants"][0]
         grant["binding"]["settings_hash"] = s.digest(self.state["settings"])
         with self.assertRaises(s.Paused) as caught:

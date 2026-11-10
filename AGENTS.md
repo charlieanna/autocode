@@ -355,10 +355,12 @@ the runner and Autopilot consult that table, so a new one is added there, not in
 `autopilot.py`.
 
 **Job names replace the code names, owner decision 2026-11-10.** `astra`, `glm`, `terra` and `sol`
-(and the `architect` and `stuck_investigator` routes) are being renamed to the jobs they do, in four
-steps: one table of old and new names (`tools/autocode_names.py`) with the new flags (`--planner-model`,
-`--task-planner-model`, `--builder-model`, `--tester-model`) and the old ones kept as aliases; then the
-route keys; then the stage names; then identifiers and docs. A run saved before the rename is refused
+are being renamed to the jobs they do, in four steps: one table of old and new names
+(`tools/autocode_names.py`) with the new flags (`--planner-model`, `--task-planner-model`,
+`--builder-model`, `--tester-model`) and the old ones kept as aliases; then the `glm` and `astra`
+route keys (now `planner` and `task_planner`; `names.RETIRED_ROUTES`); then `terra`, `sol` and the
+stage names; then identifiers and docs. The browser dashboard still reads the old route names, which
+`dashboard_run_state.read` gives back to it. A run saved before the rename is refused
 at resume and stays readable, as a run at a retired stage is. New code and docs use the job names from
 that table; do not add another naming scheme. The same letters are also parts of real model names
 (`gpt-6-sol`, `gpt-5.6-terra`, `glm-5.3`), which never change.

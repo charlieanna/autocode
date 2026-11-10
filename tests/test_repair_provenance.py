@@ -34,7 +34,7 @@ class RepairSchemaWitnessTests(unittest.TestCase):
             "stage": "astra_discovery",
             "exit_code": 0,
             "source_revision": "source",
-            "role": "glm",
+            "role": "planner",
             "iteration": 1,
             "schema": str(self.schema),
             "contract_hash": "contract",

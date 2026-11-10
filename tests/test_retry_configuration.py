@@ -19,7 +19,7 @@ class RetryConfigurationTests(unittest.TestCase):
         self.saved = dict(
             transport_identity=copy.deepcopy(self.identity),
             transport_identities={"opencode": copy.deepcopy(self.identity)},
-            roles={"sol": {"model": "glm", "reasoning_effort": "low"}},
+            roles={"sol": {"model": "planner", "reasoning_effort": "low"}},
             limits={"max_seconds": 600, "max_cost_usd": 0.75},
         )
 

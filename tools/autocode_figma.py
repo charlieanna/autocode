@@ -41,7 +41,7 @@ def load_handoff(run_dir):
     design_url(handoff["figma_file"])
     refs = handoff["artifacts"]
     required = (
-        ("brief", "terra", "sol", "astra")
+        ("brief", "terra", "sol", "task_planner")
         if version == 1
         else (
             "requirements_draft",
@@ -61,7 +61,7 @@ def load_handoff(run_dir):
         if util.file_hash(path) != ref["sha256"]:
             raise ValueError("UI handoff changed after acceptance; rerun its review")
     execution = (
-        (("terra", "COMPLETE"), ("sol", "PASS"), ("astra", "ACCEPT"))
+        (("terra", "COMPLETE"), ("sol", "PASS"), ("task_planner", "ACCEPT"))
         if version == 1
         else (("builder", "COMPLETE"), ("validator", "PASS"), ("decision_owner", "ACCEPT"))
     )

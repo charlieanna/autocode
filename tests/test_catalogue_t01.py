@@ -101,7 +101,7 @@ class ApprovalCase(kit.CatalogueCase):
             "next_stage": "terra",
             "acceptance_criteria": [],
             "settings": {
-                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("astra", "terra", "sol")},
+                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("task_planner", "terra", "sol")},
                 "transport_identity": self.local,
                 "headroom": {"enabled": False},
                 "context_soft_tokens": 10000,

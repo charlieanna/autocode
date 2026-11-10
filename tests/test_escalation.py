@@ -42,7 +42,7 @@ class EscalationTests(unittest.TestCase):
         """The Resolver stages run on route role "resolver" (#1345); both escalation call
         sites pass that route role, so its ladder must be keyed by it."""
         state = self.state("resolver", "openai/gpt-6-astra", "high")
-        state["sessions"]["astra"] = "planner-session"
+        state["sessions"]["task_planner"] = "planner-session"
         first = escalation.advance(state, "resolver", trigger="rejected_output", detail="bad report")
         self.assertEqual("resolver", first["role"])
         self.assertEqual("GPT-6 Astra High", first["previous"]["profile"])
@@ -52,7 +52,7 @@ class EscalationTests(unittest.TestCase):
             {key: state["settings"]["roles"]["resolver"][key] for key in ("model", "reasoning_effort")},
         )
         # The Resolver's session rotates; the Planner's, on the astra route, is untouched.
-        self.assertEqual({"astra": "planner-session"}, state["sessions"])
+        self.assertEqual({"task_planner": "planner-session"}, state["sessions"])
         self.assertEqual("resolver", state["session_rotations"][0]["role"])
         state["sessions"]["resolver"] = "xhigh-session"
         second = escalation.advance(state, "resolver", trigger="abandoned_attempt")
@@ -70,19 +70,19 @@ class EscalationTests(unittest.TestCase):
         Astra ladder, so a rejected Planner report no longer raises a later Resolver's start."""
         for ladders in (None, route_ladder.configure_ladders(None)):
             with self.subTest(persisted=ladders is not None):
-                state = self.state("astra", "openai/gpt-6-astra", "high")
+                state = self.state("task_planner", "openai/gpt-6-astra", "high")
                 if ladders is not None:
                     state["settings"]["route_ladders"] = ladders
                 before = deepcopy(state)
-                self.assertIsNone(escalation.advance(state, "astra", trigger="rejected_output"))
+                self.assertIsNone(escalation.advance(state, "task_planner", trigger="rejected_output"))
                 self.assertEqual(before, state)
 
     def test_a_saved_run_with_an_astra_keyed_ladder_climbs_the_resolver_instead(self):
-        """Runs saved before #1345 persisted the Astra ladder under "astra"; it is read as the
+        """Runs saved before #1345 persisted the Astra ladder under "task_planner"; it is read as the
         Resolver's, without migrating state.json, and the astra route stops climbing."""
         saved = {
             "effort": {
-                "astra": [
+                "task_planner": [
                     ["openai/gpt-6-astra", "high", "GPT-6 Astra High"],
                     ["openai/gpt-6-astra", "xhigh", "GPT-6 Astra XHigh"],
                     ["openai/gpt-6-astra", "max", "GPT-6 Astra Max"],
@@ -91,21 +91,21 @@ class EscalationTests(unittest.TestCase):
             }
         }
         state = self.state("resolver", "openai/gpt-6-astra", "high")
-        state["settings"]["roles"]["astra"] = {
+        state["settings"]["roles"]["task_planner"] = {
             "engine": "opencode",
             "model": "openai/gpt-6-astra",
             "reasoning_effort": "high",
         }
         state["settings"]["route_ladders"] = deepcopy(saved)
-        self.assertIsNone(escalation.advance(state, "astra", trigger="rejected_output"))
-        self.assertEqual("high", state["settings"]["roles"]["astra"]["reasoning_effort"])
+        self.assertIsNone(escalation.advance(state, "task_planner", trigger="rejected_output"))
+        self.assertEqual("high", state["settings"]["roles"]["task_planner"]["reasoning_effort"])
         event = escalation.advance(state, "resolver", trigger="rejected_output")
         self.assertEqual("GPT-6 Astra XHigh", event["selected"]["profile"])
         self.assertEqual("xhigh", state["settings"]["roles"]["resolver"]["reasoning_effort"])
         self.assertEqual(saved, state["settings"]["route_ladders"])  # read, never rewritten
         # A saved run whose provider served no Astra persisted the ladder empty: still no climb.
         state = self.state("resolver", "openai/gpt-6-astra", "high")
-        state["settings"]["route_ladders"] = {"effort": {**saved["effort"], "astra": []}}
+        state["settings"]["route_ladders"] = {"effort": {**saved["effort"], "task_planner": []}}
         self.assertIsNone(escalation.advance(state, "resolver", trigger="rejected_output"))
         self.assertEqual("high", state["settings"]["roles"]["resolver"]["reasoning_effort"])
 
@@ -113,8 +113,8 @@ class EscalationTests(unittest.TestCase):
         resolver = {"model": "openai/gpt-6-astra", "reasoning_effort": "xhigh"}
         self.assertEqual(1, escalation.rung("resolver", resolver))
         self.assertEqual("GPT-6 Astra XHigh", escalation.profile("resolver", resolver))
-        self.assertIsNone(escalation.rung("astra", resolver))
-        self.assertIsNone(escalation.profile("astra", resolver))
+        self.assertIsNone(escalation.rung("task_planner", resolver))
+        self.assertIsNone(escalation.profile("task_planner", resolver))
 
     def test_second_sol_failure_climbs_to_sol_max(self):
         state = self.state("sol", "openai/gpt-6-sol", "xhigh")
@@ -129,7 +129,7 @@ class EscalationTests(unittest.TestCase):
         cases = [
             # The per-task Planner's route (astra_plan) and the old Plan Reviewer/Completion
             # route of runs saved without their own roles: not the Resolver's route role.
-            ("astra", "openai/gpt-6-astra", "high"),
+            ("task_planner", "openai/gpt-6-astra", "high"),
             ("sol", "openai/gpt-6-astra", "high"),
             ("completion", "openai/gpt-6-astra", "medium"),
             ("sol", "zai-coding-plan/glm-5.3", "high"),

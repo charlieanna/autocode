@@ -43,7 +43,7 @@ class ValidationRounds(unittest.TestCase):
         blocking = self.blocking("F-1", not_rechecked_in="validator.json") + [
             {
                 "id": "F-2",
-                "source": "astra",
+                "source": "task_planner",
                 "status": "open",
                 "blocking": True,
                 "pending_resolution": {
@@ -181,7 +181,7 @@ class ValidationRounds(unittest.TestCase):
         state["findings_ledger"] = [
             {
                 "id": "F-0",
-                "source": "astra",
+                "source": "task_planner",
                 "status": "resolved",
                 "finding": "Regression proof has no fail-to-pass test",
                 "evidence": "proof-01",

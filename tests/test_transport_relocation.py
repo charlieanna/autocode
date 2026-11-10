@@ -153,7 +153,7 @@ class Notes(unittest.TestCase):
                 "transport_identities": {
                     "opencode": identity(),
                     "role:sol": {"provider": "kilocode", "identity": identity()},
-                    "role:astra": {"provider": "native", "identity": identity()},
+                    "role:task_planner": {"provider": "native", "identity": identity()},
                 },
             }
         }

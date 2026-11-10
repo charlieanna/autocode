@@ -331,7 +331,7 @@ class ArenaTests(unittest.TestCase):
             "high",
             "--resolver-reasoning-effort=high",
             "--pin-model-role",
-            "astra",
+            "task_planner",
             "--pin-model-role=terra",
             "--pin-model-role",
             "sol",
@@ -707,16 +707,24 @@ class RunnerOptionTests(unittest.TestCase):
     def test_route_reasoning_and_pin_controls_are_accepted_and_checked(self):
         selected = arena.runner_options(
             ("--resolver-model", "m1", "--requirements-model", "m2", "--terra-reasoning-effort", "xhigh")
-            + ("--pin-model-role", "astra", "--pin-model-role", "terra")
+            + ("--pin-model-role", "task_planner", "--pin-model-role", "terra")
         )
         self.assertEqual(
-            ("m1", "m2", "xhigh", ["astra", "terra"]),
+            ("m1", "m2", "xhigh", ["task_planner", "terra"]),
             (
                 selected.resolver_model,
                 selected.requirements_model,
                 selected.terra_reasoning_effort,
                 selected.pin_model_role,
             ),
+        )
+        # The job-named spellings and an old route name reach the same options.
+        renamed = arena.runner_options(
+            ("--builder-reasoning-effort", "xhigh", "--planner-model", "m3", "--pin-model-role", "astra")
+        )
+        self.assertEqual(
+            ("xhigh", "m3", ["task_planner"]),
+            (renamed.terra_reasoning_effort, renamed.glm_model, renamed.pin_model_role),
         )
         for refused in (
             ("--sol-reasoning-effort", "extreme"),

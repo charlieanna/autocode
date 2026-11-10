@@ -105,7 +105,7 @@ class NativeRepairFixture(unittest.TestCase):
             "settings": {
                 "planning_flow": "v2",
                 "report_repair": {"max_attempts": 2},
-                "roles": {"plan_reviewer": dict(ROUTE), "glm": dict(ROUTE, model="controlled/planner")},
+                "roles": {"plan_reviewer": dict(ROUTE), "planner": dict(ROUTE, model="controlled/planner")},
                 "limits": {},
             },
             "planning": {"astra_calls": 2, "review_call_limit": 2},
@@ -298,7 +298,7 @@ class AdmissionOfExactlyThatRepair(NativeRepairFixture):
         self.queue()
         with patch.object(callers.isolation, "NativeRoleIsolation") as isolation:
             with self.assertRaisesRegex(util.Paused, "original saved route"):
-                self.calls.role_isolation(self.state, "glm")
+                self.calls.role_isolation(self.state, "planner")
             self.calls.role_isolation(self.state, "plan_reviewer")
         isolation.assert_called_once()
 
@@ -501,7 +501,7 @@ class ResumeThatChangesTheRepairedRoute(NativeRepairFixture):
         self.state["settings"].update(
             engine="opencode", provider="opencode", joint_planning=True, transport_identity={"controlled": True}
         )
-        for role in ("astra", "terra", "sol", "completion", "requirements"):
+        for role in ("task_planner", "terra", "sol", "completion", "requirements"):
             self.state["settings"]["roles"].setdefault(role, dict(ROUTE, model="controlled/" + role))
         self.state["sessions"] = {}
 
@@ -728,7 +728,7 @@ class AutomaticRecoveriesStayOrdinaryOnly(NativeRepairFixture):
             ("uncounted", lambda s: s["pending_report_repair"].update(attempts=0)),
             ("no pending repair", lambda s: s.pop("pending_report_repair")),
             ("another stage", lambda s: s["active_stage"].update(original_stage="plan_revise")),
-            ("another route", lambda s: s["active_stage"].update(route_role="glm")),
+            ("another route", lambda s: s["active_stage"].update(route_role="planner")),
             ("not report-only", lambda s: s["active_stage"].pop("report_only")),
         )
         for label, change in changes:
@@ -1128,7 +1128,7 @@ class RepairLaunchPinsTheStageInputs(unittest.TestCase):
     def test_repair_launch_pins_the_planning_inputs_of_its_stage(self):
         import autocode_design_manifest as manifest
 
-        pins = manifest.planning_input_pins(self.state["settings"], role="glm")
+        pins = manifest.planning_input_pins(self.state["settings"], role="planner")
         self.assertEqual(2, len(pins))
         prepared = json.loads(self.prepared.body)
         self.assertEqual("plan_report_repair", prepared["record_identity"]["stage"])

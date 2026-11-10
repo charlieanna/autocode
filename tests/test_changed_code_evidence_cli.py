@@ -464,7 +464,7 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         # Resolver is a new session on the existing Planner route, not a change
         # to any of the models or reasoning levels the run already selected.
         for field in ("model", "engine", "reasoning_effort", "provider", "account"):
-            self.assertEqual(self.routes["astra"][field], view["routes"]["resolver"][field], field)
+            self.assertEqual(self.routes["task_planner"][field], view["routes"]["resolver"][field], field)
         self.assertEqual("derived", view["routes"]["resolver"]["origin"])
         self.assertEqual("PASS", view["verification"]["changed_code_evidence"]["status"])
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])

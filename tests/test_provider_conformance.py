@@ -331,8 +331,8 @@ class ProbeLaunchRoleTests(unittest.TestCase):
 
     def test_a_probe_launch_carries_the_role_it_proves(self):
         with self.assertRaises(self.Stopped):
-            self.execute(self.adapter(), role="glm")
-        self.assertEqual(["glm"], self.roles)
+            self.execute(self.adapter(), role="planner")
+        self.assertEqual(["planner"], self.roles)
 
     def test_a_probe_without_a_role_keeps_its_read_only_and_write_names(self):
         with self.assertRaises(self.Stopped):
@@ -350,7 +350,7 @@ class ProbeLaunchRoleTests(unittest.TestCase):
             "no model request was launched"
         )
         with self.assertRaises(support.Paused) as caught:
-            self.execute(self.adapter(error), role="glm")
+            self.execute(self.adapter(error), role="planner")
         self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
         self.assertIn("--glm-reasoning-effort high", str(caught.exception))
         self.assertIs(error, caught.exception.__cause__)
@@ -358,7 +358,7 @@ class ProbeLaunchRoleTests(unittest.TestCase):
     def test_a_policy_timeout_retains_its_cause_and_never_starts_a_provider(self):
         error = subprocess.TimeoutExpired(["kilo", "debug", "config"], 30)
         with patch.object(transport, "_provider_child") as child, self.assertRaises(support.Paused) as caught:
-            self.execute(self.adapter(error), role="glm")
+            self.execute(self.adapter(error), role="planner")
         self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
         self.assertIn("no model request was launched", str(caught.exception))
         self.assertIs(error, caught.exception.__cause__)
@@ -386,7 +386,7 @@ class ProbeLaunchRoleTests(unittest.TestCase):
                 patch.object(module, "_provider_child") as child,
                 self.assertRaises(module.support.Paused) as caught,
             ):
-                self.execute(adapter, role="glm", module=module, directory=directory)
+                self.execute(adapter, role="planner", module=module, directory=directory)
             self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
             self.assertIsInstance(caught.exception.__cause__, kilocode_probe.KiloProbeTimeout)
             child.assert_not_called()

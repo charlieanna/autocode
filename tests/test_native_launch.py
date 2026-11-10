@@ -435,7 +435,7 @@ class NativeContextTests(unittest.TestCase):
                 workspace=str(self.root),
                 settings={
                     "roles": {
-                        "glm": {
+                        "planner": {
                             "engine": "opencode",
                             "provider": "opencode",
                             "model": "controlled/model",
@@ -448,10 +448,10 @@ class NativeContextTests(unittest.TestCase):
             util.atomic_json(before, self.snapshot)
             record = {
                 "stage": "plan",
-                "role": "glm",
+                "role": "planner",
                 "engine": "opencode",
                 "command": command,
-                "launch_route": dict(self.state["settings"]["roles"]["glm"]),
+                "launch_route": dict(self.state["settings"]["roles"]["planner"]),
                 "events": str(self.run / "controlled.jsonl"),
                 "output": str(self.run / "controlled.json"),
                 "before_ref": str(before),

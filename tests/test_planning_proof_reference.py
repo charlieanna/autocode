@@ -15,7 +15,7 @@ class ProofReferenceTests(unittest.TestCase):
             "task": "Add an optional start argument; preserve existing tests.",
             "workspace": "/fixture",
             "base_commit": "2" * 40,
-            "settings": {"engine": "codex", "joint_planning": True, "roles": {"glm": {}, "plan_reviewer": {}}},
+            "settings": {"engine": "codex", "joint_planning": True, "roles": {"planner": {}, "plan_reviewer": {}}},
             "turns": [{"say": "Add start", "previous": {"status": "TASK_COMPLETE", "workflow": "bugfix"}}],
         }
 

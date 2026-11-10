@@ -136,7 +136,7 @@ class ParallelFixtureReportRepairTests(unittest.TestCase):
             "agreed_limitations": [],
             "finding_dispositions": [],
         }
-        schema = self.schema("astra-decision.schema.json", "astra")
+        schema = self.schema("astra-decision.schema.json", "task_planner")
         util.validate_schema(report, schema)
         result = self.repaired("astra_review", report)
         self.assertEqual(report, result)

@@ -107,7 +107,12 @@ class ConfigureModuleSurfaceTests(unittest.TestCase):
         ):
             self.assertTrue(hasattr(autocode_configure, name), name)
         self.assertEqual(
-            {"astra": "gpt-5.6-sol", "terra": "gpt-5.6-terra", "sol": "gpt-5.6-sol", "completion": "gpt-5.6-sol"},
+            {
+                "task_planner": "gpt-5.6-sol",
+                "terra": "gpt-5.6-terra",
+                "sol": "gpt-5.6-sol",
+                "completion": "gpt-5.6-sol",
+            },
             autocode_configure.DEFAULT_ROLE_MODELS,
         )
         self.assertEqual("opencode", autocode_configure.DEFAULT_ENGINE)
@@ -354,9 +359,9 @@ class SelectedProviderFacadeTests(unittest.TestCase):
         for settings in (direct, through_wrapper):
             self.assertEqual("fixturetool", settings["provider"])
             self.assertEqual("fixturetool", settings["transport_identity"]["engine"])
-            self.assertEqual("fixture-reviewer", settings["roles"]["astra"]["model"])
+            self.assertEqual("fixture-reviewer", settings["roles"]["task_planner"]["model"])
             self.assertEqual("fixture-builder", settings["roles"]["terra"]["model"])
-            self.assertEqual("high", settings["roles"]["astra"]["reasoning_effort"])
+            self.assertEqual("high", settings["roles"]["task_planner"]["reasoning_effort"])
 
     # The regression-proof gate discovers criterion cases as test_ac<id>_*;
     # the alias runs the contract-named body above, unchanged.

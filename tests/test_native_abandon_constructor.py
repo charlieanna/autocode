@@ -72,7 +72,7 @@ class NativeAbandonConstructorTests(unittest.TestCase):
             "settings": {
                 "planning_flow": "v2",
                 "roles": {
-                    "glm": {
+                    "planner": {
                         "engine": "opencode",
                         "provider": "opencode",
                         "model": "controlled/model",
@@ -86,7 +86,7 @@ class NativeAbandonConstructorTests(unittest.TestCase):
                     "idle_timeout_seconds": 300,
                 },
             },
-            "sessions": {"glm": "controlled-session"},
+            "sessions": {"planner": "controlled-session"},
             "total_seconds": 900.0,
             "planning": {
                 "astra_calls": 1,
@@ -118,12 +118,12 @@ class NativeAbandonConstructorTests(unittest.TestCase):
             record = {
                 "iteration": 1,
                 "stage": "plan_revise",
-                "role": "glm",
-                "route_role": "glm",
+                "role": "planner",
+                "route_role": "planner",
                 "command": [binary, "-I", "-S", "-B", "-c", "pass"],
                 "engine": "opencode",
                 "expected_session": "controlled-session",
-                "launch_route": deepcopy(self.state["settings"]["roles"]["glm"]),
+                "launch_route": deepcopy(self.state["settings"]["roles"]["planner"]),
                 "events": str(self.run / "plan-revise-01.jsonl"),
                 "output": str(self.run / "plan-revise-01.json"),
                 "before_ref": str(before),
@@ -231,12 +231,12 @@ class NativeAbandonConstructorTests(unittest.TestCase):
                 record = {
                     "iteration": 1,
                     "stage": state["next_stage"],
-                    "role": "glm",
-                    "route_role": "glm",
+                    "role": "planner",
+                    "route_role": "planner",
                     "engine": "opencode",
                     "expected_session": None,
                     "command": [binary, "-I", "-S", "-B", "-c", "pass"],
-                    "launch_route": deepcopy(state["settings"]["roles"]["glm"]),
+                    "launch_route": deepcopy(state["settings"]["roles"]["planner"]),
                     "events": str(run / "plan-revise-02.jsonl"),
                     "output": str(run / "plan-revise-02.json"),
                     "before_ref": str(before),
@@ -699,7 +699,7 @@ class NativeAbandonConstructorTests(unittest.TestCase):
             self.driver.abandon_stage("001/plan-revise-01")
             self.driver.resume_paused()
         self.assertEqual("plan_revise", self.resume_admission["record"]["stage"])
-        self.assertEqual(before["settings"]["roles"]["glm"], self.resume_admission["record"]["launch_route"])
+        self.assertEqual(before["settings"]["roles"]["planner"], self.resume_admission["record"]["launch_route"])
         self.assertEqual("64000", self.resume_admission["environment"]["OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"])
         self.assertEqual(before["settings"], self.state["settings"])
         self.assertEqual(before["planning"], self.state["planning"])
@@ -849,7 +849,7 @@ class NativeAbandonConstructorTests(unittest.TestCase):
             if case == "source":
                 (self.root / "source.txt").write_text("changed controlled source\n")
             elif case == "settings":
-                self.state["settings"]["roles"]["glm"]["model"] = "foreign/model"
+                self.state["settings"]["roles"]["planner"]["model"] = "foreign/model"
             else:
                 self.state["active_stage"]["finished_at"] = "changed timestamp"
             before = self.journal_bytes()

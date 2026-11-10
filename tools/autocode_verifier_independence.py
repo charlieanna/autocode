@@ -35,7 +35,7 @@ def _label(producer_job, verifier_job):
 PAIRS = (
     ("terra", "sol", _label("builder", "tester")),
     ("terra", "completion", _label("builder", "completion")),
-    ("glm", "plan_reviewer", _label("planner", "plan_reviewer")),
+    ("planner", "plan_reviewer", _label("planner", "plan_reviewer")),
 )
 
 

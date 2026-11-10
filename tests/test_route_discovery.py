@@ -121,7 +121,7 @@ class KiloStartChecksTests(unittest.TestCase):
                 provider = kilocode.load("kilocode")
                 with env_prep.reuse_checks(run_dir):
                     found = discovery.discover(provider, root)
-                    provider.check_subscription_routes({"glm": {"model": "zai-coding-plan/glm-5.3"}}, root)
+                    provider.check_subscription_routes({"planner": {"model": "zai-coding-plan/glm-5.3"}}, root)
                     self.assertEqual({"zai-coding-plan/glm-5.3"}, provider.available_models(root))
                     provider.validate_effort("zai-coding-plan/glm-5.3", "high", root)
             calls = (bin_dir / "calls").read_text().splitlines()
@@ -174,13 +174,14 @@ class KiloDiscoveryTests(unittest.TestCase):
         with mock.patch.object(command.env_prep, "preflight_run", kilo_listing(auth=gateway_only)):
             found = discovery.discover(self.provider)
         routes = selector.select(
-            ("requirements", "glm", "terra", "plan_reviewer", "sol", "completion", "astra"), found["candidates"]
+            ("requirements", "planner", "terra", "plan_reviewer", "sol", "completion", "task_planner"),
+            found["candidates"],
         )["routes"]
         self.assertIsNotNone(routes)
         self.assertEqual("kilo/openai/gpt-6-sol", routes["terra"]["model"])  # the preferred Builder the gateway serves
         self.assertEqual("kilo/z-ai/glm-5.3", routes["requirements"]["model"])
         self.assertEqual("kilo/openai/gpt-6-sol", routes["plan_reviewer"]["model"])
-        self.assertEqual("kilo/openai/gpt-6-astra", routes["astra"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-astra", routes["task_planner"]["model"])
 
     def test_a_subscription_plan_beats_the_cheaper_gateway_for_the_builder(self):
         with mock.patch.object(command.env_prep, "preflight_run", kilo_listing()):
@@ -369,8 +370,8 @@ class AutoSelectConfigureTests(unittest.TestCase):
 
     def test_fully_pinned_default_keeps_explicit_profile_policy(self):
         models = {
-            "astra": "openai/gpt-6-astra",
-            "glm": "zai-coding-plan/glm-5.3",
+            "task_planner": "openai/gpt-6-astra",
+            "planner": "zai-coding-plan/glm-5.3",
             "requirements": "zai-coding-plan/glm-5.3",
             "terra": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
             "sol": "zai-coding-plan/glm-5.3",
@@ -387,14 +388,14 @@ class AutoSelectConfigureTests(unittest.TestCase):
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
             settings = self.configure(self.args(auto_select=True))
         self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["terra"]["model"])  # Luna is not connected
-        self.assertEqual("kilo/z-ai/glm-5.3", settings["roles"]["glm"]["model"])
-        self.assertEqual("kilo/openai/gpt-6-astra", settings["roles"]["astra"]["model"])
+        self.assertEqual("kilo/z-ai/glm-5.3", settings["roles"]["planner"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-astra", settings["roles"]["task_planner"]["model"])
         self.assertEqual("auto_selected", settings["route_origins"]["terra"])
         self.assertEqual("kilo/openai/gpt-6-sol", settings["route_selection"]["routes"]["terra"]["model"])
         self.assertIn("kilo/openai/gpt-6-sol", settings["route_selection"]["probe"])
 
     def test_explicit_effort_survives_selection_and_matches_the_probe(self):
-        for role in ("terra", "sol", "astra", "completion", "requirements", "glm", "plan_reviewer"):
+        for role in ("terra", "sol", "task_planner", "completion", "requirements", "planner", "plan_reviewer"):
             with self.subTest(role=role), mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
                 settings = self.configure(self.args(auto_select=True, **{f"{role}_reasoning_effort": "low"}))
                 self.assertEqual("low", settings["roles"][role]["reasoning_effort"])
@@ -414,7 +415,7 @@ class AutoSelectConfigureTests(unittest.TestCase):
             candidate["levels"] = ["low"]
         with mock.patch.object(discovery, "discover", return_value=found):
             settings = self.configure(self.args(auto_select=True))
-        for role in ("glm", "plan_reviewer", "terra", "sol"):
+        for role in ("planner", "plan_reviewer", "terra", "sol"):
             self.assertIsNone(settings["roles"][role]["reasoning_effort"])
             self.assertIsNone(settings["route_selection"]["routes"][role]["reasoning_effort"])
 

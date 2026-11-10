@@ -728,8 +728,8 @@ class JobRecoveryRouteTests(unittest.TestCase):
         for stage, role, expected in (
             ("sol", "sol", ("astra_review", "EXECUTING")),
             ("terra", "terra", ("astra_review", "EXECUTING")),
-            ("astra_review", "astra", ("astra_review", "EXECUTING")),
-            ("astra_discovery", "astra", ("astra_discovery", "DISCOVERING")),
+            ("astra_review", "task_planner", ("astra_review", "EXECUTING")),
+            ("astra_discovery", "task_planner", ("astra_discovery", "DISCOVERING")),
         ):
             with self.subTest(stage=stage):
                 self.assertEqual(expected, records.timeout_recovery_route({}, {"stage": stage, "role": role}))

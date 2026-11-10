@@ -73,7 +73,7 @@ class PlanningArtifactTests(unittest.TestCase):
                 "planning_flow": "v2",
                 "roles": {
                     "requirements": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
-                    "glm": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
+                    "planner": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
                     "plan_reviewer": {
                         "engine": "opencode",
                         "model": planning.PINNED_REVIEWER_MODEL,

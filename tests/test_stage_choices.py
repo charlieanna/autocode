@@ -21,12 +21,12 @@ HAIKU, SONNET, OPUS = "claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-
 CLAUDE = SimpleNamespace(
     DEFAULT_MODELS={
         "requirements": SONNET,
-        "glm": SONNET,
+        "planner": SONNET,
         "plan_reviewer": OPUS,
         "terra": HAIKU,
         "sol": SONNET,
         "completion": OPUS,
-        "astra": OPUS,
+        "task_planner": OPUS,
     },
     DEFAULT_REASONING_EFFORTS={role: "medium" for role in choices.ORDER},
     available_models=lambda workspace=None: {HAIKU, SONNET, OPUS},
@@ -95,7 +95,7 @@ class StageChoiceTests(unittest.TestCase):
         self.assertEqual({"model": HAIKU, "effort": "medium", "offered": True}, builder["default"])
         self.assertIsNone(builder["chosen"])
         self.assertIsNone(builder["reset"])
-        self.assertEqual("Resolver and per-task Planner", self.stage(current, "astra")["label"])
+        self.assertEqual("Resolver and per-task Planner", self.stage(current, "task_planner")["label"])
         for stage in current["stages"]:
             self.assertTrue(stage["does"] and stage["advice"], stage["id"])
 
@@ -179,8 +179,10 @@ class StageChoiceTests(unittest.TestCase):
         )
         saved = {"terra": {"model": SONNET, "effort": "high"}, "sol": {"model": OPUS, "effort": "high"}}
         self.assertEqual({"claude": saved}, choices.load(self.file))
-        choices.choose("opencode", {"astra": ("opencode/plain", choices.OWN_DEFAULT)}, **self.kw)
-        self.assertEqual({"model": "opencode/plain", "effort": None}, choices.load(self.file)["opencode"]["astra"])
+        choices.choose("opencode", {"task_planner": ("opencode/plain", choices.OWN_DEFAULT)}, **self.kw)
+        self.assertEqual(
+            {"model": "opencode/plain", "effort": None}, choices.load(self.file)["opencode"]["task_planner"]
+        )
         self.assertEqual(saved, choices.load(self.file)["claude"], "another backend is untouched")
         choices.reset("claude", "terra", **self.kw)
         self.assertEqual({"sol"}, set(choices.load(self.file)["claude"]))
@@ -219,7 +221,9 @@ class StageChoiceTests(unittest.TestCase):
             )
 
     def test_a_saved_file_round_trips_and_a_broken_one_is_refused_by_name(self):
-        every = {"claude": {"terra": {"model": HAIKU, "effort": "low"}, "astra": {"model": OPUS, "effort": None}}}
+        every = {
+            "claude": {"terra": {"model": HAIKU, "effort": "low"}, "task_planner": {"model": OPUS, "effort": None}}
+        }
         choices.save(every, self.file)
         self.assertEqual(every, choices.load(self.file))
         for text, error in (
@@ -262,9 +266,9 @@ class StageChoiceTests(unittest.TestCase):
             self.assertEqual(model, self.stage(current, role)["default"]["model"], role)
         # Codex joint planning copies the astra route into the Requirements and Planner stages, and gives a
         # new Plan Reviewer the first model the Planner does not run.
-        for role in ("requirements", "glm"):
+        for role in ("requirements", "planner"):
             self.assertEqual(
-                autocode_configure.DEFAULT_ROLE_MODELS["astra"], self.stage(current, role)["default"]["model"]
+                autocode_configure.DEFAULT_ROLE_MODELS["task_planner"], self.stage(current, role)["default"]["model"]
             )
         self.assertEqual(
             autocode_configure.CODEX_PLAN_REVIEWER_MODELS[0], self.stage(current, "plan_reviewer")["default"]["model"]
@@ -281,7 +285,7 @@ class ApplyTests(unittest.TestCase):
                 "claude": {
                     "terra": {"model": SONNET, "effort": "high"},
                     "sol": {"model": OPUS, "effort": "xhigh"},
-                    "astra": {"model": OPUS, "effort": None},
+                    "task_planner": {"model": OPUS, "effort": None},
                 }
             },
             self.file,
@@ -294,11 +298,13 @@ class ApplyTests(unittest.TestCase):
 
     def test_a_new_run_takes_the_saved_model_and_level_of_each_chosen_stage(self):
         args, said = self.args(), []
-        self.assertEqual(["terra", "sol", "astra"], choices.apply(args, "claude", file=self.file, say=said.append))
+        self.assertEqual(
+            ["terra", "sol", "task_planner"], choices.apply(args, "claude", file=self.file, say=said.append)
+        )
         self.assertEqual((SONNET, "high"), (args.terra_model, args.terra_reasoning_effort))
         self.assertEqual((OPUS, "xhigh"), (args.sol_model, args.sol_reasoning_effort))
-        self.assertEqual((OPUS, None), (args.astra_model, args.astra_reasoning_effort))
-        self.assertIsNone(args.glm_model, "a stage nobody chose keeps the backend's default")
+        self.assertEqual((OPUS, None), (args.task_planner_model, args.task_planner_reasoning_effort))
+        self.assertIsNone(args.planner_model, "a stage nobody chose keeps the backend's default")
         self.assertEqual([f"Stage choices from {self.file}: Builder, Tester, Resolver and per-task Planner"], said)
         # The levels it supplied, which the run records as the person's ceiling (owner decision 2026-11-05).
         self.assertEqual(("terra", "sol"), args.stage_choice_efforts)
@@ -405,7 +411,7 @@ class StagesCommandTests(unittest.TestCase):
         self.assertEqual(OPUS, saved["plan_reviewer"]["model"])
         self.assertEqual({"model": SONNET, "effort": "high"}, saved["terra"])
         self.assertNotEqual(SONNET, saved["sol"]["model"])
-        self.assertEqual("low", saved["astra"]["effort"])
+        self.assertEqual("low", saved["task_planner"]["effort"])
         shown = "\n".join(said)
         self.assertIn("Advice: A fast, cheaper model at medium", shown)
         self.assertIn("not available: the Plan Reviewer checks the Planner's work", shown)
@@ -424,7 +430,7 @@ class StagesCommandTests(unittest.TestCase):
         self.assertIn("opencode/plain lists no reasoning levels; it runs at its own default.", shown)
         saved = choices.load()["opencode"]
         self.assertEqual({"model": "zai-coding-plan/glm-5.3", "effort": "high"}, saved["requirements"])
-        self.assertEqual({"model": "opencode/plain", "effort": None}, saved["astra"])
+        self.assertEqual({"model": "opencode/plain", "effort": None}, saved["task_planner"])
 
     def test_choose_says_why_when_nothing_can_be_offered(self):
         said = []

@@ -385,7 +385,9 @@ class OperationalInformationCLITests(unittest.TestCase):
 
             configure.configure_codex_joint(state["settings"], SimpleNamespace(), planning=runner.planning)
             original = dict(
-                next(row for row in state["stages"] if row["stage"] == "terra"), stage="astra_finalize", role="astra"
+                next(row for row in state["stages"] if row["stage"] == "terra"),
+                stage="astra_finalize",
+                role="task_planner",
             )
             revision = support.snapshot(self.project)["revision"]
             for index in range(3):

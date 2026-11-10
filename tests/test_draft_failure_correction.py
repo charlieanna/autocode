@@ -721,7 +721,9 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                 saved = harness.run / "saved.schema.json"
                 saved.write_text(json.dumps(schema))
                 before = saved.read_bytes()
-                harness.queue(stage="astra_challenge", role="astra", schema=str(saved), report=json.dumps(review))
+                harness.queue(
+                    stage="astra_challenge", role="task_planner", schema=str(saved), report=json.dumps(review)
+                )
                 prompt = harness.repair_request()["prompt"]
                 instruction, raw = prompt.split("CURRENT HANDOFF DATA\n", 1)
                 handoff = json.loads(raw)

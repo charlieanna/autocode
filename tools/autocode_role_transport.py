@@ -18,9 +18,11 @@ import copy
 import re
 
 try:
+    from . import autocode_names as names
     from . import autocode_providers as providers
     from . import autocode_util as util
 except ImportError:
+    import autocode_names as names
     import autocode_providers as providers
     import autocode_util as util
 
@@ -39,10 +41,10 @@ def resume_session(state: RunState, role, stage, joint, report_only, supports, r
 
 
 DERIVED_ROLES: dict[str, tuple[str, ...]] = {
-    "architect": ("plan_reviewer", "astra"),
+    "architect": ("plan_reviewer", "task_planner"),
     "acceptance_tester": ("sol",),
-    "resolver": ("astra",),
-    "stuck_investigator": ("plan_reviewer", "astra"),
+    "resolver": ("task_planner",),
+    "stuck_investigator": ("plan_reviewer", "task_planner"),
 }
 
 
@@ -254,6 +256,7 @@ def configure(settings, args, workspace):
         if not isinstance(item, str) or item.count("=") != 1:
             raise ValueError("--role-transport requires ROLE=PROVIDER")
         role, name = item.split("=", 1)
+        role = names.current_route(role)  # an old route name (astra=…) names its renamed route
         if role not in settings["roles"] or role in parsed:
             raise ValueError("--role-transport needs an existing role named exactly once")
         if name == base:

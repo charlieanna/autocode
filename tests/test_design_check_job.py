@@ -35,9 +35,9 @@ def state_for(workspace, task=f"Implement the approved design in {DESIGN} exactl
             "joint_planning": True,
             "roles": {
                 "requirements": {"model": "r"},
-                "glm": {"model": "g"},
+                "planner": {"model": "g"},
                 "plan_reviewer": {"model": "p", "engine": "codex"},
-                "astra": {"model": "a", "engine": "codex"},
+                "task_planner": {"model": "a", "engine": "codex"},
                 "terra": {"model": "t"},
                 "sol": {"model": "s"},
             },
@@ -111,7 +111,7 @@ class PrepareTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             state = state_for(workspace_with_design(root))
             request = autoreview.prepare(state, check_job.STAGE, "/run/state.json", None)
-        self.assertEqual(("astra", "architect", True), (request.role, request.route_role, request.allow_write))
+        self.assertEqual(("task_planner", "architect", True), (request.role, request.route_role, request.allow_write))
         self.assertEqual("p", state["settings"]["roles"]["architect"]["model"])
         self.assertEqual(check_job.SCHEMA, request.schema)
         self.assertIn(f'"design_document": "{DESIGN}"', request.prompt)

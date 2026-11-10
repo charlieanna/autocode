@@ -282,7 +282,7 @@ class ReviewHandoffTests(unittest.TestCase):
                 version=3,
                 task="Implement all 18 requirements",
                 workspace=tmp,
-                settings={"roles": {r: {"engine": "codex", "model": "fake"} for r in ("astra", "terra", "sol")}},
+                settings={"roles": {r: {"engine": "codex", "model": "fake"} for r in ("task_planner", "terra", "sol")}},
                 answers=state["saved_answers"],
             )
             before = copy.deepcopy(state)

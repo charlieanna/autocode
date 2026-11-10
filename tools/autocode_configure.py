@@ -96,7 +96,7 @@ except ImportError:
     import autocode_workflows as workflows
 
 DEFAULT_ROLE_MODELS = {
-    "astra": "gpt-5.6-sol",
+    "task_planner": "gpt-5.6-sol",
     "terra": "gpt-5.6-terra",
     "sol": "gpt-5.6-sol",
     "completion": "gpt-5.6-sol",
@@ -316,7 +316,7 @@ def _auto_select(
     for role in route_selector.PIPELINE_ROLES:
         named = getattr(args, f"{role}_model", None) or history_models.get(role)
         if role == "requirements":
-            named = named or getattr(args, "glm_model", None)
+            named = named or getattr(args, "planner_model", None)
         explicit_tool = getattr(args, f"{role}_provider", None) or history_providers.get(role)
         if named:
             pinned[role] = named
@@ -350,7 +350,7 @@ def _auto_select(
             from . import model_catalogue as catalogue
         except ImportError:
             import model_catalogue as catalogue
-        shown = set(roles) | ({"requirements", "glm", "plan_reviewer"} if joint else set())
+        shown = set(roles) | ({"requirements", "planner", "plan_reviewer"} if joint else set())
         report = {"routes": result["routes"], "candidates": found["candidates"], "tool": found["tool"]}
         lines = catalogue.route_lines(report, shown)
         if lines:
@@ -394,11 +394,11 @@ def _refuse_new_run_flags(args, state: RunState, *, started, single_model):
         raise ValueError("--single-model is only available when starting a new run")
     if single_model and any(
         getattr(args, f"{role}_model", None)
-        for role in ("requirements", "glm", "plan_reviewer", "astra", "terra", "sol", "completion")
+        for role in ("requirements", "planner", "plan_reviewer", "task_planner", "terra", "sol", "completion")
     ):
         raise ValueError("--single-model cannot be combined with per-role model flags")
     if single_model and any(
-        getattr(args, f"{role}_provider", None) for role in ("astra", "terra", "sol", "completion")
+        getattr(args, f"{role}_provider", None) for role in ("task_planner", "terra", "sol", "completion")
     ):
         raise ValueError("--single-model cannot be combined with per-role provider flags")
     if single_model and getattr(args, "builder_strong_model", None):
@@ -527,12 +527,12 @@ def _joint_planning(args, state: RunState, *, started, engine, saved_engine, sin
     if (
         getattr(args, "requirements_model", None)
         or getattr(args, "requirements_reasoning_effort", None)
-        or getattr(args, "glm_reasoning_effort", None)
+        or getattr(args, "planner_reasoning_effort", None)
         or getattr(args, "plan_reviewer_model", None)
         or getattr(args, "plan_reviewer_reasoning_effort", None)
     ) and not joint:
         raise ValueError("Planner role overrides require --joint-planning")
-    if getattr(args, "glm_model", None) and not joint:
+    if getattr(args, "planner_model", None) and not joint:
         raise ValueError("--glm-model requires --joint-planning")
     return joint, enable_saved_joint
 
@@ -565,8 +565,8 @@ def _configure_saved(
     settings.setdefault("limits", {}).setdefault("idle_timeout_seconds", 300)
     settings["limits"].setdefault("tool_timeout_seconds", 1800)
     if "completion" not in settings["roles"]:
-        astra_route = settings["roles"]["astra"]
-        completion_engine = planning.engine_for(settings, "astra")
+        astra_route = settings["roles"]["task_planner"]
+        completion_engine = planning.engine_for(settings, "task_planner")
         settings["roles"]["completion"] = {
             **astra_route,
             "model": (
@@ -616,16 +616,16 @@ def _configure_saved(
                 "engine": "opencode",
                 "provider": None,
                 "model": getattr(args, "requirements_model", None)
-                or getattr(args, "glm_model", None)
-                or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["glm"]),
+                or getattr(args, "planner_model", None)
+                or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["planner"]),
                 "reasoning_effort": getattr(args, "requirements_reasoning_effort", None),
             },
         )
-        settings["roles"]["glm"] = {
+        settings["roles"]["planner"] = {
             "engine": "opencode",
             "provider": None,
-            "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"],
-            "reasoning_effort": getattr(args, "glm_reasoning_effort", None),
+            "model": getattr(args, "planner_model", None) or opencode.DEFAULT_MODELS["planner"],
+            "reasoning_effort": getattr(args, "planner_reasoning_effort", None),
         }
         settings.setdefault("transport_identities", {})["opencode"] = settings["transport_identity"]
         role_transport.check_models(settings, opencode, Path(state["workspace"]))
@@ -1094,19 +1094,19 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             "provider": None,
             "model": single_model
             or getattr(args, "requirements_model", None)
-            or getattr(args, "glm_model", None)
+            or getattr(args, "planner_model", None)
             or _selected_model(settings, "requirements")
-            or mod.DEFAULT_MODELS.get("requirements", mod.DEFAULT_MODELS["glm"]),
+            or mod.DEFAULT_MODELS.get("requirements", mod.DEFAULT_MODELS["planner"]),
             "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)
             or _selected_effort(settings, "requirements"),
         }
         if "completion" not in settings["roles"]:
             settings["roles"]["completion"] = {
-                **settings["roles"]["astra"],
+                **settings["roles"]["task_planner"],
                 "model": mod.DEFAULT_MODELS["completion"],
                 "reasoning_effort": mod.DEFAULT_REASONING_EFFORTS["completion"],
             }
-        for role in ("astra", "sol", "completion"):
+        for role in ("task_planner", "sol", "completion"):
             settings["roles"][role].update(
                 engine="opencode",
                 provider=None,
@@ -1126,21 +1126,21 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             route = settings["roles"].get(role)
             if route and not route.get("reasoning_effort") and not _auto_chosen(settings, role):
                 route["reasoning_effort"] = effort
-        glm_model = (
+        planner_model = (
             single_model
-            or getattr(args, "glm_model", None)
-            or _selected_model(settings, "glm")
-            or mod.DEFAULT_MODELS["glm"]
+            or getattr(args, "planner_model", None)
+            or _selected_model(settings, "planner")
+            or mod.DEFAULT_MODELS["planner"]
         )
-        settings["roles"]["glm"] = {
+        settings["roles"]["planner"] = {
             "engine": "opencode",
             "provider": None,
-            "model": glm_model,
-            "reasoning_effort": getattr(args, "glm_reasoning_effort", None)
+            "model": planner_model,
+            "reasoning_effort": getattr(args, "planner_reasoning_effort", None)
             or (
-                _selected_effort(settings, "glm")
-                if _auto_chosen(settings, "glm")
-                else mod.DEFAULT_REASONING_EFFORTS.get("glm")
+                _selected_effort(settings, "planner")
+                if _auto_chosen(settings, "planner")
+                else mod.DEFAULT_REASONING_EFFORTS.get("planner")
             ),
         }
         plan_reviewer_route = {
@@ -1168,8 +1168,8 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             plan_reviewer_route["light_effort"] = light_effort
         settings["roles"]["plan_reviewer"] = plan_reviewer_route
         settings["transport_identities"] = {"opencode": settings["transport_identity"]}
-    elif getattr(args, "glm_model", None):
-        settings["roles"]["glm"]["model"] = args.glm_model
+    elif getattr(args, "planner_model", None):
+        settings["roles"]["planner"]["model"] = args.planner_model
     if getattr(args, "requirements_model", None) or getattr(args, "requirements_reasoning_effort", None):
         if "requirements" not in settings["roles"]:
             raise ValueError(
@@ -1180,8 +1180,8 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
         if getattr(args, "requirements_reasoning_effort", None):
             settings["roles"]["requirements"]["reasoning_effort"] = args.requirements_reasoning_effort
     _resolver_override(settings, args)
-    if getattr(args, "glm_reasoning_effort", None):
-        settings["roles"]["glm"]["reasoning_effort"] = args.glm_reasoning_effort
+    if getattr(args, "planner_reasoning_effort", None):
+        settings["roles"]["planner"]["reasoning_effort"] = args.planner_reasoning_effort
     if getattr(args, "plan_reviewer_model", None):
         settings["roles"]["plan_reviewer"]["model"] = args.plan_reviewer_model
     if getattr(args, "plan_reviewer_reasoning_effort", None):
@@ -1204,7 +1204,7 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
 def _resolver_override(settings, args):
     """The saved Resolver override has identical semantics on both engines."""
     if getattr(args, "resolver_model", None) or getattr(args, "resolver_reasoning_effort", None):
-        settings["roles"].setdefault("resolver", copy.deepcopy(settings["roles"]["astra"]))
+        settings["roles"].setdefault("resolver", copy.deepcopy(settings["roles"]["task_planner"]))
         if getattr(args, "resolver_model", None):
             settings["roles"]["resolver"]["model"] = args.resolver_model
         if getattr(args, "resolver_reasoning_effort", None):
@@ -1217,23 +1217,23 @@ def configure_codex_joint(settings, args, *, planning):
     roles = settings["roles"]
     single_model = getattr(args, "single_model", None)
     creating_plan_reviewer = "plan_reviewer" not in roles
-    for role in ("requirements", "glm", "plan_reviewer"):
+    for role in ("requirements", "planner", "plan_reviewer"):
         creating_requirements = role == "requirements" and role not in roles
-        roles.setdefault(role, copy.deepcopy(roles["astra"]))
+        roles.setdefault(role, copy.deepcopy(roles["task_planner"]))
         if planning.engine_for(settings, role) != "codex":
             raise ValueError("Native Codex joint planning cannot switch a saved role's engine")
         route = roles[role]
         route["engine"] = "codex"
         model = getattr(args, f"{role}_model", None)
         if creating_requirements:
-            model = model or getattr(args, "glm_model", None)
+            model = model or getattr(args, "planner_model", None)
         effort = getattr(args, f"{role}_reasoning_effort", None)
         if single_model:
             route["model"] = single_model
         elif model:
             route["model"] = model
         elif role == "plan_reviewer" and creating_plan_reviewer:
-            planner = roles["glm"].get("model")
+            planner = roles["planner"].get("model")
             route["model"] = next(
                 (
                     choice

@@ -148,7 +148,7 @@ class ContentFilterRouteTests(unittest.TestCase):
         shutil.copyfile(source, self.events)
         roles = {
             "terra": {"engine": "opencode", "model": MIMO},
-            "astra": {"engine": "opencode", "model": MIMO},
+            "task_planner": {"engine": "opencode", "model": MIMO},
             "sol": {"engine": "opencode", "model": GLM},
             "completion": {"engine": "opencode", "model": GLM},
             **{role: {"engine": "opencode", "model": model} for role, model in extra_roles.items()},
@@ -450,7 +450,7 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
                 "engine": "opencode",
                 "roles": {
                     "terra": {"model": MIMO},
-                    "astra": {"model": MIMO},
+                    "task_planner": {"model": MIMO},
                     "sol": {"model": GLM},
                     "completion": {"model": GLM},
                 },

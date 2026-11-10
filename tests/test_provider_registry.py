@@ -109,7 +109,7 @@ class ProviderRegistryTests(unittest.TestCase):
         provider = autocode_providers.resolve("kilocode")
         routes = {route["models"]: route for route in provider._config["auth"]["routes"]}
         self.assertEqual("api", routes["alibaba-token-plan/"]["expect"])
-        roles = {"astra": {"model": "alibaba-token-plan/qwen3.8-max"}}
+        roles = {"task_planner": {"model": "alibaba-token-plan/qwen3.8-max"}}
         with tempfile.TemporaryDirectory() as temp:
             binary = Path(temp) / "bin"
             binary.mkdir()
@@ -127,7 +127,7 @@ class ProviderRegistryTests(unittest.TestCase):
             # A model outside every declared route refuses before any auth probe;
             # declared Gateway models instead require their own OAuth login below.
             with mock.patch.dict(os.environ, {**base, "FAKE_LOGIN_OUTPUT": ""}, clear=True):
-                unrelated = {"astra": {"model": "unconfigured/model"}}
+                unrelated = {"task_planner": {"model": "unconfigured/model"}}
                 with self.assertRaisesRegex(RuntimeError, "no subscription route for unconfigured/model"):
                     provider.check_subscription_routes(unrelated, Path(temp))
 
@@ -147,7 +147,7 @@ class ProviderRegistryTests(unittest.TestCase):
             fake.chmod(0o755)
             base = {"PATH": str(binary) + os.pathsep + os.environ.get("PATH", "")}
             for model, label, mode in routes:
-                roles = {"astra": {"model": model}}
+                roles = {"task_planner": {"model": model}}
                 # ANSI colours and the surrounding box match actual Kilo auth output.
                 own_login = f"●  {label} \x1b[90m{mode}\x1b[0m\n│\n"
                 listing = "\n┌  Credentials\n│\n●  OpenAI oauth\n│\n" + own_login + "└  2 credentials\n"
@@ -182,8 +182,8 @@ class ProviderRegistryTests(unittest.TestCase):
     def test_bundled_kilo_mixed_routes_check_each_selected_login(self):
         provider = autocode_providers.resolve("kilocode")
         roles = {
-            "astra": {"model": "kilo/z-ai/glm-5.3"},
-            "glm": {"model": "zai-coding-plan/glm-5.3"},
+            "task_planner": {"model": "kilo/z-ai/glm-5.3"},
+            "planner": {"model": "zai-coding-plan/glm-5.3"},
             "sol": {"model": "zhipuai-coding-plan/glm-5.3"},
         }
         listing = "●  Kilo Gateway oauth\n●  Z.AI Coding Plan api\n●  Zhipu AI Coding Plan api\n"
@@ -243,7 +243,7 @@ class ProviderRegistryTests(unittest.TestCase):
             engine="codex",
             figma_file=None,
             joint_planning=False,
-            glm_model=None,
+            planner_model=None,
             reasoning_effort=None,
             headroom=None,
             context_soft_tokens=None,
@@ -255,7 +255,7 @@ class ProviderRegistryTests(unittest.TestCase):
             pin_model_role=[],
             **{
                 f"{role}_{field}": None
-                for role in ("astra", "terra", "sol", "completion")
+                for role in ("task_planner", "terra", "sol", "completion")
                 for field in ("model", "provider", "reasoning_effort")
             },
         )
@@ -276,21 +276,24 @@ class ProviderRegistryTests(unittest.TestCase):
             settings = {
                 "provider": "kilocode",
                 "transport_identity": {"engine": "kilocode"},
-                "roles": {role: {} for role in ("astra", "terra", "sol")},
+                "roles": {role: {} for role in ("task_planner", "terra", "sol")},
             }
             args = SimpleNamespace(
-                astra_model="kilo/~openai/gpt-astra-latest", terra_model=None, sol_model="gpt-5.6-sol", glm_model=None
+                task_planner_model="kilo/~openai/gpt-astra-latest",
+                terra_model=None,
+                sol_model="gpt-5.6-sol",
+                planner_model=None,
             )
             autocode_configure.configure_joint(
                 settings, args, fresh=True, planning=planning, opencode=autocode.opencode
             )
         finally:
             autocode.opencode = previous
-        self.assertEqual("kilo/~openai/gpt-astra-latest", settings["roles"]["astra"]["model"])
+        self.assertEqual("kilo/~openai/gpt-astra-latest", settings["roles"]["task_planner"]["model"])
         self.assertEqual("gpt-5.6-sol", settings["roles"]["sol"]["model"])
         # Custom providers keep their own role names (including plan_reviewer).
         self.assertEqual("openai/gpt-5.6-sol", settings["roles"]["plan_reviewer"]["model"])
-        self.assertEqual("zhipuai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
+        self.assertEqual("zhipuai-coding-plan/glm-5.3", settings["roles"]["planner"]["model"])
 
     def test_config_provider_joint_review_uses_the_config_role_defaults(self):
         provider = command.load("kilocode")
@@ -300,9 +303,9 @@ class ProviderRegistryTests(unittest.TestCase):
             settings = {
                 "provider": "kilocode",
                 "transport_identity": {"engine": "opencode"},
-                "roles": {role: {} for role in ("astra", "terra", "sol")},
+                "roles": {role: {} for role in ("task_planner", "terra", "sol")},
             }
-            args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
+            args = SimpleNamespace(task_planner_model=None, terra_model=None, sol_model=None, planner_model=None)
             autocode_configure.configure_joint(
                 settings, args, fresh=True, planning=planning, opencode=autocode.opencode
             )
@@ -319,7 +322,7 @@ class ProviderRegistryTests(unittest.TestCase):
             settings["roles"]["plan_reviewer"],
         )
         self.assertEqual("openai/gpt-5.6-terra", settings["roles"]["terra"]["model"])
-        self.assertEqual("high", settings["roles"]["glm"]["reasoning_effort"])
+        self.assertEqual("high", settings["roles"]["planner"]["reasoning_effort"])
 
 
 if __name__ == "__main__":

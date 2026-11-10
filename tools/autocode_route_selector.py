@@ -53,7 +53,7 @@ QUALIFICATION_PATH = Path(__file__).with_name("autocode_route_qualification.json
 PROVENANCE = ("qualified", "provisional")
 # The roles a run can ask for, in the order selection assigns them: the volume roles
 # first, the checkers that must dodge them next, the unconstrained astra route last.
-PIPELINE_ROLES = ("requirements", "glm", "terra", "plan_reviewer", "sol", "completion", "astra")
+PIPELINE_ROLES = ("requirements", "planner", "terra", "plan_reviewer", "sol", "completion", "task_planner")
 # Billing before probe before price (#1426 rule 2 and answer 2): never nudge a
 # subscription onto per-token billing to save a probe, never probe while a known route
 # qualifies, then cheapest. None (unknown billing) sits between the two, as the
@@ -72,12 +72,12 @@ ACCOUNT_LABELS = {
 }
 _ROLE_LABELS = {
     "requirements": lambda: roles.SCREEN["requirements"],
-    "glm": lambda: roles.SCREEN["planner"],
+    "planner": lambda: roles.SCREEN["planner"],
     "terra": lambda: roles.SCREEN["builder"],
     "plan_reviewer": lambda: roles.SCREEN["plan_reviewer"],
     "sol": lambda: roles.SCREEN["tester"],
     "completion": lambda: roles.SCREEN["completion"],
-    "astra": lambda: f"per-task {roles.SCREEN['planner']} and {roles.SCREEN['resolver']}",
+    "task_planner": lambda: f"per-task {roles.SCREEN['planner']} and {roles.SCREEN['resolver']}",
 }
 
 

@@ -152,7 +152,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         # Both reviewers' open findings, each with its identity and assigned fix task.
         base["open_findings"] = findings_ledger.handoff(state)
     if stage in ("sol", "astra_review", "astra_checkpoint"):
-        source = "sol" if stage == "sol" else "astra"
+        source = "sol" if stage == "sol" else "task_planner"
         base["review_identity_policy"] = {
             "own_open_finding_ids": [r["id"] for r in findings_ledger.open_entries(state, source)],
             "instruction": prompts.get("fragments/stage-context/context-packet-05.md"),

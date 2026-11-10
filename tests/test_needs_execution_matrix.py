@@ -108,7 +108,9 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             "acceptance_criteria": [],
             "settings": {
                 "engine": "codex",
-                "roles": {role: {"model": role, "reasoning_effort": "high"} for role in ("astra", "terra", "sol")},
+                "roles": {
+                    role: {"model": role, "reasoning_effort": "high"} for role in ("task_planner", "terra", "sol")
+                },
                 "transport_identity": {"auth_mode": "fixture"},
                 "headroom": {"enabled": False},
                 "context_soft_tokens": 10000,

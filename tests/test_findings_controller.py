@@ -90,7 +90,7 @@ class ControllerFindingsTests(unittest.TestCase):
         self.assertIn("resolution_request", self.state)
         self.assertEqual(
             {"Empty names are accepted", "No blank-input test"},
-            {row["finding"] for row in findings.open_entries(self.state, "astra")},
+            {row["finding"] for row in findings.open_entries(self.state, "task_planner")},
         )
         self.assertEqual(
             {"Empty names are accepted", "No blank-input test"},
@@ -105,7 +105,7 @@ class ControllerFindingsTests(unittest.TestCase):
         }
         with patch.object(runner, "run_role", side_effect=AssertionError("no agent may launch")):
             runner.apply_result(self.state, "astra_review", decision, record, self.root, self.run)
-        fid = findings.open_entries(self.state, "astra")[0]["id"]
+        fid = findings.open_entries(self.state, "task_planner")[0]["id"]
         diagnosis = {
             **self.astra_decision("REWORK", output="resolve-01.json"),
             "findings": [],
@@ -130,7 +130,7 @@ class ControllerFindingsTests(unittest.TestCase):
                 self.root,
                 self.run,
             )
-        rows = findings.open_entries(self.state, "astra")
+        rows = findings.open_entries(self.state, "task_planner")
         self.assertEqual(["Empty names are accepted"], [row["finding"] for row in rows])
         # The resolver never reconciles: the finding is untouched, not even marked as reviewed.
         self.assertNotIn("not_rechecked_in", rows[0])
@@ -264,7 +264,8 @@ class ControllerFindingsTests(unittest.TestCase):
         runner.lifecycle.human.evaluate(self.state)  # the runner's writer boundary publishes the request
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         self.assertEqual(
-            ["Missing authorization check"], [row["finding"] for row in findings.open_entries(self.state, "astra")]
+            ["Missing authorization check"],
+            [row["finding"] for row in findings.open_entries(self.state, "task_planner")],
         )
 
     def validated(self, task_id):
@@ -457,7 +458,7 @@ class ControllerFindingsTests(unittest.TestCase):
         self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
         # Explicitly resolving it unblocks completion.
-        fid = findings.open_entries(self.state, "astra")[0]["id"]
+        fid = findings.open_entries(self.state, "task_planner")[0]["id"]
         clean = self.astra_decision(
             "COMPLETE", dispositions=[dict(id=fid, disposition="resolved", evidence="event:check")]
         )

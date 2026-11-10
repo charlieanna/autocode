@@ -65,7 +65,7 @@ class BillingAwareTests(unittest.TestCase):
     def test_distinct_models_keep_declaration_order(self):
         settings = {
             "roles": {
-                "astra": {"model": "plan/glm"},
+                "task_planner": {"model": "plan/glm"},
                 "terra": {"model": "plan/mimo"},
                 "sol": {"model": "plan/glm"},
                 "completion": {"model": ""},
@@ -129,7 +129,7 @@ class PreflightCheckTests(unittest.TestCase):
             "settings": {
                 "engine": "opencode",
                 "roles": {
-                    "astra": {"model": "plan/glm"},
+                    "task_planner": {"model": "plan/glm"},
                     "terra": {"model": "plan/mimo"},
                     "sol": {"model": "plan/glm"},
                 },
@@ -352,9 +352,9 @@ class PreflightCheckTests(unittest.TestCase):
         original = copy.deepcopy(receipt_sets(self.run_dir))
         self.relocate()
         # A newly due model has no access receipt, even though the old models do.
-        self.state["settings"]["roles"]["astra"]["model"] = "plan/new"
-        self.state["configuration_changes"][0]["previous"]["roles"]["astra"]["model"] = "plan/new"
-        self.state["configuration_changes"][0]["selected"]["roles"]["astra"]["model"] = "plan/new"
+        self.state["settings"]["roles"]["task_planner"]["model"] = "plan/new"
+        self.state["configuration_changes"][0]["previous"]["roles"]["task_planner"]["model"] = "plan/new"
+        self.state["configuration_changes"][0]["selected"]["roles"]["task_planner"]["model"] = "plan/new"
         self.state["next_stage"] = "astra_plan"
         self.calls.clear()
         self.assertTrue(self.check({"plan/new": OK_EVENTS}))
@@ -511,7 +511,7 @@ class PreflightCheckTests(unittest.TestCase):
 
     def test_the_resolvers_own_model_is_probed_only_before_its_first_stage(self):
         # #1744: GPT-6 Astra's probe cost ~$0.19 of a small run's $1.31, and the Resolver runs only after a send-back.
-        self.state["settings"]["roles"]["astra"] = {"model": "plan/astra"}
+        self.state["settings"]["roles"]["task_planner"] = {"model": "plan/astra"}
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS, "plan/astra": OK_EVENTS}
         self.state["next_stage"] = "recognize_workflow"
         self.assertTrue(self.check(events))
@@ -630,7 +630,7 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
 
     def test_one_model_at_two_saved_levels_is_probed_and_certified_twice(self):
-        del self.state["settings"]["roles"]["astra"]
+        del self.state["settings"]["roles"]["task_planner"]
         self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
         self.state["settings"]["roles"]["completion"] = {"model": "plan/glm", "reasoning_effort": "medium"}
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
@@ -681,7 +681,7 @@ class PreflightCheckTests(unittest.TestCase):
         # probe is the evidence; it must reach the run as the pause its stage launch would.
         from providers.kilocode import KiloEffortError
 
-        self.state["settings"]["roles"] = {"glm": {"model": "plan/glm", "reasoning_effort": "medium"}}
+        self.state["settings"]["roles"] = {"planner": {"model": "plan/glm", "reasoning_effort": "medium"}}
         seen = []
 
         def launch(role, *args, **kwargs):
@@ -697,7 +697,7 @@ class PreflightCheckTests(unittest.TestCase):
             preflight.check(runner, self.state, self.run_dir, self.root)
         self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
         self.assertIn("--glm-reasoning-effort high", str(caught.exception))
-        self.assertEqual(["glm"], seen, "the probe launch carries the role it proves")
+        self.assertEqual(["planner"], seen, "the probe launch carries the role it proves")
 
     def test_non_billing_adapters_make_no_probe_calls(self):
         runner = types.SimpleNamespace(opencode=types.SimpleNamespace(_config={"command": ["fake"]}))
@@ -868,7 +868,7 @@ class MixedProviderPreflightTests(unittest.TestCase):
                 "engine": "opencode",
                 "provider": "opencode",
                 "roles": {
-                    "astra": {"model": "plan/glm"},
+                    "task_planner": {"model": "plan/glm"},
                     "terra": {"model": "plan/glm"},
                     "sol": {"engine": "opencode", "provider": "kilocode", "model": "kilo/xiaomi/mimo"},
                 },
@@ -950,17 +950,22 @@ class MixedProviderPreflightTests(unittest.TestCase):
         self.assertTrue(self.check())
         self.assertEqual([(self.kilo, "kilo/xiaomi/mimo"), (self.primary, "plan/glm")], self.calls)
         self.assertEqual(
-            [(self.kilo, {"sol"}), (self.primary, {"astra", "terra"})],
+            [(self.kilo, {"sol"}), (self.primary, {"task_planner", "terra"})],
             [(adapter, set(checked)) for adapter, checked in self.logins],
         )
 
     def test_roles_bound_to_the_same_tool_share_one_login_and_one_probe_per_model(self):
         settings = self.state["settings"]
-        settings["roles"]["astra"] = {"engine": "opencode", "provider": "kilocode", "model": "kilo/xiaomi/mimo"}
-        settings["transport_identities"]["role:astra"] = {"provider": "kilocode", "identity": dict(self.kilo_identity)}
+        settings["roles"]["task_planner"] = {"engine": "opencode", "provider": "kilocode", "model": "kilo/xiaomi/mimo"}
+        settings["transport_identities"]["role:task_planner"] = {
+            "provider": "kilocode",
+            "identity": dict(self.kilo_identity),
+        }
         self.assertTrue(self.check(self.spy("opencode", billing=False)))
         self.assertEqual([(self.kilo, "kilo/xiaomi/mimo")], self.calls)
-        self.assertEqual([(self.kilo, {"astra", "sol"})], [(adapter, set(roles)) for adapter, roles in self.logins])
+        self.assertEqual(
+            [(self.kilo, {"task_planner", "sol"})], [(adapter, set(roles)) for adapter, roles in self.logins]
+        )
 
     def test_every_login_is_checked_before_the_first_request(self):
         order = []
@@ -1220,7 +1225,7 @@ class OwnedPreflightTests(unittest.TestCase):
         self.state = {
             "settings": {
                 "engine": "opencode",
-                "roles": {"astra": {"model": self.model}},
+                "roles": {"task_planner": {"model": self.model}},
                 "transport_identities": {
                     "opencode": {
                         "engine": "fixture",

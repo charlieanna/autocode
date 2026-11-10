@@ -73,7 +73,7 @@ class CliMacOsNativeTests(unittest.TestCase):
             "next_stage": "plan_finalize",
             "stages": [],
             "history": [],
-            "sessions": {"glm": "controlled-session"},
+            "sessions": {"planner": "controlled-session"},
             "planning": {"astra_calls": 1, "review_call_limit": 2},
             "settings": {
                 "joint_planning": True,
@@ -88,13 +88,13 @@ class CliMacOsNativeTests(unittest.TestCase):
                         "model": "controlled/reviewer",
                         "reasoning_effort": "high",
                     },
-                    "glm": {
+                    "planner": {
                         "engine": "opencode",
                         "provider": "opencode",
                         "model": "controlled/planner",
                         "reasoning_effort": "high",
                     },
-                    "astra": {
+                    "task_planner": {
                         "engine": "opencode",
                         "provider": "opencode",
                         "model": "controlled/astra",
@@ -443,12 +443,12 @@ class CliMacOsNativeTests(unittest.TestCase):
             record = {
                 "iteration": 1,
                 "stage": "plan_revise",
-                "role": "glm",
-                "route_role": "glm",
+                "role": "planner",
+                "route_role": "planner",
                 "command": [binary, "-I", "-S", "-B", "-c", "pass"],
                 "engine": "opencode",
                 "expected_session": "controlled-session",
-                "launch_route": deepcopy(self.state["settings"]["roles"]["glm"]),
+                "launch_route": deepcopy(self.state["settings"]["roles"]["planner"]),
                 "events": str(self.run / "iterations/001/plan-revise-01.jsonl"),
                 "output": str(self.run / "iterations/001/plan-revise-01.json"),
                 "before_ref": str(before),

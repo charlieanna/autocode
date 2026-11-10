@@ -25,7 +25,7 @@ def main():
         evidence = Path(tempfile.mkdtemp(prefix="autocode-opencode-evidence-")).resolve()
         subprocess.run(["git", "init", "-q", str(root)], check=True)
         summary = []
-        for role in ("astra", "sol"):
+        for role in ("task_planner", "sol"):
             command, env, _ = opencode.launch(role, root, evidence, None, opencode.DEFAULT_MODELS[role], None, False)
             instructions = 'Do not read or edit files. Return only this JSON object: {"ok":true}.'
             if role == "sol":

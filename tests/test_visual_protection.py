@@ -849,7 +849,7 @@ class PlanningRouteIdentityTests(unittest.TestCase):
                 "model": "saved/" + key,
                 "reasoning_effort": "high",
             }
-            for key in ("requirements", "glm", "plan_reviewer")
+            for key in ("requirements", "planner", "plan_reviewer")
         }
 
     def record(self, stage, role, *, explicit=None):
@@ -877,8 +877,8 @@ class PlanningRouteIdentityTests(unittest.TestCase):
         # requirements route. Saved role keys intentionally contain no stages.
         for stage, role in (
             ("requirements", "requirements"),
-            ("plan", "glm"),
-            ("plan_revise", "glm"),
+            ("plan", "planner"),
+            ("plan_revise", "planner"),
             ("plan_review", "plan_reviewer"),
             ("plan_finalize", "plan_reviewer"),
             ("recognize_workflow", "requirements"),
@@ -891,9 +891,9 @@ class PlanningRouteIdentityTests(unittest.TestCase):
                 self.assertEqual(original["launch_route"], self.roles[role])
 
     def test_explicit_route_and_stage_identity_remain_independent_and_exact(self):
-        record, binding, command = self.record("plan_finalize", "plan_reviewer", explicit="glm")
+        record, binding, command = self.record("plan_finalize", "plan_reviewer", explicit="planner")
         original = self.owner._launch_record_identity(record, binding, command)
-        self.assertEqual(protection.record_route(original), "glm")
+        self.assertEqual(protection.record_route(original), "planner")
         for change in ({"route_role": "plan_reviewer"}, {"stage": "plan_review"}):
             with self.subTest(change=change), self.assertRaises(util.Paused):
                 protection.check_finished_record(original, {**original, **change})
@@ -901,7 +901,7 @@ class PlanningRouteIdentityTests(unittest.TestCase):
             self.owner._launch_record_identity({**record, "route_role": "plan_reviewer"}, binding, command)
 
     def test_saved_model_or_high_effort_record_cannot_be_substituted(self):
-        record, binding, command = self.record("plan", "glm")
+        record, binding, command = self.record("plan", "planner")
         for change in ({"model": "other/model"}, {"reasoning_effort": "low"}):
             supplied = {**record, "launch_route": {**record["launch_route"], **change}}
             with self.subTest(change=change), self.assertRaises(util.Paused):

@@ -38,7 +38,7 @@ def tested(effort, tokens=TOKENS, **extra):
 
 def reviewed(effort, tokens=TOKENS, **extra):
     """A finished Completion Reviewer attempt on GPT-6 Sol at `effort`, saved as role astra on route completion."""
-    return attempt(route(effort), tokens, stage="astra_review", role="astra", route_role="completion", **extra)
+    return attempt(route(effort), tokens, stage="astra_review", role="task_planner", route_role="completion", **extra)
 
 
 def climbed(cap, tokens=TOKENS):
@@ -216,10 +216,12 @@ class ClimbCapTests(unittest.TestCase):
         state = {
             "settings": {
                 "engine": "codex",
-                "roles": {"astra": dict(astra), "resolver": dict(astra)},
+                "roles": {"task_planner": dict(astra), "resolver": dict(astra)},
                 "limits": {"max_cost_usd": 0.03},
             },
-            "stages": [attempt(astra, stage="astra_resolve", role="astra", route_role="resolver", started_at=EARLIER)],
+            "stages": [
+                attempt(astra, stage="astra_resolve", role="task_planner", route_role="resolver", started_at=EARLIER)
+            ],
         }
         escalation.advance(state, "resolver", trigger="rejected_output", detail="invalid report")
         # 1,000 input and 200 output tokens at GPT-6 Astra's $10 / $50 per million cost $0.02.
@@ -236,20 +238,20 @@ class ClimbCapTests(unittest.TestCase):
         paused its next attempt; the astra route is on no ladder now, so that attempt launches on its route."""
         astra = route("high", "gpt-6-astra")
         state = {
-            "settings": {"engine": "codex", "roles": {"astra": dict(astra)}, "limits": {"max_cost_usd": 0.03}},
-            "stages": [attempt(astra, stage="astra_plan", role="astra", started_at=EARLIER)],
+            "settings": {"engine": "codex", "roles": {"task_planner": dict(astra)}, "limits": {"max_cost_usd": 0.03}},
+            "stages": [attempt(astra, stage="astra_plan", role="task_planner", started_at=EARLIER)],
         }
-        escalation.advance(state, "astra", trigger="rejected_output", detail="invalid task plan")
-        self.assertEqual(astra, state["settings"]["roles"]["astra"])
+        escalation.advance(state, "task_planner", trigger="rejected_output", detail="invalid task plan")
+        self.assertEqual(astra, state["settings"]["roles"]["task_planner"])
         # Spent $0.02; the next attempt, projected at another $0.02, would pass the $0.03 cap: it is priced as the
         # Planner's next attempt on its own route (#2019), not as a climb to a rung.
-        reason = stop(state, "astra_plan", "astra")
+        reason = stop(state, "astra_plan", "task_planner")
         self.assertIn(
             "The next Planner attempt (gpt-6-astra at high effort) did not launch: projected at $0.02", reason
         )
         self.assertNotIn("climb", reason)
         state["settings"]["limits"]["max_cost_usd"] = 0.04
-        climb_cap.guard(state, "astra_plan", "astra")
+        climb_cap.guard(state, "astra_plan", "task_planner")
 
     def test_each_role_is_priced_from_its_own_climb_and_attempt(self):
         # The Tester climbs High -> XHigh, then the Completion Reviewer Medium -> High.
@@ -338,7 +340,7 @@ class NextAttemptCapTests(unittest.TestCase):
     def test_the_projection_is_the_jobs_last_attempt_at_the_saved_routes_rate(self):
         # The Plan Reviewer's second stage is its next attempt, priced from the first stage's tokens; a route the
         # person moved to a dearer model prices those tokens at the new model's rate.
-        challenge = attempt(route("medium"), stage="astra_challenge", role="astra", route_role="plan_reviewer")
+        challenge = attempt(route("medium"), stage="astra_challenge", role="task_planner", route_role="plan_reviewer")
         state = {
             "settings": {
                 "engine": "codex",
@@ -383,7 +385,7 @@ class NextAttemptCapTests(unittest.TestCase):
         self.assertIn("The next Tester attempt (zai-coding-plan/glm-5.3 at low effort) did not launch", reason)
         self.assertIn("the last Tester attempt's 20,000 input and 800 output tokens", reason)
         # Another job's first attempt is not priced from it.
-        climb_cap.guard(state, "astra_plan", "astra")
+        climb_cap.guard(state, "astra_plan", "task_planner")
 
     def test_the_planners_draft_is_priced_from_its_own_job_not_the_gatherers(self):
         # #2592: astra_discovery is the Planner's job, not the Requirements Gatherer's, so the Planner's first
@@ -395,17 +397,17 @@ class NextAttemptCapTests(unittest.TestCase):
         state = {
             "settings": {
                 "engine": "opencode",
-                "roles": {"requirements": dict(glm), "glm": dict(glm)},
+                "roles": {"requirements": dict(glm), "planner": dict(glm)},
                 "limits": {"max_cost_usd": 0.03},
             },
             "stages": [gather],
         }
         self.assertEqual([], climb_cap.job_attempts(state, "astra_discovery"))
-        climb_cap.guard(state, "astra_discovery", "glm")  # the Planner's first attempt launches
+        climb_cap.guard(state, "astra_discovery", "planner")  # the Planner's first attempt launches
         state["stages"].append(
-            attempt(glm, {"input_tokens": 20000, "output_tokens": 800}, stage="astra_discovery", role="glm")
+            attempt(glm, {"input_tokens": 20000, "output_tokens": 800}, stage="astra_discovery", role="planner")
         )
-        reason = stop(state, "glm_revise", "glm")
+        reason = stop(state, "glm_revise", "planner")
         self.assertIn("The next Planner attempt (zai-coding-plan/glm-5.3 at low effort) did not launch", reason)
         self.assertIn("the last Planner attempt's 20,000 input and 800 output tokens", reason)
 

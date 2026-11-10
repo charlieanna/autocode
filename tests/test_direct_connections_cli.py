@@ -244,7 +244,10 @@ class DirectCliTests(unittest.TestCase):
                 "claude": {"transport": "anthropic", "endpoint": reviewer.url},
             },
             "roles": {
-                **{role: {"provider": "openai", "model": "fixture/producer"} for role in ("astra", "glm", "terra")},
+                **{
+                    role: {"provider": "openai", "model": "fixture/producer"}
+                    for role in ("task_planner", "planner", "terra")
+                },
                 **{
                     role: {"provider": "claude", "model": "fixture/reviewer"}
                     for role in ("completion", "plan_reviewer", "sol")

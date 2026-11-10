@@ -54,7 +54,7 @@ class PlanningTests(unittest.TestCase):
     def test_author_handoff_binds_one_criteria_delta_to_the_current_contract(self):
         state = self.state()
         state["workspace"] = "/fixture"
-        state["settings"]["roles"] = {"glm": {}}
+        state["settings"]["roles"] = {"planner": {}}
         for stage in ("astra_discovery", "glm_revise"):
             with self.subTest(stage=stage):
                 request = planning.prepare(state, stage, Path("/fixture/state.json"), None)
@@ -162,7 +162,7 @@ class PlanningTests(unittest.TestCase):
     def test_finalizer_context_requests_only_legal_obligation_lists(self):
         state = self.state()
         state.update(workspace="/fixture")
-        state["settings"]["roles"] = {"astra": {}}
+        state["settings"]["roles"] = {"task_planner": {}}
 
         prompt, _ = planning.context(state, "astra_finalize", Path("/fixture/state.json"))
 
@@ -358,10 +358,10 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(["greet.py", "test_greeting.py"], state["current_task"]["affected_paths"])
 
     def test_new_plan_review_route_uses_opencode_cursor_opus(self):
-        args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
+        args = SimpleNamespace(task_planner_model=None, terra_model=None, sol_model=None, planner_model=None)
         settings = {
             "engine": "opencode",
-            "roles": {r: {} for r in ("astra", "terra", "sol")},
+            "roles": {r: {} for r in ("task_planner", "terra", "sol")},
             "transport_identity": {"engine": "opencode"},
         }
         autocode_configure.configure_joint(settings, args, fresh=True, planning=planning)
@@ -370,7 +370,7 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual("opencode", settings["roles"]["plan_reviewer"]["engine"])
         for stage in ("astra_challenge", "astra_finalize"):
             self.assertEqual("plan_reviewer", planning.route_for(state, stage))
-        self.assertEqual("astra", planning.route_for({"settings": {"joint_planning": True}}, "astra_challenge"))
+        self.assertEqual("task_planner", planning.route_for({"settings": {"joint_planning": True}}, "astra_challenge"))
         self.assertIn("depends_on", planning.PROMPTS["astra_discovery"])
         self.assertIn("claimed independent milestone", planning.PROMPTS["astra_challenge"])
         self.assertIn("depends_on", planning.PROMPTS["glm_revise"])
@@ -393,19 +393,19 @@ class PlanningTests(unittest.TestCase):
 
     def test_three_planner_roles_can_use_distinct_models_and_efforts(self):
         args = SimpleNamespace(
-            astra_model=None,
+            task_planner_model=None,
             terra_model=None,
             sol_model=None,
             requirements_model="openai/gpt-6-luna",
             requirements_reasoning_effort="high",
-            glm_model="openai/gpt-6-sol",
-            glm_reasoning_effort="medium",
+            planner_model="openai/gpt-6-sol",
+            planner_reasoning_effort="medium",
             plan_reviewer_model="openai/gpt-6-sol",
             plan_reviewer_reasoning_effort="high",
         )
         settings = {
             "engine": "opencode",
-            "roles": {r: {} for r in ("astra", "terra", "sol")},
+            "roles": {r: {} for r in ("task_planner", "terra", "sol")},
             "transport_identity": {"engine": "opencode"},
         }
         autocode_configure.configure_joint(settings, args, fresh=True, planning=planning)
@@ -415,7 +415,7 @@ class PlanningTests(unittest.TestCase):
         )
         self.assertEqual(
             ("openai/gpt-6-sol", "medium"),
-            (settings["roles"]["glm"]["model"], settings["roles"]["glm"]["reasoning_effort"]),
+            (settings["roles"]["planner"]["model"], settings["roles"]["planner"]["reasoning_effort"]),
         )
         self.assertEqual(
             ("openai/gpt-6-sol", "high"),
@@ -432,8 +432,8 @@ class PlanningTests(unittest.TestCase):
             selected, explicit, later = (prefix + name for name in ("gpt-6-luna", "gpt-6-sol", "gpt-6-astra"))
             cases = (
                 ({}, default),
-                ({"glm_model": selected, "glm_reasoning_effort": "high"}, selected),
-                ({"glm_model": selected, "requirements_model": explicit}, explicit),
+                ({"planner_model": selected, "planner_reasoning_effort": "high"}, selected),
+                ({"planner_model": selected, "requirements_model": explicit}, explicit),
                 ({"single_model": selected}, selected),
             )
             for overrides, expected in cases:
@@ -443,7 +443,7 @@ class PlanningTests(unittest.TestCase):
                         "provider": provider,
                         "roles": {
                             role: {"model": "gpt-5.6-sol", "reasoning_effort": "medium"}
-                            for role in ("astra", "terra", "sol")
+                            for role in ("task_planner", "terra", "sol")
                         },
                         "transport_identity": {"auth_mode": "ChatGPT", "engine": engine},
                     }
@@ -454,10 +454,10 @@ class PlanningTests(unittest.TestCase):
                     self.assertEqual(default_effort, settings["roles"]["requirements"]["reasoning_effort"])
                     saved_requirements = copy.deepcopy(settings["roles"]["requirements"])
                     autocode_configure.configure_joint(
-                        settings, self.configure_args(glm_model=later), fresh=False, planning=planning
+                        settings, self.configure_args(planner_model=later), fresh=False, planning=planning
                     )
                     self.assertEqual(saved_requirements, settings["roles"]["requirements"])
-                    self.assertEqual(later, settings["roles"]["glm"]["model"])
+                    self.assertEqual(later, settings["roles"]["planner"]["model"])
 
     def test_enabling_opencode_joint_planning_inherits_only_missing_requirements(self):
         with patch.object(oc, "local_settings", return_value={"engine": "opencode"}):
@@ -469,7 +469,7 @@ class PlanningTests(unittest.TestCase):
                 autopilot=autopilot,
             )
         settings["joint_planning"] = False
-        for role in ("requirements", "glm", "plan_reviewer"):
+        for role in ("requirements", "planner", "plan_reviewer"):
             settings["roles"].pop(role)
         for existing in (None, "openai/gpt-6-luna"):
             with self.subTest(existing=existing):
@@ -490,7 +490,7 @@ class PlanningTests(unittest.TestCase):
                     patch.object(oc, "check_subscription_routes"),
                 ):
                     configured = autocode_configure.configure(
-                        self.configure_args(joint_planning=True, glm_model="openai/gpt-6-sol"),
+                        self.configure_args(joint_planning=True, planner_model="openai/gpt-6-sol"),
                         state,
                         planning=planning,
                         milestones=milestones,
@@ -504,19 +504,19 @@ class PlanningTests(unittest.TestCase):
         # from a stale default; Requirements is part of that family, so the override must
         # reach it instead of falling through to the provider default the user is escaping.
         args = SimpleNamespace(
-            astra_model=None,
+            task_planner_model=None,
             terra_model=None,
             sol_model=None,
             requirements_model=None,
             requirements_reasoning_effort=None,
-            glm_model="alibaba-token-plan/glm-5.3",
-            glm_reasoning_effort="medium",
+            planner_model="alibaba-token-plan/glm-5.3",
+            planner_reasoning_effort="medium",
             plan_reviewer_model=None,
             plan_reviewer_reasoning_effort=None,
         )
         settings = {
             "engine": "opencode",
-            "roles": {r: {} for r in ("astra", "terra", "sol")},
+            "roles": {r: {} for r in ("task_planner", "terra", "sol")},
             "transport_identity": {"engine": "opencode"},
         }
         autocode_configure.configure_joint(settings, args, fresh=True, planning=planning)
@@ -527,19 +527,19 @@ class PlanningTests(unittest.TestCase):
 
     def test_requirements_still_prefers_its_own_flag_over_the_glm_override(self):
         args = SimpleNamespace(
-            astra_model=None,
+            task_planner_model=None,
             terra_model=None,
             sol_model=None,
             requirements_model="openai/gpt-6-luna",
             requirements_reasoning_effort="high",
-            glm_model="alibaba-token-plan/glm-5.3",
-            glm_reasoning_effort="medium",
+            planner_model="alibaba-token-plan/glm-5.3",
+            planner_reasoning_effort="medium",
             plan_reviewer_model=None,
             plan_reviewer_reasoning_effort=None,
         )
         settings = {
             "engine": "opencode",
-            "roles": {r: {} for r in ("astra", "terra", "sol")},
+            "roles": {r: {} for r in ("task_planner", "terra", "sol")},
             "transport_identity": {"engine": "opencode"},
         }
         autocode_configure.configure_joint(settings, args, fresh=True, planning=planning)
@@ -568,7 +568,7 @@ class PlanningTests(unittest.TestCase):
         state = {
             "version": 3,
             "task": "Build greeting",
-            "settings": {"joint_planning": True, "roles": {"requirements": {}, "glm": {}, "plan_reviewer": {}}},
+            "settings": {"joint_planning": True, "roles": {"requirements": {}, "planner": {}, "plan_reviewer": {}}},
             "status": "RUNNING",
             "next_stage": "requirements_gather",
             "answers": {},
@@ -601,7 +601,7 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual("/run/requirements_gather-01.json", state["requirements_handoff"]["output"])
         self.assertNotIn("milestones", state["requirements_handoff"]["report"])
         self.assertEqual("requirements", planning.role_for(state, "requirements_gather"))
-        self.assertEqual("glm", planning.role_for(state, "astra_discovery"))
+        self.assertEqual("planner", planning.role_for(state, "astra_discovery"))
         self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
         requirements_prompt, _ = planning.context(
             {
@@ -683,7 +683,7 @@ class PlanningTests(unittest.TestCase):
     def test_planning_handoff_keeps_all_review_ids_beyond_six(self):
         state = self.state()
         state["workspace"] = "/fixture"
-        state["settings"]["roles"] = {"glm": {}}
+        state["settings"]["roles"] = {"planner": {}}
         ids = [f"C-{number}" for number in range(1, 10)]
         report = {
             "summary": "Nine independent findings",
@@ -830,7 +830,7 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(saved, state)
         self.assertIn("2/3 plan-review calls used", lifecycle.render(state))
         state.update(workspace="/fixture")
-        state["settings"]["roles"] = {"astra": {}}
+        state["settings"]["roles"] = {"task_planner": {}}
         prompt, _ = planning.context(state, "astra_finalize", Path("/fixture/state.json"))
         self.assertIn("3 plan-review calls in this cycle", prompt)
         planning.charge(state, "astra_finalize")
@@ -910,15 +910,15 @@ class PlanningTests(unittest.TestCase):
             os.environ,
             {
                 "OPENCODE_CONFIG_CONTENT": json.dumps(
-                    {"agent": {"autocode_glm": {"permission": {"custom_writer": "allow", "bash": "allow"}}}}
+                    {"agent": {"autocode_planner": {"permission": {"custom_writer": "allow", "bash": "allow"}}}}
                 )
             },
         ):
             command, env, config = oc.launch(
-                "glm", Path("/workspace"), Path("/run"), None, "zai-coding-plan/glm-5.3", None, False, planning=True
+                "planner", Path("/workspace"), Path("/run"), None, "zai-coding-plan/glm-5.3", None, False, planning=True
             )
         agent = command[command.index("--agent") + 1]
-        self.assertNotEqual("autocode_glm", agent)
+        self.assertNotEqual("autocode_planner", agent)
         policy = json.loads(env["OPENCODE_CONFIG_CONTENT"])["agent"][agent]["permission"]
         for key in ("*", "edit", "bash", "task", "external_directory"):
             self.assertEqual("deny", policy[key])
@@ -940,10 +940,10 @@ class PlanningTests(unittest.TestCase):
             self.assertEqual("PAUSED_BILLING_ROUTE", error.exception.status)
 
     def test_sol_defaults_to_opencode_and_saved_model_choices_are_preserved(self):
-        args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
+        args = SimpleNamespace(task_planner_model=None, terra_model=None, sol_model=None, planner_model=None)
         settings = {
             "engine": "opencode",
-            "roles": {r: {} for r in ("astra", "terra", "sol")},
+            "roles": {r: {} for r in ("task_planner", "terra", "sol")},
             "transport_identity": {"engine": "opencode"},
         }
         with patch.object(support, "local_settings", side_effect=AssertionError("No Codex login required")):
@@ -964,15 +964,15 @@ class PlanningTests(unittest.TestCase):
         args = SimpleNamespace(
             engine=None,
             joint_planning=False,
-            glm_model=None,
-            astra_model=None,
+            planner_model=None,
+            task_planner_model=None,
             terra_model=None,
             sol_model=None,
-            astra_provider=None,
+            task_planner_provider=None,
             terra_provider=None,
             sol_provider=None,
             reasoning_effort=None,
-            astra_reasoning_effort=None,
+            task_planner_reasoning_effort=None,
             terra_reasoning_effort=None,
             sol_reasoning_effort=None,
             headroom=None,
@@ -1003,20 +1003,23 @@ class PlanningTests(unittest.TestCase):
             )
         self.assertTrue(settings["joint_planning"])
         self.assertEqual("opencode", settings["engine"])
-        self.assertEqual("glm", planning.role_for({"settings": settings}, "astra_discovery"))
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
+        self.assertEqual("planner", planning.role_for({"settings": settings}, "astra_discovery"))
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["planner"]["model"])
         self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
         self.assertEqual(
             {"engine": "opencode", "provider": None, "model": "openai/gpt-6-astra"},
-            {key: settings["roles"]["astra"][key] for key in ("engine", "provider", "model")},
+            {key: settings["roles"]["task_planner"][key] for key in ("engine", "provider", "model")},
         )
         self.assertEqual(
             {"engine": "opencode", "provider": None, "model": "openai/gpt-6-sol"},
             {key: settings["roles"]["sol"][key] for key in ("engine", "provider", "model")},
         )
         self.assertEqual(
-            {"astra": "high", "terra": "medium", "sol": "high", "completion": "medium"},
-            {role: settings["roles"][role]["reasoning_effort"] for role in ("astra", "terra", "sol", "completion")},
+            {"task_planner": "high", "terra": "medium", "sol": "high", "completion": "medium"},
+            {
+                role: settings["roles"][role]["reasoning_effort"]
+                for role in ("task_planner", "terra", "sol", "completion")
+            },
         )
         routed = {"settings": settings}
         self.assertEqual("plan_reviewer", planning.route_for(routed, "astra_finalize"))
@@ -1109,7 +1112,7 @@ class PlanningTests(unittest.TestCase):
     def test_codex_engine_stays_single_cli_and_saved_non_joint_runs_do_not_switch(self):
         state = {"workspace": "/tmp/fixture", "iteration": 0}
         codex_args = {
-            "astra_model": "gpt-5.6-sol",
+            "task_planner_model": "gpt-5.6-sol",
             "terra_model": "gpt-5.6-terra",
             "sol_model": "gpt-5.6-sol",
             "completion_model": "gpt-5.6-sol",
@@ -1124,8 +1127,8 @@ class PlanningTests(unittest.TestCase):
             )
         self.assertFalse(settings.get("joint_planning"))
         self.assertEqual("codex", settings["engine"])
-        self.assertNotIn("glm", settings["roles"])
-        self.assertEqual("astra", planning.role_for({"settings": settings}, "astra_discovery"))
+        self.assertNotIn("planner", settings["roles"])
+        self.assertEqual("task_planner", planning.role_for({"settings": settings}, "astra_discovery"))
         with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}):
             joint = autocode_configure.configure(
                 self.configure_args(engine="codex", joint_planning=True, **codex_args),
@@ -1142,12 +1145,12 @@ class PlanningTests(unittest.TestCase):
                 "engine": "opencode",
                 "joint_planning": False,
                 "roles": {
-                    "astra": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
+                    "task_planner": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
                     "terra": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
                     "sol": {"model": "zai-coding-plan/glm-5.3"},
                 },
             },
-            "sessions": {"astra": "saved"},
+            "sessions": {"task_planner": "saved"},
         }
         kept = autocode_configure.configure(
             self.configure_args(), saved, planning=planning, milestones=milestones, autopilot=autopilot
@@ -1164,10 +1167,10 @@ class PlanningTests(unittest.TestCase):
             )
 
     def test_a_new_native_plan_reviewer_never_defaults_to_the_planners_model(self):
-        base = {"astra_model": "gpt-5.6-sol", "terra_model": "gpt-5.6-terra", "sol_model": "gpt-5.6-sol"}
+        base = {"task_planner_model": "gpt-5.6-sol", "terra_model": "gpt-5.6-terra", "sol_model": "gpt-5.6-sol"}
         for extra, expected in (
             ({}, "gpt-6-astra"),
-            ({"glm_model": "gpt-6-astra"}, "gpt-5.6-sol"),
+            ({"planner_model": "gpt-6-astra"}, "gpt-5.6-sol"),
             ({"plan_reviewer_model": "gpt-5.6-terra"}, "gpt-5.6-terra"),
         ):
             with (
@@ -1194,12 +1197,12 @@ class PlanningTests(unittest.TestCase):
                 self.configure_args(
                     engine="codex",
                     joint_planning=True,
-                    astra_model="gpt-5.6-sol",
+                    task_planner_model="gpt-5.6-sol",
                     terra_model="gpt-5.6-terra",
                     sol_model="gpt-5.6-sol",
                     completion_model="gpt-5.6-sol",
                     requirements_model="gpt-5.6-sol",
-                    glm_model="gpt-5.6-sol",
+                    planner_model="gpt-5.6-sol",
                     plan_reviewer_model="gpt-6-astra",
                     plan_reviewer_reasoning_effort="high",
                 ),
@@ -1235,7 +1238,7 @@ class PlanningTests(unittest.TestCase):
                     engine="codex",
                     unlimited_iterations=True,
                     max_seconds=0,
-                    astra_model="gpt-5.6-sol",
+                    task_planner_model="gpt-5.6-sol",
                     terra_model="gpt-5.6-terra",
                     sol_model="gpt-5.6-sol",
                     completion_model="gpt-5.6-sol",
@@ -1255,7 +1258,7 @@ class PlanningTests(unittest.TestCase):
         }
         before = copy.deepcopy(state)
         selected = autocode_configure.configure(
-            self.configure_args(joint_planning=True, glm_model="gpt-6-luna"),
+            self.configure_args(joint_planning=True, planner_model="gpt-6-luna"),
             state,
             planning=planning,
             milestones=milestones,
@@ -1299,9 +1302,9 @@ class PlanningTests(unittest.TestCase):
                 },
                 settings["roles"]["terra"],
             )
-            self.assertEqual("glm", planning.role_for({"settings": settings}, "astra_discovery"))
-            self.assertEqual("opencode", planning.engine_for(settings, "glm"))
-            self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
+            self.assertEqual("planner", planning.role_for({"settings": settings}, "astra_discovery"))
+            self.assertEqual("opencode", planning.engine_for(settings, "planner"))
+            self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["planner"]["model"])
             state = {"settings": settings, "sessions": {"terra": "opencode-terra-session"}}
             before = copy.deepcopy(state)
             resumed = autocode_configure.configure(
@@ -1395,12 +1398,12 @@ class JointFlow(unittest.TestCase):
             self.launch(["--run-dir", str(run), "--no-chat"], 2)
             run, state = self.saved()
         # The Requirements Gatherer runs first and names the job (#1860); no recognizer call before it.
-        self.assertEqual(["requirements", "glm"], [row["role"] for row in state["stages"]])
+        self.assertEqual(["requirements", "planner"], [row["role"] for row in state["stages"]])
         self.assertEqual("requirements_gather", state["stages"][0]["stage"])
         handoff = state["requirements_handoff"]
         self.assertEqual(state["stages"][0]["output"], handoff["output"])
         self.assertNotIn("milestones", json.loads(Path(handoff["output"]).read_text()))
-        self.assertNotEqual(state["sessions"]["requirements"], state["sessions"]["glm"])
+        self.assertNotEqual(state["sessions"]["requirements"], state["sessions"]["planner"])
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
@@ -1459,11 +1462,14 @@ class JointFlow(unittest.TestCase):
     def test_opencode_planning_approval_then_implementation_and_validation(self):
         run, state = self.draft()
         stages = state["stages"]
-        self.assertEqual(["requirements", "glm", "glm", "astra", "glm", "astra"], [r["role"] for r in stages])
+        self.assertEqual(
+            ["requirements", "planner", "planner", "task_planner", "planner", "task_planner"],
+            [r["role"] for r in stages],
+        )
         self.assertEqual(["opencode"] * 6, [r["engine"] for r in stages])
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
         self.assertEqual(2, state["planning"]["astra_calls"])
-        self.assertEqual(3, len({state["sessions"][role] for role in ("requirements", "glm", "plan_reviewer")}))
+        self.assertEqual(3, len({state["sessions"][role] for role in ("requirements", "planner", "plan_reviewer")}))
         self.assertFalse((self.project / "greet.py").exists())
         self.assertIn("Reject whitespace-only input", state["goal_contract"]["body"]["important_failure_cases"])
         for stage in stages:
@@ -1495,7 +1501,7 @@ class JointFlow(unittest.TestCase):
         config = json.loads(Path(sol["output"]).with_suffix(".opencode.json").read_text())
         self.assertEqual("deny", config["agent"]["autocode_sol"]["permission"]["edit"])
         completion = final["stages"][10]
-        self.assertEqual("astra", completion["role"])
+        self.assertEqual("task_planner", completion["role"])
         self.assertEqual("completion", completion["route_role"])
         self.assertEqual("openai/gpt-6-sol", completion["command"][completion["command"].index("--model") + 1])
         self.assertEqual("medium", completion["command"][completion["command"].index("--variant") + 1])
@@ -1871,7 +1877,7 @@ class NativeJointFlow(unittest.TestCase):
             [record["stage"] for record in state["stages"]],
         )
         self.assertEqual({"codex"}, {record["engine"] for record in state["stages"]})
-        self.assertEqual(3, len({state["sessions"][role] for role in ("requirements", "glm", "plan_reviewer")}))
+        self.assertEqual(3, len({state["sessions"][role] for role in ("requirements", "planner", "plan_reviewer")}))
         for record in state["stages"]:
             self.assertIsNone(record["expected_session"])
             self.assertEqual("read-only", record["command"][record["command"].index("--sandbox") + 1])

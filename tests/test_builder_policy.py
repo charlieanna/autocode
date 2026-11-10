@@ -935,7 +935,7 @@ class ToolProviderPolicyTests(unittest.TestCase):
                 "provider": provider.NAME,
                 "builder_retry": policy.configured(None, provider),
                 "roles": {
-                    **{role: route(role) for role in ("astra", "terra", "sol", "completion", "glm")},
+                    **{role: route(role) for role in ("task_planner", "terra", "sol", "completion", "planner")},
                     "plan_reviewer": route("plan_reviewer", model_pinned=True),
                 },
             },
@@ -977,10 +977,10 @@ class ToolProviderPolicyTests(unittest.TestCase):
                 "roles": {
                     **{
                         role: {"model": "claude-opus-5-5", "effort": "medium"}
-                        for role in ("astra", "completion", "plan_reviewer")
+                        for role in ("task_planner", "completion", "plan_reviewer")
                     },
                     "terra": {"model": "mimo-v2.6-pro", "effort": "medium"},
-                    "glm": {"model": "mimo-v2.6-pro", "effort": "medium"},
+                    "planner": {"model": "mimo-v2.6-pro", "effort": "medium"},
                     "sol": {"model": "glm-5.2", "effort": "medium"},
                 },
                 "builder_retry": {"strong_model": "glm-5.3", "checker_model": "claude-opus-5-5"},
@@ -1118,10 +1118,10 @@ class ToolProviderPolicyTests(unittest.TestCase):
                 "roles": {
                     **{
                         role: {"model": "gpt-6-sol", "effort": "medium"}
-                        for role in ("astra", "sol", "completion", "plan_reviewer")
+                        for role in ("task_planner", "sol", "completion", "plan_reviewer")
                     },
                     "terra": {"model": "gpt-6-luna", "effort": "medium"},
-                    "glm": {"model": "gpt-6-luna", "effort": "medium"},
+                    "planner": {"model": "gpt-6-luna", "effort": "medium"},
                 },
             },
             CLAUDE_TOML,
@@ -1164,7 +1164,7 @@ class ToolProviderPolicyTests(unittest.TestCase):
             ("pinned Validator", lambda roles: roles["sol"].update(model_pinned=True), "openai/gpt-6-sol"),
             (
                 "checker model no role uses",
-                lambda roles: roles["glm"].update(model="openai/gpt-5.6-sol"),
+                lambda roles: roles["planner"].update(model="openai/gpt-5.6-sol"),
                 "zai-coding-plan/glm-5.3",
             ),
         ):

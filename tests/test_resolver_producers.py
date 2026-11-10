@@ -326,7 +326,7 @@ class ResolverProducerTests(unittest.TestCase):
     def test_budget_only_changes_retain_the_existing_diagnosis(self):
         self.ready()
         self.state["settings"].update(
-            roles={"astra": {"model": "reviewer"}},
+            roles={"task_planner": {"model": "reviewer"}},
             limits={"max_seconds": 100, "iteration_ceiling": 2},
             budget_origins={"max_seconds": "cli", "iteration_ceiling": "cli"},
         )
@@ -336,7 +336,7 @@ class ResolverProducerTests(unittest.TestCase):
         self.state.pop(human.PUBLIC, None)
         self.state["settings"]["limits"].update(max_seconds=200, iteration_ceiling=4)
         self.state["settings"]["budget_origins"].update(max_seconds="user", iteration_ceiling="user")
-        self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         self.state.update(status="RUNNING", next_stage="astra_review")
         self.apply("astra_review", self.decision())
         self.assertNotEqual("astra_resolve", self.state["next_stage"])

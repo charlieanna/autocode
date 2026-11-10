@@ -97,7 +97,7 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertEqual((4, False, 9), (args.max_iterations, args.unlimited_iterations, args.max_stage_seconds))
         self.write('single-model = "file-one"\n')
         args, _ = self.parse("Build it", "--astra-model", "typed")
-        self.assertEqual(("typed", None), (args.astra_model, args.single_model))
+        self.assertEqual(("typed", None), (args.task_planner_model, args.single_model))
 
     def test_engine_claude_selects_the_built_in_claude_provider(self):
         """#717: --engine claude, typed or in the project's file, is the facade engine with provider claude."""

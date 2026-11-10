@@ -26,6 +26,7 @@ try:
     from . import autocode_arena_policy as policy
     from . import autocode_failure_attribution as attribution
     from . import autocode_github as github
+    from . import autocode_names as names
     from .autocode_arena_store import ArenaError, Store, digest, encode, read_json, write_json
     from .autocode_issue import brief
     from .autocode_oracle_process import run as run_oracle
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_arena_policy as policy
     import autocode_failure_attribution as attribution
     import autocode_github as github
+    import autocode_names as names
     from autocode_arena_store import ArenaError, Store, digest, encode, read_json, write_json
     from autocode_issue import brief
     from autocode_oracle_process import run as run_oracle
@@ -227,17 +229,18 @@ EFFORT_FLAGS = (
     "resolver-reasoning-effort",
     "investigator-reasoning-effort",
 )
-PIN_ROLES = ("astra", "terra", "sol", "completion")
+PIN_ROLES = ("task_planner", "terra", "sol", "completion")
 
 
 def runner_options(options) -> argparse.Namespace:
     """Check the runner options an attempt forwards; ArenaError for an unsupported flag or value."""
     config = argparse.ArgumentParser(add_help=False, allow_abbrev=False, exit_on_error=False)
     for name in RUNNER_VALUES:
-        config.add_argument("--" + name)
+        config.add_argument(*names.spellings("--" + name), dest=name.replace("-", "_"))
     for name in EFFORT_FLAGS:
-        config.add_argument("--" + name, choices=EFFORTS)
-    config.add_argument("--pin-model-role", action="append", choices=PIN_ROLES)
+        config.add_argument(*names.spellings("--" + name), dest=name.replace("-", "_"), choices=EFFORTS)
+    # An old route name (astra) names its renamed route, as the runner's own flag takes it.
+    config.add_argument("--pin-model-role", action="append", type=names.current_route, choices=PIN_ROLES)
     config.add_argument("--joint-planning", action="store_true")
     try:
         selected, unknown = config.parse_known_args(list(options))

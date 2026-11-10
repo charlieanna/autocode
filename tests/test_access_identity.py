@@ -18,7 +18,7 @@ class AccessIdentityTests(unittest.TestCase):
             "config_sha256": "a" * 64,
         }
         self.current = {**self.old, "config_path": "/new/kilocode.toml"}
-        self.roles = {"glm": {"model": "plan/glm", "reasoning_effort": "low"}}
+        self.roles = {"planner": {"model": "plan/glm", "reasoning_effort": "low"}}
         self.state = {
             "settings": self.settings(self.current),
             "configuration_changes": [{"previous": self.settings(self.old), "selected": self.settings(self.current)}],
@@ -115,7 +115,7 @@ class AccessIdentityTests(unittest.TestCase):
         for field, value in (("model", "plan/other"), ("reasoning_effort", "high")):
             with self.subTest(field=field):
                 state = copy.deepcopy(self.state)
-                state["configuration_changes"][0]["previous"]["roles"]["glm"][field] = value
+                state["configuration_changes"][0]["previous"]["roles"]["planner"][field] = value
                 self.assertEqual([self.receipt], identity.equivalents(state, self.receipt))
 
     def test_tool_changed_and_changed_back_does_not_resurrect_older_locations(self):

@@ -95,7 +95,7 @@ class RepairTests(unittest.TestCase):
         schema.write_text(json.dumps(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json")))
         original = schema.read_bytes()
         _, record = runner.run_role(
-            role="astra",
+            role="task_planner",
             prompt="Repair the saved report",
             sandbox="read-only",
             workspace=self.root,
@@ -584,12 +584,12 @@ class RepairTests(unittest.TestCase):
         owned = self.root / ".autocode" / "candidate-inputs" / "alpha" / "app.py"
         owned.parent.mkdir(parents=True)
         owned.write_text("print('candidate')\n")
-        self.state["settings"]["roles"]["glm"] = {"model": "glm-model"}
+        self.state["settings"]["roles"]["planner"] = {"model": "glm-model"}
         self.state["next_stage"] = "astra_discovery"
         rejected = {"summary": "Plan the greeting service.", "code_refs": [".autocode/candidate-inputs/alpha/app.py:1"]}
         self.queue(
             stage="astra_discovery",
-            role="glm",
+            role="planner",
             error=ValueError(
                 "code_refs entry .autocode/candidate-inputs/alpha/app.py:1 is a file the runner or "
                 "a tool owns (.autocode/, .git/, __pycache__/ and caches): cite source files, which "
@@ -610,9 +610,11 @@ class RepairTests(unittest.TestCase):
             "report": {"requirements": [{"id": "R1", "text": "Print a greeting", "source_quote": "Print a greeting"}]},
             "output": "r.json",
         }
-        self.state["settings"]["roles"]["glm"] = {"model": "planner-model"}
+        self.state["settings"]["roles"]["planner"] = {"model": "planner-model"}
         self.state["next_stage"] = "astra_discovery"
-        self.queue(ValueError("$.requirement_trace[0]: missing requirement_id"), stage="astra_discovery", role="glm")
+        self.queue(
+            ValueError("$.requirement_trace[0]: missing requirement_id"), stage="astra_discovery", role="planner"
+        )
         data = json.loads(self.repair_request()["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(["R1"], [row["requirement_id"] for row in data["requirement_trace_rows"]])
 
@@ -630,7 +632,7 @@ class RepairTests(unittest.TestCase):
                 }
             },
         )
-        self.queue(stage="astra_finalize", role="astra")
+        self.queue(stage="astra_finalize", role="task_planner")
 
         prompt = self.repair_request()["prompt"]
         data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -671,7 +673,7 @@ class RepairTests(unittest.TestCase):
         self.state["settings"]["engine"] = "opencode"
         self.state.update(next_stage="astra_finalize", planning={"reports": copy.deepcopy(reports)})
         rejected = json.dumps({"summary": "Final", "contract": {"intended_outcome": "final-draft " + "f" * draft}})
-        self.queue(stage="astra_finalize", role="astra", report=rejected)
+        self.queue(stage="astra_finalize", role="task_planner", report=rejected)
         with (
             patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})),
             patch.object(runner.opencode, "prompt_for_schema", wraps=runner.opencode.prompt_for_schema) as decorate,
@@ -713,8 +715,8 @@ class RepairTests(unittest.TestCase):
         requirements = [{"id": "R1", "text": "Build a planner", "source_quote": "Build a planner."}]
         for stage, role in (
             ("requirements_gather", "requirements"),
-            ("astra_discovery", "astra"),
-            ("glm_revise", "astra"),
+            ("astra_discovery", "task_planner"),
+            ("glm_revise", "task_planner"),
         ):
             with self.subTest(stage=stage):
                 self.state.clear()
@@ -751,7 +753,11 @@ class RepairTests(unittest.TestCase):
                 error = "progressive planning requires one whole-product milestone"
                 rejected = {"summary": "Retain this rejected draft"}
                 self.queue(
-                    stage=stage, role="astra", schema=str(schema), error=ValueError(error), report=json.dumps(rejected)
+                    stage=stage,
+                    role="task_planner",
+                    schema=str(schema),
+                    error=ValueError(error),
+                    report=json.dumps(rejected),
                 )
 
                 request = self.repair_request()
@@ -790,14 +796,14 @@ class RepairTests(unittest.TestCase):
                 self.state["next_stage"] = "glm_revise"
                 schema = self.run / "saved.schema.json"
                 schema.write_text(json.dumps({"type": "object", "properties": fields}))
-                self.queue(stage="glm_revise", role="astra", schema=str(schema))
+                self.queue(stage="glm_revise", role="task_planner", schema=str(schema))
                 prompt = self.repair_request()["prompt"]
                 self.assertNotIn(runner.planning.PROGRESSIVE_POLICY, prompt)
 
     def test_gocode_report_repair_uses_the_full_schema_on_the_wire(self):
         self.state["next_stage"] = "astra_discovery"
         self.state["settings"]["engine"] = "opencode"
-        self.state["settings"]["roles"]["astra"]["provider"] = "gocode"
+        self.state["settings"]["roles"]["task_planner"]["provider"] = "gocode"
         schema = self.run / "discovery.schema.json"
         original = {
             "type": "object",
@@ -808,7 +814,7 @@ class RepairTests(unittest.TestCase):
         schema.write_text(json.dumps(original))
         self.queue(
             stage="astra_discovery",
-            role="astra",
+            role="task_planner",
             schema=str(schema),
             report=json.dumps({"summary": "Rejected draft"}),
             error=ValueError("Missing discovery evidence"),
@@ -904,7 +910,7 @@ class RepairTests(unittest.TestCase):
                 text = json.dumps(report)
                 record = self.stage_record(
                     report=None,
-                    role="astra",
+                    role="task_planner",
                     stage=stage,
                     engine="opencode",
                     event_rows=[event("text", text=text), terminal()],
@@ -1855,7 +1861,7 @@ class RepairTests(unittest.TestCase):
         self.assertIn("otherwise return it as the final response", call["prompt"])
         self.assertIn("Only the assigned report and reporting scratch directory", call["prompt"])
         handoff = json.loads(call["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
-        self.assertEqual("astra", handoff["open_findings"][0]["source"])
+        self.assertEqual("task_planner", handoff["open_findings"][0]["source"])
         self.assertEqual(self.state["findings_ledger"][0]["id"], handoff["open_findings"][0]["id"])
         self.assertEqual(support.criteria_definition(self.state["acceptance_criteria"]), handoff["acceptance_criteria"])
         self.assertIn("exactly one JSON object", call["prompt"])
@@ -1863,7 +1869,9 @@ class RepairTests(unittest.TestCase):
 
     def test_an_investigator_repair_repeats_where_its_probe_finds_the_cited_files(self):
         # Live run 2026-09-29: both repairs of a rejected probe guessed the cited file's path.
-        self.queue(role="astra", stage="investigate_stuck", error=ValueError("diagnosed causes' probes did not exit 0"))
+        self.queue(
+            role="task_planner", stage="investigate_stuck", error=ValueError("diagnosed causes' probes did not exit 0")
+        )
         self.state["next_stage"] = "investigate_stuck"
         with patch.object(runner, "run_role", side_effect=RuntimeError("fixture stop")) as launch:
             with self.assertRaises(RuntimeError):
@@ -2134,17 +2142,17 @@ class RepairTests(unittest.TestCase):
         """The per-task Planner (astra_plan) runs on the astra route, which no longer climbs GPT-6 Astra
         (#1345): a task plan rejected once report repair is spent pauses on the route it had."""
         self.state["settings"].update(engine="opencode", report_repair={"max_attempts": 0})
-        self.state["settings"]["roles"]["astra"].update(
+        self.state["settings"]["roles"]["task_planner"].update(
             engine="opencode", provider=None, model="openai/gpt-6-astra", reasoning_effort="high"
         )
-        record = self.stage_record(stage="astra_plan", role="astra")
+        record = self.stage_record(stage="astra_plan", role="task_planner")
         with self.assertRaises(support.Paused) as paused:
             runner.reject_completed_stage(self.state, self.run, record, ValueError("Missing task id"))
         self.assertEqual("PAUSED_INVALID_OUTPUT", paused.exception.status)
-        astra = self.state["settings"]["roles"]["astra"]
+        astra = self.state["settings"]["roles"]["task_planner"]
         self.assertEqual(("openai/gpt-6-astra", "high"), (astra["model"], astra["reasoning_effort"]))
         self.assertEqual([], self.state.get("reasoning_escalations", []))
-        self.assertEqual("a-session", self.state["sessions"]["astra"])
+        self.assertEqual("a-session", self.state["sessions"]["task_planner"])
 
     def test_rejected_active_is_not_reconciled_again(self):
         self.state["active_stage"] = {"rejected": True}
@@ -2571,7 +2579,7 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
             "--sandbox",
             "{sandbox}",
         ]
-        roles = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+        roles = ("task_planner", "terra", "sol", "completion", "planner", "plan_reviewer")
         config.write_text(
             'name = "receipt_repair_fixture"\noutput = '
             + json.dumps(getattr(self, "PROVIDER_OUTPUT", "report_file"))

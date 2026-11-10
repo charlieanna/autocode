@@ -28,7 +28,7 @@ class RouteAdvisoryCliTests(unittest.TestCase):
         self.assertNotIn("Model-route advisory", unchanged.stderr)
         shown = self.launch(["--run-dir", str(run), "--status"], 0)
         view = json.loads(shown.stdout)["view"]
-        self.assertEqual("gpt-5.6-terra", view["routes"]["astra"]["model"])
+        self.assertEqual("gpt-5.6-terra", view["routes"]["task_planner"]["model"])
         self.assertNotIn("Model-route advisory", shown.stderr)
 
     def test_quota_model_answer_warns_after_save_and_rejected_answer_does_not(self):
@@ -52,7 +52,7 @@ class RouteAdvisoryCliTests(unittest.TestCase):
         self.assertIn("Model-route advisory: selected Planner -> Builder", result.stderr)
         self.assertIn("Saved; no agent launched", result.stdout)
         view = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
-        self.assertEqual("gpt-5.6-terra", view["routes"]["astra"]["model"])
+        self.assertEqual("gpt-5.6-terra", view["routes"]["task_planner"]["model"])
         self.assertEqual("resume", view["needs"]["kind"])
 
 

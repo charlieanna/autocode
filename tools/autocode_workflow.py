@@ -313,7 +313,7 @@ def activate(state: RunState, *, approval_source):
 
 def checkpoint_schema(schema_dir):
     validation = goals.role_schema(support.read(schema_dir / "v2/sol-report.schema.json"), "sol")
-    decision = goals.role_schema(support.read(schema_dir / "v2/astra-decision.schema.json"), "astra")
+    decision = goals.role_schema(support.read(schema_dir / "v2/astra-decision.schema.json"), "task_planner")
     return goals.obj(
         {
             "validation": validation,
@@ -340,7 +340,7 @@ def rollback(state: RunState):
     state.setdefault("configuration_changes", []).append(
         {"at": support.now(), "reason": "Explicit rollback to legacy Validator routing", "previous_workflow": old}
     )
-    if cast(dict, state.get("validation", {})).get("reviewer_role") == "astra":
+    if cast(dict, state.get("validation", {})).get("reviewer_role") == "task_planner":
         state.setdefault("validation_archive", []).append(
             {"reason": "Routing rollback requires Validator revalidation", "validation": state.pop("validation")}
         )
@@ -366,7 +366,7 @@ CHECKPOINT = prompts.get("completion-checkpoint.md")
 
 def apply_checkpoint(runner, state: RunState, value, record, workspace, run_dir):
     guard(state)
-    if not enabled(state) or record.get("role") != "astra":
+    if not enabled(state) or record.get("role") != "task_planner":
         raise ValueError("Independent checkpoint must run under the approved Plan Reviewer role")
     support.validate_schema(
         value, design_coverage.extend_schema(checkpoint_schema(runner.SCHEMA_DIR), state, "astra_checkpoint")
@@ -398,7 +398,7 @@ def apply_checkpoint(runner, state: RunState, value, record, workspace, run_dir)
     # Reuse existing validators and goal transitions transactionally. These are two
     # logical results from ONE provider call, so persist only its single receipt.
     runner._apply_result(state, "sol", validation, record, workspace, run_dir)
-    cast(dict, state["validation"])["reviewer_role"] = "astra"
+    cast(dict, state["validation"])["reviewer_role"] = "task_planner"
     cast(dict, state["validation"])["final_audit"] = final_only(state)
     if changed_code_rework.queued(state, record):
         state["stages"] = state.get("stages", [])[:stages]

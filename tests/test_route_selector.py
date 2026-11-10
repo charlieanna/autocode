@@ -19,7 +19,7 @@ DEEPSEEK = "kilo/deepseek/deepseek-v4.1-flash"
 OPUS = "anthropic/claude-opus-5-5"
 LUNA = "openai/gpt-6-luna"
 FLASH = "xiaomi-token-plan-sgp/mimo-v2.6-flash"
-ALL_ROLES = ("requirements", "glm", "terra", "plan_reviewer", "sol", "completion", "astra")
+ALL_ROLES = ("requirements", "planner", "terra", "plan_reviewer", "sol", "completion", "task_planner")
 
 
 def candidate(model, *, tool="kilocode", account="Kilo Gateway", billing="pay per token", levels=None, probe=None):
@@ -151,21 +151,21 @@ class SelectionTests(unittest.TestCase):
         # Owner decisions 2026-10-20: GPT-6 Sol builds and reviews the plan; GLM requires, plans, and checks
         # Sol's work as Tester and Completion Reviewer (a checker never grades its own family).
         self.assertEqual(GLM, routes["requirements"]["model"])
-        self.assertEqual(GLM, routes["glm"]["model"])
+        self.assertEqual(GLM, routes["planner"]["model"])
         self.assertEqual(SOL, routes["terra"]["model"])
         self.assertEqual(SOL, routes["plan_reviewer"]["model"])
         self.assertEqual(GLM, routes["sol"]["model"])
         self.assertEqual(GLM, routes["completion"]["model"])
-        self.assertEqual(ASTRA, routes["astra"]["model"])
+        self.assertEqual(ASTRA, routes["task_planner"]["model"])
         self.assertEqual({role_route.AUTO_SELECTED}, {r["origin"] for r in routes.values()})
 
     def test_mimo_never_reviews_a_plan_and_claude_is_the_second_choice(self):
         # Owner decision 2026-10-20: MiMo reasoned 32-45k tokens per plan review and failed twice.
         opus = candidate(OPUS, tool="opencode", account="Anthropic", billing="pay per token")
         plans = [row for row in coding_plans() if row["model"] not in (SOL, ASTRA)]
-        result = selector.select(("requirements", "glm", "terra", "plan_reviewer"), [*plans, opus])
+        result = selector.select(("requirements", "planner", "terra", "plan_reviewer"), [*plans, opus])
         self.assertEqual(OPUS, result["routes"]["plan_reviewer"]["model"])
-        both = selector.select(("requirements", "glm", "terra", "plan_reviewer"), [*coding_plans(), opus])
+        both = selector.select(("requirements", "planner", "terra", "plan_reviewer"), [*coding_plans(), opus])
         self.assertEqual(SOL, both["routes"]["plan_reviewer"]["model"], "GPT-6 Sol first, even beside Claude")
 
     def test_gpt6_luna_builds_at_medium_and_no_gpt_model_checks_it(self):
@@ -190,13 +190,13 @@ class SelectionTests(unittest.TestCase):
     def test_claude_builds_when_gpt6_sol_is_not_connected(self):
         opus = candidate(OPUS, tool="opencode", account="Anthropic", billing="pay per token")
         plans = [row for row in coding_plans() if row["model"] not in (SOL, ASTRA)]
-        routes = selector.select(("requirements", "glm", "terra", "sol", "completion"), [*plans, opus])["routes"]
+        routes = selector.select(("requirements", "planner", "terra", "sol", "completion"), [*plans, opus])["routes"]
         self.assertEqual(OPUS, routes["terra"]["model"])
         self.assertNotEqual(OPUS, routes["completion"]["model"], "Claude never checks its own build")
 
     def test_without_sol_or_claude_the_person_is_offered_those_and_never_mimo(self):
         plans = [row for row in coding_plans() if row["model"] not in (SOL, ASTRA)]
-        result = selector.select(("requirements", "glm", "terra", "plan_reviewer"), plans)
+        result = selector.select(("requirements", "planner", "terra", "plan_reviewer"), plans)
         self.assertIsNone(result["routes"])
         stop = result["stop"]
         self.assertIn("Plan Reviewer: no qualified model is available.", stop)
@@ -219,12 +219,12 @@ class SelectionTests(unittest.TestCase):
         # GPT-6 Sol builds and reviews the plan, GLM 5.3 requires, plans and checks the build;
         # every route bills Kilo Gateway credits.
         self.assertEqual(GLM_KILO, routes["requirements"]["model"])
-        self.assertEqual(GLM_KILO, routes["glm"]["model"])
+        self.assertEqual(GLM_KILO, routes["planner"]["model"])
         self.assertEqual(SOL_KILO, routes["terra"]["model"])
         self.assertEqual(SOL_KILO, routes["plan_reviewer"]["model"])
         self.assertEqual(GLM_KILO, routes["sol"]["model"])
         self.assertEqual(GLM_KILO, routes["completion"]["model"])
-        self.assertEqual(ASTRA_KILO, routes["astra"]["model"])
+        self.assertEqual(ASTRA_KILO, routes["task_planner"]["model"])
         self.assertEqual("Kilo Gateway", routes["terra"]["account"])
 
     def test_one_family_connected_stops_in_account_terms_without_single_model(self):
@@ -335,4 +335,4 @@ class NextRouteTests(unittest.TestCase):
         permitted = selector.permitted_set(coding_plans())
         self.assertEqual({SOL, GLM, MIMO}, {c["model"] for c in permitted["terra"]})
         self.assertEqual({SOL, GLM}, {c["model"] for c in permitted["sol"]})
-        self.assertEqual({ASTRA}, {c["model"] for c in permitted["astra"]})
+        self.assertEqual({ASTRA}, {c["model"] for c in permitted["task_planner"]})

@@ -77,7 +77,7 @@ class VerboseTests(unittest.TestCase):
         verbose.enable()
         out = io.StringIO()
         ticks = iter([0.0, 0.1, 0.2, 0.3, 1.5])
-        report = verbose.reporter("glm", "gpt-x", stream=out, clock=lambda: next(ticks))
+        report = verbose.reporter("planner", "gpt-x", stream=out, clock=lambda: next(ticks))
         for _ in range(4):
             report("progress", "native provider stream advanced")
         report("tool", "command started")
@@ -87,7 +87,7 @@ class VerboseTests(unittest.TestCase):
     def test_progress_heartbeats_are_never_shown(self):
         verbose.enable()
         out = io.StringIO()
-        report = verbose.reporter("glm", None, stream=out, clock=lambda: 0.0)
+        report = verbose.reporter("planner", None, stream=out, clock=lambda: 0.0)
         for _ in range(4):
             report("progress", "native provider stream advanced")
         report("tool", "command started")
@@ -97,7 +97,7 @@ class VerboseTests(unittest.TestCase):
         verbose.enable()
         out = io.StringIO()
         ticks = iter([0.0, 1.5])
-        report = verbose.reporter("glm", None, stream=out, clock=lambda: next(ticks))
+        report = verbose.reporter("planner", None, stream=out, clock=lambda: next(ticks))
         report("tool", "tool finished")
         report("tool", "tool finished")
         self.assertEqual(["glm: tool: tool finished", "glm: tool: tool finished"], out.getvalue().splitlines())
@@ -106,7 +106,7 @@ class VerboseTests(unittest.TestCase):
         verbose.enable()
         out = io.StringIO()
         ticks = iter([0.0, 0.1, 0.2, 1.5])
-        report = verbose.reporter("glm", None, stream=out, clock=lambda: next(ticks))
+        report = verbose.reporter("planner", None, stream=out, clock=lambda: next(ticks))
         report("tool", "tool finished")
         report("tool", "tool finished")
         report("tool", "tool finished")

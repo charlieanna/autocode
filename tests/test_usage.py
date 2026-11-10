@@ -33,7 +33,7 @@ class TotalsTests(unittest.TestCase):
             "stages": [
                 stage("terra", "terra", "claude-haiku", cost=0.5),
                 stage("sol", "sol", GLM, tokens=(1_000_000, 0, 1_000_000)),
-                stage("astra_review", "astra", "claude-opus-5-5"),
+                stage("astra_review", "task_planner", "claude-opus-5-5"),
                 {"stage": "regression_proof", "role": "runner", "runner_owned": True, "engine": "runner"},
             ]
         }
@@ -41,7 +41,7 @@ class TotalsTests(unittest.TestCase):
         self.assertEqual({"reported": 0.5, "estimated": 2.8, "complete": False}, totals["cost_usd"])
         self.assertEqual(1, totals["unknown_stages"])  # unknown is not zero; runner-only work is free
         self.assertEqual(4, totals["stages"])
-        self.assertEqual({"astra", "runner", "sol", "terra"}, set(totals["by_role"]))
+        self.assertEqual({"task_planner", "runner", "sol", "terra"}, set(totals["by_role"]))
         self.assertEqual(0.5, totals["by_role"]["terra"]["reported_usd"])
 
     def test_a_run_whose_every_stage_has_a_cost_is_complete_until_a_stage_is_active(self):
@@ -52,7 +52,7 @@ class TotalsTests(unittest.TestCase):
         self.assertEqual("astra_review", usage.summary(state)["active_stage"])
 
     def test_partial_tokens_remain_a_lower_bound_after_the_attempt_is_archived(self):
-        interrupted = stage("glm_revise_report_repair", "glm", GLM, tokens=(1_000_000, 0, 1_000_000))
+        interrupted = stage("glm_revise_report_repair", "planner", GLM, tokens=(1_000_000, 0, 1_000_000))
         interrupted["metrics"]["provider_tokens_partial"] = True
         state = {"status": "WAITING_FOR_USER", "stages": [interrupted]}
         totals = run_view.view(state)["usage"]
@@ -144,9 +144,12 @@ class TotalsTests(unittest.TestCase):
             "status": "RUNNING",
             "settings": {"workflow": {"mode": "glm_first_v1"}, "roles": {"completion": {"model": "next-model"}}},
             "stages": [
-                stage("astra_challenge", "astra", "review-model", launch_route={"reasoning_effort": "high"}),
+                stage("astra_challenge", "task_planner", "review-model", launch_route={"reasoning_effort": "high"}),
                 stage(
-                    "astra_checkpoint_report_repair", "astra", "test-model", launch_route={"reasoning_effort": "medium"}
+                    "astra_checkpoint_report_repair",
+                    "task_planner",
+                    "test-model",
+                    launch_route={"reasoning_effort": "medium"},
                 ),
             ],
         }
@@ -165,7 +168,7 @@ class TotalsTests(unittest.TestCase):
             "stages": [
                 stage(
                     "astra_challenge",
-                    "astra",
+                    "task_planner",
                     "review-model",
                     launch_route={"reasoning_effort": "high"},
                     reasoning_effort="medium",
@@ -183,13 +186,13 @@ class TotalsTests(unittest.TestCase):
         state = {
             "status": "RUNNING",
             "stages": [
-                stage("astra_review", "astra", "review-model", route_role="completion"),
-                stage("astra_discovery", "glm", "plan-model"),
+                stage("astra_review", "task_planner", "review-model", route_role="completion"),
+                stage("astra_discovery", "planner", "plan-model"),
             ],
         }
         rows = run_view.view(state)["usage"]["accounting"]["attempts"]
         self.assertEqual(
-            [("astra", "completion"), ("glm", None)],
+            [("task_planner", "completion"), ("planner", None)],
             [(row["role"], row["route_role"]) for row in rows],
         )
 

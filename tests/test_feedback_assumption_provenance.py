@@ -210,7 +210,8 @@ class FeedbackAssumptionContextTests(unittest.TestCase):
                 "joint_planning": True,
                 "context_soft_tokens": 10000,
                 "roles": {
-                    role: {"model": "fixed-model", "engine": "codex"} for role in ("astra", "glm", "plan_reviewer")
+                    role: {"model": "fixed-model", "engine": "codex"}
+                    for role in ("task_planner", "planner", "plan_reviewer")
                 },
             },
         )

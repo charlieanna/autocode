@@ -130,8 +130,8 @@ class FigmaWorkflow(unittest.TestCase):
         self.assertEqual(7, len(state["stages"]))
         self.assertEqual(URL, state["figma_file"])
         self.assertEqual("gpt-5.6-sol", state["models"]["planner"])
-        self.assertEqual("gpt-5.6-sol", state["models"]["astra"])
-        self.assertEqual("high", state["reasoning_efforts"]["astra"])
+        self.assertEqual("gpt-5.6-sol", state["models"]["task_planner"])
+        self.assertEqual("high", state["reasoning_efforts"]["task_planner"])
         self.assertEqual(
             [
                 "requirements_planner",
@@ -313,7 +313,7 @@ class FigmaWorkflow(unittest.TestCase):
         ):
             ui.run_stage(
                 "plan-review",
-                ui.DEFAULT_MODELS["astra"],
+                ui.DEFAULT_MODELS["task_planner"],
                 "Review the brief",
                 self.root,
                 self.root,
@@ -427,7 +427,7 @@ class FigmaWorkflow(unittest.TestCase):
                 "brief": "brief",
                 "terra": "builder",
                 "sol": "validator",
-                "astra": "decision_owner",
+                "task_planner": "decision_owner",
             }.items()
         }
         (legacy_root / "handoff.json").write_text(json.dumps(current))

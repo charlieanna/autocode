@@ -33,8 +33,8 @@ class ProviderRouteRecoveryCliTests(unittest.TestCase):
             + "\n".join(
                 f'{role} = {{ model = "{model}", effort = "high" }}'
                 for role, model in {
-                    "astra": "glm-5",
-                    "glm": "glm-5",
+                    "task_planner": "glm-5",
+                    "planner": "glm-5",
                     "terra": "gpt-6.1-sol",
                     "sol": "gpt-6.1-sol",
                     "completion": "qwen3-235b-a22b-2507",

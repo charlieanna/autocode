@@ -210,10 +210,10 @@ class UnitFindingCases(FindingCase):
         """FND-06. Existing: partial (only unknown-id no-op); cross-reviewer closure untested."""
         state = {}
         review = astra("REWORK", "Empty names are accepted")
-        self.oracle.apply("astra", review)
+        self.oracle.apply("task_planner", review)
         findings.record_decision(state, review, {"output": "astra-01.json"})
-        fid = findings.open_entries(state, "astra")[0]["id"]
-        before = copy.deepcopy(findings.open_entries(state, "astra"))
+        fid = findings.open_entries(state, "task_planner")[0]["id"]
+        before = copy.deepcopy(findings.open_entries(state, "task_planner"))
         # The Validator tries to resolve the Plan Reviewer's finding by explicit id.
         cross = sol(dispositions=[resolved(fid, "validator believes it is fixed")])
         self.oracle.apply("sol", cross)
@@ -221,7 +221,7 @@ class UnitFindingCases(FindingCase):
         self.check(
             "f1_remains_open_after_cross_disposition",
             True,
-            any(row["id"] == fid for row in findings.open_entries(state, "astra")),
+            any(row["id"] == fid for row in findings.open_entries(state, "task_planner")),
         )
         self.check("cross_disposition_left_no_entry", 0, len(findings.open_entries(state, "sol")))
         # Citing another reviewer's id as a finding refresh is an explicit error.
@@ -230,13 +230,13 @@ class UnitFindingCases(FindingCase):
         self.expect_raises(
             "cross_citation_rejected", ValueError, findings.record_validation, state, steal, {"output": "sol-02.json"}
         )
-        self.check("f1_unchanged_after_rejected_citation", before, findings.open_entries(state, "astra"))
-        self.compare_with_oracle(state, "astra_ledger_matches_oracle", "astra")
+        self.check("f1_unchanged_after_rejected_citation", before, findings.open_entries(state, "task_planner"))
+        self.compare_with_oracle(state, "astra_ledger_matches_oracle", "task_planner")
         # Recovery: the owning reviewer closes it itself.
         own = astra("CONTINUE", dispositions=[resolved(fid, "rechecked after repair")])
-        self.oracle.apply("astra", self.to_oracle(own, state, "astra"))
+        self.oracle.apply("task_planner", self.to_oracle(own, state, "task_planner"))
         findings.record_decision(state, own, {"output": "astra-02.json"})
-        self.check("owner_can_close", 0, len(findings.open_entries(state, "astra")))
+        self.check("owner_can_close", 0, len(findings.open_entries(state, "task_planner")))
         self.finish(summary="FINDING_STILL_OPEN: cross-reviewer disposition was a no-op/error")
 
     def test_fnd07_disposition_outside_reviewed_scope(self):
@@ -471,7 +471,7 @@ class ControllerFindingCases(FindingCase):
         # An earlier Plan Reviewer finding must survive the BLOCKED report as well.
         prior = self.decision("REWORK", "Help text missing")
         findings.record_decision(self.state, prior, {"output": "astra-00.json"})
-        self.oracle.apply("astra", prior)
+        self.oracle.apply("task_planner", prior)
         blocked = self.decision("BLOCKED", "Missing authorization check")
         blocked["user_request"] = {
             "kind": "permission",
@@ -481,13 +481,13 @@ class ControllerFindingCases(FindingCase):
             "options": [],
             "proposed_delta": "",
         }
-        self.oracle.apply("astra", blocked, blocked=True)
+        self.oracle.apply("task_planner", blocked, blocked=True)
         record = {"output": str(self.run / "blocked.json"), "source_revision": support.snapshot(self.root)["revision"]}
         with self.forbid_real_launches(runner):
             runner.apply_result(self.state, "astra_review", blocked, record, self.root, self.run)
         lifecycle.human.evaluate(self.state)  # the runner's writer boundary publishes the request
         self.check("paused_waiting_for_user", "WAITING_FOR_USER", self.state["status"])
-        open_astra = [row["finding"] for row in findings.open_entries(self.state, "astra")]
+        open_astra = [row["finding"] for row in findings.open_entries(self.state, "task_planner")]
         self.check("new_finding_recorded", True, "Missing authorization check" in open_astra)
         self.check("older_finding_not_closed", True, "Help text missing" in open_astra)
         self.check(
@@ -495,7 +495,7 @@ class ControllerFindingCases(FindingCase):
             "Provide test credentials",
             self.state.get("user_request", {}).get("decision_needed", ""),
         )
-        self.compare_with_oracle(self.state, "astra_ledger_matches_oracle", "astra")
+        self.compare_with_oracle(self.state, "astra_ledger_matches_oracle", "task_planner")
         self.finish(summary="WAITING_WITH_OPEN_FINDING: BLOCKED review kept findings and paused for capability")
 
     def test_fnd04_replayed_report_applies_exactly_once(self):
@@ -604,12 +604,12 @@ class ControllerFindingCases(FindingCase):
         support.atomic_json(Path(resolve_record["output"]), diagnosis)
         with self.forbid_real_launches(runner):
             runner.apply_result(self.state, "astra_resolve", diagnosis, resolve_record, self.root, self.run)
-        fid = findings.open_entries(self.state, "astra")[0]["id"]
+        fid = findings.open_entries(self.state, "task_planner")[0]["id"]
         task_id = self.state["current_task"]["id"]
         self.check(
             "f1_linked_to_repair_task",
             task_id,
-            next(row["assigned_task"] for row in findings.open_entries(self.state, "astra")),
+            next(row["assigned_task"] for row in findings.open_entries(self.state, "task_planner")),
         )
         # The builder fixes the code and claims the finding is resolved in prose.
         (self.root / "greet.py").write_text("import sys\nsys.exit(0 if sys.argv[1:] else 2)\n")
@@ -656,7 +656,7 @@ class ControllerFindingCases(FindingCase):
         support.atomic_json(Path(fix_record["after_ref"]), support.snapshot(self.root))
         with self.forbid_real_launches(runner):
             runner.apply_result(self.state, "terra", claim, fix_record, self.root, self.run)
-        rows = findings.open_entries(self.state, "astra")
+        rows = findings.open_entries(self.state, "task_planner")
         self.check("fix_claim_did_not_close_f1", True, any(row["id"] == fid for row in rows))
         self.check(
             "no_disposition_recorded", True, all("resolved_in" not in row for row in self.state["findings_ledger"])
@@ -703,14 +703,14 @@ class ControllerFindingCases(FindingCase):
         # Both projects raise a finding with the same visible wording.
         report_a = self.decision("REWORK", "Missing authorization check")
         findings.record_decision(self.state, report_a, {"output": "astra-a1.json"})
-        self.oracle.apply("astra", report_a)
-        fid_a = findings.open_entries(self.state, "astra")[0]["id"]
+        self.oracle.apply("task_planner", report_a)
+        fid_a = findings.open_entries(self.state, "task_planner")[0]["id"]
         report_b = {**self.decision("REWORK", "Missing authorization check"), **envelope(b_state)}
         report_b["findings"] = [
             {"severity": "high", "finding": "Missing authorization check", "evidence": "event:check", "blocking": True}
         ]
         findings.record_decision(b_state, report_b, {"output": "astra-b1.json"})
-        fid_b = findings.open_entries(b_state, "astra")[0]["id"]
+        fid_b = findings.open_entries(b_state, "task_planner")[0]["id"]
         self.check(
             "same_label_two_ids", True, fid_a != fid_b or True
         )  # ids may collide textually; isolation is per-run
@@ -738,7 +738,9 @@ class ControllerFindingCases(FindingCase):
         )
         self.check("b_finding_unchanged", b_before, b_state["findings_ledger"])
         self.check(
-            "b_still_has_open_finding", True, any(row["id"] == fid_b for row in findings.open_entries(b_state, "astra"))
+            "b_still_has_open_finding",
+            True,
+            any(row["id"] == fid_b for row in findings.open_entries(b_state, "task_planner")),
         )
         self.check(
             "a_disposition_only_affected_a",

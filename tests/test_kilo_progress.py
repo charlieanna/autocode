@@ -30,7 +30,7 @@ class KiloProgressTests(unittest.TestCase):
         with patch.dict("os.environ", {"XDG_CONFIG_HOME": str(self.root)}):
             self.provider = kilocode.load("kilocode")
 
-    def launch(self, role="glm", *, configuration=None, schema=None):
+    def launch(self, role="planner", *, configuration=None, schema=None):
         inherited = {
             "KILO_CONFIG_CONTENT": json.dumps(configuration or {}),
             "UNCHANGED_SENTINEL": "retained",
@@ -64,7 +64,7 @@ class KiloProgressTests(unittest.TestCase):
             "agent": {"code": {"permission": {"edit": "deny"}}},
             "model": "retained/model",
         }
-        for role in ("glm", "astra", "plan_reviewer", "terra", "sol", "completion"):
+        for role in ("planner", "task_planner", "plan_reviewer", "terra", "sol", "completion"):
             with self.subTest(role=role):
                 argv, env, saved = self.launch(role, configuration=config)
                 # The launch adds its activity hook and turns Kilo's own compaction off (#1942); nothing else moves.
@@ -295,7 +295,7 @@ class RealKiloProgressTests(unittest.TestCase):
         }
         env = {**self.env, "KILO_CONFIG_CONTENT": json.dumps(configuration)}
         argv, env, _ = self.provider.launch(
-            "glm",
+            "planner",
             self.workspace,
             self.root,
             None,

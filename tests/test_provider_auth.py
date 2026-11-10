@@ -153,8 +153,8 @@ class ProviderAuthJobClassificationTests(unittest.TestCase):
         runtime = SimpleNamespace(support=support)
         record = {
             "stage": "investigate_stuck",
-            "role": "astra",
-            "route_role": "astra",
+            "role": "task_planner",
+            "route_role": "task_planner",
             "events": str(events),
             "exit_code": 1,
             "launch_route": {"model": "gpt-5.6-astra"},
@@ -175,7 +175,7 @@ class ProviderAuthJobClassificationTests(unittest.TestCase):
                 events.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
                 kind, reason = job_failure._reason(
                     SimpleNamespace(support=support),
-                    {"stage": "investigate_bug", "role": "astra", "events": str(events), "exit_code": 1},
+                    {"stage": "investigate_bug", "role": "task_planner", "events": str(events), "exit_code": 1},
                     "provider exited 1",
                 )
                 self.assertEqual("provider_auth", kind)

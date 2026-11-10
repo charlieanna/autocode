@@ -115,7 +115,7 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
 
     def test_configured_api_environment_is_accepted_for_all_roles_without_probe(self):
         for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"):
-            for role in ("glm", "astra", "terra", "sol"):
+            for role in ("planner", "task_planner", "terra", "sol"):
                 with patch.dict(oc.os.environ, {key: "fixture-only"}), patch.object(oc.subprocess, "run") as command:
                     oc.check_subscription_routes({role: {"model": "openai/gpt-5.6-sol"}})
                     command.assert_not_called()

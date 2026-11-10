@@ -135,10 +135,10 @@ class CertifiedLevelTests(unittest.TestCase):
         self.assertEqual("unverified", settings["effort_fits"]["terra"]["reason"])
 
     def test_an_unprobed_person_named_level_neither_moves_nor_pauses(self):
-        settings = self.unlisted("astra", "xhigh", origin=route_fit.USER_EXPLICIT)
-        settings["roles"]["glm"] = {"model": "m", "reasoning_effort": "high"}
+        settings = self.unlisted("task_planner", "xhigh", origin=route_fit.USER_EXPLICIT)
+        settings["roles"]["planner"] = {"model": "m", "reasoning_effort": "high"}
         route_fit.guard(settings)  # another role's certified level is not a listing
-        result = route_fit.fit(settings, "astra")
+        result = route_fit.fit(settings, "task_planner")
         self.assertEqual(("xhigh", "unverified"), (result.effort, result.reason))
 
     def test_a_certified_level_is_declared_even_where_the_listing_omits_it(self):

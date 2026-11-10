@@ -94,7 +94,7 @@ TIMEOUT_SECONDS = 90
 # Roles probed only when a stage that runs them is next (#1744). The Resolver (and the per-task Planner on the
 # same route) is usually GPT-6 Astra, the costliest model, and runs only after a send-back; its probe cost about
 # $0.19 of a small task's $1.31. Its first stage still proves access before that stage's own spend.
-DEFERRED = {"astra": ("astra_plan", "astra_resolve"), "resolver": ("astra_resolve",)}
+DEFERRED = {"task_planner": ("astra_plan", "astra_resolve"), "resolver": ("astra_resolve",)}
 DEFERRED_STAGES = frozenset(stage for stages in DEFERRED.values() for stage in stages)
 # Version 2 held one receipt set for the run's tool; it is still read (_saved_receipts).
 MARKER_VERSION = 3

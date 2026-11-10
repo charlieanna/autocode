@@ -410,7 +410,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         self.assertTrue(request["report_only"])
 
     def test_tester_repair_names_enclosing_proof_without_changing_rejected_judgments(self):
-        for stage, role in (("sol", "sol"), ("astra_checkpoint", "astra")):
+        for stage, role in (("sol", "sol"), ("astra_checkpoint", "task_planner")):
             with self.subTest(stage=stage):
                 self.setUp()
                 self.state["next_stage"] = stage
@@ -467,7 +467,7 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_combined_review_repair_receives_exact_batch_scope_without_reading_state(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
-        self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         self.state["current_task"] = {
             "id": "combined-task",
             "milestone_id": "B",
@@ -489,7 +489,7 @@ class DecisionRepairContextTests(unittest.TestCase):
                 repair_fixtures.RepairTests.queue(
                     self,
                     stage=stage,
-                    role="sol" if stage == "sol" else "astra",
+                    role="sol" if stage == "sol" else "task_planner",
                     report=json.dumps(rejected),
                     error=ValueError("Combined validation must report every batch milestone exactly once"),
                 )
@@ -508,7 +508,7 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_first_id_repair_also_names_independently_missing_protected_text(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
-        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         self.state["next_stage"] = "glm_revise"
         exact = "Nonpositive size must still raise ValueError after the change"
         self.state["goal_contract"]["body"]["important_failure_cases"] = [exact]
@@ -524,7 +524,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         repair_fixtures.RepairTests.queue(
             self,
             stage="glm_revise",
-            role="glm",
+            role="planner",
             report=json.dumps(value),
             error=ValueError("Planner report is missing requirement_trace[0].requirement_id"),
         )
@@ -558,11 +558,11 @@ class DecisionRepairContextTests(unittest.TestCase):
             },
             planning_history=[{"reports": {"astra_challenge": {"report": {"concerns": [{"id": "OLD"}]}}}}],
         )
-        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         repair_fixtures.RepairTests.queue(
             self,
             stage="glm_revise",
-            role="glm",
+            role="planner",
             report=json.dumps({"responses": []}),
             error=ValueError("Every plan-review concern needs exactly one response/decision using its ID"),
         )
@@ -581,7 +581,7 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_author_repair_offers_delta_only_when_its_pinned_schema_allows_it(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
-        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         before = copy.deepcopy(self.state)
         for stage in ("astra_discovery", "glm_revise"):
             for legacy in (False, True):
@@ -594,7 +594,7 @@ class DecisionRepairContextTests(unittest.TestCase):
                     path = self.run / f"{stage}-{legacy}.schema.json"
                     path.write_text(json.dumps(schema))
                     original_bytes = path.read_bytes()
-                    repair_fixtures.RepairTests.queue(self, stage=stage, role="glm", schema=str(path))
+                    repair_fixtures.RepairTests.queue(self, stage=stage, role="planner", schema=str(path))
                     request = repair_fixtures.RepairTests.repair_request(self)
                     data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
                     self.assertEqual(retention.token(self.state), data["retained_contract"])
@@ -607,7 +607,7 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_criterion_author_repairs_receive_exact_current_retention_references(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
-        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         before = copy.deepcopy(self.state)
         for stage in sorted(retention.AUTHORS - retention.FINAL):
             with self.subTest(stage=stage):
@@ -615,7 +615,7 @@ class DecisionRepairContextTests(unittest.TestCase):
                 self.state["next_stage"] = stage
                 expected = retention.inventory(self.state)
                 repair_fixtures.RepairTests.queue(
-                    self, stage=stage, role="glm", error=ValueError("Retained criterion reference is stale")
+                    self, stage=stage, role="planner", error=ValueError("Retained criterion reference is stale")
                 )
                 request = repair_fixtures.RepairTests.repair_request(self)
                 data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -641,9 +641,9 @@ class DecisionRepairContextTests(unittest.TestCase):
 
     def test_author_without_a_current_contract_gets_no_retention_rule_or_inventory(self):
         self.state.pop("goal_contract", None)
-        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         self.state["next_stage"] = "glm_revise"
-        repair_fixtures.RepairTests.queue(self, stage="glm_revise", role="glm")
+        repair_fixtures.RepairTests.queue(self, stage="glm_revise", role="planner")
         request = repair_fixtures.RepairTests.repair_request(self)
         data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertNotIn("retained_criteria", data)
@@ -653,7 +653,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
         self.state["next_stage"] = "astra_finalize"
-        repair_fixtures.RepairTests.queue(self, stage="astra_finalize", role="astra")
+        repair_fixtures.RepairTests.queue(self, stage="astra_finalize", role="task_planner")
         request = repair_fixtures.RepairTests.repair_request(self)
         data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertNotIn("retained_criteria", data)
@@ -663,11 +663,13 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_superseded_author_draft_is_referenced_without_doubling_the_complete_latest_draft(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
-        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         self.state["next_stage"] = "glm_revise"
         original = {"summary": "retained " + "x" * 120000}
         latest = {**original, "repair_fault": True}
-        pending = repair_fixtures.RepairTests.queue(self, stage="glm_revise", role="glm", report=json.dumps(original))
+        pending = repair_fixtures.RepairTests.queue(
+            self, stage="glm_revise", role="planner", report=json.dumps(original)
+        )
         original_source = runner.repair_report_source(pending["original"])
         with self.assertRaises(runner.ReportRepairQueued):
             repair_fixtures.RepairTests.reject_repair(
@@ -708,10 +710,10 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_discovery_repair_controller_supplies_the_approved_protected_contract(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
-        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["settings"]["roles"]["planner"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         self.state["next_stage"] = "astra_discovery"
         expected = runner.goals.protected_contract_snapshot(self.state)
-        repair_fixtures.RepairTests.queue(self, stage="astra_discovery", role="glm")
+        repair_fixtures.RepairTests.queue(self, stage="astra_discovery", role="planner")
         prompt = repair_fixtures.RepairTests.repair_request(self)["prompt"]
         data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertIsInstance(data["protected_contract"], dict)
@@ -720,7 +722,7 @@ class DecisionRepairContextTests(unittest.TestCase):
     def test_decision_repair_distinguishes_proposed_tasks_from_executed_history(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
-        self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["task_planner"])
         before = copy.deepcopy(self.state)
         for stage in ("astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"):
             with self.subTest(stage=stage):
@@ -750,7 +752,7 @@ class DecisionRepairContextTests(unittest.TestCase):
                     else decision
                 )
                 repair_fixtures.RepairTests.queue(
-                    self, error=rejected.exception, stage=stage, role="astra", report=json.dumps(report)
+                    self, error=rejected.exception, stage=stage, role="task_planner", report=json.dumps(report)
                 )
                 request = repair_fixtures.RepairTests.repair_request(self)
                 prompt = request["prompt"]
@@ -798,7 +800,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         repair_fixtures.RepairTests.queue(
             self,
             stage="astra_review",
-            role="astra",
+            role="task_planner",
             error=ValueError("The bounded task needs requirements"),
             report=json.dumps(report),
         )

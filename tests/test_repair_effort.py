@@ -9,7 +9,7 @@ MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
 def state(levels=None, **settings):
     return {
         "settings": {
-            "roles": {"glm": {"model": GLM, "reasoning_effort": "high"}},
+            "roles": {"planner": {"model": GLM, "reasoning_effort": "high"}},
             "declared_variants": {GLM: levels if levels is not None else ["high", "low", "max"]},
             **settings,
         }

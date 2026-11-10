@@ -215,7 +215,7 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
         workflow.review_stage(state)
         if retry_stage == "astra_review"
         else retry_stage
-        if record["role"] == "astra" or record.get("planning")
+        if record["role"] == "task_planner" or record.get("planning")
         else retry_stage
         if record["role"] in ("terra", "sol")
         else "astra_review"
@@ -1461,7 +1461,7 @@ def prepare_timeout_archived_completion(state: RunState, run_dir, workspace):
         or state.get("validation")
         or not attempt
         or recovery.get("stage") != "astra_review"
-        or recovery.get("role") != "astra"
+        or recovery.get("role") != "task_planner"
         or recovery.get("changed_files")
         or recovery.get("task_id") != task_id
         or any(

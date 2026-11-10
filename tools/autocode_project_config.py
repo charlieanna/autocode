@@ -106,8 +106,8 @@ USER_ONLY = {
     "provider": _PROVIDER,
     **{
         spelling.removeprefix("--"): _PROVIDER
-        for role in ("astra", "terra", "sol", "completion")
-        for spelling in names.spellings(f"--{role}-provider")
+        for role in ("task_planner", "terra", "sol", "completion")
+        for spelling in names.spellings(f"--{role.replace('_', '-')}-provider")
     },
     "task-preflight": "the prerequisite manifest is the operator's: pass --task-preflight",
 }

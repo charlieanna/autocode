@@ -111,7 +111,7 @@ class ObligationCase(unittest.TestCase):
             "acceptance_criteria": [],
             "status": "RUNNING",
             "next_stage": "requirements_gather",
-            "settings": {"joint_planning": True, "roles": {"requirements": {}, "glm": {}, "plan_reviewer": {}}},
+            "settings": {"joint_planning": True, "roles": {"requirements": {}, "planner": {}, "plan_reviewer": {}}},
         }
 
     def apply(self, stage, value):

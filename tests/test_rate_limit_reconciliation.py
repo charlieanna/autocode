@@ -30,8 +30,8 @@ class RateLimitReconciliationTests(unittest.TestCase):
             (self.root / "unexpected.py").write_text("changed")
         record = {
             "stage": "astra_discovery",
-            "role": "glm",
-            "route_role": "glm",
+            "role": "planner",
+            "route_role": "planner",
             "iteration": 1,
             "output": str(base.with_suffix(".json")),
             "events": str(base.with_suffix(".jsonl")),
@@ -43,14 +43,16 @@ class RateLimitReconciliationTests(unittest.TestCase):
             "accounted": False,
             "processes": [{"pid": 2**22 - 1, "birth_time": 0.0, "started": "missing", "group": 2**22 - 1}],
         }
-        self.state.update(active_stage=record, next_stage="astra_discovery", status="RUNNING", sessions={"glm": "old"})
+        self.state.update(
+            active_stage=record, next_stage="astra_discovery", status="RUNNING", sessions={"planner": "old"}
+        )
         return record
 
     def test_rate_limit_is_archived_and_escalated_without_provider_replay(self):
         self.attempt()
         self.assertTrue(runner.reconcile_rate_limited_stage(self.state, self.run, self.root))
         self.assertNotIn("active_stage", self.state)
-        self.assertNotIn("glm", self.state["sessions"])
+        self.assertNotIn("planner", self.state["sessions"])
         self.assertEqual("PAUSED_RATE_LIMIT", self.state["status"])
         self.assertTrue(self.state["stages"][-1]["abandoned"])
         self.assertEqual([], self.state["stages"][-1]["changed_files"])

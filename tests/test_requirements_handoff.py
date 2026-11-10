@@ -69,7 +69,7 @@ class RequirementsHandoffTests(unittest.TestCase):
                 "workspace": str(workspace),
                 "settings": {
                     "joint_planning": True,
-                    "roles": {"astra": {"engine": "opencode", "model": "fixture"}},
+                    "roles": {"task_planner": {"engine": "opencode", "model": "fixture"}},
                 },
                 "stages": [],
                 "answers": {},

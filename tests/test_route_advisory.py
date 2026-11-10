@@ -24,13 +24,13 @@ class RouteAdvisoryTests(unittest.TestCase):
             plan_reviewer="gpt-6-sol",
         )
         after = copy.deepcopy(before)
-        after["roles"]["glm"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        after["roles"]["planner"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
         held = copy.deepcopy((before, after))
         [message] = advisory.warnings(before, after)
         # The glm slot runs the Planner's work (954f51e3 relabelled it from Requirements).
         self.assertIn("Planner -> Builder", message)
         self.assertIn("--glm-model / --terra-model", message)
-        self.assertIn("glm", before["roles"]["glm"]["model"])
+        self.assertIn("planner", before["roles"]["planner"]["model"])
         self.assertIn("mimo-v2.6-pro", message)
         self.assertIn("original authorship", message)
         dispatch.enforce_cross_model_verification({"settings": after})
@@ -39,7 +39,7 @@ class RouteAdvisoryTests(unittest.TestCase):
     def test_requirements_and_plan_routes_are_reported(self):
         before = settings(requirements="glm-5.3", glm="glm-5.3", astra="gpt-6-sol", terra="mimo-v2.6-pro")
         after = copy.deepcopy(before)
-        after["roles"]["astra"]["model"] = "zai-coding-plan/glm-5.2"
+        after["roles"]["task_planner"]["model"] = "zai-coding-plan/glm-5.2"
         [message] = advisory.warnings(before, after)
         self.assertIn("Requirements -> Planner", message)
 
@@ -61,7 +61,7 @@ class RouteAdvisoryTests(unittest.TestCase):
         before = settings(requirements="glm-5.3", glm="gpt-6-sol", astra="mimo-v2.6-pro", terra="mimo-v2.6-pro")
         before["planning_flow"] = "v2"
         after = copy.deepcopy(before)
-        after["roles"]["glm"]["model"] = "glm-5.2"
+        after["roles"]["planner"]["model"] = "glm-5.2"
         [message] = advisory.warnings(before, after)
         self.assertIn("Requirements -> Planner", message)
         self.assertNotIn("Builder", message)
@@ -69,7 +69,7 @@ class RouteAdvisoryTests(unittest.TestCase):
     def test_existing_shared_link_and_effort_only_change_are_quiet(self):
         before = settings(glm="glm-5.3", terra="glm-5.2")
         after = copy.deepcopy(before)
-        after["roles"]["glm"].update(model="glm-5.3-flash", reasoning_effort="high")
+        after["roles"]["planner"].update(model="glm-5.3-flash", reasoning_effort="high")
         self.assertEqual([], advisory.warnings(before, after))
         self.assertEqual([], advisory.warnings(after, copy.deepcopy(after)))
 
@@ -96,7 +96,7 @@ class RouteAdvisoryTests(unittest.TestCase):
         before = settings(requirements="gpt-5.6-sol", glm="gpt-5.6-sol", astra="gpt-5.6-sol", terra="gpt-5.6-terra")
         before["engine"] = "codex"
         after = copy.deepcopy(before)
-        after["roles"]["astra"]["model"] = "gpt-5.6-terra"
+        after["roles"]["task_planner"]["model"] = "gpt-5.6-terra"
         [message] = advisory.warnings(before, after)
         self.assertIn("Planner -> Builder", message)
         self.assertIn("gpt-5.6-terra / gpt-5.6-terra", message)
@@ -108,7 +108,7 @@ class RouteAdvisoryTests(unittest.TestCase):
         before = settings(glm="glm-5.3", terra="mimo-v2.6-pro")
         before["single_model_mode"] = True
         after = copy.deepcopy(before)
-        after["roles"]["glm"]["model"] = "mimo-v2.6-pro"
+        after["roles"]["planner"]["model"] = "mimo-v2.6-pro"
         self.assertEqual(1, len(advisory.warnings(before, after)))
 
 

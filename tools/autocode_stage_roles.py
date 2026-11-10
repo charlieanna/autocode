@@ -23,8 +23,8 @@ STAGES = role_names.PLANNING_STAGES
 V2_STAGES = role_names.PLANNING_V2_STAGES
 V2_STAGE_ROLES = {
     "requirements": "requirements",
-    "plan": "glm",
-    "plan_revise": "glm",
+    "plan": "planner",
+    "plan_revise": "planner",
     "plan_review": "plan_reviewer",
     "plan_finalize": "plan_reviewer",
 }
@@ -45,8 +45,8 @@ def role_for(state: RunState, stage):
     if is_planning(state, stage) and stage == "requirements_gather":
         return "requirements"
     if is_planning(state, stage) and stage in ("astra_discovery", "glm_revise"):
-        return "glm"
-    return "astra" if stage.startswith("astra") else stage
+        return "planner"
+    return "task_planner" if stage.startswith("astra") else stage
 
 
 def engine_for(settings, role):

@@ -47,9 +47,11 @@ from pathlib import Path
 
 try:
     from . import autocode_adaptive_planning as adaptive
+    from . import autocode_names as names
     from . import autocode_roles as roles
 except ImportError:
     import autocode_adaptive_planning as adaptive
+    import autocode_names as names
     import autocode_roles as roles
 
 WORKFLOWS = ("build", "bugfix", "review", "design", "discuss")
@@ -68,7 +70,16 @@ STANDARD_IMPLEMENTATION = "standard"
 
 
 def retired_stage(state: RunState) -> str | None:
-    """Why a saved run cannot continue, when it is waiting at a stage this runtime no longer runs, else None."""
+    """Why a saved run cannot continue, when it is waiting at a stage this runtime no longer runs or was
+    saved under the old route names (autocode_names), else None."""
+    saved = ((state.get("settings") or {}).get("roles")) or {}
+    if old := sorted(role for role in saved if role in names.RETIRED_ROUTES):
+        renamed = ", ".join(f"{role} (now {names.route(role)})" for role in old)
+        return (
+            f"This run was saved before AutoCode named its stages after their jobs: its routes {renamed} "
+            "use the old names, which this runtime no longer runs. Its status and saved reports stay "
+            "readable; start a new task to continue the work."
+        )
     stage = str(state.get("next_stage") or "").removesuffix("_report_repair")
     if stage not in RETIRED_STAGES:
         return None

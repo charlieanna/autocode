@@ -112,7 +112,7 @@ class StageRepairPromptContracts(unittest.TestCase):
                     "rejection_reason": "Missing concern decisions",
                 }
             )
-        fixture.queue(stage=stage, role="astra", report=json.dumps(value))
+        fixture.queue(stage=stage, role="task_planner", report=json.dumps(value))
         request = fixture.repair_request()
         data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
         return fixture, request, data

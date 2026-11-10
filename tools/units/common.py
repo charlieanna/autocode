@@ -13,6 +13,7 @@ try:
     from .. import autocode_assignment as assignment
     from .. import autocode_check_replay as check_replay
     from .. import autocode_goals as goals
+    from .. import autocode_names as names
     from .. import autocode_stage_access as stage_access
     from .. import autocode_stage_context as stage_context
     from .. import autocode_support as support
@@ -25,6 +26,7 @@ except ImportError:
     import autocode_assignment as assignment
     import autocode_check_replay as check_replay
     import autocode_goals as goals
+    import autocode_names as names
     import autocode_stage_access as stage_access
     import autocode_stage_context as stage_context
     import autocode_support as support
@@ -70,7 +72,12 @@ def execution_request(state: "RunState", stage, state_path, schema_dir, *, repor
     schema = schema_override
     if schema is None:
         schema = goals.role_schema(
-            support.read(schema_dir / "v2" / f"{role}-{'decision' if role == 'astra' else 'report'}.schema.json"), role
+            support.read(
+                schema_dir
+                / "v2"
+                / f"{names.file_stem(role)}-{'decision' if role == 'task_planner' else 'report'}.schema.json"
+            ),
+            role,
         )
         if stage == "astra_checkpoint":
             schema = workflow.checkpoint_schema(schema_dir)

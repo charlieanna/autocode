@@ -66,7 +66,8 @@ class SurfaceTests(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            {"requirements", "glm", "plan_reviewer", "terra", "sol", "completion", "astra"}, set(claude.DEFAULT_MODELS)
+            {"requirements", "planner", "plan_reviewer", "terra", "sol", "completion", "task_planner"},
+            set(claude.DEFAULT_MODELS),
         )
         self.assertEqual(set(claude.DEFAULT_MODELS), set(claude.DEFAULT_REASONING_EFFORTS))
         self.assertLessEqual(set(claude.DEFAULT_MODELS.values()), set(claude.LISTED_MODELS))

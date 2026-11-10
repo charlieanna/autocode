@@ -19,7 +19,7 @@
         "evidence": "Today's default Requirements route (tools/providers/opencode.py DEFAULT_MODELS) and the Requirements route of the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
-    "glm": [
+    "planner": [
       {
         "model": "zai-coding-plan/glm-5.3",
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
@@ -139,7 +139,7 @@
         "evidence": "Completed MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
-    "astra": [
+    "task_planner": [
       {
         "model": "openai/gpt-6-astra",
         "routes": ["openai/gpt-6-astra", "kilo/openai/gpt-6-astra"],

@@ -137,8 +137,8 @@ class NativeCleanupGuidanceTests(unittest.TestCase):
             "settings": {
                 "planning_flow": "v2",
                 "roles": {
-                    "glm": {"model": "controlled/glm", "reasoning_effort": "high"},
-                    "astra": {"model": "controlled/mimo", "reasoning_effort": "high"},
+                    "planner": {"model": "controlled/glm", "reasoning_effort": "high"},
+                    "task_planner": {"model": "controlled/mimo", "reasoning_effort": "high"},
                     "sol": {"model": kilo.MODEL, "reasoning_effort": "high"},
                 },
                 "limits": {
@@ -153,7 +153,7 @@ class NativeCleanupGuidanceTests(unittest.TestCase):
             "active_stage": {
                 "iteration": 1,
                 "stage": "plan_finalize",
-                "role": "astra",
+                "role": "task_planner",
                 "engine": "opencode",
                 "output": "/controlled/run/iterations/001/plan-finalize-01.json",
                 "pid": 301,

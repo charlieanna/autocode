@@ -21,7 +21,7 @@ GLM = "zai-coding-plan/glm-5.3"
 def identity():
     return {
         "schema": 1,
-        "role": "glm",
+        "role": "planner",
         "engine": "opencode",
         "provider": "kilocode",
         "model": GLM,
@@ -47,11 +47,11 @@ class RouteExecutionEvidenceTests(unittest.TestCase):
         source = qualify_fixtures.state()
         source["settings"]["provider"] = "different-current-provider"
         rows = [
-            {"role": "glm", "engine": "opencode", "model": GLM, "execution_identity": facts},
-            {"role": "glm", "engine": "opencode", "model": GLM, "rejected": True},
+            {"role": "planner", "engine": "opencode", "model": GLM, "execution_identity": facts},
+            {"role": "planner", "engine": "opencode", "model": GLM, "rejected": True},
         ]
         with patch.object(qualify_routes.usage, "accounting", return_value={"attempts": rows}):
-            result = qualify_routes.run_record(source, "glm", GLM, {"date": "2026-10-27", "run": "r"})
+            result = qualify_routes.run_record(source, "planner", GLM, {"date": "2026-10-27", "run": "r"})
         evidence = result.get("execution_evidence")
         self.assertIsInstance(evidence, dict)
         self.assertEqual((1, 1), (evidence["known_attempts"], evidence["unknown_attempts"]))
@@ -60,7 +60,9 @@ class RouteExecutionEvidenceTests(unittest.TestCase):
         selector.parse(
             {
                 "as_of": "x",
-                "roles": {"glm": [{"model": GLM, "evidence": "fixture", "provenance": "qualified", "runs": [result]}]},
+                "roles": {
+                    "planner": [{"model": GLM, "evidence": "fixture", "provenance": "qualified", "runs": [result]}]
+                },
             }
         )
         self.assertEqual(original, result)
@@ -89,9 +91,9 @@ class RouteExecutionEvidenceTests(unittest.TestCase):
         import autocode_route_evidence as evidence
 
         selected = {"model": GLM, "tool": "kilocode", "billing": "subscription"}
-        settings = {"route_selection": {"routes": {"glm": selected}, "candidates": {"glm": [selected]}}}
+        settings = {"route_selection": {"routes": {"planner": selected}, "candidates": {"planner": [selected]}}}
         options = dict(
-            role="glm",
+            role="planner",
             engine="opencode",
             provider="kilocode",
             model=GLM,
@@ -109,7 +111,7 @@ class RouteExecutionEvidenceTests(unittest.TestCase):
                 elif fault == "malformed":
                     changed["route_selection"]["routes"] = []
                 else:
-                    changed["route_selection"]["routes"]["glm"][fault] = "another"
+                    changed["route_selection"]["routes"]["planner"][fault] = "another"
                 result = evidence.launch_identity(**{**options, "settings": changed})
                 self.assertIsNone(result["billing_kind"])
                 self.assertEqual("unrecorded", result["billing_basis"])
@@ -134,7 +136,7 @@ class RouteExecutionEvidenceTests(unittest.TestCase):
     def test_changed_or_malformed_attempt_bindings_remain_unknown(self):
         import autocode_route_evidence as evidence
 
-        row = {"role": "glm", "engine": "opencode", "model": GLM, "execution_identity": identity()}
+        row = {"role": "planner", "engine": "opencode", "model": GLM, "execution_identity": identity()}
         for fault in ("role", "model", "engine", "effort", "version", "secret", "runtime"):
             with self.subTest(fault=fault):
                 changed = copy.deepcopy(row)
@@ -154,9 +156,11 @@ class RouteExecutionEvidenceTests(unittest.TestCase):
                 )
 
     def test_optional_execution_records_reject_wrong_role_model_counts_and_duplicate_groups(self):
-        rows = [{"role": "glm", "engine": "opencode", "model": GLM, "execution_identity": identity()}]
+        rows = [{"role": "planner", "engine": "opencode", "model": GLM, "execution_identity": identity()}]
         with patch.object(qualify_routes.usage, "accounting", return_value={"attempts": rows}):
-            good = qualify_routes.run_record(qualify_fixtures.state(), "glm", GLM, {"date": "2026-10-27", "run": "r"})
+            good = qualify_routes.run_record(
+                qualify_fixtures.state(), "planner", GLM, {"date": "2026-10-27", "run": "r"}
+            )
         for fault in ("role", "model", "count", "duplicate", "endpoint"):
             with self.subTest(fault=fault):
                 result = copy.deepcopy(good)
@@ -180,7 +184,7 @@ class RouteExecutionEvidenceTests(unittest.TestCase):
                         {
                             "as_of": "x",
                             "roles": {
-                                "glm": [
+                                "planner": [
                                     {"model": GLM, "evidence": "fixture", "provenance": "qualified", "runs": [result]}
                                 ]
                             },
@@ -194,7 +198,7 @@ class RouteExecutionEvidenceTests(unittest.TestCase):
             "stages": [
                 {
                     "attempt_id": "001/req-01",
-                    "role": "glm",
+                    "role": "planner",
                     "stage": "glm_revise",
                     "engine": "opencode",
                     "reasoning_effort": "low",

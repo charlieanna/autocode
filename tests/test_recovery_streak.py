@@ -11,7 +11,7 @@ import autocode_recovery_progress as progress
 def checkpoint():
     return {
         "stage": "astra_challenge",
-        "role": "astra",
+        "role": "task_planner",
         "exit_code": 0,
         "finished_at": "2026-10-21T10:00:10+00:00",
         "output": "/run/review.json",

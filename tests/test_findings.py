@@ -118,7 +118,7 @@ class LedgerTests(unittest.TestCase):
             "findings_ledger": [
                 {
                     "id": "F-m3",
-                    "source": "astra",
+                    "source": "task_planner",
                     "status": "open",
                     "blocking": True,
                     "scope": {"milestone_id": "M3", "criteria": ["AC15", "AC17", "AC3", "AC8"]},
@@ -214,8 +214,8 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(
             {
                 ("sol", "Empty names are accepted"),
-                ("astra", "Empty names are accepted"),
-                ("astra", "No test for blank input"),
+                ("task_planner", "Empty names are accepted"),
+                ("task_planner", "No test for blank input"),
             },
             {(row["source"], row["finding"]) for row in findings.open_entries(state)},
         )
@@ -225,7 +225,9 @@ class LedgerTests(unittest.TestCase):
         findings.record_decision(state, astra("CONTINUE"), {"output": "astra-03.json"})
         self.assertEqual(3, len(findings.open_entries(state)))
         astra_id = next(
-            row["id"] for row in findings.open_entries(state, "astra") if row["finding"] == "No test for blank input"
+            row["id"]
+            for row in findings.open_entries(state, "task_planner")
+            if row["finding"] == "No test for blank input"
         )
         findings.record_decision(
             state,
@@ -233,7 +235,7 @@ class LedgerTests(unittest.TestCase):
             {"output": "astra-04.json"},
         )
         self.assertEqual(
-            {("sol", "Empty names are accepted"), ("astra", "Empty names are accepted")},
+            {("sol", "Empty names are accepted"), ("task_planner", "Empty names are accepted")},
             {(row["source"], row["finding"]) for row in findings.open_entries(state)},
         )
         with self.assertRaisesRegex(ValueError, "severity"):
@@ -279,7 +281,7 @@ class LedgerTests(unittest.TestCase):
 
     def test_astra_decision_schema_accepts_structured_findings_dispositions_and_task_ids(self):
         legacy = support.read(SCHEMA_DIR / "astra-decision.schema.json")
-        schema = goals.role_schema(legacy, "astra")
+        schema = goals.role_schema(legacy, "task_planner")
         strict = support.model_output_schema(schema)
         decision = {
             "status": "REWORK",
@@ -377,7 +379,7 @@ class LedgerTests(unittest.TestCase):
         findings.record_decision(state, astra("REWORK", "B"), {"output": "astra-01.json"})
         findings.assign(state, {"id": "task-1"}, {"kind": "implement"}, {"status": "REWORK"})
         rows = findings.handoff(state)
-        self.assertEqual({"sol", "astra"}, {row["source"] for row in rows})
+        self.assertEqual({"sol", "task_planner"}, {row["source"] for row in rows})
         self.assertEqual({"task-1"}, {row["assigned_task"] for row in rows})
         self.assertEqual(
             {
@@ -555,7 +557,7 @@ class LedgerTests(unittest.TestCase):
         state = {"goal_contract": None, "current_task": {"id": "t", "milestone_id": ""}}
         findings.record_validation(state, sol("A"), {"output": "sol-1.json"})
         findings.record_decision(state, astra("BLOCKED", "B"), {"output": "astra-1.json", "stage": "astra_review"})
-        self.assertEqual(["sol", "astra"], [row["source"] for row in findings.open_entries(state)])
+        self.assertEqual(["sol", "task_planner"], [row["source"] for row in findings.open_entries(state)])
         self.assertIsNone(findings.report_scope(state))
         self.assertEqual(2, len(findings.blocking_for_milestone(state, {"id": "M1"})))
         findings.restore_initial_plan_scopes(state)
@@ -580,7 +582,7 @@ class LedgerTests(unittest.TestCase):
             "current_task": {"id": "task-4"},
             "findings_ledger": [
                 {"id": "own", "source": "sol", "status": "open"},
-                {"id": "foreign", "source": "astra", "status": "open"},
+                {"id": "foreign", "source": "task_planner", "status": "open"},
                 {"id": "closed", "source": "sol", "status": "resolved"},
             ],
         }
@@ -663,7 +665,7 @@ class LedgerTests(unittest.TestCase):
     def test_report_repair_preserves_foreign_finding_as_new_owned_entry(self):
         state = {}
         findings.record_decision(state, astra("REWORK", "Tablet cards are too narrow"), {"output": "astra-01.json"})
-        astra_id = findings.open_entries(state, "astra")[0]["id"]
+        astra_id = findings.open_entries(state, "task_planner")[0]["id"]
         report = sol("Tablet cards are too narrow")
         report["findings"][0]["id"] = astra_id
         with self.assertRaisesRegex(ValueError, "not one open finding of this reviewer"):
@@ -671,7 +673,7 @@ class LedgerTests(unittest.TestCase):
         report["findings"][0]["id"] = ""
         findings.record_validation(state, report, {"output": "sol-repair.json", "report_repaired": True})
         self.assertEqual(2, len(findings.open_entries(state)))
-        self.assertEqual(astra_id, findings.open_entries(state, "astra")[0]["id"])
+        self.assertEqual(astra_id, findings.open_entries(state, "task_planner")[0]["id"])
         sol_entry = findings.open_entries(state, "sol")[0]
         self.assertNotEqual(astra_id, sol_entry["id"])
         self.assertEqual(report["findings"][0]["evidence"], sol_entry["evidence"])
@@ -684,7 +686,7 @@ class LedgerTests(unittest.TestCase):
         blocked = astra("BLOCKED", "Missing authorization check")
         blocked["finding_dispositions"] = [resolved(existing)]
         findings.record_decision(state, blocked, {"output": "astra-02.json"})
-        open_rows = findings.open_entries(state, "astra")
+        open_rows = findings.open_entries(state, "task_planner")
         self.assertEqual({"Help text missing", "Missing authorization check"}, {row["finding"] for row in open_rows})
         self.assertTrue(all(row["status"] == "open" for row in state["findings_ledger"]))
         self.assertEqual("astra-02.json", next(row["not_rechecked_in"] for row in open_rows if row["id"] == existing))

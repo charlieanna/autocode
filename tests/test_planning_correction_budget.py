@@ -33,7 +33,7 @@ def attempt(stage, output, *, finished="2026-11-08T00:00:00+00:00", **extra):
         "duration_seconds": 10,
         "finished_at": finished,
         "metrics": {"provider_tokens": {"input_tokens": 20, "output_tokens": 10}},
-        "role": "glm" if "astra_discovery" in stage else "astra",
+        "role": "planner" if "astra_discovery" in stage else "task_planner",
         "iteration": 1,
         "schema": "planner.schema.json",
         "contract_hash": "owner-contract",

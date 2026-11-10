@@ -278,7 +278,7 @@ class TaskAuthorTests(unittest.TestCase):
             "history": [],
             "acceptance_criteria": [],
             "settings": {
-                "roles": {r: {"model": f"model-{r}"} for r in ("astra", "terra", "sol")},
+                "roles": {r: {"model": f"model-{r}"} for r in ("task_planner", "terra", "sol")},
                 "context_soft_tokens": 1000,
                 "headroom": {"enabled": False},
             },
@@ -361,11 +361,11 @@ class PromptTests(unittest.TestCase):
         from units.common import ModelRequest
 
         return ModelRequest(
-            "astra",
+            "task_planner",
             "astra_review",
             "Review it.\nCURRENT HANDOFF DATA\n{}",
             {},
-            goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "astra"),
+            goals.role_schema(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json"), "task_planner"),
             False,
         )
 
@@ -379,7 +379,7 @@ class PromptTests(unittest.TestCase):
                 self.assertIn(RULE, review.prompt.split("CURRENT HANDOFF DATA\n", 1)[0])
         state = {
             "workspace": "/ws",
-            "settings": {"roles": {"astra": {"engine": "codex"}}},
+            "settings": {"roles": {"task_planner": {"engine": "codex"}}},
             "resolution_request": {"source_revision": "r"},
         }
         with (

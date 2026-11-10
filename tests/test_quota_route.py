@@ -188,7 +188,7 @@ class QuotaRouteTests(unittest.TestCase):
         self.validate(state, "zai-coding-plan/glm-5.3-flash")
 
     def test_completion_stop_asks_for_the_completion_route(self):
-        state = self.state(stage="astra_review", role="astra")
+        state = self.state(stage="astra_review", role="task_planner")
         state["active_stage"]["route_role"] = "completion"
         asked = quota_route.question(state, self.stopped(state))
         self.assertEqual("route-completion", asked["id"])
@@ -201,7 +201,7 @@ class QuotaRouteTests(unittest.TestCase):
                 self.assertIsNone(self.stopped(self.state(error)))
 
     def test_a_used_up_plan_sent_as_a_429_asks_for_the_completion_route(self):
-        state = self.state(PLAN_LIMIT, stage="astra_review", role="astra")
+        state = self.state(PLAN_LIMIT, stage="astra_review", role="task_planner")
         state["active_stage"]["route_role"] = "completion"
         self.assertEqual("PAUSED_BUDGET", support.failure_status(state["active_stage"]["events"]))
         asked = quota_route.question(state, self.stopped(state))
@@ -532,7 +532,7 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertEqual("abandoned", self.stopped(plain)["kind"])
 
     def test_a_job_route_without_a_flag_is_routable_but_never_named_by_a_flag(self):
-        state = self.job_state(stage="check_design", role="astra", route_role="architect")
+        state = self.job_state(stage="check_design", role="task_planner", route_role="architect")
         attempt = self.stopped(state)
         self.assertEqual(("job", "architect"), (attempt["kind"], attempt["role"]))
         asked = quota_route.question(state, attempt)
@@ -541,7 +541,7 @@ class QuotaRouteTests(unittest.TestCase):
         for kind in ("job", "stage"):
             self.assertNotRegex(quota_route.advice(asked, "001/validator-01", kind=kind), r"--[a-z-]+-model")
         investigator = self.stopped(
-            self.job_state(stage="investigate_stuck", role="astra", route_role="stuck_investigator")
+            self.job_state(stage="investigate_stuck", role="task_planner", route_role="stuck_investigator")
         )
         self.assertEqual(("job", "stuck_investigator"), (investigator["kind"], investigator["role"]))
         self.assertNotRegex(

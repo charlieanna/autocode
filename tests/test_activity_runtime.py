@@ -41,7 +41,7 @@ class ActivityRuntimeTests(unittest.TestCase):
     def args(self, **selected):
         values = dict(
             engine="codex",
-            astra_model=None,
+            task_planner_model=None,
             terra_model=None,
             sol_model=None,
             reasoning_effort=None,
@@ -718,7 +718,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         for attempt in range(3):
             runner.timeout_recovery_guard(self.state)
             _, record = self.interrupted_attempt()
-            record.update(role="astra", stage="astra_review", iteration=attempt + 1)
+            record.update(role="task_planner", stage="astra_review", iteration=attempt + 1)
             self.assertTrue(
                 runner.automatically_recover_timed_out_stage(
                     self.state, self.run, self.root, support.Paused("PAUSED_PROVIDER_TIMEOUT", "idle")
@@ -731,7 +731,7 @@ class ActivityRuntimeTests(unittest.TestCase):
             self.assertRaises(support.Paused) as caught,
         ):
             runner.run_role(
-                role="astra",
+                role="task_planner",
                 prompt="Inspect retained work",
                 sandbox="read-only",
                 workspace=self.root,
@@ -764,7 +764,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         events.write_text('{"type":"turn.completed"}\n')
         self.state["stages"].append(
             {
-                "role": "astra" if stage == "astra_review" else "sol",
+                "role": "task_planner" if stage == "astra_review" else "sol",
                 "stage": stage,
                 "output": str(self.run / f"{name}.json"),
                 "events": str(events),
@@ -839,9 +839,9 @@ class ActivityRuntimeTests(unittest.TestCase):
         support.atomic_json(Path(record["before_ref"]), support.snapshot(self.root))
         evidence = self.run / "tester-evidence.txt"
         evidence.write_text("Executed the approved checks.\n")
-        record.update(role="astra", stage="astra_review", original_stage="astra_review")
+        record.update(role="task_planner", stage="astra_review", original_stage="astra_review")
         self.state["sessions"].pop("terra", None)
-        self.state["sessions"]["astra"] = "expired-session"
+        self.state["sessions"]["task_planner"] = "expired-session"
         self.state["validation"] = {
             "verdict": "PASS",
             "reviewer_role": "sol",
@@ -1119,7 +1119,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual([], calls, "A plain resume must not restore a spent recovery allowance")
         self.assertEqual(3, self.state["consecutive_timeout_recoveries"])
         self.assertEqual(2, test_goals.GoalTests.invoke(self, "--resume-paused", "--grant-recovery", "1", role=inspect))
-        self.assertEqual(["astra"], calls)
+        self.assertEqual(["task_planner"], calls)
         self.assertEqual(history, self.state["automatic_timeout_recoveries"])
         grants = [event for event in self.state["user_events"] if event.get("kind") == "recovery_grant"]
         self.assertEqual([1], [event["amount"] for event in grants])

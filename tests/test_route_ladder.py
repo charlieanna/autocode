@@ -73,22 +73,22 @@ class ServeabilityTests(unittest.TestCase):
         self.assertEqual(route_ladder.EFFORT_LADDERS, route_ladder.ladders({}))
 
     def test_a_ladder_saved_under_astra_is_read_as_the_resolvers(self):
-        """Before #1345 the Astra ladder was persisted under "astra", the per-task Planner's
+        """Before #1345 the Astra ladder was persisted under "task_planner", the per-task Planner's
         route, while the Resolver runs on "resolver". The saved, serveability-filtered
         ladder is read as the Resolver's at read time; state.json is not migrated."""
         astra = [list(rung) for rung in route_ladder.EFFORT_LADDERS["resolver"]]
         sol = [list(rung) for rung in route_ladder.EFFORT_LADDERS["sol"]]
-        saved = {"route_ladders": {"effort": {"astra": astra, "sol": sol}}}
+        saved = {"route_ladders": {"effort": {"task_planner": astra, "sol": sol}}}
         read = route_ladder.ladders(saved)
         self.assertEqual({"resolver", "sol"}, set(read))
         self.assertEqual(route_ladder.EFFORT_LADDERS["resolver"], read["resolver"])
-        self.assertEqual({"effort": {"astra": astra, "sol": sol}}, saved["route_ladders"])
+        self.assertEqual({"effort": {"task_planner": astra, "sol": sol}}, saved["route_ladders"])
         # A saved run whose provider served no Astra kept the ladder empty: no Resolver ladder.
-        emptied = route_ladder.ladders({"route_ladders": {"effort": {"astra": [], "sol": sol}}})
+        emptied = route_ladder.ladders({"route_ladders": {"effort": {"task_planner": [], "sol": sol}}})
         self.assertEqual({"sol"}, set(emptied))
-        # The static table has no "astra" key either, so a run saved before
+        # The static table has no "task_planner" key either, so a run saved before
         # route_ladders existed climbs the Resolver and not the astra route.
-        self.assertNotIn("astra", route_ladder.EFFORT_LADDERS)
+        self.assertNotIn("task_planner", route_ladder.EFFORT_LADDERS)
 
     def test_an_escalation_refuses_a_rung_the_provider_cannot_serve(self):
         state = {
@@ -290,7 +290,7 @@ class ServeTests(unittest.TestCase):
 
     def test_serve_maps_astra_to_resolver(self):
         settings = self.settings()
-        served = route_ladder.serve(settings, ["some-custom-model"], roles={"astra"})
+        served = route_ladder.serve(settings, ["some-custom-model"], roles={"task_planner"})
         self.assertEqual([], served["route_ladders"]["effort"]["resolver"])
         self.assertEqual(
             [list(rung) for rung in route_ladder.EFFORT_LADDERS["sol"]],

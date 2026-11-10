@@ -202,7 +202,7 @@ class PausedSourceEditTests(unittest.TestCase):
             next_stage="astra_review",
             stop_reason="Completion report rejected",
             active_seconds=7,
-            sessions={"sol": "old-validator", "astra": "old-completion", "terra": "builder"},
+            sessions={"sol": "old-validator", "task_planner": "old-completion", "terra": "builder"},
         )
         retained = {
             key: copy.deepcopy(self.state[key])
@@ -229,7 +229,7 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertTrue(receipt.is_file())
         self.assertEqual("builder", self.state["sessions"]["terra"])
         self.assertNotIn("sol", self.state["sessions"])
-        self.assertNotIn("astra", self.state["sessions"])
+        self.assertNotIn("task_planner", self.state["sessions"])
         self.assertGreaterEqual(self.state["active_seconds"], 7)
         for key, value in retained.items():
             with self.subTest(retained=key):
@@ -244,13 +244,13 @@ class PausedSourceEditTests(unittest.TestCase):
             status="PAUSED_INVALID_OUTPUT",
             phase="PAUSED_OR_BLOCKED",
             next_stage="astra_review",
-            sessions={"sol": "validator", "astra": "completion"},
+            sessions={"sol": "validator", "task_planner": "completion"},
         )
         calls, provider = self.provider([])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
         self.assertEqual(["astra_review"], [call["stage"] for call in calls])
         self.assertEqual(validation, self.state["validation"])
-        self.assertEqual({"sol": "validator", "astra": "completion"}, self.state["sessions"])
+        self.assertEqual({"sol": "validator", "task_planner": "completion"}, self.state["sessions"])
         self.assertNotIn("validation_archive", self.state)
 
     def test_resume_revalidates_using_the_approved_combined_checkpoint_route(self):

@@ -583,7 +583,7 @@ class ControllerExitCliTests(unittest.TestCase):
                 record = {
                     "stage": "astra_challenge",
                     "iteration": 1,
-                    "role": "astra",
+                    "role": "task_planner",
                     "started_at": "now",
                     "pid": 2**22 - 1,
                     "processes": [{"pid": 2**22 - 1, "birth_identity": 1}],

@@ -120,7 +120,7 @@ class TransportAcceptanceCLITests(unittest.TestCase):
         self.start_options = ()
         options = list(self.options)
         for role, model in (
-            ("astra", "zai-coding-plan/glm-5.3"),
+            ("task_planner", "zai-coding-plan/glm-5.3"),
             ("sol", "zai-coding-plan/glm-5.3"),
             ("completion", "zai-coding-plan/glm-5.3"),
             ("terra", "xiaomi-token-plan-sgp/mimo-v2.6-pro"),

@@ -279,7 +279,7 @@ class ChangedCodeProofTests(unittest.TestCase):
         before = copy.deepcopy((self.proof, self.result, self.validation))
         self.assertTrue(proof_policy.ready(self.proof, self.result, self.validation))
         self.assertEqual(before, (self.proof, self.result, self.validation))
-        for role in ("sol", "astra"):
+        for role in ("sol", "task_planner"):
             self.assertTrue(proof_policy.ready(self.proof, self.result, {**self.validation, "reviewer_role": role}))
         for key, value in (("source_revision", "other"), ("proof_context", "other"), ("line", 3), ("accepted", False)):
             validation = copy.deepcopy(self.validation)

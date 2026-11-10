@@ -52,8 +52,8 @@ class OneListOfNames(unittest.TestCase):
 class NamesFollowTheJobNotTheAi(unittest.TestCase):
     def test_configured_slot_labels_follow_the_canonical_jobs_and_planning_flow(self):
         for role, expected in {
-            "astra": "Planner",
-            "glm": "Planner",
+            "task_planner": "Planner",
+            "planner": "Planner",
             "requirements": "Requirements",
             "plan_reviewer": "Plan Reviewer",
             "terra": "Builder",
@@ -65,7 +65,7 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
             "acceptance_tester": "Tester",
         }.items():
             self.assertEqual(expected, roles.route_name(role, {}))
-        self.assertEqual("Planner", roles.route_name("glm", {"settings": {"planning_flow": "v2"}}))
+        self.assertEqual("Planner", roles.route_name("planner", {"settings": {"planning_flow": "v2"}}))
         self.assertEqual("Future Role", roles.route_name("future_role", {}))
 
     def test_the_glm_slot_label_follows_the_planner_work_it_runs(self):
@@ -76,14 +76,14 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
 
         for flow in ({}, {"settings": {"planning_flow": "v2"}}):
             with self.subTest(flow=flow):
-                self.assertEqual("Planner", roles.route_name("glm", flow))
-        state = {"settings": {"roles": {"glm": {"model": "zai-coding-plan/glm-5.3"}}}}
-        self.assertEqual("Planner", route_record(state, "glm")["job"])
+                self.assertEqual("Planner", roles.route_name("planner", flow))
+        state = {"settings": {"roles": {"planner": {"model": "zai-coding-plan/glm-5.3"}}}}
+        self.assertEqual("Planner", route_record(state, "planner")["job"])
 
     def test_v2_names_follow_the_actual_planning_stages(self):
         from units.autoplanner import V2_STAGE_ROLES, V2_STAGES
 
-        expected = {"requirements": "Requirements", "glm": "Planner", "plan_reviewer": "Plan Reviewer"}
+        expected = {"requirements": "Requirements", "planner": "Planner", "plan_reviewer": "Plan Reviewer"}
         for stage in V2_STAGES:
             with self.subTest(stage=stage):
                 self.assertEqual(expected[V2_STAGE_ROLES[stage]], status.role_name(stage))
@@ -140,7 +140,7 @@ if __name__ == "__main__":
 class EachPipelineJobNamesTheSlotItRunsOn(unittest.TestCase):
     """route_for_job, which clients read, agrees with the slot the runner launches each stage on (#3087)."""
 
-    JOINT = ("requirements", "glm", "plan_reviewer", "astra", "terra", "sol", "completion")
+    JOINT = ("requirements", "planner", "plan_reviewer", "task_planner", "terra", "sol", "completion")
 
     def check(self, configured, joint, stages):
         state = {"settings": {"joint_planning": joint, "roles": {slot: {"model": slot} for slot in configured}}}
@@ -156,8 +156,8 @@ class EachPipelineJobNamesTheSlotItRunsOn(unittest.TestCase):
         self.assertEqual("plan_reviewer", roles.route_for_job("plan_reviewer", dict.fromkeys(self.JOINT)))
 
     def test_a_run_without_their_own_slots_reviews_on_astra(self):
-        self.check(("astra", "terra", "sol"), False, ("astra_plan", "astra_challenge", "astra_review"))
+        self.check(("task_planner", "terra", "sol"), False, ("astra_plan", "astra_challenge", "astra_review"))
 
     def test_an_unconfigured_job_has_no_slot(self):
-        self.assertIsNone(roles.route_for_job("requirements", {"astra": {}}))
-        self.assertIsNone(roles.route_for_job("unknown", {"astra": {}}))
+        self.assertIsNone(roles.route_for_job("requirements", {"task_planner": {}}))
+        self.assertIsNone(roles.route_for_job("unknown", {"task_planner": {}}))
