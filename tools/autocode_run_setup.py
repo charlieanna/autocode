@@ -392,7 +392,8 @@ def resolve(runner, args, parser):
         # Nothing before the first checkpoint gives a client's --status an answer, which is the silent
         # stretch after a person's first message. A note says what the launch is doing without saving a
         # partial checkpoint, which would pin the worktree discard_unused exists to remove.
-        launch_record.write(run_dir, "preparing_run", workspace=workspace)
+        if not read_only:  # --explain, --status and --dry-run answer from the request and touch nothing
+            launch_record.write(run_dir, "preparing_run", workspace=workspace)
         state_path = run_dir / "state.json"
         state = {
             "version": 2,

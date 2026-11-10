@@ -1035,6 +1035,18 @@ class InProcessCli(Fixture):
         self.assertEqual("resolving_models", json.loads(out)["starting"]["phase"])
         self.assertFalse(run.exists(), "a start that never saved a checkpoint leaves no run directory")
 
+    def test_a_read_only_launch_of_a_new_task_writes_no_note(self):
+        """A note belongs to a launch that will run. Asking what a not-yet-started task would do is a
+        read, and the installed-CLI explanation smoke refuses even one file left in the project."""
+        for flag in ("--explain", "--dry-run"):
+            with self.subTest(flag=flag):
+                before = tree_snapshot(self.root)
+                code, _, err = self.explain_read(
+                    "Build a greeting CLI", flag, "--no-chat", "--workspace", str(self.project)
+                )
+                self.assertEqual(0, code, err)
+                self.assertEqual(before, tree_snapshot(self.root), f"{flag} wrote into the project")
+
     def test_a_note_of_another_version_answers_the_refusal_it_answered_before(self):
         """A client that reads only views must not be told a run is starting by a note it cannot parse."""
         run = self.project / ".autocode" / "runs" / "20261109-120000-future-abcdef"
