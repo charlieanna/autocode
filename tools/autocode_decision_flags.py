@@ -82,6 +82,7 @@ START_FLAGS = (
     "--blind-tests",
     "--brief",
     "--brief-file",
+    "--build-in-worktree",
     "--builder-strong-model",
     "--compact-bugfix-planning",
     "--completion-model",

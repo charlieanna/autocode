@@ -2724,6 +2724,14 @@ class TerminalChatTests(unittest.TestCase):
             argv += ["--", *options]
         return subprocess.run(argv, input=replies, capture_output=True, text=True, env=self.env, timeout=600)
 
+    def built(self, name="greet.py"):
+        """Where the chat built ``name``: in the task worktree its run moved to once the plan was approved
+        (autocode_build_worktree). The person's folder is not written."""
+        self.assertFalse((self.workspace / name).exists(), "the person's folder is not written")
+        found = sorted((self.workspace / ".autocode" / "worktrees").glob(f"*/{name}"))
+        self.assertEqual(1, len(found), found)
+        return found[0]
+
     def answers(self):
         proc = subprocess.run(
             [sys.executable, str(AUTOCODE), "events", "--workspace", str(self.workspace)],
@@ -2735,6 +2743,7 @@ class TerminalChatTests(unittest.TestCase):
         return {row["question_id"]: row["text"] for row in rows if row.get("kind") == "answer"}
 
     def test_a_person_confirms_the_understanding_approves_the_plan_and_the_run_completes(self):
+        (self.workspace / "notes.txt").write_text("the person's own uncommitted note\n")
         proc = self.chat(BRIEF, replies="y\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         out = proc.stdout
@@ -2750,7 +2759,30 @@ class TerminalChatTests(unittest.TestCase):
         self.assertEqual(1, out.count("[C1] Greeting contract holds"), out)
         self.assertRegex(out, r"AutoCode: Approved plan · revision \d+\. /plan shows it\.")
         self.assertTrue(out.rstrip().endswith("Done."), out[-500:])
-        self.assertTrue((self.workspace / "greet.py").is_file())
+        built = self.built()
+        # Planned in the folder, built on a branch of its own: the chat says so once, after the approval,
+        # with what the build leaves out, and the delivery is committed on that branch, never merged.
+        branch = subprocess.run(
+            ["git", "-C", str(built.parent), "for-each-ref", "--format=%(refname:short)", "refs/heads/autocode/"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        self.assertEqual(1, len(branch), branch)
+        self.assertEqual(1, out.count(f"I build this on its own branch, {branch[0]}, in a separate copy of"), out)
+        self.assertLess(out.index("Approved plan · revision"), out.index("I build this on its own branch"))
+        self.assertIn("Not included from your folder: notes.txt.", out)
+        self.assertIn("When it is done, review and merge the branch; I never merge it myself.", out)
+        self.assertEqual("the person's own uncommitted note\n", (self.workspace / "notes.txt").read_text())
+        self.assertFalse((built.parent / "notes.txt").exists(), "uncommitted files are not part of the build")
+        committed = subprocess.run(
+            ["git", "-C", str(self.workspace), "show", f"{branch[0]}:greet.py"], capture_output=True, text=True
+        )
+        self.assertEqual(built.read_text(), committed.stdout, committed.stderr)
+        head = subprocess.run(
+            ["git", "-C", str(self.workspace), "branch", "--show-current"], capture_output=True, text=True, check=True
+        )
+        self.assertNotEqual(branch[0], head.stdout.strip(), "the person's checkout stays on its own branch")
 
     def test_yes_correct_reaches_plan_review_without_repeating_requirements(self):
         proc = self.chat(BRIEF, replies="yes correct\n")
@@ -2829,7 +2861,7 @@ class TerminalChatTests(unittest.TestCase):
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertNotIn("no run mode", proc.stderr)
         self.assertIn("Approve understanding and prepare plan?", proc.stdout, "Requirements comes first")
-        self.assertTrue((self.workspace / "greet.py").is_file())
+        self.assertTrue(self.built().is_file())
 
         explicit = self.chat("--mode", "quick", BRIEF, options=())
         self.assertEqual(1, explicit.returncode, explicit.stdout + explicit.stderr)
@@ -2847,13 +2879,13 @@ class TerminalChatTests(unittest.TestCase):
         resumed = self.chat(replies="y\n\n", options=())
         self.assertEqual(0, resumed.returncode, resumed.stdout + resumed.stderr)
         self.assertIn("Plan to approve:", resumed.stdout)
-        self.assertTrue((self.workspace / "greet.py").is_file())
+        self.assertTrue(self.built().is_file())
 
     def test_with_nothing_open_the_chat_asks_what_to_do_and_starts_it(self):
         proc = self.chat(replies=BRIEF + "\ny\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertTrue(proc.stdout.startswith("What do you want done? "), proc.stdout[:200])
-        self.assertTrue((self.workspace / "greet.py").is_file())
+        self.assertTrue(self.built().is_file())
 
     def test_with_several_runs_open_the_person_picks_one(self):
         for _ in range(2):
@@ -2862,7 +2894,7 @@ class TerminalChatTests(unittest.TestCase):
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertIn("Runs waiting here:\n  1. ", proc.stdout)
         self.assertIn("Pick one (1-2), or type a new request: ", proc.stdout)
-        self.assertTrue((self.workspace / "greet.py").is_file())
+        self.assertTrue(self.built().is_file())
 
     def run_terminal(self, *argv, until: bytes, reply: bytes = b"\x04") -> tuple[bytes, int]:
         """Spawn the CLI on a pty sized for curses, answer ``until``, and leave with ``reply``."""
@@ -2934,7 +2966,7 @@ class TerminalChatTests(unittest.TestCase):
             screen.keys("Enter")
             self.assertEqual(0, screen.exit_status())
             screen.wait_for("Done.")
-        self.assertTrue((self.workspace / "greet.py").is_file())
+        self.assertTrue(self.built().is_file())
 
     def test_a_plan_taller_than_the_screen_opens_at_its_top_and_pages_to_its_end(self):
         """#2434: an approval also carries its milestones and flow, so the plan can outgrow the
@@ -2991,7 +3023,7 @@ class TerminalChatTests(unittest.TestCase):
             screen.keys("Enter")
             self.assertEqual(0, screen.exit_status())
             screen.wait_for("Done.", what="the closing words after the screen closes")
-            self.assertTrue((self.workspace / "greet.py").is_file())
+            self.assertTrue(self.built().is_file())
 
     def test_plain_autocode_in_a_terminal_opens_the_full_screen_chat(self):
         seen, code = self.run_terminal(until=b"What do you want done?")

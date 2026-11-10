@@ -105,7 +105,11 @@ STREAM_QUIET_POLLS = 8
 OTHERS_SECONDS = 10.0  # how often chats opened earlier this session are checked while AutoCode works
 YES = ("y", "yes")
 # What a relaunch must change, as TaskRun.advance_until_input and the scenario driver check.
-PROGRESS_KEYS = ("status", "next_stage", "iteration", "phase", "needs")
+# A chat plans in the person's folder, and once its plan is approved builds on a branch and worktree of its
+# own (autocode_build_worktree), so chats in one folder do not wait for each other and the folder is not written.
+PLACEMENT = ("--build-in-worktree",)
+# run_dir: a run planned in the person's folder moves to its own worktree to build (autocode_build_worktree).
+PROGRESS_KEYS = ("status", "next_stage", "iteration", "phase", "needs", "run_dir")
 
 
 class Left(Exception):
@@ -496,7 +500,8 @@ class ChatClient:
         targets: dict[polling.Key, float] = {current: self.pace(self.poll_seconds)}
         targets.update({(str(workspace), run): OTHERS_SECONDS for run, (workspace, _) in self.others.items()})
         if self.history is not None:
-            targets[(current[0], None)] = polling.INVENTORY_SECONDS
+            # The project's chats, also while this one builds in a task worktree of it.
+            targets[(str(actions.project_folder(self.workspace)), None)] = polling.INVENTORY_SECONDS
         targets.update(self._overview.targets())
         for key, raw, error in self._poller.tick(targets):
             if isinstance(key, polling.ProjectRuns):
@@ -1140,7 +1145,7 @@ class ChatClient:
             raise Switched
 
         def refresh():
-            self._poller.refresh((str(self.workspace), None))
+            self._poller.refresh((str(actions.project_folder(self.workspace)), None))
             menu = self.attention_menu()
             menu.note = "Refresh requested. Press r after the read to replace this snapshot; Esc keeps your draft."
             return menu
@@ -1217,14 +1222,14 @@ class ChatClient:
     def begin(self, brief: str, start_args, options, *, notice: str | None = None) -> None:
         """Start a new run here and talk to it, as `start` does for the first one."""
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        workspace = self.workspace.resolve()
+        workspace = actions.project_folder(self.workspace).resolve()  # not the worktree another chat builds in
         self.talk_to(workspace, workspace / ".autocode" / "runs" / f"{stamp}-chat-{secrets.token_hex(3)}")
         self.say(f"\nYou: {brief}")
         if notice:
             self.say("\n" + notice)
         self.started = True
         self.advance(
-            [brief, "--in-place", "--no-chat", *start_args, *options]
+            [brief, *PLACEMENT, "--no-chat", *start_args, *options]
             + ["--workspace", str(workspace), "--new-run-dir", str(self.run_dir)]
         )
 
@@ -1255,8 +1260,9 @@ class ChatClient:
         if not confirm_launch(self.ask, self.say, chosen):
             self.say("Nothing started; this chat carries on.")
             return
-        added = launch_sources(self.workspace, self.history)
-        if not added and not guard_workspace(self.workspace, self.ask, self.say):
+        folder = actions.project_folder(self.workspace)
+        added = launch_sources(folder, self.history)
+        if not added and not guard_workspace(folder, self.ask, self.say):
             self.say("Nothing started; this chat carries on.")
             return
         self.begin(brief, list(chosen.get("start_args") or []), options, notice=added)
@@ -2047,7 +2053,7 @@ def start(
         client.advance(
             [
                 brief,
-                "--in-place",
+                *PLACEMENT,
                 "--no-chat",
                 *start_args,
                 *options,

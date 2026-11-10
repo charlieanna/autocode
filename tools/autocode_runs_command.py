@@ -28,6 +28,7 @@ from pathlib import Path
 try:
     from . import autocode_attention as attention
     from . import autocode_attention_status as attention_status
+    from . import autocode_build_worktree as build_worktree
     from . import autocode_changeset_store as changeset_store
     from . import autocode_chat_view as chat_view
     from . import autocode_controller_owner as controller_owner
@@ -38,6 +39,7 @@ try:
 except ImportError:
     import autocode_attention as attention
     import autocode_attention_status as attention_status
+    import autocode_build_worktree as build_worktree
     import autocode_changeset_store as changeset_store
     import autocode_chat_view as chat_view
     import autocode_controller_owner as controller_owner
@@ -142,6 +144,9 @@ def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) 
             "updated_at": updated_at,
         }
     state = payload["state"]
+    if build_worktree.moved(state):
+        # Planned here and moved to its own task worktree to build: its row is that worktree's run.
+        return {"run_dir": str(run_dir), "moved": True}
     try:
         shown = run_view.action(state, run_dir=run_dir, workspace=workspace)
     except (KeyError, TypeError, AttributeError, ValueError) as error:
@@ -238,7 +243,7 @@ def rows(workspace: Path, *, all_workspaces: bool = False, now: float | None = N
     else:
         entries = [row(one_workspace, run_dir, clock, changesets) for run_dir, one_workspace in _pairs(Path(workspace))]
     return sorted(
-        entries,
+        (entry for entry in entries if not entry.get("moved")),
         key=lambda item: (BUCKETS.index(item["bucket"]), item.get("run_dir") or ""),
     )
 

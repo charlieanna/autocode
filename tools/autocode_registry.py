@@ -208,6 +208,32 @@ def register_run(workspace: Path, run_dir: Path, state: RunState) -> dict[str, s
     return {"workspace_id": workspace_id, "run_id": run_id, "task_id": task_id}
 
 
+def move_run(workspace: Path, run_dir: Path, new_workspace: Path, new_run_dir: Path, state: RunState) -> None:
+    """Point the registry at a run carried to its own task worktree (autocode_build_worktree.move).
+
+    The record left in the checkout is not a run of its own any more, so its pointer is dropped and
+    the new run's is added in one write; a listing never shows the same chat twice."""
+    new_workspace, new_run_dir = _validate_registration(new_workspace, new_run_dir, state)
+    old_run = str(Path(run_dir).resolve())
+    with _locked_registry() as path:
+        document = _read_registry(path)
+        for key in [key for key, value in document["runs"].items() if value.get("run_dir") == old_run]:
+            del document["runs"][key]
+        workspace_id, run_id = _identity("workspace", new_workspace), _identity("run", new_run_dir)
+        document["workspaces"][workspace_id] = {"id": workspace_id, "workspace": str(new_workspace)}
+        document["runs"][run_id] = {
+            "id": run_id,
+            "workspace_id": workspace_id,
+            "workspace": str(new_workspace),
+            "run_dir": str(new_run_dir),
+            "task_id": _run_task_id(state),
+        }
+        try:
+            util.atomic_json(path, document)
+        except OSError as error:
+            raise RegistryError("write_failed", f"Registry update failed: {error}") from error
+
+
 def add_project(selected: Path) -> dict[str, Any]:
     """Register an operator-selected committed Git root without creating a task."""
     try:

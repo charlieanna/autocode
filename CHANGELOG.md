@@ -9,6 +9,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Changed
+
+- **Each terminal chat builds on a branch of its own**: a chat still plans in your folder (Requirements and the Planner only read it), and once you approve the plan it moves to a new task worktree and `autocode/<task>-<id>` branch made from your last commit and builds there (`--build-in-worktree`). Your folder is not written, and chats in one folder no longer wait for each other while they build. The chat says which branch it builds on and which uncommitted files it left out; merge the branch when it is done.
+
 ### Fixed
 
 - **A question is answered while another chat works in the same folder**: Requirements only reads the code, so it no longer waits for another run that holds the checkout. A discussion it answers itself finishes there; a change waits only before planning. When a task does have to wait, it now says so in plain words (which task is working, that nothing was changed, try again once it finishes or pauses) instead of naming `--in-place`, workers and cleanup.

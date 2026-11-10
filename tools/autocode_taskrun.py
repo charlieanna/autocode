@@ -543,9 +543,10 @@ class TaskRun:
         for _ in range(max_calls):
             if view["done"] or view["needs"]["kind"] != "continue":
                 return view
-            before = (view["status"], view["next_stage"], view["iteration"], view["phase"])
+            # A run that moved to its own worktree to build (autocode_build_worktree) has progressed too.
+            before = (view["status"], view["next_stage"], view["iteration"], view["phase"], view.get("run_dir"))
             view = self._advance(view)
-            if (view["status"], view["next_stage"], view["iteration"], view["phase"]) == before:
+            if (view["status"], view["next_stage"], view["iteration"], view["phase"], view.get("run_dir")) == before:
                 raise TaskRunError(f"no progress at {view['status']} (next stage {view['next_stage']})")
         raise TaskRunError(f"still not stopped after {max_calls} relaunches")
 
