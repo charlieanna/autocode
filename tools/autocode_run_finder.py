@@ -435,6 +435,10 @@ def _load(run_dir: Path, workspace: Path, owners, unreadable, *, parent_of=None)
         return None
     if state.get("workspace") != str(workspace):
         return None
+    if isinstance(state.get("build_worktree"), dict) and state["build_worktree"].get("state") == "moved":
+        # Planned here, then moved to its own task worktree to build (autocode_build_worktree.moved):
+        # that worktree's run is this chat, and is found there.
+        return None
     if state.get("parent_run"):
         # A parallel Builder's worker run: its parent run is the user's run.
         parent = state["parent_run"]

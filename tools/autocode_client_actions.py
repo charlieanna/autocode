@@ -107,6 +107,17 @@ def own(view: dict, workspace: Path, run_dir: Path) -> tuple[Path, Path]:
     return Path(view.get("workspace") or workspace), Path(view.get("run_dir") or run_dir)
 
 
+def project_folder(workspace) -> Path:
+    """The folder whose chats ``workspace`` belongs with: for a task worktree, the project its path names
+    (``FOLDER/.autocode/worktrees/TREE``), where a chat that planned there and then moved to build
+    (autocode_build_worktree) was started; otherwise ``workspace`` itself. New chats start there, and
+    the project's chat list is read there."""
+    path = Path(workspace)
+    if path.parent.name == "worktrees" and path.parent.parent.name == ".autocode":
+        return path.parent.parent.parent
+    return path
+
+
 def same_run(view: dict, workspace, run_dir) -> bool:
     """Whether a status view answers for the run a client asked about.
 
@@ -114,8 +125,10 @@ def same_run(view: dict, workspace, run_dir) -> bool:
     ``FOLDER/.autocode/runs/RUN``, and the core runs that task in the project it
     bootstraps, ``FOLDER/.autocode/projects/PROJECT/.autocode/runs/RUN`` (or the older
     ``FOLDER/autocode-projects/PROJECT``); the status
-    read of the named path answers with the moved run. That shape, read only
-    from the view's own paths, is the same run; any other path is another run.
+    read of the named path answers with the moved run. So does a chat that planned
+    in a Git checkout and then moved to one of its task worktrees to build,
+    ``FOLDER/.autocode/worktrees/TREE/.autocode/runs/RUN``. Those shapes, read only
+    from the view's own paths, are the same run; any other path is another run.
     """
     named = view.get("run_dir")
     if not named:
@@ -125,9 +138,12 @@ def same_run(view: dict, workspace, run_dir) -> bool:
         return True
     folder = Path(workspace).resolve()
     project = Path(view.get("workspace") or "").resolve()
+    # A chat planned in the folder and moved to a task worktree of it to build (autocode_build_worktree)
+    # keeps its name there too: FOLDER/.autocode/worktrees/TREE/.autocode/runs/RUN.
+    moved = project.parent == folder / ".autocode" / "worktrees"
     return (
         asked == folder / ".autocode" / "runs" / asked.name
-        and scratch_projects.holds(folder, project)
+        and (scratch_projects.holds(folder, project) or moved)
         and answered == project / ".autocode" / "runs" / asked.name
     )
 

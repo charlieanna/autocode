@@ -445,6 +445,15 @@ cd /path/to/project/.autocode/worktrees/TASK && autocode resume
 autocode --run-dir /path/to/project/.autocode/worktrees/TASK/.autocode/runs/RUN
 ```
 
+`--build-in-worktree` (what the terminal chat starts every new chat with) does both in turn:
+the task starts in the selected checkout, where Requirements and the Planner only read the
+files, and once the plan is approved, before anything is written, it moves to a new task
+worktree and branch made from the committed HEAD and builds there. The run keeps its name
+(`.autocode/worktrees/TASK/.autocode/runs/RUN`), and its old path in the checkout still reaches
+it, so `--run-dir` with either works and `autocode runs` lists it once. Uncommitted changes and
+ignored files are not carried over; the chat names the uncommitted paths it left out. A run in a
+change set or coordination keeps building in place, since its links name its path.
+
 Existing runs retain their original checkout. `--in-place` explicitly starts a new
 task in the selected checkout. Only one run's agents work in a checkout at a time:
 a second run started there (or resumed there) while another run's agents are working
