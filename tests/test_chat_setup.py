@@ -187,10 +187,51 @@ class ListingTests(unittest.TestCase):
             "OpenCode cannot start chats yet (unavailable). Run autocode doctor to see what to install.",
             setup.default_notice(setup.NewChat(), alone),
         )
+        self.assertEqual(setup.getting_started(alone), setup.first_notice(setup.NewChat(), alone), "nothing connected")
+        self.assertEqual(setup.default_notice(setup.NewChat(), rows), setup.first_notice(setup.NewChat(), rows))
         self.assertIsNone(setup.default_notice(setup.NewChat(None, ["--engine", "claude"]), rows), "chosen")
         usable = [{**row, "connection_status": "not_checked"} if row["id"] == "opencode" else row for row in rows]
         self.assertIsNone(setup.default_notice(setup.NewChat(), usable))
         self.assertIsNone(setup.default_notice(setup.NewChat(), []), "an unreadable listing says nothing")
+
+    def test_a_chat_with_nothing_connected_says_the_one_step_for_each_backend(self):
+        """A first-time user with no backend installed, or one waiting for its sign-in, was told only
+        "cannot start chats yet ... Run autocode doctor": no step to take. Now each backend has its step."""
+        login = {"id": "login", "next_command": ["connections", "login", "--provider", "claude"]}
+        rows = [
+            {"id": "opencode", "label": "OpenCode", "connection_status": "unavailable", "default": True},
+            {"id": "claude", "label": "Claude Code", "connection_status": "sign_in_required", "actions": [login]},
+            {"id": "codex", "label": "Codex", "connection_status": "unavailable"},
+            {"id": "autocode", "label": "AutoCode · Direct", "connection_status": "setup_required"},
+        ]
+        self.assertEqual(
+            "Nothing is connected yet, so a task cannot start. To get going:\n"
+            "  1. Sign in to Claude Code: /connect claude login\n"
+            "  2. Install OpenCode or Kilo: leave the chat and run autocode setup, which asks which",
+            setup.getting_started(rows),
+        )
+        none = [row for row in rows if row["id"] in ("opencode", "codex")]
+        self.assertEqual(
+            "Nothing is connected yet, so a task cannot start. To get going:\n"
+            "  1. Install OpenCode or Kilo: leave the chat and run autocode setup, which asks which",
+            setup.getting_started(none),
+        )
+        signed_out = [row for row in rows if row["id"] == "claude"]
+        self.assertEqual(
+            "Nothing is connected yet, so a task cannot start. To get going:\n"
+            "  1. Sign in to Claude Code: /connect claude login",
+            setup.getting_started(signed_out),
+        )
+        # A direct connection that is set up is retired and is never offered, so it does not count as a step.
+        self.assertNotIn("AutoCode", setup.getting_started(rows))
+        # Nothing to say when a backend can start a chat, or the listing could not be read.
+        usable = [{**row, "connection_status": "not_checked"} if row["id"] == "codex" else row for row in rows]
+        self.assertIsNone(setup.getting_started(usable))
+        self.assertIsNone(setup.getting_started([]))
+        self.assertIsNone(setup.getting_started(None))
+        # A sign-in the listing names no action for gets no step to type.
+        no_action = [{**signed_out[0], "actions": []}]
+        self.assertIsNone(setup.getting_started(no_action))
 
     def test_connections_offer_their_own_actions_and_use_only_when_usable(self):
         rows = setup.connections(CONNECTIONS)

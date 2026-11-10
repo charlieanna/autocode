@@ -1740,6 +1740,23 @@ class NewChatSetupTests(unittest.TestCase):
             self.assertIsNone(history.notice(), "a chosen engine needs no warning")
             self.assertNotIn("cannot start", history.summary())
 
+    def test_a_chat_with_nothing_connected_opens_with_the_steps_to_get_going(self):
+        """A first-time user with nothing installed saw "cannot start chats yet ... Run autocode doctor"."""
+        from tests.test_chat_setup import CONNECTIONS
+
+        with tempfile.TemporaryDirectory() as folder:
+            history = self.history(folder)
+            rows = [{**row, "connection_status": "unavailable"} for row in CONNECTIONS["connections"]]
+            listings = {"modes": history.read(["modes"]), "connections": {**CONNECTIONS, "connections": rows}}
+            history.read = lambda argv: listings[argv[0]]
+            steps = history.notice()
+            self.assertIn("Nothing is connected yet, so a task cannot start.", steps)
+            self.assertIn("1. Install OpenCode or Kilo: leave the chat and run autocode setup", steps)
+            self.assertNotIn("cannot start chats yet", steps)
+            self.assertTrue(history.summary().endswith(steps), "the full-screen banner shows them too")
+            listings["connections"] = CONNECTIONS
+            self.assertIsNone(history.notice(), "a usable backend says nothing")
+
     def test_a_choice_made_at_the_first_question_starts_that_first_chat_with_it(self):
         """#2009: open_chat was handed the new-chat mode and options before its question, so /connect NAME use,
         /mode and /engine typed there changed only the next chat; the first ran on the default connection."""

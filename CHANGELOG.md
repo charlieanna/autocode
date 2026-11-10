@@ -28,6 +28,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Changed
+
+- **Terminal chat, first run**: a new chat with no backend installed or signed in now opens with
+  the steps to get going, one per backend (`/connect ID login` for a backend waiting for its
+  sign-in, `autocode setup` to install OpenCode or Kilo), where it used to say only that the
+  backend "cannot start chats yet" and to run `autocode doctor`.
+
 ### Removed
 
 - `autocode verify` and `autocode review-pr` (with its `autocode issue review-pr` alias), with

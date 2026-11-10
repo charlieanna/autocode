@@ -206,12 +206,12 @@ class History:
             text = setup.summary(self.read(["modes", "list", "--json"]), self.new, rows)
         except actions.ClientGap:
             text = setup.summary(None, self.new, rows)
-        notice = setup.default_notice(self.new, rows)
+        notice = setup.first_notice(self.new, rows)
         return text if notice is None else f"{text}\n{notice}"
 
     def notice(self) -> str | None:
         """The default-backend warning alone, for the plain chat, which shows no banner."""
-        return setup.default_notice(self.new, self.connection_rows())
+        return setup.first_notice(self.new, self.connection_rows())
 
     def chose(self, done: str) -> str:
         kept = self.new.save(self.workspace)
