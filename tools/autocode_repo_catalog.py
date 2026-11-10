@@ -29,9 +29,15 @@ EXCLUDED_DIRECTORIES = {".git", ".autocode", ".autocode-ui", "node_modules", "ve
 # A checkout or directory below a configured root that cannot be read holds
 # nothing a stage could inspect or cite: read authority covers only identified
 # checkouts. Intake skips such an entry and records it. A missing configured
-# root, a bound or a link out of a root can hide readable sources, and stays
-# blocking.
+# root, the directory budget or a link out of a root can hide readable sources,
+# and stays blocking.
 UNREADABLE = frozenset({"repository_unreadable", "inaccessible"})
+# A directory at the depth bound that still has subdirectories was searched to
+# the bound and no further. Everything shallower was inventoried, so intake uses
+# the inventory and records what it did not search, rather than asking the
+# person to restructure their folders: a checkout nested more than MAX_DEPTH
+# levels below a root is registered on its own (`registry repositories add`).
+NOT_SEARCHED = frozenset({"depth_limit"})
 
 
 class CatalogError(ValueError):
@@ -335,7 +341,8 @@ def discover(*, max_depth: int = MAX_DEPTH, directory_budget: int = DIRECTORY_BU
         if depth >= max_depth:
             try:
                 has_unvisited_directory = any(
-                    child.name not in EXCLUDED_DIRECTORIES and child.is_dir() for child in directory.iterdir()
+                    child.name not in EXCLUDED_DIRECTORIES and not child.name.startswith(".") and child.is_dir()
+                    for child in directory.iterdir()
                 )
             except OSError as error:
                 result["complete"] = False
@@ -352,7 +359,9 @@ def discover(*, max_depth: int = MAX_DEPTH, directory_budget: int = DIRECTORY_BU
             result["diagnostics"].append({"code": "inaccessible", "path": str(directory), "message": str(error)})
             continue
         for child in children:
-            if child.name in EXCLUDED_DIRECTORIES:
+            # Hidden directories below a root hold tool state (run copies,
+            # caches, editor settings), not the person's checkouts.
+            if child.name in EXCLUDED_DIRECTORIES or child.name.startswith("."):
                 continue
             try:
                 if child.is_symlink():
@@ -415,7 +424,7 @@ def blocking(discovery: dict[str, Any]) -> list[dict[str, Any]]:
     """Diagnostics that leave readable sources unseen; [] when intake can use the inventory."""
     if discovery["complete"]:
         return []
-    rows = [row for row in discovery["diagnostics"] if row.get("code") not in UNREADABLE]
+    rows = [row for row in discovery["diagnostics"] if row.get("code") not in UNREADABLE | NOT_SEARCHED]
     return rows or ([] if discovery["diagnostics"] else [{"code": "incomplete"}])
 
 
@@ -423,6 +432,15 @@ def unreadable(discovery: dict[str, Any]) -> list[dict[str, str]]:
     """The entries discovery skipped because they cannot be read, by code and path."""
     return [
         {"code": row["code"], "path": row["path"]} for row in discovery["diagnostics"] if row.get("code") in UNREADABLE
+    ]
+
+
+def not_searched(discovery: dict[str, Any]) -> list[dict[str, Any]]:
+    """The directories discovery reached at its depth bound without searching below them."""
+    return [
+        {"code": row["code"], "path": row["path"], "depth": row["depth"]}
+        for row in discovery["diagnostics"]
+        if row.get("code") in NOT_SEARCHED
     ]
 
 

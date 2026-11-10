@@ -12,6 +12,7 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - **Status reads stay fast while a question waits**: the terminal chat now runs its AutoCode processes with the warm source host (`AUTOCODE_SOURCE_HOST=1`, #1707), so re-checking a waiting question no longer re-hashes a large workspace on every read and times out ("Status unavailable ... timed out after 10s"). `AUTOCODE_SOURCE_HOST=0` turns it off.
+- **A deep or hidden folder below a source root no longer stops a task**: discovery skips hidden directories (tool state such as `.autocode-operations`) and records a folder past the depth bound under `not_searched` instead of pausing with PAUSED_SOURCE_UNAVAILABLE and asking you to change your source roots.
 
 ## [0.10.1] - 2026-11-09
 

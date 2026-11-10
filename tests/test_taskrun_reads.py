@@ -101,10 +101,10 @@ class CatalogReadScopeTests(unittest.TestCase):
             self.assertEqual(2, discover.call_count)
 
     def test_failed_inventory_is_not_retained_in_a_response(self):
-        incomplete = {**self.discovery(), "complete": False, "diagnostics": [{"code": "depth_limit"}]}
+        incomplete = {**self.discovery(), "complete": False, "diagnostics": [{"code": "symlink_escape"}]}
         with patch.object(repositories.source_catalog, "discover", side_effect=[incomplete, self.discovery("fixed")]):
             with reads().snapshot():
-                with self.assertRaisesRegex(repositories.CoordinationError, "depth_limit"):
+                with self.assertRaisesRegex(repositories.CoordinationError, "symlink_escape"):
                     repositories.source_snapshot()
                 self.assertEqual("fixed", repositories.source_snapshot()["source_snapshot"])
 
@@ -118,12 +118,22 @@ class CatalogReadScopeTests(unittest.TestCase):
             with reads().snapshot():
                 self.assertEqual(skipped["source_snapshot"], repositories.source_snapshot()["source_snapshot"])
 
+    def test_a_folder_past_the_depth_bound_does_not_stop_coordination_discovery(self):
+        bounded = {
+            **self.discovery(),
+            "complete": False,
+            "diagnostics": [{"code": "depth_limit", "path": "/sources/snapshot/deep", "depth": 8}],
+        }
+        with patch.object(repositories.source_catalog, "discover", return_value=bounded):
+            with reads().snapshot():
+                self.assertEqual(bounded["source_snapshot"], repositories.source_snapshot()["source_snapshot"])
+
     def test_incomplete_discovery_cannot_authorize_resolution(self):
-        incomplete = {**self.discovery(), "complete": False, "diagnostics": [{"code": "depth_limit"}]}
+        incomplete = {**self.discovery(), "complete": False, "diagnostics": [{"code": "symlink_escape"}]}
         with patch.object(repositories.source_catalog, "discover", return_value=incomplete):
             with reads().snapshot():
                 for call in (repositories.source_snapshot, repositories.catalog):
-                    with self.assertRaisesRegex(repositories.CoordinationError, "depth_limit"):
+                    with self.assertRaisesRegex(repositories.CoordinationError, "symlink_escape"):
                         call()
 
 

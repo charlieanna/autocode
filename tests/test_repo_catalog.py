@@ -178,7 +178,7 @@ class RepositoryCatalogTests(unittest.TestCase):
         self.assertFalse(found["complete"])
         self.assertTrue(any(row["code"] in {"symlink_escape", "budget_exhausted"} for row in found["diagnostics"]))
 
-    def test_a_checkout_git_cannot_read_is_skipped_by_intake_while_bounds_still_block(self):
+    def test_a_checkout_git_cannot_read_is_skipped_by_intake_while_the_budget_still_blocks(self):
         root = self.root / "root"
         readable = self.git_repo(root / "readable")
         unborn = root / "unborn"
@@ -190,8 +190,9 @@ class RepositoryCatalogTests(unittest.TestCase):
         self.assertEqual([str(readable)], [row["path"] for row in found["repositories"]])
         self.assertEqual([], catalog.blocking(found))
         self.assertEqual([{"code": "repository_unreadable", "path": str(unborn)}], catalog.unreadable(found))
-        bounded = catalog.discover(max_depth=0)
-        self.assertEqual(["depth_limit"], [row["code"] for row in catalog.blocking(bounded)])
+        with patch.object(catalog, "DIRECTORY_BUDGET", 1):
+            bounded = catalog.discover(directory_budget=1)
+        self.assertEqual(["budget_exhausted"], [row["code"] for row in catalog.blocking(bounded)])
 
     def test_only_unreadable_entries_leave_an_incomplete_inventory_usable(self):
         def found(*codes):
@@ -210,6 +211,36 @@ class RepositoryCatalogTests(unittest.TestCase):
         found = catalog.discover(max_depth=0)
         self.assertFalse(found["complete"])
         self.assertTrue(any(row["code"] == "depth_limit" for row in found["diagnostics"]))
+
+    def test_a_deep_folder_is_recorded_as_not_searched_and_does_not_stop_intake(self):
+        root = self.root / "workspace"
+        service = self.git_repo(root / "service")
+        (root / "snapshot" / "source" / "fixtures" / "deep").mkdir(parents=True)
+        catalog.add_root(root)
+        found = catalog.discover(max_depth=2)
+        self.assertFalse(found["complete"], "the inventory still says it stopped at the bound")
+        self.assertEqual([str(service)], [row["path"] for row in found["repositories"]])
+        self.assertEqual([], catalog.blocking(found))
+        self.assertEqual(
+            [{"code": "depth_limit", "path": str(root / "snapshot" / "source"), "depth": 2}],
+            catalog.not_searched(found),
+        )
+
+    def test_hidden_folders_below_a_root_are_tool_state_and_not_searched(self):
+        root = self.root / "workspace"
+        service = self.git_repo(root / "service")
+        self.git_repo(root / ".operations" / "run-copy")
+        (root / ".operations" / "snapshot" / "a" / "b" / "c").mkdir(parents=True)
+        (root / "service-docs" / ".cache" / "x" / "y").mkdir(parents=True)
+        catalog.add_root(root)
+        found = catalog.discover(max_depth=2)
+        self.assertTrue(found["complete"], found["diagnostics"])
+        self.assertEqual([str(service)], [row["path"] for row in found["repositories"]])
+        hidden_root = self.root / ".hidden-root"
+        checkout = self.git_repo(hidden_root / "service")
+        catalog.remove_root(root)
+        catalog.add_root(hidden_root)
+        self.assertEqual([str(checkout)], [row["path"] for row in catalog.discover()["repositories"]])
 
     def test_stale_root_can_be_removed_after_its_directory_disappears(self):
         root = self.root / "temporary-source-root"

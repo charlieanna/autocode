@@ -81,9 +81,9 @@ class CatalogContextTests(unittest.TestCase):
         with patch.object(
             catalog,
             "discover",
-            return_value={"complete": False, "diagnostics": [{"code": "depth_limit", "path": "/sources/deep"}]},
+            return_value={"complete": False, "diagnostics": [{"code": "symlink_escape", "path": "/sources/link"}]},
         ):
-            with self.assertRaisesRegex(ValueError, "depth_limit at /sources/deep") as raised:
+            with self.assertRaisesRegex(ValueError, "symlink_escape at /sources/link") as raised:
                 context.context(self.state)
         # A source-root problem is the person's environment, not a model's or provider's invalid output.
         self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", raised.exception.status)
@@ -108,6 +108,19 @@ class CatalogContextTests(unittest.TestCase):
         receipt = json.loads((Path(self.state["run_dir"]) / "planning/source-catalog.json").read_text())
         self.assertEqual(found["unreadable"], receipt["unreadable"])
         self.assertEqual(found, context.context(self.state))
+
+    def test_a_folder_past_the_depth_bound_is_recorded_and_intake_continues(self):
+        deep = self.repo.parent.joinpath("snapshot", *(f"level-{n}" for n in range(2, catalog.MAX_DEPTH + 1)))
+        (deep / "fixtures").mkdir(parents=True)
+        catalog.add_root(self.repo.parent)
+        found = context.context(self.state)
+        self.assertEqual([str(self.repo)], [row["path"] for row in found["repositories"]])
+        self.assertEqual(
+            [{"code": "depth_limit", "path": str(deep), "depth": catalog.MAX_DEPTH}], found["not_searched"]
+        )
+        self.assertIn(context.NOT_SEARCHED_INSTRUCTION, found["instruction"])
+        receipt = json.loads((Path(self.state["run_dir"]) / "planning/source-catalog.json").read_text())
+        self.assertEqual(found["not_searched"], receipt["not_searched"])
 
     def test_saved_inventory_cannot_add_an_unconfigured_read_root(self):
         catalog.add_root(self.repo.parent)
