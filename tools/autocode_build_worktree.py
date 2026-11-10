@@ -33,7 +33,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Final, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -63,7 +63,7 @@ except ImportError:
     import autocode_util as util
     import autocode_workspaces as workspaces
 
-KEY = "build_worktree"
+KEY: Final = "build_worktree"
 PLANNING, MOVED, BUILDING = "planning", "moved", "building"
 # Records that hold only for the in-place run in the person's checkout. A task worktree's run has
 # none: its base is the worktree's commit, and its ignored inputs follow the worktree's own policy.
@@ -174,7 +174,7 @@ def _prepared(state: RunState, workspace: Path, run_dir: Path, persist) -> dict:
     except (OSError, ValueError, KeyError, json.JSONDecodeError):
         pass
     left_out = _left_out(workspace)
-    created = workspaces.create(workspace, cast(str, state.get("task") or "task"))
+    created = workspaces.create(workspace, state.get("task") or "task")
     tree = Path(created["workspace"])
     record = {
         "state": PLANNING,
@@ -205,17 +205,12 @@ def move(state: RunState, workspace, run_dir, persist) -> dict:
     if not (child_dir / "state.json").is_file():
         run_destination.discard_unsaved(child_dir)  # an interrupted move's empty directory
         child_dir = run_destination.reserve(tree, child_dir)
-        child = cast("RunState", copy.deepcopy(state))
+        child = copy.deepcopy(state)
         for key in IN_PLACE_ONLY:
             child.pop(key, None)  # type: ignore[misc]
-        child.update(
-            workspace=str(tree),
-            run_dir=str(child_dir),
-            project_workspace=str(workspace),
-            task_branch=target["branch"],
-            base_commit=target["base_commit"],
-            sessions={},
-        )
+        child["workspace"], child["run_dir"] = str(tree), str(child_dir)
+        child["project_workspace"], child["task_branch"] = str(workspace), target["branch"]
+        child["base_commit"], child["sessions"] = target["base_commit"], {}
         package_writes.at_launch(child, tree)
         child[KEY] = {
             "state": BUILDING,
