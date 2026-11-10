@@ -532,9 +532,134 @@ def sections(view: dict | None, *, launched: bool = False, task_total: dict | No
     return result
 
 
+def pipeline_section(view: dict | None) -> Section | None:
+    """The stage pipeline: each stage's job, model and status (#3070).
+
+    Shows the standard pipeline (Requirements → Planner → Plan Reviewer → Builder →
+    Tester → Completion Reviewer) with the model each stage runs and a status mark
+    (✓ done, ● working, ! needs you, · waiting). Returns None when no route data."""
+    view = view or {}
+    routes = _mapping(view.get("routes"))
+    if not routes:
+        return None
+    progress = _mapping(view.get("progress"))
+    current_stage = progress.get("stage") or ""
+    next_stage = _mapping(view).get("next_stage") or ""
+    status = view.get("status") or ""
+    stages_run = _rows(_mapping(view).get("stages"))
+
+    # The standard pipeline jobs in order.
+    pipeline = ["requirements", "planner", "plan_reviewer", "builder", "tester", "completion"]
+    # Map job to the route record that names its model.
+    job_to_role = {
+        "requirements": "requirements",
+        "planner": "glm",
+        "plan_reviewer": "astra",
+        "builder": "terra",
+        "tester": "sol",
+        "completion": "completion",
+    }
+    # Which jobs have completed (from recorded stages).
+    completed_jobs = set()
+    try:
+        from . import autocode_roles as roles
+    except ImportError:
+        import autocode_roles as roles
+
+    for record in stages_run:
+        if isinstance(record, dict):
+            stage_name = str(record.get("stage") or "")
+            job = roles.job_for_stage(stage_name)
+            if job:
+                completed_jobs.add(job)
+
+    rows: list[Row] = []
+    # Per-job cost from the breakdown.
+    breakdown = _mapping(_mapping(_mapping(view.get("cost")).get("breakdown")))
+    by_job = {str(r.get("job")): r for r in _rows(breakdown.get("by_stage"))}
+
+    for job in pipeline:
+        role = job_to_role.get(job, job)
+        route = _mapping(routes.get(role))
+        model = str(route.get("model") or "?")
+        short_model = model.rsplit("/", 1)[-1] if "/" in model else model
+        screen_name = SCREEN_NAMES.get(job, job.title())
+
+        if job in completed_jobs:
+            mark, style = "✓", "panel-good"
+        elif _is_current_job(job, current_stage, next_stage):
+            if status in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL") and _needs_this_job(job, progress):
+                mark, style = "!", "panel-warn"
+            else:
+                mark, style = "●", "panel-now"
+        else:
+            mark, style = "·", "dim"
+
+        # One row per stage: mark, name, model, cost — compact for the panel.
+        cost_text = ""
+        job_cost = by_job.get(screen_name)
+        if job_cost:
+            spent = job_cost.get("spent_usd")
+            if spent is not None and spent > 0:
+                cost_text = f" · ${spent:.2f}"
+        rows.append(Row(mark, f"{screen_name} · {short_model}{cost_text}", style))
+
+    summary = ""
+    if status == "TASK_COMPLETE":
+        summary = "All stages done"
+    elif current_stage:
+        summary = f"Running: {SCREEN_NAMES.get(current_stage, current_stage)}"
+    # Total cost and tokens in the summary line.
+    cost = _mapping(view.get("cost"))
+    usage = _mapping(view.get("usage"))
+    tokens = _mapping(usage.get("tokens"))
+    spent = cost.get("spent_usd")
+    inp = tokens.get("input_tokens")
+    parts = []
+    if spent is not None and spent > 0:
+        parts.append(f"${spent:.2f}")
+    if inp and inp > 0:
+        parts.append(f"{inp / 1e6:.1f}M in")
+    out = tokens.get("output_tokens")
+    if out and out > 0:
+        parts.append(f"{out / 1e3:.0f}K out")
+    if parts:
+        summary = " · ".join(filter(None, [summary, *parts]))
+    return Section("Pipeline", summary, tuple(rows))
+
+
+SCREEN_NAMES = {
+    "requirements": "Requirements",
+    "planner": "Planner",
+    "plan_reviewer": "Plan Reviewer",
+    "builder": "Builder",
+    "tester": "Tester",
+    "completion": "Completion Reviewer",
+}
+
+
+def _is_current_job(job: str, current_stage: str, next_stage: str) -> bool:
+    """Whether this job is the one currently running or next."""
+    try:
+        from . import autocode_roles as roles
+    except ImportError:
+        import autocode_roles as roles
+
+    return any(stage and roles.job_for_stage(stage) == job for stage in (current_stage, next_stage))
+
+
+def _needs_this_job(job: str, progress: dict) -> bool:
+    """Whether the person is waited on for this job."""
+    return bool(progress.get("needs_you"))
+
+
 def compact_sections(view: dict | None, *, launched: bool = False, task_total: dict | None = None) -> list[Section]:
     """Fixed sidebar summaries, with decisions visible and detailed history available through commands."""
     result = []
+    # The pipeline section goes first: the stage overview is the panel's anchor (#3070).
+    pipeline = pipeline_section(view)
+    if pipeline:
+        result.append(pipeline)
     for section in sections(view, launched=launched, task_total=task_total):
         if section.title in ("Activity", "Plan path", "Current work", "What went wrong", "Change set"):
             continue

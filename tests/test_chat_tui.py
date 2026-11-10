@@ -1674,12 +1674,13 @@ class LivePaneTests(unittest.TestCase):
 
     def test_public_stage_keeps_full_width_until_the_panel_is_requested(self):
         ui = screen_ui()
+        ui._screen.getmaxyx.return_value = (30, 80)  # match the layout size
         ui.observe({"status": "WAITING_FOR_USER", "progress": {"stage": "Planner", "headline": "Waiting for you"}})
-        self.assertIsNone(ui._layout(30, 120).panel_col)
+        self.assertIsNone(ui._layout(30, 80).panel_col)
         ui._run("/panel", True)
-        self.assertIsNotNone(ui._layout(30, 120).panel_col)
+        self.assertIsNotNone(ui._layout(30, 80).panel_col)
         ui._run("/panel", True)
-        self.assertIsNone(ui._layout(30, 120).panel_col)
+        self.assertIsNone(ui._layout(30, 80).panel_col)
 
     def test_coordination_replaces_stale_anchor_labels_without_hiding_member_stage(self):
         ui = screen_ui()
@@ -1696,8 +1697,10 @@ class LivePaneTests(unittest.TestCase):
         layout = ui._layout(30, 120)
         for row in (2, layout.status_start):
             self.assertIn("Preparing repository work", " ".join(text for r, _, text in puts if r == row))
-        self.assertNotIn("Requirements", " ".join(text for _, _, text in puts))
-        self.assertNotIn("Waiting for you", " ".join(text for _, _, text in puts))
+        # The pipeline panel legitimately lists stage names; the stale anchor label must not appear in status.
+        status_text = " ".join(text for r, _, text in puts if r in (2, layout.status_start))
+        self.assertNotIn("Requirements", status_text)
+        self.assertNotIn("Waiting for you", status_text)
         self.assertEqual(anchor, ui._view, "rendering must not change the public action view")
         ui.observe({"run_dir": "/member/run", "progress": {"stage": "Planner", "headline": "Planner working"}})
         puts = self.drawn(ui)
@@ -2253,8 +2256,16 @@ class MeterScreenTests(unittest.TestCase):
                 self.assertIn("chat $0.42 · 184k tokens", footer)
                 # The working time shows where the whole footer fits, and gives way where it does not.
                 self.assertEqual(cols >= 121, "Planner · worked 1m00s · chat $0.42" in footer, footer)
-                self.assertIsNone(ui._layout(rows, cols).panel_col)
-                self.assertEqual(cols - 1, ui._layout(rows, cols).body_width)
+                # At 100+ cols the panel auto-shows (#3070); below that it needs /panel.
+                layout = ui._layout(rows, cols)
+                if cols >= 100:
+                    self.assertIsNotNone(layout.panel_col)
+                else:
+                    self.assertIsNone(layout.panel_col)
+                if cols >= 100:
+                    self.assertLess(layout.body_width, cols - 1, "panel takes some width")
+                else:
+                    self.assertEqual(cols - 1, layout.body_width)
 
 
 class ClosingSummaryTests(unittest.TestCase):
@@ -2415,7 +2426,7 @@ class MessageFormattingTests(unittest.TestCase):
     def test_the_screen_draws_inline_code_in_the_code_style(self):
         ui = screen_ui()
         ui.say("AutoCode: Type `/diff 1` to see **what changed**.")
-        puts = styled(ui)
+        puts = styled(ui, cols=80)
         code = next(put for put in puts if put[2] == "/diff 1")
         bold = next(put for put in puts if put[2] == "what changed")
         self.assertEqual(ui._style("code-inline"), code[3])
@@ -2426,6 +2437,7 @@ class MessageFormattingTests(unittest.TestCase):
 
     def test_agent_updates_render_inline_markup_like_assistant_replies(self):
         ui = screen_ui()
+        ui._screen.getmaxyx.return_value = (30, 80)  # no auto-panel
         ui.observe(
             {
                 "status": "WAITING_FOR_USER",
@@ -2441,7 +2453,7 @@ class MessageFormattingTests(unittest.TestCase):
                 },
             }
         )
-        puts = styled(ui)
+        puts = styled(ui, cols=80)  # no auto-panel
         self.assertIn("result_code", [put[2] for put in puts])
         code = next(put for put in puts if put[2] == "result_code")
         bold = next(put for put in puts if put[2] == "new entries")

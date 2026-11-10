@@ -1911,7 +1911,11 @@ class ChatTUI:
         )
 
     def _panel_visible(self, rows: int, cols: int) -> bool:
-        return bool(self._panel_on and cols >= 60 and rows >= 16)
+        if not (cols >= 60 and rows >= 16):
+            return False
+        # Auto-show the panel on wide windows (#3070): pipeline, live log and spend
+        # details appear when there is room, without /panel.
+        return self._panel_on or cols >= 100
 
     def _live_visible(self, rows: int, cols: int) -> bool:
         if rows < 16 or cols < 40:
